@@ -1,11 +1,14 @@
 {
   "name": "epos-ac-functions",
-  "engines": { "node": "20" },
+  "engines": {
+    "node": "20"
+  },
   "main": "lib/index.js",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "serve": "npm run build && firebase emulators:start"
+    "serve": "npm run build && firebase emulators:start",
+    "seed": "node scripts/seed-admin.mjs"
   },
   "dependencies": {
     "firebase-admin": "^12.6.0",
