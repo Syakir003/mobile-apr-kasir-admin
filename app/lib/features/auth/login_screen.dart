@@ -17,6 +17,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _password = TextEditingController();
   bool _busy = false;
 
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _busy = true);
@@ -57,6 +64,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   TextFormField(
                     key: const Key('email'),
                     controller: _email,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(labelText: 'Email'),
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Email wajib diisi' : null,
@@ -66,6 +75,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     key: const Key('password'),
                     controller: _password,
                     obscureText: true,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _submit(),
                     decoration: const InputDecoration(labelText: 'Password'),
                     validator: (v) =>
                         (v == null || v.isEmpty) ? 'Password wajib diisi' : null,

@@ -17,6 +17,10 @@ final currentUserProvider = StreamProvider<AppUser?>(
   (ref) => ref.watch(authRepositoryProvider).watchCurrentUser(),
 );
 
+/// CATATAN (review Fase 1): provider ini me-watch currentUserProvider sehingga
+/// GoRouter dibuat ulang setiap auth state berubah (termasuk refresh token).
+/// Aman selama hanya ada route '/' dan '/login'. SEBELUM menambah route di
+/// Fase 2, ganti ke pola refreshListenable agar navigation stack tidak hilang.
 final appRouterProvider = Provider<GoRouter>((ref) {
   final userAsync = ref.watch(currentUserProvider);
   return GoRouter(
