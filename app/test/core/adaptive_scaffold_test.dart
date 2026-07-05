@@ -1,27 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:epos_ac/core/widgets/adaptive_scaffold.dart';
-
-const _app = MaterialApp(home: AdaptiveScaffold(child: Text('isi')));
+import 'package:epos_ac/data/models/app_user.dart';
 
 void main() {
-  testWidgets('layar sempit memakai NavigationBar bawah', (tester) async {
-    tester.view.physicalSize = const Size(400, 800);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(_app);
-    expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.byType(NavigationRail), findsNothing);
+  group('destinationsForRole', () {
+    test('admin melihat 5 destinasi termasuk Dashboard', () {
+      final dests = destinationsForRole(UserRole.admin);
+      expect(dests.length, 5);
+      expect(dests.first.label, 'Dashboard');
+      expect(dests.map((d) => d.route), [
+        '/',
+        '/products',
+        '/spareparts',
+        '/services',
+        '/packages',
+      ]);
+    });
+
+    test('kasir hanya melihat Dashboard', () {
+      final dests = destinationsForRole(UserRole.kasir);
+      expect(dests.length, 1);
+      expect(dests.single.route, '/');
+    });
+
+    test('teknisi hanya melihat Dashboard', () {
+      expect(destinationsForRole(UserRole.teknisi).length, 1);
+    });
+
+    test('null (belum ada role) hanya melihat Dashboard', () {
+      expect(destinationsForRole(null).length, 1);
+    });
   });
 
-  testWidgets('layar lebar memakai NavigationRail samping', (tester) async {
-    tester.view.physicalSize = const Size(1200, 800);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(_app);
-    expect(find.byType(NavigationRail), findsOneWidget);
-    expect(find.byType(NavigationBar), findsNothing);
+  group('selectedIndexFor', () {
+    final adminDests = destinationsForRole(UserRole.admin);
+
+    test('lokasi / memilih Dashboard (0)', () {
+      expect(selectedIndexFor(adminDests, '/'), 0);
+    });
+
+    test('lokasi /products memilih Produk (1)', () {
+      expect(selectedIndexFor(adminDests, '/products'), 1);
+    });
+
+    test('sub-route /spareparts/new memilih Sparepart (2)', () {
+      expect(selectedIndexFor(adminDests, '/spareparts/new'), 2);
+    });
+
+    test('lokasi tak dikenal default ke 0', () {
+      expect(selectedIndexFor(adminDests, '/unknown'), 0);
+    });
   });
 }
