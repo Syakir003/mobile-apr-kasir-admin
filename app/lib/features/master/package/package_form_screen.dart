@@ -58,7 +58,7 @@ class _PackageFormScreenState extends ConsumerState<PackageFormScreen> {
       context: context,
       builder: (_) => _PackageItemDialog(spareparts: spareparts),
     );
-    if (result != null) {
+    if (result != null && mounted) {
       setState(() => _items = [..._items, result]);
     }
   }
