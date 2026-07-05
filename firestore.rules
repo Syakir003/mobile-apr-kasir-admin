@@ -8,6 +8,24 @@ service cloud.firestore {
       allow read: if signedIn() && (request.auth.uid == uid || role() == 'admin');
       allow write: if false;
     }
+
+    match /products/{id} {
+      allow read: if signedIn();
+      allow write: if role() == 'admin';
+    }
+    match /spareparts/{id} {
+      allow read: if signedIn();
+      allow write: if role() == 'admin';
+    }
+    match /services/{id} {
+      allow read: if signedIn();
+      allow write: if role() == 'admin';
+    }
+    match /installation_packages/{id} {
+      allow read: if signedIn();
+      allow write: if role() == 'admin';
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
