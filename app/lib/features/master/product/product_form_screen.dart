@@ -168,7 +168,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               key: const Key('category'),
-              value: _category,
+              initialValue: _category,
               decoration: const InputDecoration(labelText: 'Kategori'),
               items: [
                 for (final c in kProductCategories)

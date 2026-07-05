@@ -29,6 +29,10 @@ Widget _host(FakeCrudRepository<Product> repo) {
 
 void main() {
   testWidgets('submit kosong menampilkan error validasi', (tester) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final repo = FakeCrudRepository<Product>();
     addTearDown(repo.dispose);
     await tester.pumpWidget(_host(repo));
@@ -41,6 +45,10 @@ void main() {
 
   testWidgets('submit valid memanggil create dengan nilai benar',
       (tester) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final repo = FakeCrudRepository<Product>();
     addTearDown(repo.dispose);
     await tester.pumpWidget(_host(repo));

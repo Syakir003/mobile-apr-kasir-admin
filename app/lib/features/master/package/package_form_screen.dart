@@ -267,7 +267,7 @@ class _PackageItemDialogState extends State<_PackageItemDialog> {
           children: [
             DropdownButtonFormField<Sparepart>(
               key: const Key('item-sparepart'),
-              value: _selected,
+              initialValue: _selected,
               decoration: const InputDecoration(labelText: 'Sparepart'),
               items: [
                 for (final s in widget.spareparts)

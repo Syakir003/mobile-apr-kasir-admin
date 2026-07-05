@@ -137,7 +137,7 @@ class _SparepartFormScreenState extends ConsumerState<SparepartFormScreen> {
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               key: const Key('category'),
-              value: _category,
+              initialValue: _category,
               decoration: const InputDecoration(labelText: 'Kategori'),
               items: [
                 for (final c in kSparepartCategories)
@@ -148,7 +148,7 @@ class _SparepartFormScreenState extends ConsumerState<SparepartFormScreen> {
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               key: const Key('unit'),
-              value: _unit,
+              initialValue: _unit,
               decoration: const InputDecoration(labelText: 'Satuan'),
               items: [
                 for (final u in kUnits)

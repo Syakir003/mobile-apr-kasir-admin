@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:epos_ac/core/widgets/adaptive_scaffold.dart';
 import 'package:epos_ac/data/models/app_user.dart';
