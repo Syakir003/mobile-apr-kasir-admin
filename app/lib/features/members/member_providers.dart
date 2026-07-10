@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/ac_unit.dart';
@@ -28,3 +29,15 @@ final memberUnitsProvider = StreamProvider.family<List<AcUnit>, String>(
   (ref, memberId) =>
       ref.watch(acUnitRepositoryProvider).watchByMember(memberId),
 );
+
+/// Memanggil Cloud Function `generateAcUnitBarcode` untuk sebuah unit.
+/// Dipisah sebagai provider agar mudah di-override fake pada widget test.
+final acUnitBarcodeGeneratorProvider =
+    Provider<Future<String> Function(String unitId)>((ref) {
+  return (unitId) async {
+    final callable =
+        FirebaseFunctions.instance.httpsCallable('generateAcUnitBarcode');
+    final result = await callable.call<dynamic>({'unitId': unitId});
+    return ((result.data as Map)['barcode'] as String?) ?? '';
+  };
+});
