@@ -26,6 +26,20 @@ service cloud.firestore {
       allow write: if role() == 'admin';
     }
 
+    match /members/{id} {
+      allow read: if signedIn();
+      allow write: if role() == 'admin';
+    }
+    match /member_ac_units/{id} {
+      allow read: if signedIn();
+      allow write: if role() == 'admin';
+    }
+
+    // Counter barcode harian: hanya ditulis Cloud Functions (Admin SDK).
+    match /counters/{id} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

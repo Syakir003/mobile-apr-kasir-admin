@@ -3,8 +3,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/models/ac_unit.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/installation_package.dart';
+import '../../data/models/member.dart';
 import '../../data/models/product.dart';
 import '../../data/models/service_item.dart';
 import '../../data/models/sparepart.dart';
@@ -19,6 +21,11 @@ import '../../features/master/service/service_form_screen.dart';
 import '../../features/master/service/service_list_screen.dart';
 import '../../features/master/sparepart/sparepart_form_screen.dart';
 import '../../features/master/sparepart/sparepart_list_screen.dart';
+import '../../features/members/member_detail_screen.dart';
+import '../../features/members/member_form_screen.dart';
+import '../../features/members/member_list_screen.dart';
+import '../../features/members/unit_form_screen.dart';
+import '../../features/scan/scan_screen.dart';
 import '../widgets/adaptive_scaffold.dart';
 import 'redirect.dart';
 
@@ -114,6 +121,44 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
             ],
           ),
+          GoRoute(
+            path: '/members',
+            builder: (_, __) => const MemberListScreen(),
+            routes: [
+              GoRoute(
+                path: 'new',
+                builder: (_, __) => const MemberFormScreen(),
+              ),
+              GoRoute(
+                path: ':id',
+                builder: (_, state) => MemberDetailScreen(
+                  memberId: state.pathParameters['id']!,
+                  initial: state.extra as Member?,
+                ),
+                routes: [
+                  GoRoute(
+                    path: 'edit',
+                    builder: (_, state) =>
+                        MemberFormScreen(initial: state.extra as Member?),
+                  ),
+                  GoRoute(
+                    path: 'units/new',
+                    builder: (_, state) => UnitFormScreen(
+                      memberId: state.pathParameters['id']!,
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'units/:unitId/edit',
+                    builder: (_, state) => UnitFormScreen(
+                      memberId: state.pathParameters['id']!,
+                      initial: state.extra as AcUnit?,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          GoRoute(path: '/scan', builder: (_, __) => const ScanScreen()),
         ],
       ),
     ],

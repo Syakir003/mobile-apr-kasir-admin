@@ -1,7 +1,14 @@
 import '../../data/models/app_user.dart';
 
-/// Prefix lokasi yang hanya boleh diakses oleh admin (modul master data).
-const _adminOnlyPrefixes = ['/products', '/spareparts', '/services', '/packages'];
+/// Prefix lokasi yang hanya boleh diakses oleh admin
+/// (modul master data + member). '/scan' cukup login (semua role).
+const _adminOnlyPrefixes = [
+  '/products',
+  '/spareparts',
+  '/services',
+  '/packages',
+  '/members',
+];
 
 String? computeRedirect({
   required AppUser? user,

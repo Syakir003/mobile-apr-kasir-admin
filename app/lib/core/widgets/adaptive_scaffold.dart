@@ -8,13 +8,18 @@ import '../router/app_router.dart';
 typedef Destination = ({IconData icon, String label, String route});
 
 /// Daftar destinasi navigasi menurut role.
-/// Admin melihat seluruh modul master; kasir/teknisi/null hanya Dashboard
-/// (fase berikutnya menambah menu untuk kasir & teknisi).
+/// Admin melihat seluruh modul master + member + scan; teknisi mendapat
+/// Scan; kasir hanya Dashboard (fase berikutnya menambah menu kasir).
 List<Destination> destinationsForRole(UserRole? role) {
   const dashboard = (
     icon: Icons.dashboard_outlined,
     label: 'Dashboard',
     route: '/',
+  );
+  const scan = (
+    icon: Icons.qr_code_scanner,
+    label: 'Scan',
+    route: '/scan',
   );
   if (role == UserRole.admin) {
     return const [
@@ -23,7 +28,12 @@ List<Destination> destinationsForRole(UserRole? role) {
       (icon: Icons.build_outlined, label: 'Sparepart', route: '/spareparts'),
       (icon: Icons.handyman_outlined, label: 'Jasa', route: '/services'),
       (icon: Icons.inventory_2_outlined, label: 'Paket', route: '/packages'),
+      (icon: Icons.people_outlined, label: 'Member', route: '/members'),
+      scan,
     ];
+  }
+  if (role == UserRole.teknisi) {
+    return const [dashboard, scan];
   }
   return const [dashboard];
 }

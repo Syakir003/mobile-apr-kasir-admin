@@ -51,6 +51,15 @@ Emulator UI: http://localhost:4000
 3. Ganti `demo-epos-ac` di `.firebaserc` dengan project ID asli.
 4. Deploy (di Fase 8): `firebase deploy --only firestore:rules,storage,functions,hosting`.
 
+## Catatan iOS (folder ios/ gitignored)
+Fase 3 memakai kamera untuk scan barcode (`mobile_scanner`). Saat build iOS,
+tambahkan ke `ios/Runner/Info.plist`:
+```xml
+<key>NSCameraUsageDescription</key>
+<string>Kamera dipakai untuk memindai barcode unit AC.</string>
+```
+Android tidak perlu langkah manual (permission kamera dibawa plugin).
+
 ## Catatan teknis dari review
 - `app_router.dart`: router dibuat ulang tiap auth berubah — aman untuk Fase 1,
   WAJIB diganti pola refreshListenable sebelum menambah route di Fase 2 (ada komentar di file).

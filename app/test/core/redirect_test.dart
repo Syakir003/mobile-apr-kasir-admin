@@ -80,8 +80,38 @@ void main() {
       isNull,
     );
   });
+  test('kasir buka /members diarahkan ke /', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/members',
+      ),
+      '/',
+    );
+  });
+  test('teknisi buka /scan tidak di-redirect', () {
+    const teknisi =
+        AppUser(uid: 't', email: 'e', displayName: 'd', role: UserRole.teknisi);
+    expect(
+      computeRedirect(
+        user: teknisi,
+        role: UserRole.teknisi,
+        loading: false,
+        location: '/scan',
+      ),
+      isNull,
+    );
+  });
   test('admin buka semua modul master tidak di-redirect', () {
-    for (final loc in ['/products', '/spareparts', '/services', '/packages']) {
+    for (final loc in [
+      '/products',
+      '/spareparts',
+      '/services',
+      '/packages',
+      '/members',
+    ]) {
       expect(
         computeRedirect(
           user: admin,

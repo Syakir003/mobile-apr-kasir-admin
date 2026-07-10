@@ -4,9 +4,9 @@ import 'package:epos_ac/data/models/app_user.dart';
 
 void main() {
   group('destinationsForRole', () {
-    test('admin melihat 5 destinasi termasuk Dashboard', () {
+    test('admin melihat 7 destinasi termasuk Member dan Scan', () {
       final dests = destinationsForRole(UserRole.admin);
-      expect(dests.length, 5);
+      expect(dests.length, 7);
       expect(dests.first.label, 'Dashboard');
       expect(dests.map((d) => d.route), [
         '/',
@@ -14,6 +14,8 @@ void main() {
         '/spareparts',
         '/services',
         '/packages',
+        '/members',
+        '/scan',
       ]);
     });
 
@@ -23,8 +25,10 @@ void main() {
       expect(dests.single.route, '/');
     });
 
-    test('teknisi hanya melihat Dashboard', () {
-      expect(destinationsForRole(UserRole.teknisi).length, 1);
+    test('teknisi melihat Dashboard dan Scan', () {
+      final dests = destinationsForRole(UserRole.teknisi);
+      expect(dests.length, 2);
+      expect(dests.map((d) => d.route), ['/', '/scan']);
     });
 
     test('null (belum ada role) hanya melihat Dashboard', () {
