@@ -8,5 +8,6 @@ class DefaultFirebaseOptions {
     appId: '1:demo:web:demo',
     messagingSenderId: 'demo',
     projectId: 'demo-epos-ac',
+    storageBucket: 'demo-epos-ac.appspot.com',
   );
 }
