@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateCheckoutInput } from "./validation";
+import { validateCheckoutInput, validateRecordPaymentInput } from "./validation";
 
 function baseCustomer() {
   return { name: "Budi Santoso", phone: "0812-3456-7890", address: "Jl. Mawar No. 1" };
@@ -59,6 +59,36 @@ describe("validateCheckoutInput", () => {
         { itemIndex: 0, roomLocation: "B" },
         { itemIndex: 0, roomLocation: "C" },
       ],
+    });
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("validateRecordPaymentInput", () => {
+  it("menerima input valid", () => {
+    const r = validateRecordPaymentInput({
+      invoiceId: "inv1",
+      method: "tunai",
+      amount: 50000,
+      note: "Bayar DP",
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it("menolak amount 0", () => {
+    const r = validateRecordPaymentInput({
+      invoiceId: "inv1",
+      method: "tunai",
+      amount: 0,
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it("menolak method 'kartu' (tidak dikenal)", () => {
+    const r = validateRecordPaymentInput({
+      invoiceId: "inv1",
+      method: "kartu",
+      amount: 50000,
     });
     expect(r.ok).toBe(false);
   });

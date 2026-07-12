@@ -150,3 +150,53 @@ export function validateCheckoutInput(input: unknown): CheckoutValidationResult 
     },
   };
 }
+
+export type RecordPaymentMethod = "tunai" | "transfer" | "qris" | "ewallet";
+
+export type RecordPaymentInput = {
+  invoiceId: string;
+  method: RecordPaymentMethod;
+  amount: number; // Rp > 0, integer
+  note?: string;
+};
+
+export type RecordPaymentValidationResult =
+  | { ok: true; value: RecordPaymentInput }
+  | { ok: false; error: string };
+
+const PAYMENT_METHODS: RecordPaymentMethod[] = ["tunai", "transfer", "qris", "ewallet"];
+
+/**
+ * Validasi payload `recordPayment`. Tidak menyentuh Firestore — keberadaan
+ * invoice, status invoice, dan sisa tagihan divalidasi di dalam transaksi
+ * (server side), karena butuh baca dokumen invoice yang tidak tersedia di sini.
+ */
+export function validateRecordPaymentInput(input: unknown): RecordPaymentValidationResult {
+  if (!isRecord(input)) return { ok: false, error: "Input kosong" };
+
+  const invoiceIdRaw = input.invoiceId;
+  if (typeof invoiceIdRaw !== "string" || !invoiceIdRaw.trim())
+    return { ok: false, error: "invoiceId wajib diisi" };
+
+  const methodRaw = input.method;
+  if (typeof methodRaw !== "string" || !PAYMENT_METHODS.includes(methodRaw as RecordPaymentMethod))
+    return { ok: false, error: "Metode pembayaran tidak dikenal" };
+
+  const amountRaw = input.amount;
+  if (typeof amountRaw !== "number" || !Number.isInteger(amountRaw) || amountRaw <= 0)
+    return { ok: false, error: "Jumlah pembayaran harus bilangan bulat lebih dari 0" };
+
+  const noteRaw = input.note;
+  if (noteRaw !== undefined && typeof noteRaw !== "string")
+    return { ok: false, error: "Catatan tidak valid" };
+
+  return {
+    ok: true,
+    value: {
+      invoiceId: invoiceIdRaw,
+      method: methodRaw as RecordPaymentMethod,
+      amount: amountRaw,
+      note: noteRaw,
+    },
+  };
+}
