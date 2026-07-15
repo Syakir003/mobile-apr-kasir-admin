@@ -104,6 +104,54 @@ void main() {
       isNull,
     );
   });
+
+  const teknisi =
+      AppUser(uid: 't', email: 'e', displayName: 'd', role: UserRole.teknisi);
+
+  test('kasir buka /pos tidak di-redirect', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/pos',
+      ),
+      isNull,
+    );
+  });
+  test('teknisi buka /pos diarahkan ke /', () {
+    expect(
+      computeRedirect(
+        user: teknisi,
+        role: UserRole.teknisi,
+        loading: false,
+        location: '/pos',
+      ),
+      '/',
+    );
+  });
+  test('kasir buka detail transaksi tidak di-redirect', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/transactions/abc',
+      ),
+      isNull,
+    );
+  });
+  test('teknisi buka /transactions diarahkan ke /', () {
+    expect(
+      computeRedirect(
+        user: teknisi,
+        role: UserRole.teknisi,
+        loading: false,
+        location: '/transactions',
+      ),
+      '/',
+    );
+  });
   test('admin buka semua modul master tidak di-redirect', () {
     for (final loc in [
       '/products',

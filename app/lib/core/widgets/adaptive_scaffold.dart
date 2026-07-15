@@ -8,13 +8,23 @@ import '../router/app_router.dart';
 typedef Destination = ({IconData icon, String label, String route});
 
 /// Daftar destinasi navigasi menurut role.
-/// Admin melihat seluruh modul master + member + scan; teknisi mendapat
-/// Scan; kasir hanya Dashboard (fase berikutnya menambah menu kasir).
+/// Admin melihat POS + riwayat + seluruh modul master + member + scan; kasir
+/// melihat Dashboard + Transaksi + Riwayat; teknisi mendapat Scan.
 List<Destination> destinationsForRole(UserRole? role) {
   const dashboard = (
     icon: Icons.dashboard_outlined,
     label: 'Dashboard',
     route: '/',
+  );
+  const pos = (
+    icon: Icons.point_of_sale,
+    label: 'Transaksi',
+    route: '/pos',
+  );
+  const riwayat = (
+    icon: Icons.receipt_long_outlined,
+    label: 'Riwayat',
+    route: '/transactions',
   );
   const scan = (
     icon: Icons.qr_code_scanner,
@@ -24,6 +34,8 @@ List<Destination> destinationsForRole(UserRole? role) {
   if (role == UserRole.admin) {
     return const [
       dashboard,
+      pos,
+      riwayat,
       (icon: Icons.ac_unit, label: 'Produk', route: '/products'),
       (icon: Icons.build_outlined, label: 'Sparepart', route: '/spareparts'),
       (icon: Icons.handyman_outlined, label: 'Jasa', route: '/services'),
@@ -31,6 +43,9 @@ List<Destination> destinationsForRole(UserRole? role) {
       (icon: Icons.people_outlined, label: 'Member', route: '/members'),
       scan,
     ];
+  }
+  if (role == UserRole.kasir) {
+    return const [dashboard, pos, riwayat];
   }
   if (role == UserRole.teknisi) {
     return const [dashboard, scan];

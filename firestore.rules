@@ -5,7 +5,9 @@ service cloud.firestore {
     function role() { return request.auth.token.role; }
 
     match /users/{uid} {
-      allow read: if signedIn() && (request.auth.uid == uid || role() == 'admin');
+      // Kasir perlu membaca users untuk dropdown teknisi di layar POS.
+      allow read: if signedIn() &&
+        (request.auth.uid == uid || role() == 'admin' || role() == 'kasir');
       allow write: if false;
     }
 
@@ -38,6 +40,41 @@ service cloud.firestore {
     // Counter barcode harian: hanya ditulis Cloud Functions (Admin SDK).
     match /counters/{id} {
       allow read, write: if false;
+    }
+
+    // Koleksi finansial & transaksi: ditulis HANYA oleh Cloud Functions
+    // (checkoutTransaction, recordPayment). Client hanya membaca, terbatas
+    // admin & kasir.
+    match /transactions/{id} {
+      allow read: if signedIn() && (role() == 'admin' || role() == 'kasir');
+      allow write: if false;
+      match /items/{itemId} {
+        allow read: if signedIn() && (role() == 'admin' || role() == 'kasir');
+        allow write: if false;
+      }
+    }
+    match /invoices/{id} {
+      allow read: if signedIn() && (role() == 'admin' || role() == 'kasir');
+      allow write: if false;
+    }
+    match /manual_payments/{id} {
+      allow read: if signedIn() && (role() == 'admin' || role() == 'kasir');
+      allow write: if false;
+    }
+    match /stock_movements/{id} {
+      allow read: if signedIn() && (role() == 'admin' || role() == 'kasir');
+      allow write: if false;
+    }
+
+    // Order & job pemasangan: dibuat oleh checkoutTransaction. Fase 5 akan
+    // memperketat akses tulis per teknisi.
+    match /service_orders/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /technician_jobs/{id} {
+      allow read: if signedIn();
+      allow write: if false;
     }
 
     match /{document=**} {

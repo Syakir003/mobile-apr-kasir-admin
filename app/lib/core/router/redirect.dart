@@ -10,6 +10,13 @@ const _adminOnlyPrefixes = [
   '/members',
 ];
 
+/// Prefix lokasi POS & riwayat transaksi: boleh admin & kasir, tapi TIDAK
+/// boleh teknisi.
+const _kasirAdminPrefixes = [
+  '/pos',
+  '/transactions',
+];
+
 String? computeRedirect({
   required AppUser? user,
   required UserRole? role,
@@ -21,12 +28,17 @@ String? computeRedirect({
   final atLogin = location == '/login';
   if (!loggedIn) return atLogin ? null : '/login';
   if (atLogin) return '/';
-  if (role != UserRole.admin && _isAdminOnly(location)) return '/';
+  if (role != UserRole.admin && _hasPrefix(location, _adminOnlyPrefixes)) {
+    return '/';
+  }
+  if (role == UserRole.teknisi && _hasPrefix(location, _kasirAdminPrefixes)) {
+    return '/';
+  }
   return null;
 }
 
-bool _isAdminOnly(String location) {
-  for (final prefix in _adminOnlyPrefixes) {
+bool _hasPrefix(String location, List<String> prefixes) {
+  for (final prefix in prefixes) {
     if (location == prefix || location.startsWith('$prefix/')) return true;
   }
   return false;

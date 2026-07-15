@@ -25,7 +25,11 @@ import '../../features/members/member_detail_screen.dart';
 import '../../features/members/member_form_screen.dart';
 import '../../features/members/member_list_screen.dart';
 import '../../features/members/unit_form_screen.dart';
+import '../../features/pos/checkout_screen.dart';
+import '../../features/pos/pos_screen.dart';
 import '../../features/scan/scan_screen.dart';
+import '../../features/transactions/invoice_detail_screen.dart';
+import '../../features/transactions/invoice_list_screen.dart';
 import '../widgets/adaptive_scaffold.dart';
 import 'redirect.dart';
 
@@ -60,6 +64,28 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, __, child) => AdaptiveScaffold(child: child),
         routes: [
           GoRoute(path: '/', builder: (_, __) => const DashboardScreen()),
+          GoRoute(
+            path: '/pos',
+            builder: (_, __) => const PosScreen(),
+            routes: [
+              GoRoute(
+                path: 'checkout',
+                builder: (_, __) => const CheckoutScreen(),
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/transactions',
+            builder: (_, __) => const InvoiceListScreen(),
+            routes: [
+              GoRoute(
+                path: ':id',
+                builder: (_, state) => InvoiceDetailScreen(
+                  invoiceId: state.pathParameters['id']!,
+                ),
+              ),
+            ],
+          ),
           GoRoute(
             path: '/products',
             builder: (_, __) => const ProductListScreen(),

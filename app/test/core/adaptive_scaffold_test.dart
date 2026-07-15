@@ -4,12 +4,14 @@ import 'package:epos_ac/data/models/app_user.dart';
 
 void main() {
   group('destinationsForRole', () {
-    test('admin melihat 7 destinasi termasuk Member dan Scan', () {
+    test('admin melihat 9 destinasi termasuk Transaksi, Riwayat, Member', () {
       final dests = destinationsForRole(UserRole.admin);
-      expect(dests.length, 7);
+      expect(dests.length, 9);
       expect(dests.first.label, 'Dashboard');
       expect(dests.map((d) => d.route), [
         '/',
+        '/pos',
+        '/transactions',
         '/products',
         '/spareparts',
         '/services',
@@ -17,12 +19,14 @@ void main() {
         '/members',
         '/scan',
       ]);
+      expect(dests.map((d) => d.label), contains('Transaksi'));
+      expect(dests.map((d) => d.label), contains('Riwayat'));
     });
 
-    test('kasir hanya melihat Dashboard', () {
+    test('kasir melihat Dashboard, Transaksi, Riwayat', () {
       final dests = destinationsForRole(UserRole.kasir);
-      expect(dests.length, 1);
-      expect(dests.single.route, '/');
+      expect(dests.length, 3);
+      expect(dests.map((d) => d.route), ['/', '/pos', '/transactions']);
     });
 
     test('teknisi melihat Dashboard dan Scan', () {
@@ -43,12 +47,24 @@ void main() {
       expect(selectedIndexFor(adminDests, '/'), 0);
     });
 
-    test('lokasi /products memilih Produk (1)', () {
-      expect(selectedIndexFor(adminDests, '/products'), 1);
+    test('lokasi /pos memilih Transaksi (1)', () {
+      expect(selectedIndexFor(adminDests, '/pos'), 1);
     });
 
-    test('sub-route /spareparts/new memilih Sparepart (2)', () {
-      expect(selectedIndexFor(adminDests, '/spareparts/new'), 2);
+    test('sub-route /pos/checkout memilih Transaksi (1)', () {
+      expect(selectedIndexFor(adminDests, '/pos/checkout'), 1);
+    });
+
+    test('sub-route /transactions/abc memilih Riwayat (2)', () {
+      expect(selectedIndexFor(adminDests, '/transactions/abc'), 2);
+    });
+
+    test('lokasi /products memilih Produk (3)', () {
+      expect(selectedIndexFor(adminDests, '/products'), 3);
+    });
+
+    test('sub-route /spareparts/new memilih Sparepart (4)', () {
+      expect(selectedIndexFor(adminDests, '/spareparts/new'), 4);
     });
 
     test('lokasi tak dikenal default ke 0', () {
