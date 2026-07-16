@@ -1,13 +1,12 @@
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../master/master_providers.dart' show firestoreProvider;
+import '../../core/supabase/supabase_providers.dart';
 import 'cart_state.dart';
 
 /// State keranjang aktif untuk satu sesi transaksi POS.
 ///
-/// Semua mutasi harga/stok yang sesungguhnya terjadi lewat Cloud Function
-/// `checkoutTransaction` (ADR-2) — notifier ini hanya mengelola state UI
+/// Semua mutasi harga/stok yang sesungguhnya terjadi lewat RPC Postgres
+/// `checkout_transaction` (ADR-2) — notifier ini hanya mengelola state UI
 /// client-side (pratinjau) sebelum payload dikirim.
 class CartNotifier extends Notifier<Cart> {
   @override
@@ -79,40 +78,41 @@ class CartNotifier extends Notifier<Cart> {
 
 final cartProvider = NotifierProvider<CartNotifier, Cart>(CartNotifier.new);
 
-/// Teknisi aktif untuk dropdown pemasangan: koleksi `users` dengan
-/// `role == 'teknisi'` dan `active == true`, dipetakan dari doc id +
-/// field `display_name`.
+/// Teknisi aktif untuk dropdown pemasangan: tabel `users` dengan
+/// `role == 'teknisi'` dan `active == true`, dipetakan dari id +
+/// kolom `display_name`. (Stream Realtime hanya mendukung satu filter,
+/// jadi `active` disaring di client.)
 final techniciansProvider =
     StreamProvider<List<({String uid, String name})>>((ref) {
-  final db = ref.watch(firestoreProvider);
-  return db
-      .collection('users')
-      .where('role', isEqualTo: 'teknisi')
-      .where('active', isEqualTo: true)
-      .snapshots()
+  final client = ref.watch(supabaseProvider);
+  return client
+      .from('users')
+      .stream(primaryKey: ['id'])
+      .eq('role', 'teknisi')
       .map(
-        (snap) => snap.docs
+        (rows) => rows
+            .where((row) => (row['active'] as bool?) ?? false)
             .map(
-              (d) => (
-                uid: d.id,
-                name: (d.data()['display_name'] as String?) ?? '',
+              (row) => (
+                uid: row['id'] as String,
+                name: (row['display_name'] as String?) ?? '',
               ),
             )
             .toList(),
       );
 });
 
-/// Memanggil Cloud Function `checkoutTransaction`. Dipisah sebagai provider
+/// Memanggil RPC `checkout_transaction`. Dipisah sebagai provider
 /// agar mudah di-override fake pada widget test (pola
 /// `acUnitBarcodeGeneratorProvider` di `member_providers.dart`).
 final checkoutCallerProvider = Provider<
     Future<({String invoiceId, String invoiceNumber})> Function(
         Map<String, dynamic>)>((ref) {
   return (payload) async {
-    final callable =
-        FirebaseFunctions.instance.httpsCallable('checkoutTransaction');
-    final result = await callable.call<dynamic>(payload);
-    final data = result.data as Map;
+    final result = await ref
+        .read(supabaseProvider)
+        .rpc('checkout_transaction', params: {'payload': payload});
+    final data = result as Map;
     return (
       invoiceId: (data['invoiceId'] as String?) ?? '',
       invoiceNumber: (data['invoiceNumber'] as String?) ?? '',

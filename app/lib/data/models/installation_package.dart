@@ -17,21 +17,21 @@ class PackageItem {
 
   factory PackageItem.fromMap(Map<String, dynamic> data) {
     return PackageItem(
-      sparepartId: (data['sparepartId'] as String?) ?? '',
+      sparepartId: (data['sparepart_id'] as String?) ?? '',
       name: (data['name'] as String?) ?? '',
       qty: (data['qty'] as num?) ?? 0,
       unit: (data['unit'] as String?) ?? '',
-      extraPricePerUnit: (data['extraPricePerUnit'] as num?)?.toInt() ?? 0,
+      extraPricePerUnit: (data['extra_price_per_unit'] as num?)?.toInt() ?? 0,
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'sparepartId': sparepartId,
+      'sparepart_id': sparepartId,
       'name': name,
       'qty': qty,
       'unit': unit,
-      'extraPricePerUnit': extraPricePerUnit,
+      'extra_price_per_unit': extraPricePerUnit,
     };
   }
 

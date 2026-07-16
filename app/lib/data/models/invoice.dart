@@ -1,6 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
-/// Status invoice (disimpan sebagai string snake_case di Firestore).
+/// Status invoice (disimpan sebagai enum snake_case di Postgres).
 enum InvoiceStatus {
   belumDibayar('belum_dibayar', 'Belum Dibayar'),
   dp('dp', 'DP'),
@@ -21,7 +19,7 @@ enum InvoiceStatus {
       );
 }
 
-/// Metode pembayaran manual (disimpan sebagai string snake_case di Firestore).
+/// Metode pembayaran manual (disimpan sebagai enum snake_case di Postgres).
 enum PaymentMethod {
   tunai('tunai', 'Tunai'),
   transfer('transfer', 'Transfer Bank'),
@@ -40,14 +38,15 @@ enum PaymentMethod {
       );
 }
 
+// Kolom timestamptz Postgres tiba sebagai string ISO-8601 lewat PostgREST.
 DateTime? _toDate(Object? v) => switch (v) {
-      Timestamp t => t.toDate(),
+      String s => DateTime.tryParse(s)?.toLocal(),
       DateTime d => d,
       _ => null,
     };
 
-/// Baris item invoice: snapshot dari transaksi (bentuk sama dengan
-/// subcollection `transactions/{id}/items`). `kind`: 'product'|'sparepart'|'service'.
+/// Baris item invoice: snapshot dari transaksi (tabel `invoice_items`,
+/// bentuk sama dengan `transaction_items`). `kind`: 'product'|'sparepart'|'service'.
 class InvoiceItem {
   const InvoiceItem({
     required this.kind,
@@ -92,8 +91,8 @@ class InvoiceItem {
   }
 }
 
-/// Invoice/struk (koleksi `invoices`). Ditulis hanya oleh Cloud Functions
-/// (`checkoutTransaction`, `recordPayment`); client hanya membaca lewat
+/// Invoice/struk (tabel `invoices`). Ditulis hanya oleh RPC Postgres
+/// (`checkout_transaction`, `record_payment`); client hanya membaca lewat
 /// [InvoiceRepository]. `id` kosong bila belum tersimpan.
 class Invoice {
   const Invoice({
@@ -181,7 +180,7 @@ class Invoice {
       'total_paid': totalPaid,
       'status': status.value,
       'notes': notes,
-      'created_at': createdAt,
+      'created_at': createdAt?.toUtc().toIso8601String(),
     };
   }
 

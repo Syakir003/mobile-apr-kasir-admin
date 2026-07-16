@@ -1,15 +1,14 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'invoice.dart' show PaymentMethod;
 
+// Kolom timestamptz Postgres tiba sebagai string ISO-8601 lewat PostgREST.
 DateTime? _toDate(Object? v) => switch (v) {
-      Timestamp t => t.toDate(),
+      String s => DateTime.tryParse(s)?.toLocal(),
       DateTime d => d,
       _ => null,
     };
 
-/// Pembayaran manual untuk sebuah invoice (koleksi `manual_payments`).
-/// Ditulis hanya oleh Cloud Function `recordPayment`; client hanya membaca
+/// Pembayaran manual untuk sebuah invoice (tabel `manual_payments`).
+/// Ditulis hanya oleh RPC `record_payment`; client hanya membaca
 /// lewat [InvoiceRepository.watchPayments]. `id` kosong bila belum tersimpan.
 /// `proofUrl` masih null di Fase 4 (upload bukti bayar menyusul fase
 /// berikutnya).
@@ -55,7 +54,7 @@ class ManualPayment {
       'note': note,
       'proof_url': proofUrl,
       'created_by': createdBy,
-      'created_at': createdAt,
+      'created_at': createdAt?.toUtc().toIso8601String(),
     };
   }
 

@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 /// Jenis pelanggan untuk dropdown form member.
 const kCustomerTypes = <String>[
   'rumah',
@@ -9,8 +7,9 @@ const kCustomerTypes = <String>[
   'lainnya',
 ];
 
+// Kolom timestamptz Postgres tiba sebagai string ISO-8601 lewat PostgREST.
 DateTime? _toDate(Object? v) => switch (v) {
-      Timestamp t => t.toDate(),
+      String s => DateTime.tryParse(s)?.toLocal(),
       DateTime d => d,
       _ => null,
     };
@@ -61,7 +60,7 @@ class Member {
       'phone': phone,
       'address': address,
       'customer_type': customerType,
-      'member_since': memberSince,
+      'member_since': memberSince?.toUtc().toIso8601String(),
       'total_ac_units': totalAcUnits,
       'notes': notes,
       'active': active,

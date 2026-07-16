@@ -23,8 +23,8 @@ class ServiceItem {
       id: id,
       name: (data['name'] as String?) ?? '',
       category: (data['category'] as String?) ?? '',
-      basePrice: (data['basePrice'] as num?)?.toInt() ?? 0,
-      durationMinutes: (data['durationMinutes'] as num?)?.toInt(),
+      basePrice: (data['base_price'] as num?)?.toInt() ?? 0,
+      durationMinutes: (data['duration_minutes'] as num?)?.toInt(),
       description: data['description'] as String?,
       active: (data['active'] as bool?) ?? true,
     );
@@ -34,8 +34,8 @@ class ServiceItem {
     return {
       'name': name,
       'category': category,
-      'basePrice': basePrice,
-      'durationMinutes': durationMinutes,
+      'base_price': basePrice,
+      'duration_minutes': durationMinutes,
       'description': description,
       'active': active,
     };

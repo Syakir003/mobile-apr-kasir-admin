@@ -1,19 +1,16 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/installation_package.dart';
 import '../../data/models/product.dart';
 import '../../data/models/service_item.dart';
 import '../../data/models/sparepart.dart';
 import '../../data/repositories/crud_repository.dart';
-
-final firestoreProvider = Provider<FirebaseFirestore>(
-  (ref) => FirebaseFirestore.instance,
-);
+import '../../data/repositories/package_repository.dart';
 
 final productRepositoryProvider = Provider<CrudRepository<Product>>((ref) {
-  return FirestoreCrudRepository<Product>(
-    ref.watch(firestoreProvider),
+  return SupabaseCrudRepository<Product>(
+    ref.watch(supabaseProvider),
     'products',
     Product.fromMap,
     (p) => p.toMap(),
@@ -21,8 +18,8 @@ final productRepositoryProvider = Provider<CrudRepository<Product>>((ref) {
 });
 
 final sparepartRepositoryProvider = Provider<CrudRepository<Sparepart>>((ref) {
-  return FirestoreCrudRepository<Sparepart>(
-    ref.watch(firestoreProvider),
+  return SupabaseCrudRepository<Sparepart>(
+    ref.watch(supabaseProvider),
     'spareparts',
     Sparepart.fromMap,
     (s) => s.toMap(),
@@ -30,8 +27,8 @@ final sparepartRepositoryProvider = Provider<CrudRepository<Sparepart>>((ref) {
 });
 
 final serviceRepositoryProvider = Provider<CrudRepository<ServiceItem>>((ref) {
-  return FirestoreCrudRepository<ServiceItem>(
-    ref.watch(firestoreProvider),
+  return SupabaseCrudRepository<ServiceItem>(
+    ref.watch(supabaseProvider),
     'services',
     ServiceItem.fromMap,
     (s) => s.toMap(),
@@ -40,12 +37,7 @@ final serviceRepositoryProvider = Provider<CrudRepository<ServiceItem>>((ref) {
 
 final packageRepositoryProvider =
     Provider<CrudRepository<InstallationPackage>>((ref) {
-  return FirestoreCrudRepository<InstallationPackage>(
-    ref.watch(firestoreProvider),
-    'installation_packages',
-    InstallationPackage.fromMap,
-    (p) => p.toMap(),
-  );
+  return SupabasePackageRepository(ref.watch(supabaseProvider));
 });
 
 final productListProvider = StreamProvider<List<Product>>(

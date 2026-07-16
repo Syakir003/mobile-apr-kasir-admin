@@ -25,13 +25,14 @@ Future<Uint8List> buildReceiptPdf(
           pw.Center(
             child: pw.Text(
               'Ayub Podo Rukun',
-              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+              style: const pw.TextStyle(
+                  fontSize: 12, fontWeight: pw.FontWeight.bold),
             ),
           ),
           pw.SizedBox(height: 4),
           pw.Center(
-            child: pw.Text(invoice.number,
-                style: const pw.TextStyle(fontSize: 9)),
+            child:
+                pw.Text(invoice.number, style: const pw.TextStyle(fontSize: 9)),
           ),
           if (invoice.createdAt != null)
             pw.Center(
@@ -51,15 +52,15 @@ Future<Uint8List> buildReceiptPdf(
           _amountRow('Subtotal', invoice.subtotal),
           if (invoice.discount > 0) _amountRow('Diskon', -invoice.discount),
           if (invoice.taxAmount > 0)
-            _amountRow('Pajak (${_trimZero(invoice.taxPercent)}%)',
-                invoice.taxAmount),
+            _amountRow(
+                'Pajak (${_trimZero(invoice.taxPercent)}%)', invoice.taxAmount),
           if (invoice.transportFee > 0)
             _amountRow('Transport', invoice.transportFee),
           _amountRow('Total', invoice.grandTotal, bold: true),
           pw.Divider(),
           if (payments.isNotEmpty) ...[
             pw.Text('Pembayaran',
-                style: pw.TextStyle(
+                style: const pw.TextStyle(
                     fontSize: 9, fontWeight: pw.FontWeight.bold)),
             for (final p in payments) _amountRow(p.method.label, p.amount),
             pw.SizedBox(height: 2),

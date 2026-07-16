@@ -1,13 +1,12 @@
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/invoice.dart';
 import '../../data/models/manual_payment.dart';
 import '../../data/repositories/invoice_repository.dart';
-import '../master/master_providers.dart' show firestoreProvider;
 
 final invoiceRepositoryProvider = Provider<InvoiceRepository>(
-  (ref) => FirestoreInvoiceRepository(ref.watch(firestoreProvider)),
+  (ref) => SupabaseInvoiceRepository(ref.watch(supabaseProvider)),
 );
 
 /// Daftar invoice terbaru (100 terakhir, urut created_at desc).
@@ -26,12 +25,13 @@ final invoicePaymentsProvider = StreamProvider.family<List<ManualPayment>, Strin
       ref.watch(invoiceRepositoryProvider).watchPayments(invoiceId),
 );
 
-/// Memanggil Cloud Function `recordPayment` dengan payload mentah.
+/// Memanggil RPC `record_payment` dengan payload mentah.
 /// Dipisah sebagai provider agar mudah di-override fake pada widget test.
 final recordPaymentCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
   return (payload) async {
-    final callable = FirebaseFunctions.instance.httpsCallable('recordPayment');
-    await callable.call<dynamic>(payload);
+    await ref
+        .read(supabaseProvider)
+        .rpc('record_payment', params: {'payload': payload});
   };
 });

@@ -1,8 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/ac_unit.dart';
 
-/// Kontrak akses unit AC (koleksi `member_ac_units`).
+/// Kontrak akses unit AC (tabel `member_ac_units`).
 /// Tidak ada delete: unit dinonaktifkan lewat status `nonaktif`.
 abstract interface class AcUnitRepository {
   Stream<List<AcUnit>> watchByMember(String memberId);
@@ -11,39 +11,55 @@ abstract interface class AcUnitRepository {
   Future<void> update(String id, AcUnit u);
 }
 
-/// Implementasi [AcUnitRepository] di atas Firestore.
-class FirestoreAcUnitRepository implements AcUnitRepository {
-  FirestoreAcUnitRepository(this._db);
+/// Implementasi [AcUnitRepository] di atas Supabase.
+class SupabaseAcUnitRepository implements AcUnitRepository {
+  SupabaseAcUnitRepository(this._client);
 
-  final FirebaseFirestore _db;
+  final SupabaseClient _client;
 
-  CollectionReference<Map<String, dynamic>> get _col =>
-      _db.collection('member_ac_units');
+  static const _table = 'member_ac_units';
 
   @override
   Stream<List<AcUnit>> watchByMember(String memberId) {
-    return _col.where('member_id', isEqualTo: memberId).snapshots().map(
-          (snap) => snap.docs
-              .map((doc) => AcUnit.fromMap(doc.id, doc.data()))
+    return _client
+        .from(_table)
+        .stream(primaryKey: ['id'])
+        .eq('member_id', memberId)
+        .map(
+          (rows) => rows
+              .map((row) => AcUnit.fromMap(row['id'] as String, row))
               .toList(growable: false),
         );
   }
 
   @override
   Future<AcUnit?> findByBarcode(String value) async {
-    final snap =
-        await _col.where('barcode_value', isEqualTo: value).limit(1).get();
-    if (snap.docs.isEmpty) return null;
-    final doc = snap.docs.first;
-    return AcUnit.fromMap(doc.id, doc.data());
+    final row = await _client
+        .from(_table)
+        .select()
+        .eq('barcode_value', value)
+        .limit(1)
+        .maybeSingle();
+    if (row == null) return null;
+    return AcUnit.fromMap(row['id'] as String, row);
   }
 
   @override
   Future<String> create(AcUnit u) async {
-    final ref = await _col.add(u.toMap());
-    return ref.id;
+    final row =
+        await _client.from(_table).insert(_toRow(u)).select('id').single();
+    return row['id'] as String;
   }
 
   @override
-  Future<void> update(String id, AcUnit u) => _col.doc(id).set(u.toMap());
+  Future<void> update(String id, AcUnit u) =>
+      _client.from(_table).update(_toRow(u)).eq('id', id);
+
+  /// `barcode_value` kosong disimpan NULL supaya UNIQUE constraint tidak
+  /// menabrak antar unit yang belum punya barcode.
+  static Map<String, dynamic> _toRow(AcUnit u) {
+    final row = u.toMap();
+    if ((row['barcode_value'] as String).isEmpty) row['barcode_value'] = null;
+    return row;
+  }
 }

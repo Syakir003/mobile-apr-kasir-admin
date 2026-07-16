@@ -50,10 +50,10 @@ class Sparepart {
       sku: (data['sku'] as String?) ?? '',
       category: (data['category'] as String?) ?? '',
       unit: (data['unit'] as String?) ?? '',
-      buyPrice: (data['buyPrice'] as num?)?.toInt() ?? 0,
-      sellPrice: (data['sellPrice'] as num?)?.toInt() ?? 0,
+      buyPrice: (data['buy_price'] as num?)?.toInt() ?? 0,
+      sellPrice: (data['sell_price'] as num?)?.toInt() ?? 0,
       stock: (data['stock'] as num?) ?? 0,
-      minStock: (data['minStock'] as num?) ?? 0,
+      minStock: (data['min_stock'] as num?) ?? 0,
       active: (data['active'] as bool?) ?? true,
     );
   }
@@ -64,10 +64,10 @@ class Sparepart {
       'sku': sku,
       'category': category,
       'unit': unit,
-      'buyPrice': buyPrice,
-      'sellPrice': sellPrice,
+      'buy_price': buyPrice,
+      'sell_price': sellPrice,
       'stock': stock,
-      'minStock': minStock,
+      'min_stock': minStock,
       'active': active,
     };
   }

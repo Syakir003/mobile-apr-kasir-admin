@@ -1,7 +1,7 @@
-import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/models/ac_unit.dart';
 import '../../data/models/app_user.dart';
@@ -34,7 +34,7 @@ import '../widgets/adaptive_scaffold.dart';
 import 'redirect.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>(
-  (ref) => FirebaseAuthRepository(fb.FirebaseAuth.instance),
+  (ref) => SupabaseAuthRepository(Supabase.instance.client.auth),
 );
 
 final currentUserProvider = StreamProvider<AppUser?>(
