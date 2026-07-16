@@ -10,11 +10,13 @@ const _adminOnlyPrefixes = [
   '/members',
 ];
 
-/// Prefix lokasi POS & riwayat transaksi: boleh admin & kasir, tapi TIDAK
-/// boleh teknisi.
+/// Prefix lokasi POS, riwayat transaksi, & order service: boleh admin & kasir,
+/// tapi TIDAK boleh teknisi. (Job teknisi `/jobs` sengaja tidak di sini —
+/// dapat diakses semua role: teknisi melihat job miliknya, admin/kasir semua.)
 const _kasirAdminPrefixes = [
   '/pos',
   '/transactions',
+  '/orders',
 ];
 
 String? computeRedirect({

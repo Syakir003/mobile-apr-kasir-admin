@@ -152,6 +152,50 @@ void main() {
       '/',
     );
   });
+  test('teknisi buka /orders diarahkan ke /', () {
+    expect(
+      computeRedirect(
+        user: teknisi,
+        role: UserRole.teknisi,
+        loading: false,
+        location: '/orders',
+      ),
+      '/',
+    );
+  });
+  test('kasir buka /orders tidak di-redirect', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/orders',
+      ),
+      isNull,
+    );
+  });
+  test('teknisi buka /jobs (job miliknya) tidak di-redirect', () {
+    expect(
+      computeRedirect(
+        user: teknisi,
+        role: UserRole.teknisi,
+        loading: false,
+        location: '/jobs',
+      ),
+      isNull,
+    );
+  });
+  test('admin buka /jobs tidak di-redirect', () {
+    expect(
+      computeRedirect(
+        user: admin,
+        role: UserRole.admin,
+        loading: false,
+        location: '/jobs',
+      ),
+      isNull,
+    );
+  });
   test('admin buka semua modul master tidak di-redirect', () {
     for (final loc in [
       '/products',

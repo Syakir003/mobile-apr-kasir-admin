@@ -13,6 +13,9 @@ import '../../data/models/sparepart.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
+import '../../features/jobs/job_detail_screen.dart';
+import '../../features/jobs/job_list_screen.dart';
+import '../../features/jobs/service_order_list_screen.dart';
 import '../../features/master/package/package_form_screen.dart';
 import '../../features/master/package/package_list_screen.dart';
 import '../../features/master/product/product_form_screen.dart';
@@ -184,6 +187,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 ],
               ),
             ],
+          ),
+          GoRoute(
+            path: '/jobs',
+            builder: (_, __) => const JobListScreen(),
+            routes: [
+              GoRoute(
+                path: ':id',
+                builder: (_, state) => JobDetailScreen(
+                  jobId: state.pathParameters['id']!,
+                ),
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/orders',
+            builder: (_, __) => const ServiceOrderListScreen(),
           ),
           GoRoute(path: '/scan', builder: (_, __) => const ScanScreen()),
           GoRoute(

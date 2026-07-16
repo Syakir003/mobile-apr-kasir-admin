@@ -4,10 +4,9 @@ import 'package:epos_ac/data/models/app_user.dart';
 
 void main() {
   group('destinationsForRole', () {
-    test('admin melihat 10 destinasi termasuk Transaksi, Riwayat, Member, Profil',
-        () {
+    test('admin melihat 12 destinasi termasuk Order & Job Teknisi', () {
       final dests = destinationsForRole(UserRole.admin);
-      expect(dests.length, 10);
+      expect(dests.length, 12);
       expect(dests.first.label, 'Dashboard');
       expect(dests.map((d) => d.route), [
         '/',
@@ -18,24 +17,26 @@ void main() {
         '/services',
         '/packages',
         '/members',
+        '/orders',
+        '/jobs',
         '/scan',
         '/profile',
       ]);
       expect(dests.map((d) => d.label), contains('Transaksi'));
-      expect(dests.map((d) => d.label), contains('Riwayat'));
+      expect(dests.map((d) => d.label), contains('Order'));
     });
 
-    test('kasir melihat Dashboard, Transaksi, Riwayat, Profil', () {
+    test('kasir melihat Dashboard, Transaksi, Riwayat, Order, Profil', () {
       final dests = destinationsForRole(UserRole.kasir);
-      expect(dests.length, 4);
+      expect(dests.length, 5);
       expect(dests.map((d) => d.route),
-          ['/', '/pos', '/transactions', '/profile']);
+          ['/', '/pos', '/transactions', '/orders', '/profile']);
     });
 
-    test('teknisi melihat Dashboard, Scan, Profil', () {
+    test('teknisi melihat Dashboard, Job, Scan, Profil', () {
       final dests = destinationsForRole(UserRole.teknisi);
-      expect(dests.length, 3);
-      expect(dests.map((d) => d.route), ['/', '/scan', '/profile']);
+      expect(dests.length, 4);
+      expect(dests.map((d) => d.route), ['/', '/jobs', '/scan', '/profile']);
     });
 
     test('null (belum ada role) hanya melihat Dashboard', () {

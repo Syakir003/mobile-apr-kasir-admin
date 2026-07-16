@@ -32,6 +32,16 @@ List<Destination> destinationsForRole(UserRole? role) {
     label: 'Scan',
     route: '/scan',
   );
+  const order = (
+    icon: Icons.assignment_outlined,
+    label: 'Order',
+    route: '/orders',
+  );
+  const job = (
+    icon: Icons.handyman_outlined,
+    label: 'Job',
+    route: '/jobs',
+  );
   const profile = (
     icon: Icons.person_outline,
     label: 'Profil',
@@ -44,18 +54,20 @@ List<Destination> destinationsForRole(UserRole? role) {
       riwayat,
       (icon: Icons.ac_unit, label: 'Produk', route: '/products'),
       (icon: Icons.build_outlined, label: 'Sparepart', route: '/spareparts'),
-      (icon: Icons.handyman_outlined, label: 'Jasa', route: '/services'),
+      (icon: Icons.room_service_outlined, label: 'Jasa', route: '/services'),
       (icon: Icons.inventory_2_outlined, label: 'Paket', route: '/packages'),
       (icon: Icons.people_outlined, label: 'Member', route: '/members'),
+      order,
+      job,
       scan,
       profile,
     ];
   }
   if (role == UserRole.kasir) {
-    return const [dashboard, pos, riwayat, profile];
+    return const [dashboard, pos, riwayat, order, profile];
   }
   if (role == UserRole.teknisi) {
-    return const [dashboard, scan, profile];
+    return const [dashboard, job, scan, profile];
   }
   return const [dashboard];
 }
@@ -124,13 +136,125 @@ class AdaptiveScaffold extends ConsumerWidget {
     }
     return Scaffold(
       body: child,
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: _MobileNav(
+        destinations: destinations,
+        selectedIndex: selectedIndex,
+        onSelected: onSelected,
+      ),
+    );
+  }
+}
+
+/// Bottom navigation untuk layar sempit. Bila destinasi lebih dari 5 (mis.
+/// admin dengan 10 menu), tampilkan 4 destinasi utama + tab "Lainnya" yang
+/// membuka sheet berisi sisanya, agar label tidak berdesakan/terpotong.
+class _MobileNav extends StatelessWidget {
+  const _MobileNav({
+    required this.destinations,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final List<Destination> destinations;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  /// Jumlah destinasi utama sebelum digantikan tab "Lainnya".
+  static const _maxPrimary = 4;
+
+  @override
+  Widget build(BuildContext context) {
+    // Cukup muat dalam satu baris (≤ 5 total) → NavigationBar biasa.
+    if (destinations.length <= _maxPrimary + 1) {
+      return NavigationBar(
         selectedIndex: selectedIndex,
         destinations: [
           for (final d in destinations)
             NavigationDestination(icon: Icon(d.icon), label: d.label),
         ],
         onDestinationSelected: onSelected,
+      );
+    }
+
+    final primary = destinations.take(_maxPrimary).toList();
+    final inOverflow = selectedIndex >= _maxPrimary;
+
+    return NavigationBar(
+      selectedIndex: inOverflow ? _maxPrimary : selectedIndex,
+      destinations: [
+        for (final d in primary)
+          NavigationDestination(icon: Icon(d.icon), label: d.label),
+        NavigationDestination(
+          // Saat menu di dalam "Lainnya" sedang aktif, tampilkan ikonnya
+          // agar tetap terlihat destinasi mana yang terpilih.
+          icon: Icon(
+            inOverflow ? destinations[selectedIndex].icon : Icons.more_horiz,
+          ),
+          label: 'Lainnya',
+        ),
+      ],
+      onDestinationSelected: (index) {
+        if (index < _maxPrimary) {
+          onSelected(index);
+        } else {
+          _openMore(context);
+        }
+      },
+    );
+  }
+
+  void _openMore(BuildContext context) {
+    final overflow = destinations.skip(_maxPrimary).toList();
+    final selectedInOverflow = selectedIndex - _maxPrimary;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.slate200,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 6),
+            for (var i = 0; i < overflow.length; i++)
+              ListTile(
+                leading: Icon(
+                  overflow[i].icon,
+                  color: i == selectedInOverflow
+                      ? AppColors.teal700
+                      : AppColors.slate500,
+                ),
+                title: Text(
+                  overflow[i].label,
+                  style: TextStyle(
+                    color: i == selectedInOverflow
+                        ? AppColors.teal700
+                        : AppColors.slate900,
+                    fontWeight: i == selectedInOverflow
+                        ? FontWeight.w600
+                        : FontWeight.w500,
+                  ),
+                ),
+                selected: i == selectedInOverflow,
+                selectedTileColor: AppColors.teal50,
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  onSelected(_maxPrimary + i);
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }
