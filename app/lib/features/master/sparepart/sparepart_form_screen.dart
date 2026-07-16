@@ -140,7 +140,12 @@ class _SparepartFormScreenState extends ConsumerState<SparepartFormScreen> {
               initialValue: _category,
               decoration: const InputDecoration(labelText: 'Kategori'),
               items: [
-                for (final c in kSparepartCategories)
+                // Sertakan nilai tersimpan meski di luar daftar baku, agar
+                // form edit tak crash saat data lama memakai kategori lain.
+                for (final c in [
+                  ...kSparepartCategories,
+                  if (!kSparepartCategories.contains(_category)) _category,
+                ])
                   DropdownMenuItem(value: c, child: Text(c)),
               ],
               onChanged: (v) => setState(() => _category = v ?? _category),

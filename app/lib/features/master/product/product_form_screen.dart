@@ -171,7 +171,12 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               initialValue: _category,
               decoration: const InputDecoration(labelText: 'Kategori'),
               items: [
-                for (final c in kProductCategories)
+                // Sertakan nilai tersimpan meski di luar daftar baku, agar
+                // form edit tak crash saat data lama memakai kategori lain.
+                for (final c in [
+                  ...kProductCategories,
+                  if (!kProductCategories.contains(_category)) _category,
+                ])
                   DropdownMenuItem(value: c, child: Text(c)),
               ],
               onChanged: (v) => setState(() => _category = v ?? _category),
