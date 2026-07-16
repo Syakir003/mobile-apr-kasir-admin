@@ -27,6 +27,7 @@ import '../../features/members/member_list_screen.dart';
 import '../../features/members/unit_form_screen.dart';
 import '../../features/pos/checkout_screen.dart';
 import '../../features/pos/pos_screen.dart';
+import '../../features/profile/profile_screen.dart';
 import '../../features/scan/scan_screen.dart';
 import '../../features/transactions/invoice_detail_screen.dart';
 import '../../features/transactions/invoice_list_screen.dart';
@@ -185,6 +186,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
           GoRoute(path: '/scan', builder: (_, __) => const ScanScreen()),
+          GoRoute(
+            path: '/profile',
+            builder: (_, __) => const ProfileScreen(),
+          ),
         ],
       ),
     ],

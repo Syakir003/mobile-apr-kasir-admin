@@ -133,6 +133,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            const _SectionLabel('Data Pelanggan'),
             TextFormField(
               key: const Key('name'),
               controller: _name,
@@ -158,7 +159,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               decoration:
                   const InputDecoration(labelText: 'Alamat (opsional)'),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 20),
+            const _SectionLabel('Rincian Biaya'),
             TextFormField(
               key: const Key('discount'),
               controller: _discount,
@@ -217,16 +219,19 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            FilledButton(
-              key: const Key('submit'),
-              onPressed: _busy ? null : _submit,
-              child: _busy
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Buat Transaksi'),
+            SizedBox(
+              height: 50,
+              child: FilledButton(
+                key: const Key('submit'),
+                onPressed: _busy ? null : _submit,
+                child: _busy
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Buat Transaksi'),
+              ),
             ),
           ],
         ),
@@ -235,12 +240,49 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   Widget _summaryRow(String label, String value, {bool bold = false}) {
-    final style = bold ? const TextStyle(fontWeight: FontWeight.bold) : null;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [Text(label, style: style), Text(value, style: style)],
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: bold ? AppColors.slate900 : AppColors.slate500,
+              fontWeight: bold ? FontWeight.bold : FontWeight.w500,
+              fontSize: bold ? 16 : 14,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: bold ? AppColors.teal700 : AppColors.slate900,
+              fontWeight: bold ? FontWeight.bold : FontWeight.w600,
+              fontSize: bold ? 17 : 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(
+        text.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
+          color: AppColors.slate400,
+        ),
       ),
     );
   }

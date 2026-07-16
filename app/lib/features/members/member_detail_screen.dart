@@ -54,8 +54,18 @@ class MemberDetailScreen extends ConsumerWidget {
         children: [
           if (member != null) _MemberCard(member: member),
           const SizedBox(height: 16),
-          Text('Unit AC', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
+          const Padding(
+            padding: EdgeInsets.only(left: 4, bottom: 10),
+            child: Text(
+              'UNIT AC',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                color: AppColors.slate400,
+              ),
+            ),
+          ),
           units.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Text('Gagal memuat unit: $e'),
@@ -67,7 +77,11 @@ class MemberDetailScreen extends ConsumerWidget {
                         Card(
                           margin: const EdgeInsets.only(bottom: 8),
                           child: ListTile(
-                            leading: const Icon(Icons.ac_unit),
+                            leading: const CircleAvatar(
+                              backgroundColor: AppColors.teal50,
+                              child: Icon(Icons.ac_unit,
+                                  color: AppColors.teal700),
+                            ),
                             title: Text('${u.brand} ${u.model}'),
                             subtitle: Text(_unitSubtitle(u)),
                             isThreeLine: true,
@@ -108,6 +122,26 @@ class _MemberCard extends StatelessWidget {
           children: [
             Row(
               children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: AppColors.teal50,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    member.name.trim().isEmpty
+                        ? '?'
+                        : member.name.trim().characters.first.toUpperCase(),
+                    style: const TextStyle(
+                      color: AppColors.teal700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Text(
                     member.name,

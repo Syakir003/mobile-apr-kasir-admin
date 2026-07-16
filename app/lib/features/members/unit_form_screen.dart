@@ -167,6 +167,12 @@ class _UnitFormScreenState extends ConsumerState<UnitFormScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
             TextFormField(
               key: const Key('brand'),
               controller: _brand,
@@ -215,6 +221,11 @@ class _UnitFormScreenState extends ConsumerState<UnitFormScreen> {
               ],
               onChanged: (v) => setState(() => _status = v ?? _status),
             ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             if (_isEdit) ...[
               const SizedBox(height: 12),
               if (_barcodeValue.isNotEmpty)
@@ -240,16 +251,20 @@ class _UnitFormScreenState extends ConsumerState<UnitFormScreen> {
                 ),
             ],
             const SizedBox(height: 24),
-            FilledButton(
-              key: const Key('submit'),
-              onPressed: _busy ? null : _submit,
-              child: _busy
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Simpan'),
+            SizedBox(
+              height: 50,
+              width: double.infinity,
+              child: FilledButton(
+                key: const Key('submit'),
+                onPressed: _busy ? null : _submit,
+                child: _busy
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Simpan'),
+              ),
             ),
           ],
         ),

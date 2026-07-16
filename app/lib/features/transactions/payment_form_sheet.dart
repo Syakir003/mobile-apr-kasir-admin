@@ -11,6 +11,10 @@ Future<void> showPaymentFormSheet(BuildContext context, Invoice invoice) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+    ),
     builder: (sheetContext) => Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
@@ -114,13 +118,49 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Catat Pembayaran',
-              style: Theme.of(context).textTheme.titleMedium,
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                  color: AppColors.slate300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
             ),
-            const SizedBox(height: 4),
-            Text('Sisa tagihan: ${formatRupiah(_sisa)}'),
+            const Text(
+              'Catat Pembayaran',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.slate900,
+              ),
+            ),
             const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.teal50,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Sisa tagihan',
+                      style: TextStyle(color: AppColors.slate600)),
+                  Text(
+                    formatRupiah(_sisa),
+                    style: const TextStyle(
+                      color: AppColors.teal700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
             DropdownButtonFormField<PaymentMethod>(
               key: const Key('method'),
               initialValue: _method,
@@ -160,16 +200,19 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
                   const InputDecoration(labelText: 'Catatan (opsional)'),
             ),
             const SizedBox(height: 20),
-            FilledButton(
-              key: const Key('pay-submit'),
-              onPressed: _busy ? null : _submit,
-              child: _busy
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Simpan Pembayaran'),
+            SizedBox(
+              height: 50,
+              child: FilledButton(
+                key: const Key('pay-submit'),
+                onPressed: _busy ? null : _submit,
+                child: _busy
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Simpan Pembayaran'),
+              ),
             ),
           ],
         ),

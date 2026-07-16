@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/models/app_user.dart';
 import '../router/app_router.dart';
+import '../theme/app_theme.dart';
 
 typedef Destination = ({IconData icon, String label, String route});
 
@@ -31,6 +32,11 @@ List<Destination> destinationsForRole(UserRole? role) {
     label: 'Scan',
     route: '/scan',
   );
+  const profile = (
+    icon: Icons.person_outline,
+    label: 'Profil',
+    route: '/profile',
+  );
   if (role == UserRole.admin) {
     return const [
       dashboard,
@@ -42,13 +48,14 @@ List<Destination> destinationsForRole(UserRole? role) {
       (icon: Icons.inventory_2_outlined, label: 'Paket', route: '/packages'),
       (icon: Icons.people_outlined, label: 'Member', route: '/members'),
       scan,
+      profile,
     ];
   }
   if (role == UserRole.kasir) {
-    return const [dashboard, pos, riwayat];
+    return const [dashboard, pos, riwayat, profile];
   }
   if (role == UserRole.teknisi) {
-    return const [dashboard, scan];
+    return const [dashboard, scan, profile];
   }
   return const [dashboard];
 }
@@ -70,17 +77,25 @@ int selectedIndexFor(List<Destination> destinations, String location) {
   return best;
 }
 
+String _roleLabel(UserRole? role) => switch (role) {
+      UserRole.admin => 'Admin',
+      UserRole.kasir => 'Kasir',
+      UserRole.teknisi => 'Teknisi',
+      null => 'Pengguna',
+    };
+
 class AdaptiveScaffold extends ConsumerWidget {
   const AdaptiveScaffold({super.key, required this.child});
   final Widget child;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final role = ref.watch(currentUserProvider).value?.role;
+    final user = ref.watch(currentUserProvider).value;
+    final role = user?.role;
     final destinations = destinationsForRole(role);
 
-    // NavigationBar/NavigationRail butuh minimal 2 destinasi. Bila hanya satu
-    // (kasir/teknisi/null di fase ini), tampilkan child polos tanpa navigasi.
+    // NavigationBar/Rail butuh minimal 2 destinasi. Bila hanya satu (mis. null
+    // saat memuat), tampilkan child polos tanpa navigasi.
     if (destinations.length < 2) {
       return Scaffold(body: child);
     }
@@ -90,24 +105,18 @@ class AdaptiveScaffold extends ConsumerWidget {
 
     void onSelected(int index) => context.go(destinations[index].route);
 
-    final wide = MediaQuery.sizeOf(context).width >= 600;
+    final wide = MediaQuery.sizeOf(context).width >= 800;
     if (wide) {
       return Scaffold(
         body: Row(
           children: [
-            NavigationRail(
+            _Sidebar(
+              destinations: destinations,
               selectedIndex: selectedIndex,
-              labelType: NavigationRailLabelType.all,
-              destinations: [
-                for (final d in destinations)
-                  NavigationRailDestination(
-                    icon: Icon(d.icon),
-                    label: Text(d.label),
-                  ),
-              ],
-              onDestinationSelected: onSelected,
+              onSelected: onSelected,
+              user: user,
+              onLogout: () => ref.read(authRepositoryProvider).signOut(),
             ),
-            const VerticalDivider(width: 1),
             Expanded(child: child),
           ],
         ),
@@ -122,6 +131,230 @@ class AdaptiveScaffold extends ConsumerWidget {
             NavigationDestination(icon: Icon(d.icon), label: d.label),
         ],
         onDestinationSelected: onSelected,
+      ),
+    );
+  }
+}
+
+/// Sidebar bergaya desain Figma: header logo, menu per-role, footer user.
+class _Sidebar extends StatelessWidget {
+  const _Sidebar({
+    required this.destinations,
+    required this.selectedIndex,
+    required this.onSelected,
+    required this.user,
+    required this.onLogout,
+  });
+
+  final List<Destination> destinations;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+  final AppUser? user;
+  final VoidCallback onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 260,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(right: BorderSide(color: AppColors.slate200)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header logo
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              border:
+                  Border(bottom: BorderSide(color: AppColors.slate200)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AppColors.teal600,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  child: const Icon(Icons.ac_unit,
+                      color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'E-POS AC',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: AppColors.slate900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Menu
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                  child: Text(
+                    'MENU ${_roleLabel(user?.role).toUpperCase()}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
+                      color: AppColors.slate400,
+                    ),
+                  ),
+                ),
+                for (var i = 0; i < destinations.length; i++)
+                  _SidebarItem(
+                    destination: destinations[i],
+                    selected: i == selectedIndex,
+                    onTap: () => onSelected(i),
+                  ),
+              ],
+            ),
+          ),
+          // Footer user + logout
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: AppColors.slate200)),
+            ),
+            child: Column(
+              children: [
+                // Tap area profil (avatar + nama) menuju halaman Profil.
+                Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: InkWell(
+                    onTap: () => context.go('/profile'),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    hoverColor: AppColors.slate100,
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 20,
+                            backgroundColor: AppColors.teal50,
+                            child: Text(
+                              _roleLabel(user?.role).characters.first,
+                              style: const TextStyle(
+                                color: AppColors.teal700,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  user?.displayName.isNotEmpty == true
+                                      ? user!.displayName
+                                      : '${_roleLabel(user?.role)} User',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.slate900,
+                                  ),
+                                ),
+                                const Text(
+                                  'Lihat profil',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.slate500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right,
+                              size: 18, color: AppColors.slate400),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: onLogout,
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Logout'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.red600,
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarItem extends StatelessWidget {
+  const _SidebarItem({
+    required this.destination,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Destination destination;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = selected ? AppColors.teal700 : AppColors.slate600;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Material(
+        color: selected ? AppColors.teal50 : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          hoverColor: AppColors.slate100,
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            child: Row(
+              children: [
+                Icon(destination.icon, size: 20, color: fg),
+                const SizedBox(width: 12),
+                Text(
+                  destination.label,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 14,
+                    fontWeight:
+                        selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

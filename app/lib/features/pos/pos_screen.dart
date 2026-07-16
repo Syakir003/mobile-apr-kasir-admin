@@ -26,40 +26,61 @@ class PosScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Transaksi')),
-      floatingActionButton: FloatingActionButton.extended(
-        key: const Key('add-item'),
-        onPressed: () => _openPicker(context),
-        icon: const Icon(Icons.add_shopping_cart),
-        label: const Text('Tambah Item'),
-      ),
+      floatingActionButton: cart.lines.isEmpty
+          ? null
+          : FloatingActionButton.extended(
+              key: const Key('add-item'),
+              onPressed: () => _openPicker(context),
+              icon: const Icon(Icons.add_shopping_cart),
+              label: const Text('Tambah Item'),
+            ),
       body: Column(
         children: [
           Expanded(
             child: cart.lines.isEmpty
-                ? const Center(child: Text('Keranjang masih kosong.'))
+                ? _EmptyCart(onAdd: () => _openPicker(context))
                 : ListView.builder(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                     itemCount: cart.lines.length,
-                    itemBuilder: (_, i) => _CartLineTile(
-                      key: ValueKey(
-                        '${cart.lines[i].kind.name}-${cart.lines[i].refId}',
+                    itemBuilder: (_, i) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _CartLineTile(
+                        key: ValueKey(
+                          '${cart.lines[i].kind.name}-${cart.lines[i].refId}',
+                        ),
+                        index: i,
                       ),
-                      index: i,
                     ),
                   ),
           ),
-          _SummaryCard(cart: cart),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                key: const Key('to-checkout'),
-                onPressed:
-                    cart.lines.isEmpty ? null : () => context.go('/pos/checkout'),
-                child: const Text('Checkout'),
-              ),
-            ),
+          if (cart.lines.isNotEmpty) _CheckoutBar(cart: cart),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyCart extends StatelessWidget {
+  const _EmptyCart({required this.onAdd});
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.shopping_cart_outlined,
+              size: 56, color: AppColors.slate300),
+          const SizedBox(height: 14),
+          const Text('Keranjang masih kosong.',
+              style: TextStyle(color: AppColors.slate500)),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            key: const Key('add-item'),
+            onPressed: onAdd,
+            icon: const Icon(Icons.add_shopping_cart),
+            label: const Text('Tambah Item'),
           ),
         ],
       ),
@@ -67,18 +88,22 @@ class PosScreen extends ConsumerWidget {
   }
 }
 
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.cart});
-
+/// Footer ringkasan + checkout menempel di bawah.
+class _CheckoutBar extends StatelessWidget {
+  const _CheckoutBar({required this.cart});
   final Cart cart;
 
   @override
   Widget build(BuildContext context) {
     final totals = computeCartTotals(cart);
-    return Card(
-      margin: const EdgeInsets.all(8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AppColors.slate200)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      child: SafeArea(
+        top: false,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -86,21 +111,49 @@ class _SummaryCard extends StatelessWidget {
             _row('Diskon', '- ${formatRupiah(cart.discount)}'),
             _row('Pajak', formatRupiah(totals.taxAmount)),
             _row('Transport', formatRupiah(cart.transportFee)),
-            const Divider(),
-            _row('Total', formatRupiah(totals.grandTotal), bold: true),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Divider(height: 1),
+            ),
+            _row('Total', formatRupiah(totals.grandTotal), total: true),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 50,
+              child: FilledButton(
+                key: const Key('to-checkout'),
+                onPressed: () => context.go('/pos/checkout'),
+                child: const Text('Checkout'),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _row(String label, String value, {bool bold = false}) {
-    final style = bold ? const TextStyle(fontWeight: FontWeight.bold) : null;
+  Widget _row(String label, String value, {bool total = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [Text(label, style: style), Text(value, style: style)],
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: total ? AppColors.slate900 : AppColors.slate500,
+              fontWeight: total ? FontWeight.bold : FontWeight.w500,
+              fontSize: total ? 16 : 14,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: total ? AppColors.teal700 : AppColors.slate900,
+              fontWeight: total ? FontWeight.bold : FontWeight.w600,
+              fontSize: total ? 17 : 14,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -140,13 +193,13 @@ class _CartLineTileState extends ConsumerState<_CartLineTile> {
     final notifier = ref.read(cartProvider.notifier);
 
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
       child: Padding(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: Column(
@@ -154,57 +207,92 @@ class _CartLineTileState extends ConsumerState<_CartLineTile> {
                     children: [
                       Text(
                         line.name,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15,
+                          color: AppColors.slate900,
+                        ),
                       ),
-                      Text('${formatRupiah(line.unitPrice)} / ${line.unit}'),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${formatRupiah(line.unitPrice)} / ${line.unit}',
+                        style: const TextStyle(
+                            fontSize: 12.5, color: AppColors.slate500),
+                      ),
                     ],
                   ),
                 ),
                 IconButton(
                   key: Key('remove-${widget.index}'),
+                  visualDensity: VisualDensity.compact,
                   icon: const Icon(Icons.delete_outline,
                       color: AppColors.danger),
                   onPressed: () => notifier.removeAt(widget.index),
                 ),
               ],
             ),
+            const SizedBox(height: 6),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    IconButton(
-                      key: Key('qty-minus-${widget.index}'),
-                      icon: const Icon(Icons.remove_circle_outline),
-                      onPressed: line.qty > 1
-                          ? () => notifier.setQty(widget.index, line.qty - 1)
-                          : null,
-                    ),
-                    Text('${line.qty}'),
-                    IconButton(
-                      key: Key('qty-plus-${widget.index}'),
-                      icon: const Icon(Icons.add_circle_outline),
-                      onPressed: () =>
-                          notifier.setQty(widget.index, line.qty + 1),
-                    ),
-                  ],
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.slate100,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        key: Key('qty-minus-${widget.index}'),
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.remove, size: 18),
+                        color: AppColors.slate600,
+                        onPressed: line.qty > 1
+                            ? () => notifier.setQty(widget.index, line.qty - 1)
+                            : null,
+                      ),
+                      Text(
+                        '${line.qty}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.slate900,
+                        ),
+                      ),
+                      IconButton(
+                        key: Key('qty-plus-${widget.index}'),
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.add, size: 18),
+                        color: AppColors.slate600,
+                        onPressed: () =>
+                            notifier.setQty(widget.index, line.qty + 1),
+                      ),
+                    ],
+                  ),
                 ),
                 Text(
                   formatRupiah(line.lineTotal),
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: AppColors.slate900,
+                  ),
                 ),
               ],
             ),
             if (line.kind == CartItemKind.product) ...[
+              const Divider(height: 20),
               SwitchListTile(
                 key: Key('install-switch-${widget.index}'),
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Pasang unit'),
+                dense: true,
+                title: const Text('Pasang unit',
+                    style: TextStyle(fontSize: 14)),
                 value: line.withInstallation,
                 onChanged: (v) =>
                     notifier.setInstallation(widget.index, enabled: v),
               ),
               if (line.withInstallation) ...[
+                const SizedBox(height: 4),
                 TextFormField(
                   key: Key('room-location-${widget.index}'),
                   controller: _room,
@@ -213,7 +301,7 @@ class _CartLineTileState extends ConsumerState<_CartLineTile> {
                   onChanged: (v) =>
                       notifier.setInstallation(widget.index, roomLocation: v),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 _TechnicianDropdown(index: widget.index, line: line),
               ],
             ],

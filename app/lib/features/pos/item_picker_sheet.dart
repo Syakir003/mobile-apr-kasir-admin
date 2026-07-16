@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_theme.dart';
 import '../../data/models/product.dart';
 import '../../data/models/service_item.dart';
 import '../../data/models/sparepart.dart';
@@ -90,7 +91,7 @@ class _ItemPickerSheetState extends ConsumerState<ItemPickerSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.black26,
+                  color: const Color(0xFFCBD5E1),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -167,9 +168,13 @@ class _ProductTab extends StatelessWidget {
             final p = filtered[i];
             return ListTile(
               key: Key('product-${p.id}'),
-              title: Text(p.name),
-              subtitle: Text('Stok: ${p.stock} • ${p.brand}'),
-              trailing: Text(formatRupiah(p.sellPrice)),
+              title: Text(p.name,
+                  style: const TextStyle(fontWeight: FontWeight.w500)),
+              subtitle: Text('Stok: ${p.stock} • ${p.brand}',
+                  style: const TextStyle(color: AppColors.slate500)),
+              trailing: Text(formatRupiah(p.sellPrice),
+                  style: const TextStyle(
+                      color: AppColors.teal700, fontWeight: FontWeight.bold)),
               onTap: () => onTap(p),
             );
           },
@@ -207,9 +212,13 @@ class _SparepartTab extends StatelessWidget {
             final s = filtered[i];
             return ListTile(
               key: Key('sparepart-${s.id}'),
-              title: Text(s.name),
-              subtitle: Text('Stok: ${s.stock} ${s.unit}'),
-              trailing: Text(formatRupiah(s.sellPrice)),
+              title: Text(s.name,
+                  style: const TextStyle(fontWeight: FontWeight.w500)),
+              subtitle: Text('Stok: ${s.stock} ${s.unit}',
+                  style: const TextStyle(color: AppColors.slate500)),
+              trailing: Text(formatRupiah(s.sellPrice),
+                  style: const TextStyle(
+                      color: AppColors.teal700, fontWeight: FontWeight.bold)),
               onTap: () => onTap(s),
             );
           },
@@ -247,9 +256,13 @@ class _ServiceTab extends StatelessWidget {
             final s = filtered[i];
             return ListTile(
               key: Key('service-${s.id}'),
-              title: Text(s.name),
-              subtitle: Text(s.category),
-              trailing: Text(formatRupiah(s.basePrice)),
+              title: Text(s.name,
+                  style: const TextStyle(fontWeight: FontWeight.w500)),
+              subtitle: Text(s.category,
+                  style: const TextStyle(color: AppColors.slate500)),
+              trailing: Text(formatRupiah(s.basePrice),
+                  style: const TextStyle(
+                      color: AppColors.teal700, fontWeight: FontWeight.bold)),
               onTap: () => onTap(s),
             );
           },

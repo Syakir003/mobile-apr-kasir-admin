@@ -56,20 +56,26 @@ class InvoiceDetailScreen extends ConsumerWidget {
               _PaymentsCard(payments: payments),
               const SizedBox(height: 20),
               if (canPay)
-                FilledButton.icon(
-                  key: const Key('add-payment'),
-                  onPressed: () => showPaymentFormSheet(context, invoice),
-                  icon: const Icon(Icons.payments_outlined),
-                  label: const Text('Catat Pembayaran'),
+                SizedBox(
+                  height: 50,
+                  child: FilledButton.icon(
+                    key: const Key('add-payment'),
+                    onPressed: () => showPaymentFormSheet(context, invoice),
+                    icon: const Icon(Icons.payments_outlined),
+                    label: const Text('Catat Pembayaran'),
+                  ),
                 ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                key: const Key('print-receipt'),
-                onPressed: () => Printing.layoutPdf(
-                  onLayout: (_) => buildReceiptPdf(invoice, payments),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 50,
+                child: OutlinedButton.icon(
+                  key: const Key('print-receipt'),
+                  onPressed: () => Printing.layoutPdf(
+                    onLayout: (_) => buildReceiptPdf(invoice, payments),
+                  ),
+                  icon: const Icon(Icons.receipt_long_outlined),
+                  label: const Text('Bagikan Struk'),
                 ),
-                icon: const Icon(Icons.receipt_long_outlined),
-                label: const Text('Bagikan Struk'),
               ),
             ],
           );
@@ -101,18 +107,13 @@ class _InfoCard extends StatelessWidget {
                         fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                 ),
-                Chip(
-                  label: Text(invoice.status.label),
-                  labelStyle: TextStyle(
-                    color: statusColor(invoice.status),
-                    fontWeight: FontWeight.w600,
-                  ),
-                  visualDensity: VisualDensity.compact,
-                ),
+                _StatusPill(status: invoice.status),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(invoice.customerName),
+            const SizedBox(height: 6),
+            Text(invoice.customerName,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w500, color: AppColors.slate700)),
             if (invoice.customerPhone.isNotEmpty) Text(invoice.customerPhone),
             if (invoice.createdAt != null)
               Text(
@@ -256,14 +257,56 @@ class _PaymentsCard extends StatelessWidget {
 }
 
 Widget _row(String label, String value, {bool bold = false}) {
-  final style = bold ? const TextStyle(fontWeight: FontWeight.bold) : null;
   return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 2),
+    padding: const EdgeInsets.symmetric(vertical: 3),
     child: Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [Text(label, style: style), Text(value, style: style)],
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: bold ? AppColors.slate900 : AppColors.slate500,
+            fontWeight: bold ? FontWeight.bold : FontWeight.w500,
+            fontSize: bold ? 15 : 14,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            color: bold ? AppColors.teal700 : AppColors.slate900,
+            fontWeight: bold ? FontWeight.bold : FontWeight.w600,
+            fontSize: bold ? 15 : 14,
+          ),
+        ),
+      ],
     ),
   );
+}
+
+/// Pill status invoice (bg tint + teks berwarna).
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.status});
+  final InvoiceStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = statusColor(status);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        status.label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
 }
 
 String _formatDate(DateTime d) {

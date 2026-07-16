@@ -116,6 +116,12 @@ class _PackageFormScreenState extends ConsumerState<PackageFormScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
             TextFormField(
               key: const Key('name'),
               controller: _name,
@@ -137,7 +143,11 @@ class _PackageFormScreenState extends ConsumerState<PackageFormScreen> {
               value: _active,
               onChanged: (v) => setState(() => _active = v),
             ),
-            const Divider(height: 32),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
             Row(
               children: [
                 Expanded(
@@ -176,16 +186,20 @@ class _PackageFormScreenState extends ConsumerState<PackageFormScreen> {
                   ),
                 ),
             const SizedBox(height: 24),
-            FilledButton(
-              key: const Key('submit'),
-              onPressed: _busy ? null : _submit,
-              child: _busy
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Simpan'),
+            SizedBox(
+              height: 50,
+              width: double.infinity,
+              child: FilledButton(
+                key: const Key('submit'),
+                onPressed: _busy ? null : _submit,
+                child: _busy
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Simpan'),
+              ),
             ),
           ],
         ),
