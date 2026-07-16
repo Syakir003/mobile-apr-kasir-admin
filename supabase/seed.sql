@@ -49,6 +49,16 @@ values
    '{"display_name":"Teknisi Andi"}')
 on conflict (id) do nothing;
 
+-- GoTrue (service auth) memindai kolom token sebagai string Go non-nullable.
+-- Insert manual di atas membiarkannya NULL → login gagal 500 "converting NULL
+-- to string is unsupported". Set ke '' (string kosong) seperti yang dilakukan
+-- signup normal.
+update auth.users set
+  confirmation_token = '', recovery_token = '', email_change_token_new = '',
+  email_change = '', email_change_token_current = '', phone_change = '',
+  phone_change_token = '', reauthentication_token = ''
+where email like '%@eposac.local';
+
 -- Identitas email (dibutuhkan sebagian flow auth Supabase).
 insert into auth.identities (
   provider_id, user_id, identity_data, provider, last_sign_in_at,
