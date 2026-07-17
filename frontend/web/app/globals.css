@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/* Token merek mengikuti tema app (teal + slate). Tailwind v4 sudah menyediakan
+   skala `teal-*` dan `slate-*`; di sini hanya alias semantik. */
+@theme {
+  --color-brand: #0d9488; /* teal-600 — interaktif utama */
+  --color-brand-dark: #0f766e; /* teal-700 */
+  --color-brand-soft: #ccfbf1; /* teal-100 */
+}
+
+:root {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --ink: #0f172a;
+  --ink-2: #64748b;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}

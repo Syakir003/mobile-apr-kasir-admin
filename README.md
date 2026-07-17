@@ -5,8 +5,9 @@ teknisi** (pasang, cuci, service, maintenance) dengan data realtime. Setiap
 pelanggan otomatis jadi member, setiap unit AC punya barcode unik, teknisi scan
 sebelum bekerja, dan pembayaran dicatat manual.
 
-- **Aplikasi mobile**: Flutter (`app/`) — Android/iOS/Web.
-- **Backend**: Supabase (Postgres + Auth + Realtime), migrasi SQL di `supabase/`.
+- **Backend**: Supabase (Postgres + Auth + Realtime), migrasi SQL di `backend/supabase/`.
+- **Frontend mobile**: Flutter (`frontend/mobile/`) — Android/iOS/Web.
+- **Frontend web**: Next.js (`frontend/web/`).
 - **Peran**: Admin, Kasir, Teknisi.
 
 > **Untuk yang mengerjakan versi web:** frontend web cukup dibangun di atas
@@ -20,12 +21,20 @@ sebelum bekerja, dan pembayaran dicatat manual.
 ## Struktur Repositori
 
 ```
-app/                 Aplikasi Flutter (referensi UI + pola pemakaian backend)
-supabase/migrations/ Skema Postgres, RLS, RPC, realtime (sumber kebenaran backend)
-functions/           Sisa Cloud Functions era Firebase (referensi logika lama)
-docs/                Dokumen pendukung
+backend/
+  supabase/migrations/   Skema Postgres, RLS, RPC, realtime (sumber kebenaran)
+frontend/
+  mobile/                Aplikasi Flutter (Android/iOS/Web)
+  web/                   Aplikasi Next.js (lihat frontend/web/README.md)
+functions/               Sisa Cloud Functions era Firebase (legacy, tak dipakai)
+docs/                    Dokumen pendukung
+docs/Flow-Sistem-EPOS-AC.md   Diagram alur sistem (dirender otomatis di GitHub)
 Dokumen_Fitur_EPOS_AC_Mobile_Realtime.docx   Spesifikasi fitur lengkap (MVP)
 ```
+
+> **Backend vs frontend** terpisah rapi: `backend/supabase/` (satu backend) dipakai
+> bersama oleh `frontend/mobile/` (Flutter) dan `frontend/web/` (Next.js). Perintah
+> Supabase CLI dijalankan dari dalam folder `backend/`.
 
 Migrasi backend (urut):
 
@@ -46,6 +55,8 @@ Migrasi backend (urut):
 Butuh [Supabase CLI](https://supabase.com/docs/guides/cli).
 
 ```bash
+cd backend                   # folder tempat berisi supabase/
+
 # lokal
 supabase start
 supabase db reset            # terapkan semua migrasi + seed
@@ -184,8 +195,8 @@ Status invoice dihitung otomatis (total invoice − total bayar).
 
 ## Model Data & Status
 
-Sumber kebenaran kolom: file di `app/lib/data/models/*.dart` dan
-`supabase/migrations/..._init_schema.sql`.
+Sumber kebenaran kolom: file di `frontend/mobile/lib/data/models/*.dart` dan
+`backend/supabase/migrations/..._init_schema.sql`.
 
 Tabel inti: `users`, `members`, `member_ac_units`, `products`, `spareparts`,
 `services`, `installation_packages(+_items)`, `transactions(+_items)`,
@@ -240,20 +251,34 @@ Teal + slate (Tailwind). Utama:
 | Border | `#E2E8F0` |
 | Danger / Warning / Success | `#DC2626` / `#F59E0B` / `#16A34A` |
 
-Definisi lengkap: `app/lib/core/theme/app_theme.dart`.
+Definisi lengkap: `frontend/mobile/lib/core/theme/app_theme.dart`.
 
 ---
 
-## Menjalankan Aplikasi Flutter
+## Menjalankan Frontend
+
+### Mobile (Flutter)
 
 ```bash
-cd app
+cd frontend/mobile
 flutter pub get
 flutter analyze
 flutter test
 flutter run            # -d chrome untuk web
 ```
 
-Arsitektur app: **Riverpod** (state) + **go_router** (navigasi, guard per-peran di
-`core/router/redirect.dart`) + **repository** (baca stream Supabase) + **RPC caller
-provider** (tulis). Pola ini bisa jadi acuan alur untuk versi web.
+Arsitektur: **Riverpod** (state) + **go_router** (navigasi, guard per-peran di
+`core/router/redirect.dart`) + **repository** (baca Supabase) + **RPC caller
+provider** (tulis).
+
+### Web (Next.js)
+
+```bash
+cd frontend/web
+cp .env.local.example .env.local     # isi URL + anon key Supabase
+npm install
+npm run dev                          # http://localhost:3000
+```
+
+Detail: `frontend/web/README.md`. Pola sama seperti mobile — baca via `select`,
+tulis via `lib/rpc.ts`, role dari klaim JWT.
