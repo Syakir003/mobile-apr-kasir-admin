@@ -59,6 +59,7 @@ List<Destination> destinationsForRole(UserRole? role) {
       (icon: Icons.people_outlined, label: 'Member', route: '/members'),
       order,
       job,
+      (icon: Icons.bar_chart_outlined, label: 'Laporan', route: '/laporan'),
       scan,
       profile,
     ];

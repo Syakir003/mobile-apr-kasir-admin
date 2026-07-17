@@ -16,6 +16,7 @@ import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/jobs/job_detail_screen.dart';
 import '../../features/jobs/job_list_screen.dart';
 import '../../features/jobs/service_order_list_screen.dart';
+import '../../features/reports/laporan_screen.dart';
 import '../../features/master/package/package_form_screen.dart';
 import '../../features/master/package/package_list_screen.dart';
 import '../../features/master/product/product_form_screen.dart';
@@ -203,6 +204,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/orders',
             builder: (_, __) => const ServiceOrderListScreen(),
+          ),
+          GoRoute(
+            path: '/laporan',
+            builder: (_, __) => const LaporanScreen(),
           ),
           GoRoute(path: '/scan', builder: (_, __) => const ScanScreen()),
           GoRoute(

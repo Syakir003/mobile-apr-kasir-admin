@@ -6,6 +6,9 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/adaptive_scaffold.dart';
 import '../../data/models/app_user.dart';
+import '../jobs/job_providers.dart';
+import '../pos/cart_state.dart' show formatRupiah;
+import '../reports/reports_providers.dart';
 
 const _accents = [
   AppColors.teal600,
@@ -55,6 +58,7 @@ class DashboardScreen extends ConsumerWidget {
         children: [
           _Greeting(user: user),
           const SizedBox(height: 20),
+          _MetricsSection(role: user?.role),
           Text(
             'Akses Cepat',
             style: Theme.of(context)
@@ -88,6 +92,144 @@ class DashboardScreen extends ConsumerWidget {
                 ],
               );
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Kartu metrik ringkas. Admin/kasir melihat penjualan & tagihan; teknisi
+/// melihat ringkasan job miliknya. Error disembunyikan agar dashboard tetap
+/// tampil (mis. peran tanpa akhir baca tabel finansial).
+class _MetricsSection extends ConsumerWidget {
+  const _MetricsSection({required this.role});
+  final UserRole? role;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (role == null) return const SizedBox.shrink();
+
+    if (role == UserRole.teknisi) {
+      final jobs = ref.watch(jobsForCurrentUserProvider).value ?? const [];
+      final aktif = jobs.where((j) => j.status.isActive).length;
+      final selesai = jobs.length - aktif;
+      return _grid([
+        _MetricCard(label: 'Job Aktif', value: '$aktif', accent: AppColors.teal600),
+        _MetricCard(label: 'Job Selesai', value: '$selesai', accent: AppColors.green600),
+      ]);
+    }
+
+    final async = ref.watch(analyticsProvider);
+    return async.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.only(bottom: 20),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (a) => _grid([
+        _MetricCard(
+            label: 'Penjualan Hari Ini',
+            value: formatRupiah(a.salesToday),
+            accent: AppColors.teal600),
+        _MetricCard(
+            label: 'Transaksi Hari Ini',
+            value: '${a.txToday}',
+            accent: AppColors.blue600),
+        _MetricCard(
+            label: 'Belum Lunas',
+            value: '${a.unpaidCount}',
+            sub: formatRupiah(a.piutang),
+            accent: AppColors.warning),
+        _MetricCard(
+            label: 'Stok Menipis',
+            value: '${a.lowStock.length}',
+            accent: AppColors.orange600),
+      ]),
+    );
+  }
+
+  Widget _grid(List<Widget> tiles) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final cols = c.maxWidth >= 640 ? 4 : 2;
+          return GridView.count(
+            crossAxisCount: cols > tiles.length ? tiles.length : cols,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.7,
+            children: tiles,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    this.sub,
+    required this.accent,
+  });
+
+  final String label;
+  final String value;
+  final String? sub;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.slate200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Container(
+                  width: 8,
+                  height: 8,
+                  decoration:
+                      BoxDecoration(color: accent, shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.slate500)),
+              ),
+            ],
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.slate900)),
+              if (sub != null)
+                Text(sub!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.slate400)),
+            ],
           ),
         ],
       ),

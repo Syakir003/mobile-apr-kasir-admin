@@ -196,6 +196,17 @@ void main() {
       isNull,
     );
   });
+  test('kasir buka /laporan diarahkan ke / (khusus admin)', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/laporan',
+      ),
+      '/',
+    );
+  });
   test('admin buka semua modul master tidak di-redirect', () {
     for (final loc in [
       '/products',
@@ -203,6 +214,7 @@ void main() {
       '/services',
       '/packages',
       '/members',
+      '/laporan',
     ]) {
       expect(
         computeRedirect(
