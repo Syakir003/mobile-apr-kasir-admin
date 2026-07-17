@@ -11,6 +11,7 @@ import '../../data/models/technician_job.dart';
 import '../pos/pos_providers.dart' show techniciansProvider;
 import 'job_list_screen.dart' show jobStatusColor;
 import 'job_providers.dart';
+import 'job_requests_section.dart';
 
 /// Detail satu job teknisi + aksi berbasis peran & status:
 /// teknisi memulai (scan barcode) lalu menyelesaikan (isi diagnosa);
@@ -148,6 +149,8 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
                     (job.status == JobStatus.assigned ||
                         job.status == JobStatus.sedangDikerjakan),
               ),
+              const SizedBox(height: 12),
+              JobRequestsSection(job: job),
               const SizedBox(height: 20),
               ..._actions(job, role),
             ],

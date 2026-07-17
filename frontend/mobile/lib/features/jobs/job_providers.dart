@@ -4,6 +4,7 @@ import '../../core/router/app_router.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/job_photo.dart';
+import '../../data/models/material_request.dart';
 import '../../data/models/service_order.dart';
 import '../../data/models/technician_job.dart';
 import '../../data/repositories/job_repository.dart';
@@ -50,6 +51,33 @@ final addJobPhotoCallerProvider =
     await ref
         .read(supabaseProvider)
         .rpc('add_job_photo', params: {'payload': payload});
+  };
+});
+
+/// Pengajuan tambahan untuk satu job. Segarkan dengan
+/// `ref.invalidate(jobRequestsProvider(jobId))` setelah submit/putusan.
+final jobRequestsProvider =
+    FutureProvider.autoDispose.family<List<MaterialRequest>, String>(
+  (ref, jobId) => ref.watch(jobRepositoryProvider).fetchRequests(jobId),
+);
+
+/// RPC `submit_material_request` (teknisi mengajukan tambahan).
+final submitRequestCallerProvider =
+    Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
+  return (payload) async {
+    await ref
+        .read(supabaseProvider)
+        .rpc('submit_material_request', params: {'payload': payload});
+  };
+});
+
+/// RPC `decide_material_request` (admin/kasir approve/reject).
+final decideRequestCallerProvider =
+    Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
+  return (payload) async {
+    await ref
+        .read(supabaseProvider)
+        .rpc('decide_material_request', params: {'payload': payload});
   };
 });
 

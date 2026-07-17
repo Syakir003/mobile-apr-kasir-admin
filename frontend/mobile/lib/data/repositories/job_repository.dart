@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/job_photo.dart';
+import '../models/material_request.dart';
 import '../models/service_order.dart';
 import '../models/technician_job.dart';
 
@@ -34,6 +35,9 @@ abstract interface class JobRepository {
 
   /// Signed URL sementara (privat) untuk menampilkan foto pada [path].
   Future<String> signedPhotoUrl(String path, {int expiresInSeconds = 3600});
+
+  /// Pengajuan tambahan untuk satu job (terbaru dulu), lengkap dengan itemnya.
+  Future<List<MaterialRequest>> fetchRequests(String jobId);
 }
 
 /// Nama bucket Storage privat untuk foto bukti pengerjaan.
@@ -110,6 +114,36 @@ class SupabaseJobRepository implements JobRepository {
     return _client.storage
         .from(kJobPhotosBucket)
         .createSignedUrl(path, expiresInSeconds);
+  }
+
+  @override
+  Future<List<MaterialRequest>> fetchRequests(String jobId) async {
+    final rows = await _client
+        .from('material_requests')
+        .select()
+        .eq('job_id', jobId)
+        .order('created_at', ascending: false);
+    final reqs = _asMaps(rows);
+    if (reqs.isEmpty) return const [];
+
+    // Ambil semua item sekali jalan, lalu kelompokkan per request_id.
+    final ids = [for (final r in reqs) r['id'] as String];
+    final itemRows = await _client
+        .from('material_request_items')
+        .select()
+        .inFilter('request_id', ids);
+    final byReq = <String, List<Map<String, dynamic>>>{};
+    for (final it in _asMaps(itemRows)) {
+      (byReq[it['request_id'] as String] ??= []).add(it);
+    }
+
+    return [
+      for (final r in reqs)
+        MaterialRequest.fromMap(r['id'] as String, {
+          ...r,
+          'items': byReq[r['id']] ?? const [],
+        }),
+    ];
   }
 
   List<Map<String, dynamic>> _asMaps(dynamic rows) => [
