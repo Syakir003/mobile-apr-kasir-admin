@@ -73,6 +73,47 @@ class LaporanScreen extends ConsumerWidget {
               wide: true,
             ),
             const SizedBox(height: 20),
+            const _SectionLabel('Tren Penjualan (14 hari)'),
+            _Card(child: _BarChart(a.dailySales)),
+            const SizedBox(height: 20),
+            const _SectionLabel('Produk Terlaris (bulan ini)'),
+            _Card(
+              child: Column(
+                children: [
+                  if (a.topProducts.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text('Belum ada penjualan bulan ini',
+                          style: TextStyle(color: AppColors.slate400)),
+                    )
+                  else
+                    for (final p in a.topProducts)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(p.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style:
+                                      const TextStyle(color: AppColors.slate700)),
+                            ),
+                            Text('${_n(p.qty)}×',
+                                style: const TextStyle(
+                                    color: AppColors.slate400, fontSize: 13)),
+                            const SizedBox(width: 12),
+                            Text(formatRupiah(p.revenue),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.slate900)),
+                          ],
+                        ),
+                      ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
             const _SectionLabel('Pembayaran (bulan ini)'),
             _Card(
               child: Column(
@@ -228,6 +269,72 @@ class _Card extends StatelessWidget {
         border: Border.all(color: AppColors.slate200),
       ),
       child: child,
+    );
+  }
+}
+
+/// Bar chart tren harian, digambar dari widget biasa (tanpa dependency chart).
+class _BarChart extends StatelessWidget {
+  const _BarChart(this.data);
+  final List<DaySales> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxVal = data.fold<int>(0, (m, d) => d.total > m ? d.total : m);
+    final total = data.fold<int>(0, (s, d) => s + d.total);
+    final first = data.isNotEmpty ? data.first.date : null;
+    final last = data.isNotEmpty ? data.last.date : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(formatRupiah(total),
+            style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.slate900)),
+        const Text('total 14 hari',
+            style: TextStyle(fontSize: 12, color: AppColors.slate400)),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 110,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final d in data)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Container(
+                      height: maxVal == 0
+                          ? 3
+                          : (100 * d.total / maxVal).clamp(3, 100).toDouble(),
+                      decoration: BoxDecoration(
+                        color: d.total == maxVal && maxVal > 0
+                            ? AppColors.teal600
+                            : AppColors.teal600.withValues(alpha: 0.30),
+                        borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(3)),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        if (first != null && last != null)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('${first.day}/${first.month}',
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.slate400)),
+              const Text('Hari ini',
+                  style: TextStyle(fontSize: 11, color: AppColors.slate400)),
+            ],
+          ),
+      ],
     );
   }
 }

@@ -19,6 +19,8 @@ class Analytics {
     required this.lowStock,
     required this.inventoryValue,
     required this.jobsByStatus,
+    required this.dailySales,
+    required this.topProducts,
   });
 
   final int salesToday;
@@ -33,6 +35,12 @@ class Analytics {
   final int inventoryValue;
   final Map<JobStatus, int> jobsByStatus;
 
+  /// Penjualan per hari (bruto, exclude batal/refund) untuk grafik tren.
+  final List<DaySales> dailySales;
+
+  /// Produk/jasa dengan omzet terbesar bulan ini.
+  final List<TopProduct> topProducts;
+
   int get activeJobs =>
       jobsByStatus.entries
           .where((e) => e.key.isActive)
@@ -46,7 +54,86 @@ class LowStockItem {
   final num min;
 }
 
+class DaySales {
+  const DaySales({required this.date, required this.total, required this.count});
+
+  /// Tanggal lokal (jam 00:00).
+  final DateTime date;
+  final int total;
+  final int count;
+}
+
+class TopProduct {
+  const TopProduct(
+      {required this.name, required this.qty, required this.revenue});
+  final String name;
+  final num qty;
+  final int revenue;
+}
+
 const _paymentMethods = ['tunai', 'transfer', 'qris', 'ewallet'];
+
+const _kChartDays = 14;
+
+bool _isVoid(dynamic status) {
+  final s = InvoiceStatus.fromValue(status);
+  return s == InvoiceStatus.batal || s == InvoiceStatus.refund;
+}
+
+/// Kelompokkan baris invoice ke [days] ember harian berurutan yang berakhir
+/// pada [today]. Baris batal/refund diabaikan. Fungsi murni — mudah dites.
+List<DaySales> bucketDailySales(
+  List<Map<String, dynamic>> rows,
+  DateTime today, {
+  int days = _kChartDays,
+}) {
+  final start = DateTime(today.year, today.month, today.day)
+      .subtract(Duration(days: days - 1));
+  final totals = List<int>.filled(days, 0);
+  final counts = List<int>.filled(days, 0);
+  for (final r in rows) {
+    if (_isVoid(r['status'])) continue;
+    final created = DateTime.tryParse('${r['created_at']}')?.toLocal();
+    if (created == null) continue;
+    final day = DateTime(created.year, created.month, created.day);
+    final idx = day.difference(start).inDays;
+    if (idx < 0 || idx >= days) continue;
+    totals[idx] += (r['grand_total'] as num?)?.toInt() ?? 0;
+    counts[idx] += 1;
+  }
+  return [
+    for (var i = 0; i < days; i++)
+      DaySales(
+          date: start.add(Duration(days: i)),
+          total: totals[i],
+          count: counts[i]),
+  ];
+}
+
+/// Agregasi item invoice per nama, urut omzet (line_total) menurun, ambil
+/// [limit] teratas. Item milik invoice batal/refund diabaikan
+/// (`r['invoices']['status']`). Fungsi murni — mudah dites.
+List<TopProduct> aggregateTopProducts(
+  List<Map<String, dynamic>> itemRows, {
+  int limit = 5,
+}) {
+  final qtyByName = <String, num>{};
+  final revByName = <String, int>{};
+  for (final r in itemRows) {
+    final inv = r['invoices'];
+    if (_isVoid(inv is Map ? inv['status'] : null)) continue;
+    final name = '${r['name']}';
+    qtyByName[name] = (qtyByName[name] ?? 0) + ((r['qty'] as num?) ?? 0);
+    revByName[name] =
+        (revByName[name] ?? 0) + ((r['line_total'] as num?)?.toInt() ?? 0);
+  }
+  final list = [
+    for (final name in qtyByName.keys)
+      TopProduct(name: name, qty: qtyByName[name]!, revenue: revByName[name]!),
+  ];
+  list.sort((a, b) => b.revenue.compareTo(a.revenue));
+  return list.take(limit).toList();
+}
 
 /// Satu provider untuk semua angka; di-refresh dengan invalidate.
 final analyticsProvider = FutureProvider.autoDispose<Analytics>((ref) async {
@@ -54,8 +141,10 @@ final analyticsProvider = FutureProvider.autoDispose<Analytics>((ref) async {
   final now = DateTime.now();
   final startToday = DateTime(now.year, now.month, now.day);
   final startWeek = startToday.subtract(const Duration(days: 6));
+  final startChart = startToday.subtract(const Duration(days: _kChartDays - 1));
   final startMonth = DateTime(now.year, now.month, 1);
-  final from = startMonth.isBefore(startWeek) ? startMonth : startWeek;
+  final from = [startMonth, startWeek, startChart]
+      .reduce((a, b) => a.isBefore(b) ? a : b);
 
   // --- Invoices (penjualan, transaksi, piutang) ---
   final invRows = await client
@@ -63,10 +152,11 @@ final analyticsProvider = FutureProvider.autoDispose<Analytics>((ref) async {
       .select('grand_total,total_paid,status,created_at')
       .gte('created_at', from.toUtc().toIso8601String())
       .limit(2000);
+  final invList = (invRows as List).cast<Map<String, dynamic>>();
 
   var salesToday = 0, salesWeek = 0, salesMonth = 0;
   var txToday = 0, txMonth = 0, unpaidCount = 0, piutang = 0;
-  for (final r in (invRows as List)) {
+  for (final r in invList) {
     final status = InvoiceStatus.fromValue(r['status']);
     if (status == InvoiceStatus.batal || status == InvoiceStatus.refund) {
       continue;
@@ -134,6 +224,15 @@ final analyticsProvider = FutureProvider.autoDispose<Analytics>((ref) async {
     }
   }
 
+  // --- Produk terlaris (bulan ini) — join invoice_items → invoices ---
+  final itemRows = await client
+      .from('invoice_items')
+      .select('name,qty,line_total,invoices!inner(status,created_at)')
+      .gte('invoices.created_at', startMonth.toUtc().toIso8601String())
+      .limit(5000);
+  final topProducts =
+      aggregateTopProducts((itemRows as List).cast<Map<String, dynamic>>());
+
   // --- Job per status ---
   final jobRows =
       await client.from('technician_jobs').select('status').limit(5000);
@@ -155,5 +254,7 @@ final analyticsProvider = FutureProvider.autoDispose<Analytics>((ref) async {
     lowStock: lowStock,
     inventoryValue: inventoryValue,
     jobsByStatus: jobsByStatus,
+    dailySales: bucketDailySales(invList, now),
+    topProducts: topProducts,
   );
 });
