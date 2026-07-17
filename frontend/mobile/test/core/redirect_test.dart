@@ -215,6 +215,7 @@ void main() {
       '/packages',
       '/members',
       '/laporan',
+      '/stok',
     ]) {
       expect(
         computeRedirect(

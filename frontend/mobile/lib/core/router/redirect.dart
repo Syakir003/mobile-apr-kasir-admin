@@ -9,6 +9,7 @@ const _adminOnlyPrefixes = [
   '/packages',
   '/members',
   '/laporan',
+  '/stok',
 ];
 
 /// Prefix lokasi POS, riwayat transaksi, & order service: boleh admin & kasir,
