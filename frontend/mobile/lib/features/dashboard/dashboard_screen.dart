@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/adaptive_scaffold.dart';
 import '../../data/models/app_user.dart';
 import '../jobs/job_providers.dart';
+import '../notifications/notification_bell.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import '../reports/reports_providers.dart';
 
@@ -45,6 +46,7 @@ class DashboardScreen extends ConsumerWidget {
             padding: EdgeInsets.only(right: 8),
             child: _RealtimeBadge(),
           ),
+          const NotificationBell(),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Keluar',

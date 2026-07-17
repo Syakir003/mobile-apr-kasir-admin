@@ -229,8 +229,8 @@ Nilai status (text snake_case di DB):
 | Stok & mutasi stok | ✅ | ✅ |
 | Laporan / dashboard metrik | ✅ (data) | ✅ (tren + produk terlaris) |
 | Foto bukti sebelum/sesudah | ✅ | ✅ (upload kamera/galeri di Job) |
-| Pengajuan sparepart/material + approval | ❌ tabel belum | ❌ |
-| Notifikasi realtime (FCM) | ❌ | ❌ |
+| Pengajuan sparepart/material + approval | ✅ | ✅ (ajukan + approve/tolak di Job) |
+| Notifikasi realtime (in-app) | ✅ | ✅ (Supabase Realtime; FCM push menyusul) |
 
 Spesifikasi lengkap: **`Dokumen_Fitur_EPOS_AC_Mobile_Realtime.docx`**.
 

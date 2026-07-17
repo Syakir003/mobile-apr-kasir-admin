@@ -3,6 +3,7 @@ import 'package:epos_ac/data/models/app_user.dart';
 import 'package:epos_ac/data/models/technician_job.dart';
 import 'package:epos_ac/features/jobs/job_list_screen.dart';
 import 'package:epos_ac/features/jobs/job_providers.dart';
+import 'package:epos_ac/features/notifications/notifications_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +36,7 @@ Widget _wrap({required AppUser user, required List<TechnicianJob> jobs}) {
     overrides: [
       currentUserProvider.overrideWith((ref) => Stream.value(user)),
       jobsForCurrentUserProvider.overrideWith((ref) => Future.value(jobs)),
+      notificationsStreamProvider.overrideWith((ref) => Stream.value(const [])),
     ],
     child: const MaterialApp(home: JobListScreen()),
   );

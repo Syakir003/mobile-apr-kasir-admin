@@ -6,6 +6,7 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/technician_job.dart';
+import '../notifications/notification_bell.dart';
 import 'job_providers.dart';
 
 /// Warna chip status job (dipakai layar daftar & detail).
@@ -39,6 +40,7 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
       appBar: AppBar(
         title: Text(isTeknisi ? 'Job Saya' : 'Job Teknisi'),
         actions: [
+          const NotificationBell(),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Muat ulang',
