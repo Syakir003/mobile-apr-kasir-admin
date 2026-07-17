@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/router/app_router.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/app_user.dart';
+import '../../data/models/job_photo.dart';
 import '../../data/models/service_order.dart';
 import '../../data/models/technician_job.dart';
 import '../../data/repositories/job_repository.dart';
@@ -28,6 +29,29 @@ final jobsForCurrentUserProvider =
 final jobProvider = FutureProvider.autoDispose.family<TechnicianJob?, String>(
   (ref, id) => ref.watch(jobRepositoryProvider).fetchJobById(id),
 );
+
+/// Foto bukti (sebelum/sesudah) untuk satu job. Segarkan dengan
+/// `ref.invalidate(jobPhotosProvider(jobId))` setelah unggah.
+final jobPhotosProvider =
+    FutureProvider.autoDispose.family<List<JobPhoto>, String>(
+  (ref, jobId) => ref.watch(jobRepositoryProvider).fetchPhotos(jobId),
+);
+
+/// Signed URL sementara untuk menampilkan foto pada object [path].
+final signedPhotoUrlProvider =
+    FutureProvider.autoDispose.family<String, String>(
+  (ref, path) => ref.watch(jobRepositoryProvider).signedPhotoUrl(path),
+);
+
+/// RPC `add_job_photo` — catat metadata foto setelah biner terunggah ke Storage.
+final addJobPhotoCallerProvider =
+    Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
+  return (payload) async {
+    await ref
+        .read(supabaseProvider)
+        .rpc('add_job_photo', params: {'payload': payload});
+  };
+});
 
 /// Daftar order service (admin/kasir).
 final ordersProvider =

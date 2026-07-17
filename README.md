@@ -226,9 +226,9 @@ Nilai status (text snake_case di DB):
 | Barcode unit (generate + scan) | ✅ | ✅ |
 | Pembayaran manual + invoice/struk PDF | ✅ | ✅ |
 | Order service + Job teknisi (assign/mulai/selesai) | ✅ | ✅ |
-| Stok & mutasi stok | ✅ | ⏳ layar belum |
+| Stok & mutasi stok | ✅ | ✅ |
 | Laporan / dashboard metrik | ✅ (data) | ✅ (tren + produk terlaris) |
-| Foto bukti sebelum/sesudah | ❌ tabel belum | ❌ |
+| Foto bukti sebelum/sesudah | ✅ | ✅ (upload kamera/galeri di Job) |
 | Pengajuan sparepart/material + approval | ❌ tabel belum | ❌ |
 | Notifikasi realtime (FCM) | ❌ | ❌ |
 

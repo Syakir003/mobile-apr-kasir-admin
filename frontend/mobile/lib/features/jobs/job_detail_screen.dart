@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/app_user.dart';
+import '../../data/models/job_photo.dart';
 import '../../data/models/technician_job.dart';
 import '../pos/pos_providers.dart' show techniciansProvider;
 import 'job_list_screen.dart' show jobStatusColor;
@@ -139,6 +141,13 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
                 const SizedBox(height: 12),
                 _NotesCard(notes: job.notes!),
               ],
+              const SizedBox(height: 12),
+              _PhotosSection(
+                job: job,
+                canUpload: role == UserRole.teknisi &&
+                    (job.status == JobStatus.assigned ||
+                        job.status == JobStatus.sedangDikerjakan),
+              ),
               const SizedBox(height: 20),
               ..._actions(job, role),
             ],
@@ -687,6 +696,299 @@ class _ManualEntryState extends State<_ManualEntry> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Kartu foto bukti: dua bagian (Sebelum / Sesudah). Teknisi pemilik job bisa
+/// menambah foto dari kamera/galeri selama job aktif; peran lain hanya melihat.
+class _PhotosSection extends ConsumerStatefulWidget {
+  const _PhotosSection({required this.job, required this.canUpload});
+
+  final TechnicianJob job;
+  final bool canUpload;
+
+  @override
+  ConsumerState<_PhotosSection> createState() => _PhotosSectionState();
+}
+
+class _PhotosSectionState extends ConsumerState<_PhotosSection> {
+  bool _busy = false;
+
+  Future<void> _add(PhotoKind kind) async {
+    final source = await _pickSource();
+    if (source == null) return;
+
+    final picker = ImagePicker();
+    final XFile? file = await picker.pickImage(
+      source: source,
+      maxWidth: 1600,
+      imageQuality: 80,
+    );
+    if (file == null || !mounted) return;
+
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final bytes = await file.readAsBytes();
+      final ext = file.name.contains('.') ? file.name.split('.').last : 'jpg';
+      final repo = ref.read(jobRepositoryProvider);
+      final path = await repo.uploadPhoto(
+        jobId: widget.job.id,
+        kind: kind,
+        bytes: bytes,
+        ext: ext,
+        contentType: file.mimeType ?? 'image/jpeg',
+      );
+      await ref.read(addJobPhotoCallerProvider)({
+        'jobId': widget.job.id,
+        'kind': kind.value,
+        'path': path,
+      });
+      ref.invalidate(jobPhotosProvider(widget.job.id));
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Foto ${kind.label.toLowerCase()} tersimpan.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+        content: Text('$e'.replaceFirst('Exception: ', '')),
+        backgroundColor: AppColors.danger,
+      ));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<ImageSource?> _pickSource() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Kamera'),
+              onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Galeri'),
+              onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final photosAsync = ref.watch(jobPhotosProvider(widget.job.id));
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Foto Bukti',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600, color: AppColors.slate900)),
+            const SizedBox(height: 10),
+            photosAsync.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: LinearProgressIndicator(),
+              ),
+              error: (e, _) => Text('Gagal memuat foto: $e',
+                  style: const TextStyle(color: AppColors.slate500)),
+              data: (photos) {
+                Widget group(PhotoKind kind) => _PhotoGroup(
+                      kind: kind,
+                      photos:
+                          photos.where((p) => p.kind == kind).toList(),
+                      canUpload: widget.canUpload,
+                      busy: _busy,
+                      onAdd: () => _add(kind),
+                    );
+                return Column(
+                  children: [
+                    group(PhotoKind.sebelum),
+                    const SizedBox(height: 14),
+                    group(PhotoKind.sesudah),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Satu baris kelompok foto (sebelum/sesudah): label + thumbnail horizontal.
+class _PhotoGroup extends StatelessWidget {
+  const _PhotoGroup({
+    required this.kind,
+    required this.photos,
+    required this.canUpload,
+    required this.busy,
+    required this.onAdd,
+  });
+
+  final PhotoKind kind;
+  final List<JobPhoto> photos;
+  final bool canUpload;
+  final bool busy;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(kind.label,
+            style: const TextStyle(
+                color: AppColors.slate500,
+                fontSize: 13,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 88,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              for (final p in photos) _Thumb(photo: p),
+              if (canUpload) _AddTile(busy: busy, onTap: onAdd),
+              if (photos.isEmpty && !canUpload)
+                const _EmptyThumb(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Thumb extends ConsumerWidget {
+  const _Thumb({required this.photo});
+  final JobPhoto photo;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final urlAsync = ref.watch(signedPhotoUrlProvider(photo.path));
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: urlAsync.when(
+        loading: () => const _ThumbBox(child: Center(
+          child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+        )),
+        error: (_, __) => const _ThumbBox(
+          child: Icon(Icons.broken_image_outlined, color: AppColors.slate400),
+        ),
+        data: (url) => GestureDetector(
+          onTap: () => _openViewer(context, url),
+          child: _ThumbBox(
+            child: Image.network(url, fit: BoxFit.cover),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openViewer(BuildContext context, String url) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          title: Text(photo.kind.label),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            child: Image.network(url, fit: BoxFit.contain),
+          ),
+        ),
+      ),
+    ));
+  }
+}
+
+class _ThumbBox extends StatelessWidget {
+  const _ThumbBox({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: Container(
+        width: 88,
+        height: 88,
+        color: AppColors.slate100,
+        child: child,
+      ),
+    );
+  }
+}
+
+class _EmptyThumb extends StatelessWidget {
+  const _EmptyThumb();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ThumbBox(
+      child: Center(
+        child: Text('Belum ada',
+            style: TextStyle(color: AppColors.slate400, fontSize: 12)),
+      ),
+    );
+  }
+}
+
+class _AddTile extends StatelessWidget {
+  const _AddTile({required this.busy, required this.onTap});
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: busy ? null : onTap,
+      child: Container(
+        width: 88,
+        height: 88,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: AppColors.slate300),
+          color: AppColors.teal50,
+        ),
+        child: Center(
+          child: busy
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.add_a_photo_outlined,
+                        color: AppColors.teal700),
+                    SizedBox(height: 4),
+                    Text('Tambah',
+                        style: TextStyle(
+                            color: AppColors.teal700, fontSize: 12)),
+                  ],
+                ),
+        ),
+      ),
     );
   }
 }

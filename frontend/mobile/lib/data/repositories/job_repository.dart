@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/job_photo.dart';
 import '../models/service_order.dart';
 import '../models/technician_job.dart';
 
@@ -15,7 +18,26 @@ abstract interface class JobRepository {
   Future<List<TechnicianJob>> fetchJobs({String? technicianId});
   Future<TechnicianJob?> fetchJobById(String id);
   Future<List<ServiceOrder>> fetchOrders();
+
+  /// Foto bukti untuk satu job (urut terlama → terbaru).
+  Future<List<JobPhoto>> fetchPhotos(String jobId);
+
+  /// Unggah biner foto ke bucket `job-photos`; kembalikan object path yang
+  /// dicatat lewat RPC `add_job_photo`. Path unik per timestamp.
+  Future<String> uploadPhoto({
+    required String jobId,
+    required PhotoKind kind,
+    required Uint8List bytes,
+    required String ext,
+    required String contentType,
+  });
+
+  /// Signed URL sementara (privat) untuk menampilkan foto pada [path].
+  Future<String> signedPhotoUrl(String path, {int expiresInSeconds = 3600});
 }
+
+/// Nama bucket Storage privat untuk foto bukti pengerjaan.
+const String kJobPhotosBucket = 'job-photos';
 
 class SupabaseJobRepository implements JobRepository {
   SupabaseJobRepository(this._client);
@@ -47,6 +69,47 @@ class SupabaseJobRepository implements JobRepository {
         .order('created_at', ascending: false)
         .limit(100);
     return _enrichOrders(_asMaps(rows));
+  }
+
+  @override
+  Future<List<JobPhoto>> fetchPhotos(String jobId) async {
+    final rows = await _client
+        .from('job_photos')
+        .select()
+        .eq('job_id', jobId)
+        .order('created_at', ascending: true);
+    return [
+      for (final r in _asMaps(rows)) JobPhoto.fromMap(r['id'] as String, r),
+    ];
+  }
+
+  @override
+  Future<String> uploadPhoto({
+    required String jobId,
+    required PhotoKind kind,
+    required Uint8List bytes,
+    required String ext,
+    required String contentType,
+  }) async {
+    final path = buildJobPhotoPath(
+      jobId,
+      kind,
+      DateTime.now().millisecondsSinceEpoch,
+      ext,
+    );
+    await _client.storage.from(kJobPhotosBucket).uploadBinary(
+          path,
+          bytes,
+          fileOptions: FileOptions(contentType: contentType, upsert: false),
+        );
+    return path;
+  }
+
+  @override
+  Future<String> signedPhotoUrl(String path, {int expiresInSeconds = 3600}) {
+    return _client.storage
+        .from(kJobPhotosBucket)
+        .createSignedUrl(path, expiresInSeconds);
   }
 
   List<Map<String, dynamic>> _asMaps(dynamic rows) => [
