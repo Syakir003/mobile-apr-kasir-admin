@@ -71,7 +71,7 @@ final submitRequestCallerProvider =
   };
 });
 
-/// RPC `decide_material_request` (admin/kasir approve/reject).
+/// RPC `decide_material_request` (admin/kasir approve/revise/reject).
 final decideRequestCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
   return (payload) async {
@@ -81,11 +81,33 @@ final decideRequestCallerProvider =
   };
 });
 
+/// RPC `mark_material_used` (teknisi pemilik/admin menandai material dipakai →
+/// stok baru dipotong di sini).
+final markMaterialUsedCallerProvider =
+    Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
+  return (payload) async {
+    await ref
+        .read(supabaseProvider)
+        .rpc('mark_material_used', params: {'payload': payload});
+  };
+});
+
 /// Daftar order service (admin/kasir).
 final ordersProvider =
     FutureProvider.autoDispose<List<ServiceOrder>>(
   (ref) => ref.watch(jobRepositoryProvider).fetchOrders(),
 );
+
+/// RPC `create_service_order` — admin/kasir menjadwalkan order manual
+/// (service/maintenance/cuci) pada unit AC member yang sudah ada.
+final createServiceOrderCallerProvider =
+    Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
+  return (payload) async {
+    await ref
+        .read(supabaseProvider)
+        .rpc('create_service_order', params: {'payload': payload});
+  };
+});
 
 /// RPC `assign_technician_job`. Dipisah agar mudah di-override fake di test.
 final assignTechnicianCallerProvider =

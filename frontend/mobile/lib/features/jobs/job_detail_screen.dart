@@ -128,6 +128,10 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             _notes.text = job.notes!;
             _notesInit = true;
           }
+          // Foto SEBELUM menentukan boleh-tidaknya memulai (rule 8.3).
+          final photos = ref.watch(jobPhotosProvider(job.id)).value;
+          final hasBefore =
+              photos?.any((p) => p.kind == PhotoKind.sebelum) ?? false;
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -152,7 +156,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               const SizedBox(height: 12),
               JobRequestsSection(job: job),
               const SizedBox(height: 20),
-              ..._actions(job, role),
+              ..._actions(job, role, hasBefore),
             ],
           );
         },
@@ -160,7 +164,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     );
   }
 
-  List<Widget> _actions(TechnicianJob job, UserRole? role) {
+  List<Widget> _actions(TechnicianJob job, UserRole? role, bool hasBefore) {
     final isTeknisi = role == UserRole.teknisi;
     final isAdmin = role == UserRole.admin;
     final isKasir = role == UserRole.kasir;
@@ -169,10 +173,17 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     // Teknisi: mulai / selesaikan job miliknya.
     if (isTeknisi) {
       if (job.status == JobStatus.assigned) {
+        // Foto SEBELUM wajib sebelum memulai (rule 8.3) — tombol dikunci.
+        if (!hasBefore) {
+          widgets.add(const _LockHint(
+            text: 'Unggah foto SEBELUM dulu untuk memulai pekerjaan.',
+          ));
+          widgets.add(const SizedBox(height: 10));
+        }
         widgets.add(_primaryButton(
           icon: Icons.qr_code_scanner,
           label: 'Mulai Pekerjaan',
-          onPressed: () => _start(job),
+          onPressed: hasBefore ? () => _start(job) : null,
         ));
       } else if (job.status == JobStatus.sedangDikerjakan) {
         widgets.add(_primaryButton(
@@ -218,12 +229,12 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   Widget _primaryButton({
     required IconData icon,
     required String label,
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
   }) {
     return SizedBox(
       height: 52,
       child: FilledButton.icon(
-        onPressed: _busy ? null : onPressed,
+        onPressed: (_busy || onPressed == null) ? null : onPressed,
         icon: _busy
             ? const SizedBox(
                 height: 20,
@@ -453,6 +464,34 @@ class _StatusHint extends StatelessWidget {
           Expanded(
             child: Text(text,
                 style: const TextStyle(color: AppColors.slate600)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Petunjuk kuning saat sebuah aksi terkunci oleh prasyarat (mis. foto sebelum).
+class _LockHint extends StatelessWidget {
+  const _LockHint({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF3C7),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.lock_outline, size: 20, color: Color(0xFFB45309)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(text,
+                style: const TextStyle(color: Color(0xFF92400E), fontSize: 13)),
           ),
         ],
       ),

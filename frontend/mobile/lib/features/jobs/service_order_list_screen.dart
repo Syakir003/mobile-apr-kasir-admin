@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../data/models/service_order.dart';
 import 'job_providers.dart';
 
 /// Ringkasan order service (admin/kasir): member, jenis, progres unit selesai,
-/// dan status. Order dibuat otomatis dari checkout POS (jasa pasang), jadi
-/// layar ini read-only; penugasan & pengerjaan dilakukan di menu Job Teknisi.
+/// dan status. Order pemasangan lahir dari checkout POS; order service/
+/// maintenance/cuci dibuat manual lewat tombol tambah. Penugasan & pengerjaan
+/// dilakukan di menu Job Teknisi.
 class ServiceOrderListScreen extends ConsumerWidget {
   const ServiceOrderListScreen({super.key});
 
@@ -24,6 +26,11 @@ class ServiceOrderListScreen extends ConsumerWidget {
             onPressed: () => ref.invalidate(ordersProvider),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => context.go('/orders/new'),
+        icon: const Icon(Icons.add),
+        label: const Text('Order Baru'),
       ),
       body: ordersAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),

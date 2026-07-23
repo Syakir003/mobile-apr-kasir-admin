@@ -33,6 +33,9 @@ class JobRequestsSection extends ConsumerWidget {
         (job.status == JobStatus.assigned ||
             job.status == JobStatus.sedangDikerjakan);
     final canDecide = role == UserRole.admin || role == UserRole.kasir;
+    // Menandai material dipakai: teknisi pemilik job atau admin (kasir tidak).
+    final canUse = role == UserRole.admin ||
+        (role == UserRole.teknisi && job.technicianId == user?.uid);
     final requestsAsync = ref.watch(jobRequestsProvider(job.id));
 
     return Card(
@@ -80,6 +83,7 @@ class JobRequestsSection extends ConsumerWidget {
                         request: r,
                         jobId: job.id,
                         canDecide: canDecide,
+                        canUse: canUse,
                       ),
                   ],
                 );
@@ -109,11 +113,13 @@ class _RequestCard extends ConsumerStatefulWidget {
     required this.request,
     required this.jobId,
     required this.canDecide,
+    required this.canUse,
   });
 
   final MaterialRequest request;
   final String jobId;
   final bool canDecide;
+  final bool canUse;
 
   @override
   ConsumerState<_RequestCard> createState() => _RequestCardState();
@@ -122,7 +128,8 @@ class _RequestCard extends ConsumerStatefulWidget {
 class _RequestCardState extends ConsumerState<_RequestCard> {
   bool _busy = false;
 
-  Future<void> _decide(String decision, {String? note}) async {
+  Future<void> _decide(String decision,
+      {String? note, List<Map<String, dynamic>>? items}) async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -130,16 +137,52 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
         'requestId': widget.request.id,
         'decision': decision,
         if (note != null) 'note': note,
+        if (items != null) 'items': items,
       });
       ref.invalidate(jobRequestsProvider(widget.jobId));
       // Total invoice bisa berubah → segarkan detail job juga.
       ref.invalidate(jobProvider(widget.jobId));
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text(decision == 'approve'
-            ? 'Pengajuan disetujui.'
-            : 'Pengajuan ditolak.'),
+        content: Text(switch (decision) {
+          'approve' => 'Pengajuan disetujui.',
+          'revise' => 'Pengajuan disetujui dengan revisi.',
+          _ => 'Pengajuan ditolak.',
+        }),
       ));
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+        content: Text('$e'.replaceFirst('Exception: ', '')),
+        backgroundColor: AppColors.danger,
+      ));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Buka dialog revisi qty tiap item lalu setujui dengan nilai revisi.
+  Future<void> _reviseThenApprove() async {
+    final result = await showDialog<List<Map<String, dynamic>>>(
+      context: context,
+      builder: (_) => _ReviseDialog(request: widget.request),
+    );
+    if (result == null) return; // dibatalkan
+    await _decide('revise', items: result);
+  }
+
+  Future<void> _markUsed() async {
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(markMaterialUsedCallerProvider)({
+        'requestId': widget.request.id,
+      });
+      ref.invalidate(jobRequestsProvider(widget.jobId));
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Material ditandai dipakai — stok dipotong.')),
+      );
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
@@ -242,6 +285,21 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
                     fontSize: 12,
                     fontStyle: FontStyle.italic)),
           ],
+          if (r.isUsed) ...[
+            const SizedBox(height: 8),
+            const Row(
+              children: [
+                Icon(Icons.inventory_2_outlined,
+                    size: 16, color: AppColors.success),
+                SizedBox(width: 6),
+                Text('Material sudah dipakai (stok dipotong)',
+                    style: TextStyle(
+                        color: AppColors.success,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ],
           if (widget.canDecide && r.isPending) ...[
             const SizedBox(height: 10),
             Row(
@@ -256,7 +314,14 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
                     child: const Text('Tolak'),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _busy ? null : _reviseThenApprove,
+                    child: const Text('Revisi'),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: FilledButton(
                     onPressed: _busy ? null : () => _decide('approve'),
@@ -272,8 +337,133 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
               ],
             ),
           ],
+          // Disetujui tapi belum dipakai → teknisi/admin tandai dipakai
+          // (baru di sini stok dipotong; rule 8.4e).
+          if (widget.canUse && r.needsUsage) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _busy ? null : _markUsed,
+                icon: _busy
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.inventory_2_outlined, size: 18),
+                label: const Text('Gunakan Material'),
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// Dialog revisi: ubah qty tiap item (0 = hapus). Kembalikan [{itemId, qty}].
+class _ReviseDialog extends StatefulWidget {
+  const _ReviseDialog({required this.request});
+  final MaterialRequest request;
+
+  @override
+  State<_ReviseDialog> createState() => _ReviseDialogState();
+}
+
+class _ReviseDialogState extends State<_ReviseDialog> {
+  late final Map<String, num> _qty = {
+    for (final it in widget.request.items) it.id: it.qty,
+  };
+
+  int get _total {
+    var sum = 0;
+    for (final it in widget.request.items) {
+      sum += ((_qty[it.id] ?? 0) * it.unitPrice).round();
+    }
+    return sum;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Revisi Pengajuan'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Sesuaikan jumlah (0 = hapus item).',
+                style: TextStyle(color: AppColors.slate500, fontSize: 13)),
+            const SizedBox(height: 8),
+            for (final it in widget.request.items)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(it.name,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.slate900)),
+                          Text(formatRupiah(it.unitPrice),
+                              style: const TextStyle(
+                                  color: AppColors.slate500, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => setState(() {
+                        final q = (_qty[it.id] ?? 0);
+                        if (q > 0) _qty[it.id] = q - 1;
+                      }),
+                      icon: const Icon(Icons.remove_circle_outline),
+                      color: AppColors.slate500,
+                    ),
+                    Text('${_qty[it.id] ?? 0}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.slate900)),
+                    IconButton(
+                      onPressed: () =>
+                          setState(() => _qty[it.id] = (_qty[it.id] ?? 0) + 1),
+                      icon: const Icon(Icons.add_circle_outline),
+                      color: AppColors.teal600,
+                    ),
+                  ],
+                ),
+              ),
+            const Divider(),
+            Row(
+              children: [
+                const Text('Total revisi',
+                    style: TextStyle(color: AppColors.slate500)),
+                const Spacer(),
+                Text(formatRupiah(_total),
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, color: AppColors.slate900)),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Batal')),
+        FilledButton(
+          onPressed: _total <= 0
+              ? null
+              : () => Navigator.of(context).pop([
+                    for (final e in _qty.entries)
+                      {'itemId': e.key, 'qty': e.value},
+                  ]),
+          child: const Text('Setujui Revisi'),
+        ),
+      ],
     );
   }
 }

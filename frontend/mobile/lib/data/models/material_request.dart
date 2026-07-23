@@ -25,6 +25,7 @@ DateTime? _toDate(Object? v) => switch (v) {
 /// Satu baris item pengajuan (tabel `material_request_items`).
 class MaterialRequestItem {
   const MaterialRequestItem({
+    required this.id,
     required this.kind,
     required this.refId,
     required this.name,
@@ -34,6 +35,7 @@ class MaterialRequestItem {
     required this.lineTotal,
   });
 
+  final String id;
   final String kind; // 'product' | 'sparepart'
   final String refId;
   final String name;
@@ -44,6 +46,7 @@ class MaterialRequestItem {
 
   factory MaterialRequestItem.fromMap(Map<String, dynamic> data) =>
       MaterialRequestItem(
+        id: (data['id'] as String?) ?? '',
         kind: (data['kind'] as String?) ?? 'sparepart',
         refId: (data['ref_id'] as String?) ?? '',
         name: (data['name'] as String?) ?? '',
@@ -67,6 +70,7 @@ class MaterialRequest {
     this.decisionNote,
     this.createdAt,
     this.decidedAt,
+    this.usedAt,
     this.items = const [],
   });
 
@@ -79,9 +83,15 @@ class MaterialRequest {
   final String? decisionNote;
   final DateTime? createdAt;
   final DateTime? decidedAt;
+  final DateTime? usedAt;
   final List<MaterialRequestItem> items;
 
   bool get isPending => status == RequestStatus.pending;
+  bool get isApproved => status == RequestStatus.approved;
+
+  /// Disetujui tapi materialnya belum ditandai dipakai (stok belum dipotong).
+  bool get needsUsage => isApproved && usedAt == null;
+  bool get isUsed => usedAt != null;
 
   factory MaterialRequest.fromMap(String id, Map<String, dynamic> data) =>
       MaterialRequest(
@@ -94,6 +104,7 @@ class MaterialRequest {
         decisionNote: data['decision_note'] as String?,
         createdAt: _toDate(data['created_at']),
         decidedAt: _toDate(data['decided_at']),
+        usedAt: _toDate(data['used_at']),
         items: [
           for (final it in (data['items'] as List? ?? const []))
             MaterialRequestItem.fromMap(Map<String, dynamic>.from(it as Map)),
