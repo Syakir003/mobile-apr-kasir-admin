@@ -18,6 +18,7 @@ class CartLine {
     this.withInstallation = false,
     this.roomLocation = '',
     this.technicianId,
+    this.unitIds = const [],
   });
 
   final CartItemKind kind;
@@ -29,6 +30,11 @@ class CartLine {
   final bool withInstallation;
   final String roomLocation;
   final String? technicianId;
+
+  /// Unit AC member yang dikerjakan baris jasa ini (hanya untuk
+  /// [CartItemKind.service]). Jumlahnya maksimal [qty] — satu unit = satu job
+  /// teknisi yang lahir dari checkout (`serviceUnits` pada payload).
+  final List<String> unitIds;
 
   /// Subtotal baris: `round(qty * unitPrice)`, sama seperti rumus server.
   int get lineTotal => (qty * unitPrice).round();
@@ -47,6 +53,7 @@ class CartLine {
     String? roomLocation,
     String? technicianId,
     bool clearTechnicianId = false,
+    List<String>? unitIds,
   }) {
     return CartLine(
       kind: kind ?? this.kind,
@@ -59,6 +66,7 @@ class CartLine {
       roomLocation: roomLocation ?? this.roomLocation,
       technicianId:
           clearTechnicianId ? null : (technicianId ?? this.technicianId),
+      unitIds: unitIds ?? this.unitIds,
     );
   }
 }
@@ -72,6 +80,7 @@ class Cart {
     this.discount = 0,
     this.taxPercent = 0,
     this.transportFee = 0,
+    this.memberId = '',
     this.customerName = '',
     this.customerPhone = '',
     this.customerAddress = '',
@@ -82,26 +91,37 @@ class Cart {
   final int discount;
   final double taxPercent;
   final int transportFee;
+
+  /// Member yang dipilih dari daftar (kosong = pelanggan diketik manual).
+  /// TIDAK ikut dikirim ke server: `checkout_transaction` mencocokkan member
+  /// lewat nomor HP ternormalisasi. Field ini dipakai UI untuk mengunci
+  /// nama/HP agar tidak salah ketik dan membuat member kembar.
+  final String memberId;
   final String customerName;
   final String customerPhone;
   final String customerAddress;
   final String notes;
 
+  /// [clearMember]: set true untuk melepas pilihan member (kembali ke mode
+  /// pelanggan baru); tanpa flag ini `memberId: null` berarti "tidak diganti".
   Cart copyWith({
     List<CartLine>? lines,
     int? discount,
     double? taxPercent,
     int? transportFee,
+    String? memberId,
     String? customerName,
     String? customerPhone,
     String? customerAddress,
     String? notes,
+    bool clearMember = false,
   }) {
     return Cart(
       lines: lines ?? this.lines,
       discount: discount ?? this.discount,
       taxPercent: taxPercent ?? this.taxPercent,
       transportFee: transportFee ?? this.transportFee,
+      memberId: clearMember ? '' : (memberId ?? this.memberId),
       customerName: customerName ?? this.customerName,
       customerPhone: customerPhone ?? this.customerPhone,
       customerAddress: customerAddress ?? this.customerAddress,
@@ -180,6 +200,18 @@ Map<String, dynamic> buildCheckoutPayload(Cart cart) {
     }
   }
 
+  final serviceUnits = <Map<String, dynamic>>[];
+  for (var i = 0; i < cart.lines.length; i++) {
+    final line = cart.lines[i];
+    if (line.kind != CartItemKind.service) continue;
+    for (final unitId in line.unitIds) {
+      final entry = <String, dynamic>{'itemIndex': i, 'unitId': unitId};
+      final tech = line.technicianId;
+      if (tech != null && tech.isNotEmpty) entry['technicianId'] = tech;
+      serviceUnits.add(entry);
+    }
+  }
+
   final payload = <String, dynamic>{
     'customer': customer,
     'items': items,
@@ -190,7 +222,25 @@ Map<String, dynamic> buildCheckoutPayload(Cart cart) {
   final notes = cart.notes.trim();
   if (notes.isNotEmpty) payload['notes'] = notes;
   if (installations.isNotEmpty) payload['installations'] = installations;
+  if (serviceUnits.isNotEmpty) payload['serviceUnits'] = serviceUnits;
   return payload;
+}
+
+/// Baris jasa yang unit AC-nya belum dipilih sepenuhnya (jumlah unit terpilih
+/// < qty). Dipakai `checkout_screen.dart` untuk memblokir submit: satu unit =
+/// satu job teknisi, jadi qty 3 harus menunjuk 3 unit.
+///
+/// Hanya relevan saat pelanggan adalah member terdaftar; qty pecahan (mis.
+/// 1.5 jam jasa) dilewati karena tidak memetakan ke jumlah unit.
+List<int> incompleteServiceLines(Cart cart) {
+  final result = <int>[];
+  for (var i = 0; i < cart.lines.length; i++) {
+    final line = cart.lines[i];
+    if (line.kind != CartItemKind.service) continue;
+    if (line.qty != line.qty.roundToDouble()) continue;
+    if (line.unitIds.length < line.qty.round()) result.add(i);
+  }
+  return result;
 }
 
 /// Format rupiah sederhana tanpa dependensi `intl`: pemisah ribuan titik.

@@ -80,6 +80,83 @@ void main() {
       isNull,
     );
   });
+  test('kasir buka /users diarahkan ke / (manajemen akun admin-only)', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/users',
+      ),
+      '/',
+    );
+  });
+  test('kasir buka form akun juga diarahkan ke /', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/users/new',
+      ),
+      '/',
+    );
+  });
+  test('admin buka /users tidak di-redirect', () {
+    expect(
+      computeRedirect(
+        user: admin,
+        role: UserRole.admin,
+        loading: false,
+        location: '/users',
+      ),
+      isNull,
+    );
+  });
+  test('kasir buka /audit diarahkan ke /', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/audit',
+      ),
+      '/',
+    );
+  });
+  test('admin buka /audit tidak di-redirect', () {
+    expect(
+      computeRedirect(
+        user: admin,
+        role: UserRole.admin,
+        loading: false,
+        location: '/audit',
+      ),
+      isNull,
+    );
+  });
+  test('admin buka /stok/adjust tidak di-redirect', () {
+    expect(
+      computeRedirect(
+        user: admin,
+        role: UserRole.admin,
+        loading: false,
+        location: '/stok/adjust',
+      ),
+      isNull,
+    );
+  });
+  test('kasir buka /stok/adjust diarahkan ke /', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/stok/adjust',
+      ),
+      '/',
+    );
+  });
   test('kasir buka /members diarahkan ke /', () {
     expect(
       computeRedirect(
@@ -100,6 +177,20 @@ void main() {
         role: UserRole.teknisi,
         loading: false,
         location: '/scan',
+      ),
+      isNull,
+    );
+  });
+
+  test('teknisi buka riwayat unit tidak di-redirect', () {
+    const teknisi =
+        AppUser(uid: 't', email: 'e', displayName: 'd', role: UserRole.teknisi);
+    expect(
+      computeRedirect(
+        user: teknisi,
+        role: UserRole.teknisi,
+        loading: false,
+        location: '/units/u1/history',
       ),
       isNull,
     );

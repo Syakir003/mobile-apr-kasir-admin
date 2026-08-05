@@ -6,11 +6,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../data/models/ac_unit.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/installation_package.dart';
+import '../../data/models/managed_user.dart';
 import '../../data/models/member.dart';
 import '../../data/models/product.dart';
 import '../../data/models/service_item.dart';
 import '../../data/models/sparepart.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../features/audit/audit_log_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/jobs/job_detail_screen.dart';
@@ -18,6 +20,7 @@ import '../../features/jobs/job_list_screen.dart';
 import '../../features/jobs/service_order_create_screen.dart';
 import '../../features/jobs/service_order_list_screen.dart';
 import '../../features/reports/laporan_screen.dart';
+import '../../features/stock/stock_adjust_screen.dart';
 import '../../features/stock/stok_screen.dart';
 import '../../features/master/package/package_form_screen.dart';
 import '../../features/master/package/package_list_screen.dart';
@@ -31,6 +34,7 @@ import '../../features/members/member_detail_screen.dart';
 import '../../features/members/member_form_screen.dart';
 import '../../features/members/member_list_screen.dart';
 import '../../features/members/unit_form_screen.dart';
+import '../../features/members/unit_history_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 import '../../features/pos/checkout_screen.dart';
 import '../../features/pos/pos_screen.dart';
@@ -38,6 +42,8 @@ import '../../features/profile/profile_screen.dart';
 import '../../features/scan/scan_screen.dart';
 import '../../features/transactions/invoice_detail_screen.dart';
 import '../../features/transactions/invoice_list_screen.dart';
+import '../../features/users/user_form_screen.dart';
+import '../../features/users/user_list_screen.dart';
 import '../widgets/adaptive_scaffold.dart';
 import 'redirect.dart';
 
@@ -192,6 +198,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
             ],
           ),
+          // Riwayat service per unit AC. Sengaja di luar '/members' (yang
+          // admin-only) supaya teknisi bisa melihat riwayat unit yang
+          // dikerjakannya lewat detail job / hasil scan.
+          GoRoute(
+            path: '/units/:unitId/history',
+            builder: (_, state) => UnitHistoryScreen(
+              unitId: state.pathParameters['unitId']!,
+              initial: state.extra as AcUnit?,
+            ),
+          ),
           GoRoute(
             path: '/jobs',
             builder: (_, __) => const JobListScreen(),
@@ -215,12 +231,41 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
           GoRoute(
+            path: '/users',
+            builder: (_, __) => const UserListScreen(),
+            routes: [
+              // 'new' harus di atas ':id' — go_router memakai rute pertama
+              // yang cocok, dan ':id' juga akan menangkap "new".
+              GoRoute(
+                path: 'new',
+                builder: (_, __) => const UserFormScreen(),
+              ),
+              GoRoute(
+                path: ':id',
+                builder: (_, state) => UserFormScreen(
+                  userId: state.pathParameters['id'],
+                  initial: state.extra as ManagedUser?,
+                ),
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/audit',
+            builder: (_, __) => const AuditLogScreen(),
+          ),
+          GoRoute(
             path: '/laporan',
             builder: (_, __) => const LaporanScreen(),
           ),
           GoRoute(
             path: '/stok',
             builder: (_, __) => const StokScreen(),
+            routes: [
+              GoRoute(
+                path: 'adjust',
+                builder: (_, __) => const StockAdjustScreen(),
+              ),
+            ],
           ),
           GoRoute(path: '/scan', builder: (_, __) => const ScanScreen()),
           GoRoute(

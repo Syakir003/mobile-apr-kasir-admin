@@ -50,6 +50,9 @@ class FakeAcUnitRepository implements AcUnitRepository {
   }
 
   @override
+  Future<AcUnit?> findById(String id) async => _store[id];
+
+  @override
   Future<String> create(AcUnit u) async {
     final id = 'fake-unit-${_autoId++}';
     _store[id] = u.copyWith(id: id);

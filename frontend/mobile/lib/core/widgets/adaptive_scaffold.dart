@@ -61,6 +61,8 @@ List<Destination> destinationsForRole(UserRole? role) {
       job,
       (icon: Icons.inventory_outlined, label: 'Stok', route: '/stok'),
       (icon: Icons.bar_chart_outlined, label: 'Laporan', route: '/laporan'),
+      (icon: Icons.manage_accounts_outlined, label: 'Akun', route: '/users'),
+      (icon: Icons.history, label: 'Audit', route: '/audit'),
       scan,
       profile,
     ];

@@ -47,6 +47,16 @@ Migrasi backend (urut):
 | `..._pos_functions.sql` | RPC `checkout_transaction`, `record_payment`, dll |
 | `..._grants.sql` | GRANT tabel ke role `authenticated` |
 | `..._technician_jobs.sql` | RPC job teknisi + realtime order/job |
+| `..._job_photos.sql` | Foto bukti sebelum/sesudah |
+| `..._material_requests.sql` | Pengajuan material + approval |
+| `..._notifications.sql` | Notifikasi in-app |
+| `..._device_tokens.sql` / `..._push_trigger.sql` | Token perangkat + trigger push |
+| `..._service_order_manual.sql` | RPC `create_service_order` (order manual) |
+| `..._payment_approval_photo_rules.sql` | Rule bayar/approval/foto (8.3–8.5) |
+| `..._checkout_service_units.sql` | Jasa pada unit AC member lewat checkout |
+| `..._stock_manual.sql` | RPC `adjust_stock` (barang masuk & penyesuaian) |
+| `..._user_management.sql` | RPC `update_user_account` |
+| `..._audit_read_payment_info.sql` | Baca `audit_logs` (admin) + `job_payment_info` |
 
 ---
 
@@ -121,6 +131,12 @@ Ringkasan hak akses (detail lengkap di dokumen fitur §4.4):
 5. **Barcode unit** unik, format `ACUNIT-YYYYMMDD-NNNN`. Teknisi wajib scan &
    cocok sebelum memulai job (ditegakkan di RPC `update_technician_job_status`).
 6. **Uang dalam rupiah bulat (integer)**, bukan desimal.
+7. **Status bayar = peringatan, bukan blokir.** Job tetap boleh dimulai walau
+   invoice belum lunas — jasa AC lazim ditagih setelah pekerjaan selesai.
+   Aplikasi menampilkan badge sisa tagihan (`job_payment_info`); yang benar-benar
+   menahan tombol "Mulai" hanya foto SEBELUM + scan barcode.
+8. **Audit log tertutup kecuali admin.** Semua RPC menulis ke `audit_logs`;
+   yang boleh membacanya hanya admin (RLS), dan tidak ada jalur tulis dari client.
 
 ---
 
@@ -186,10 +202,67 @@ Status invoice dihitung otomatis (total invoice − total bayar).
 - `cancel`: hanya admin; job belum selesai.
 - Teknisi hanya boleh mengubah job miliknya.
 
+### `adjust_stock(payload)` — barang masuk / penyesuaian stok (admin)
+
+```jsonc
+{
+  "itemKind": "product",   // 'product' | 'sparepart'
+  "refId": "<uuid>",
+  "qtyChange": 10,          // <> 0; positif = masuk, negatif = keluar
+  "reason": "pembelian",   // 'pembelian' | 'koreksi' | 'retur' | 'rusak'
+  "note": ""
+}
+// return: { "ok": true, "stock": 24, "movementId": "<uuid>" }
+```
+
+Alasan otomatis milik sistem (`penjualan`, `pemakaian`) ditolak — mutasi manual
+tidak boleh menyamar sebagai penjualan. Stok tidak boleh jadi negatif.
+
+### `update_user_account(payload)` — kelola akun (admin)
+
+```jsonc
+{ "userId": "<uuid>", "role": "kasir", "active": true, "displayName": "Budi" }
+// field yang tidak dikirim = tidak diubah
+// return: { "ok": true, "userId": "...", "role": "...", "active": true, "displayName": "..." }
+```
+
+Penjaga: **admin tidak bisa menurunkan/menonaktifkan dirinya sendiri**. Karena
+pemanggil wajib admin aktif dan tak boleh menyentuh akunnya sendiri, jumlah admin
+aktif tidak pernah bisa turun ke nol. **Membuat akun baru** tidak lewat RPC —
+lihat Edge Function di bawah.
+
+### `job_payment_info(payload)` — status bayar di balik satu job
+
+```jsonc
+{ "jobId": "<uuid>" }
+// return: { "ok": true, "hasInvoice": true, "invoiceId": "...", "number": "INV-...",
+//           "status": "dp", "grandTotal": 500000, "totalPaid": 200000, "outstanding": 300000 }
+```
+
+Dipakai untuk **peringatan** (badge) di detail job — bukan blokir. Teknisi hanya
+boleh menanyakan job miliknya; `hasInvoice: false` untuk order manual yang belum
+ditagih.
+
 ### Lainnya
 
 - `generate_ac_unit_barcode(p_unit_id text)` → barcode untuk unit yang belum punya.
 - `save_installation_package(payload)` → simpan paket pemasangan + item-nya.
+
+---
+
+## Edge Functions
+
+Di `backend/supabase/functions/`. Deploy: `supabase functions deploy <nama>`.
+
+| Fungsi | Kegunaan | Secret |
+|--------|----------|--------|
+| `send-push` | Kirim FCM push saat baris `notifications` dibuat | `FCM_SERVICE_ACCOUNT`, `PUSH_WEBHOOK_SECRET` |
+| `admin-users` | Buat akun baru & reset password (butuh `service_role`) | — (pakai env bawaan runtime) |
+
+`admin-users` menerima `{ action: "create", email, password, displayName, role }`
+atau `{ action: "resetPassword", userId, password }`. Pemanggil wajib login dan
+perannya dicek **ke tabel** `public.users` (bukan sekadar klaim JWT), sehingga
+admin yang baru dinonaktifkan langsung kehilangan akses.
 
 ---
 
@@ -224,6 +297,7 @@ Nilai status (text snake_case di DB):
 | Transaksi POS | ✅ | ✅ |
 | Member otomatis + unit AC | ✅ | ✅ |
 | Barcode unit (generate + scan) | ✅ | ✅ |
+| Histori service per unit AC | ✅ (data) | ✅ (`/units/:id/history`) |
 | Pembayaran manual + invoice/struk PDF | ✅ | ✅ |
 | Order service + Job teknisi (assign/mulai/selesai) | ✅ | ✅ |
 | Stok & mutasi stok | ✅ | ✅ |
@@ -231,6 +305,9 @@ Nilai status (text snake_case di DB):
 | Foto bukti sebelum/sesudah | ✅ | ✅ (upload kamera/galeri di Job) |
 | Pengajuan sparepart/material + approval | ✅ | ✅ (ajukan + approve/tolak di Job) |
 | Notifikasi realtime (in-app) | ✅ | ✅ (Supabase Realtime; FCM push menyusul) |
+| Stok masuk & penyesuaian manual | ✅ (`adjust_stock`) | ✅ (`/stok/adjust`) |
+| Manajemen akun (buat/peran/nonaktif) | ✅ (RPC + Edge Function) | ✅ (`/users`) |
+| Riwayat audit | ✅ (baca admin) | ✅ (`/audit`) |
 
 Spesifikasi lengkap: **`Dokumen_Fitur_EPOS_AC_Mobile_Realtime.docx`**.
 

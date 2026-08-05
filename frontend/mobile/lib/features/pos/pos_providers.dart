@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/supabase/supabase_providers.dart';
+import '../../data/models/member.dart';
 import 'cart_state.dart';
 
 /// State keranjang aktif untuk satu sesi transaksi POS.
@@ -20,11 +21,19 @@ class CartNotifier extends Notifier<Cart> {
   }
 
   /// Mengatur qty baris ke-[index]. Qty <= 0 diabaikan (gunakan [removeAt]
-  /// untuk menghapus baris).
+  /// untuk menghapus baris). Unit AC terpilih yang melebihi qty baru dipangkas
+  /// agar jumlah unit tidak pernah melampaui qty (ditolak server).
   void setQty(int index, num qty) {
     if (qty <= 0) return;
     final lines = [...state.lines];
-    lines[index] = lines[index].copyWith(qty: qty);
+    final line = lines[index];
+    final maxUnits = qty.round();
+    lines[index] = line.copyWith(
+      qty: qty,
+      unitIds: line.unitIds.length > maxUnits
+          ? line.unitIds.sublist(0, maxUnits)
+          : null,
+    );
     state = state.copyWith(lines: lines);
   }
 
@@ -68,6 +77,70 @@ class CartNotifier extends Notifier<Cart> {
       customerPhone: phone,
       customerAddress: address,
     );
+  }
+
+  /// Memilih member terdaftar sebagai pelanggan transaksi: data pelanggan
+  /// diisi dari master member agar nomor HP persis sama dengan yang tersimpan
+  /// (server mencocokkan member lewat nomor HP — salah ketik satu digit
+  /// membuat member kembar). Unit AC yang sudah terpilih di baris jasa
+  /// direset karena unit milik member lama tidak berlaku lagi.
+  void selectMember(Member member) {
+    state = state.copyWith(
+      memberId: member.id,
+      customerName: member.name,
+      customerPhone: member.phone,
+      customerAddress: member.address,
+      lines: _linesWithoutUnits(),
+    );
+  }
+
+  /// Melepas pilihan member dan mengosongkan data pelanggan (pelanggan baru
+  /// yang akan dibuatkan member otomatis oleh server saat checkout).
+  void clearMember() {
+    state = state.copyWith(
+      clearMember: true,
+      customerName: '',
+      customerPhone: '',
+      customerAddress: '',
+      lines: _linesWithoutUnits(),
+    );
+  }
+
+  List<CartLine> _linesWithoutUnits() => [
+        for (final line in state.lines)
+          line.unitIds.isEmpty ? line : line.copyWith(unitIds: const []),
+      ];
+
+  /// Menandai/melepas unit AC pada baris jasa ke-[index]. Penambahan diabaikan
+  /// bila jumlah unit sudah mencapai qty baris (satu unit = satu job).
+  void toggleServiceUnit(int index, String unitId) {
+    final line = state.lines[index];
+    if (line.kind != CartItemKind.service) return;
+    final selected = [...line.unitIds];
+    if (selected.remove(unitId)) {
+      _replaceLine(index, line.copyWith(unitIds: selected));
+      return;
+    }
+    if (selected.length >= line.qty.round()) return;
+    _replaceLine(index, line.copyWith(unitIds: [...selected, unitId]));
+  }
+
+  /// Teknisi untuk seluruh unit pada baris jasa ke-[index]. Null =
+  /// "Belum ditentukan" (job lahir berstatus menunggu penugasan).
+  void setServiceTechnician(int index, String? technicianId) {
+    _replaceLine(
+      index,
+      state.lines[index].copyWith(
+        technicianId: technicianId,
+        clearTechnicianId: technicianId == null,
+      ),
+    );
+  }
+
+  void _replaceLine(int index, CartLine line) {
+    final lines = [...state.lines];
+    lines[index] = line;
+    state = state.copyWith(lines: lines);
   }
 
   void setNotes(String value) => state = state.copyWith(notes: value);

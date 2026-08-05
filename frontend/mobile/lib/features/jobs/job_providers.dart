@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/router/app_router.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/app_user.dart';
+import '../../data/models/invoice.dart';
 import '../../data/models/job_photo.dart';
 import '../../data/models/material_request.dart';
 import '../../data/models/service_order.dart';
@@ -25,6 +26,13 @@ final jobsForCurrentUserProvider =
       ? repo.fetchJobs(technicianId: user.uid)
       : repo.fetchJobs();
 });
+
+/// Riwayat job untuk satu unit AC (terbaru dulu), lintas teknisi & order.
+/// Semua peran boleh membaca (RLS `technician_jobs` = semua user login).
+final unitJobHistoryProvider =
+    FutureProvider.autoDispose.family<List<TechnicianJob>, String>(
+  (ref, unitId) => ref.watch(jobRepositoryProvider).fetchJobsByUnit(unitId),
+);
 
 /// Satu job by id (family). Null bila tidak ada.
 final jobProvider = FutureProvider.autoDispose.family<TechnicianJob?, String>(
@@ -118,6 +126,54 @@ final assignTechnicianCallerProvider =
         .rpc('assign_technician_job', params: {'payload': payload});
   };
 });
+
+/// Ringkasan tagihan di balik satu job.
+///
+/// [hasInvoice] false untuk job dari order manual yang memang belum ditagih.
+/// Diambil lewat RPC `job_payment_info` (SECURITY DEFINER) karena teknisi
+/// tidak punya akses baca tabel `invoices`.
+typedef JobPaymentInfo = ({
+  bool hasInvoice,
+  String invoiceId,
+  String number,
+  InvoiceStatus status,
+  int grandTotal,
+  int totalPaid,
+  int outstanding,
+});
+
+final jobPaymentInfoProvider =
+    FutureProvider.autoDispose.family<JobPaymentInfo, String>(
+  (ref, jobId) async {
+    final res = await ref.read(supabaseProvider).rpc(
+      'job_payment_info',
+      params: {
+        'payload': {'jobId': jobId},
+      },
+    );
+    final m = (res as Map).cast<String, dynamic>();
+    if (m['hasInvoice'] != true) {
+      return (
+        hasInvoice: false,
+        invoiceId: '',
+        number: '',
+        status: InvoiceStatus.belumDibayar,
+        grandTotal: 0,
+        totalPaid: 0,
+        outstanding: 0,
+      );
+    }
+    return (
+      hasInvoice: true,
+      invoiceId: '${m['invoiceId']}',
+      number: '${m['number']}',
+      status: InvoiceStatus.fromValue(m['status']),
+      grandTotal: (m['grandTotal'] as num?)?.toInt() ?? 0,
+      totalPaid: (m['totalPaid'] as num?)?.toInt() ?? 0,
+      outstanding: (m['outstanding'] as num?)?.toInt() ?? 0,
+    );
+  },
+);
 
 /// RPC `update_technician_job_status` (start/complete/cancel).
 final updateJobStatusCallerProvider =

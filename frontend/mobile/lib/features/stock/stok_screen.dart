@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
 import 'stock_providers.dart';
@@ -36,6 +37,12 @@ class _StokScreenState extends ConsumerState<StokScreen> {
             onPressed: () => ref.invalidate(stockOverviewProvider),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        key: const Key('stok-adjust-fab'),
+        onPressed: () => context.go('/stok/adjust'),
+        icon: const Icon(Icons.add),
+        label: const Text('Mutasi Stok'),
       ),
       body: Column(
         children: [

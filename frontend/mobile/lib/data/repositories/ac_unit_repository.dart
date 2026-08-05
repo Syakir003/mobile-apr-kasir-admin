@@ -7,6 +7,10 @@ import '../models/ac_unit.dart';
 abstract interface class AcUnitRepository {
   Stream<List<AcUnit>> watchByMember(String memberId);
   Future<AcUnit?> findByBarcode(String value);
+
+  /// Satu unit by id — dipakai layar riwayat service yang bisa dibuka tanpa
+  /// membawa objek unit (mis. dari detail job atau deep-link).
+  Future<AcUnit?> findById(String id);
   Future<String> create(AcUnit u);
   Future<void> update(String id, AcUnit u);
 }
@@ -40,6 +44,14 @@ class SupabaseAcUnitRepository implements AcUnitRepository {
         .eq('barcode_value', value)
         .limit(1)
         .maybeSingle();
+    if (row == null) return null;
+    return AcUnit.fromMap(row['id'] as String, row);
+  }
+
+  @override
+  Future<AcUnit?> findById(String id) async {
+    final row =
+        await _client.from(_table).select().eq('id', id).maybeSingle();
     if (row == null) return null;
     return AcUnit.fromMap(row['id'] as String, row);
   }

@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/ac_unit.dart';
+import '../../data/models/app_user.dart';
 import '../members/member_providers.dart';
 
 /// Layar scan barcode unit AC dengan fallback input manual.
@@ -130,15 +132,34 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                 width: double.infinity,
                 height: 50,
                 child: FilledButton.icon(
-                  key: const Key('open-member'),
-                  icon: const Icon(Icons.person_outline),
-                  label: const Text('Buka Member'),
+                  key: const Key('open-unit-history'),
+                  icon: const Icon(Icons.history),
+                  label: const Text('Riwayat Service Unit'),
                   onPressed: () {
                     Navigator.pop(sheetContext);
-                    context.go('/members/${unit.memberId}');
+                    context.go('/units/${unit.id}/history', extra: unit);
                   },
                 ),
               ),
+              // '/members' hanya untuk admin (guard router) — sembunyikan bagi
+              // kasir/teknisi supaya tidak terlempar balik ke dashboard.
+              if (ref.read(currentUserProvider).value?.role == UserRole.admin)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: OutlinedButton.icon(
+                      key: const Key('open-member'),
+                      icon: const Icon(Icons.person_outline),
+                      label: const Text('Buka Member'),
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        context.go('/members/${unit.memberId}');
+                      },
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

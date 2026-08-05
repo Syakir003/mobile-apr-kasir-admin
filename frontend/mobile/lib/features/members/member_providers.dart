@@ -29,6 +29,12 @@ final memberUnitsProvider = StreamProvider.family<List<AcUnit>, String>(
       ref.watch(acUnitRepositoryProvider).watchByMember(memberId),
 );
 
+/// Satu unit AC by id (family). Dipakai layar riwayat service yang dapat
+/// dibuka tanpa membawa objek unit (dari detail job / hasil scan).
+final acUnitProvider = FutureProvider.autoDispose.family<AcUnit?, String>(
+  (ref, unitId) => ref.watch(acUnitRepositoryProvider).findById(unitId),
+);
+
 /// Memanggil RPC `generate_ac_unit_barcode` untuk sebuah unit.
 /// Dipisah sebagai provider agar mudah di-override fake pada widget test.
 final acUnitBarcodeGeneratorProvider =

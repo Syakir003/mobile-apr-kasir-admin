@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -8,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/job_photo.dart';
 import '../../data/models/technician_job.dart';
+import '../pos/cart_state.dart' show formatRupiah;
 import '../pos/pos_providers.dart' show techniciansProvider;
 import 'job_list_screen.dart' show jobStatusColor;
 import 'job_providers.dart';
@@ -114,9 +116,22 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   Widget build(BuildContext context) {
     final jobAsync = ref.watch(jobProvider(widget.jobId));
     final role = ref.watch(currentUserProvider).value?.role;
+    final unitId = jobAsync.value?.unitId;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Detail Job')),
+      appBar: AppBar(
+        title: const Text('Detail Job'),
+        actions: [
+          // Teknisi perlu tahu apa yang pernah dikerjakan pada unit ini.
+          if (unitId != null)
+            IconButton(
+              key: const Key('unit-history'),
+              icon: const Icon(Icons.history),
+              tooltip: 'Riwayat Service Unit',
+              onPressed: () => context.go('/units/$unitId/history'),
+            ),
+        ],
+      ),
       body: jobAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Gagal memuat: $e')),
@@ -138,6 +153,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               _HeaderCard(job: job),
               const SizedBox(height: 12),
               _InfoCard(job: job),
+              _PaymentBanner(jobId: job.id),
               if (job.status == JobStatus.sedangDikerjakan &&
                   role == UserRole.teknisi) ...[
                 const SizedBox(height: 12),
@@ -243,6 +259,84 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
                     strokeWidth: 2, color: Colors.white))
             : Icon(icon),
         label: Text(label),
+      ),
+    );
+  }
+}
+
+/// Isi peringatan tagihan, atau null bila tidak perlu diperingatkan sama
+/// sekali: job tanpa invoice (order manual belum ditagih) atau sudah lunas.
+///
+/// [mendesak] true saat belum ada pembayaran sepeser pun — dibedakan dari
+/// DP/kurang bayar yang sudah sebagian tertagih.
+({String judul, bool mendesak})? paymentWarningFor(JobPaymentInfo? info) {
+  if (info == null || !info.hasInvoice || info.outstanding <= 0) return null;
+  final mendesak = info.totalPaid <= 0;
+  return (
+    judul: mendesak ? 'Tagihan belum dibayar' : 'Tagihan ${info.status.label}',
+    mendesak: mendesak,
+  );
+}
+
+/// Peringatan status bayar — BUKAN blokir. Job tetap boleh dimulai walau
+/// belum lunas (jasa AC lazim ditagih setelah pekerjaan selesai); teknisi
+/// hanya diberi tahu supaya bisa menagih di tempat.
+class _PaymentBanner extends ConsumerWidget {
+  const _PaymentBanner({required this.jobId});
+  final String jobId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final info = ref.watch(jobPaymentInfoProvider(jobId)).value;
+    final warning = paymentWarningFor(info);
+    if (warning == null) return const SizedBox.shrink();
+
+    final belumSamaSekali = warning.mendesak;
+    final color = belumSamaSekali ? AppColors.danger : AppColors.warning;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        key: const Key('job-payment-banner'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: color.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              belumSamaSekali
+                  ? Icons.error_outline
+                  : Icons.account_balance_wallet_outlined,
+              size: 20,
+              color: color,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    warning.judul,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700, color: color),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${info!.number} • sisa ${formatRupiah(info.outstanding)} '
+                    'dari ${formatRupiah(info.grandTotal)}',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.slate600),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

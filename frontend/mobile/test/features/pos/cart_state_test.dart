@@ -166,5 +166,85 @@ void main() {
         'technicianId': 't1',
       });
     }
+    // Tanpa unit terpilih, serviceUnits dihilangkan dari payload.
+    expect(payload.containsKey('serviceUnits'), isFalse);
+  });
+
+  test(
+      'buildCheckoutPayload: unit jasa jadi serviceUnits (satu entri per unit, teknisi baris ikut)',
+      () {
+    const cart = Cart(
+      customerName: 'Siti',
+      customerPhone: '081200001111',
+      lines: [
+        CartLine(
+          kind: CartItemKind.product,
+          refId: 'p1',
+          name: 'AC 1 PK',
+          unit: 'unit',
+          unitPrice: 3500000,
+          qty: 1,
+        ),
+        CartLine(
+          kind: CartItemKind.service,
+          refId: 's1',
+          name: 'Cuci AC',
+          unit: 'jasa',
+          unitPrice: 65000,
+          qty: 2,
+          technicianId: 't1',
+          unitIds: ['u1', 'u2'],
+        ),
+        CartLine(
+          kind: CartItemKind.service,
+          refId: 's2',
+          name: 'Isi Freon',
+          unit: 'jasa',
+          unitPrice: 120000,
+          qty: 1,
+          unitIds: ['u1'],
+        ),
+      ],
+    );
+
+    final payload = buildCheckoutPayload(cart);
+    expect(payload['serviceUnits'], [
+      {'itemIndex': 1, 'unitId': 'u1', 'technicianId': 't1'},
+      {'itemIndex': 1, 'unitId': 'u2', 'technicianId': 't1'},
+      {'itemIndex': 2, 'unitId': 'u1'},
+    ]);
+  });
+
+  test('incompleteServiceLines: baris jasa yang unitnya kurang dari qty', () {
+    const lengkap = CartLine(
+      kind: CartItemKind.service,
+      refId: 's1',
+      name: 'Cuci AC',
+      unit: 'jasa',
+      unitPrice: 65000,
+      qty: 2,
+      unitIds: ['u1', 'u2'],
+    );
+    const kurang = CartLine(
+      kind: CartItemKind.service,
+      refId: 's2',
+      name: 'Isi Freon',
+      unit: 'jasa',
+      unitPrice: 120000,
+      qty: 2,
+      unitIds: ['u1'],
+    );
+    const produk = CartLine(
+      kind: CartItemKind.product,
+      refId: 'p1',
+      name: 'AC 1 PK',
+      unit: 'unit',
+      unitPrice: 3500000,
+      qty: 3,
+    );
+
+    expect(incompleteServiceLines(const Cart(lines: [lengkap, produk])),
+        isEmpty);
+    expect(incompleteServiceLines(const Cart(lines: [lengkap, kurang])), [1]);
   });
 }

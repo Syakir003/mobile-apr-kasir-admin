@@ -18,6 +18,11 @@ abstract interface class JobRepository {
   /// Job teknisi; bila [technicianId] diisi hanya job milik teknisi tsb.
   Future<List<TechnicianJob>> fetchJobs({String? technicianId});
   Future<TechnicianJob?> fetchJobById(String id);
+
+  /// Riwayat job untuk satu unit AC (terbaru dulu) — pemasangan, cuci,
+  /// service, maintenance. Dipakai layar "Riwayat Service" per unit.
+  Future<List<TechnicianJob>> fetchJobsByUnit(String unitId);
+
   Future<List<ServiceOrder>> fetchOrders();
 
   /// Foto bukti untuk satu job (urut terlama → terbaru).
@@ -63,6 +68,17 @@ class SupabaseJobRepository implements JobRepository {
     final rows = await _client.from('technician_jobs').select().eq('id', id);
     final list = await _enrichJobs(_asMaps(rows));
     return list.isEmpty ? null : list.first;
+  }
+
+  @override
+  Future<List<TechnicianJob>> fetchJobsByUnit(String unitId) async {
+    final rows = await _client
+        .from('technician_jobs')
+        .select()
+        .eq('unit_id', unitId)
+        .order('created_at', ascending: false)
+        .limit(100);
+    return _enrichJobs(_asMaps(rows));
   }
 
   @override

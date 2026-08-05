@@ -85,8 +85,20 @@ class MemberDetailScreen extends ConsumerWidget {
                             title: Text('${u.brand} ${u.model}'),
                             subtitle: Text(_unitSubtitle(u)),
                             isThreeLine: true,
+                            // Ketuk unit = lihat riwayat service-nya; edit
+                            // dipindah ke tombol agar tak saling tabrakan.
+                            trailing: IconButton(
+                              key: Key('edit-unit-${u.id}'),
+                              icon: const Icon(Icons.edit_outlined,
+                                  color: AppColors.slate400),
+                              tooltip: 'Edit Unit',
+                              onPressed: () => context.go(
+                                '/members/$memberId/units/${u.id}/edit',
+                                extra: u,
+                              ),
+                            ),
                             onTap: () => context.go(
-                              '/members/$memberId/units/${u.id}/edit',
+                              '/units/${u.id}/history',
                               extra: u,
                             ),
                           ),
