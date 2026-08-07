@@ -388,6 +388,12 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Dipanggil oleh trigger DB (pg_net), yang tak punya JWT — hanya mengirim
+# header `x-push-secret`. Otorisasinya dicek di dalam fungsi itu sendiri
+# terhadap PUSH_WEBHOOK_SECRET, jadi verifikasi JWT harus dimatikan di sini.
+[functions.send-push]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

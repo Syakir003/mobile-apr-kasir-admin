@@ -5,6 +5,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/app_user.dart';
+import '../../core/utils/error_message.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/form_field.dart';
+import '../../core/theme/app_motion.dart';
 
 String _roleLabel(UserRole role) => switch (role) {
       UserRole.admin => 'Admin',
@@ -21,7 +25,7 @@ class ProfileScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Profil Saya')),
       body: user == null
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppSkeletonDetail()
           : ListView(
               padding: const EdgeInsets.all(20),
               children: [
@@ -38,12 +42,9 @@ class ProfileScreen extends ConsumerWidget {
                   child: OutlinedButton.icon(
                     onPressed: () =>
                         ref.read(authRepositoryProvider).signOut(),
-                    icon: const Icon(Icons.logout, color: AppColors.red600),
+                    icon: const Icon(Icons.logout, color: AppColors.coral),
                     label: const Text('Logout'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.red600,
-                      side: const BorderSide(color: Color(0xFFFECACA)),
-                    ),
+                    style: AppButtonStyles.destructive(),
                   ),
                 ),
               ],
@@ -109,7 +110,7 @@ class _ProfileCard extends StatelessWidget {
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
               decoration: BoxDecoration(
                 color: AppColors.slate100,
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: BorderRadius.circular(AppRadius.pill),
                 border: Border.all(color: AppColors.slate200),
               ),
               child: Text(
@@ -270,7 +271,7 @@ class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
       setState(() => _busy = false);
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Gagal mengubah password: $e'),
+          content: Text('Gagal mengubah password: ${errorMessage(e)}'),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -284,6 +285,9 @@ class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
       padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + bottom),
       child: Form(
         key: _formKey,
+        // Pesan validasi hilang begitu field diperbaiki, tidak
+        // menunggu tombol submit ditekan lagi.
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -300,40 +304,43 @@ class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
             const Text('Minimal 6 karakter.',
                 style: TextStyle(color: AppColors.slate500)),
             const SizedBox(height: 20),
-            TextFormField(
+            AppPasswordField(
+              label: 'Password Baru',
+              required: true,
+              hint: 'Minimal 6 karakter',
               controller: _password,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Password Baru',
-                prefixIcon: Icon(Icons.lock_outline),
-              ),
+              enabled: !_busy,
+              autofillHints: const [AutofillHints.newPassword],
               validator: (v) => (v == null || v.length < 6)
                   ? 'Minimal 6 karakter'
                   : null,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
+            const SizedBox(height: kFieldGap),
+            AppPasswordField(
+              label: 'Konfirmasi Password',
+              required: true,
+              hint: 'Ketik ulang password baru',
               controller: _confirm,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Konfirmasi Password',
-                prefixIcon: Icon(Icons.lock_outline),
-              ),
+              enabled: !_busy,
               validator: (v) =>
                   v != _password.text ? 'Password tidak sama' : null,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
             SizedBox(
               height: 50,
               child: FilledButton(
                 onPressed: _busy ? null : _submit,
-                child: _busy
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Simpan Password'),
+                child: AppSwap(
+                  alignment: Alignment.center,
+                  switchKey: _busy,
+                  child: _busy
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Simpan Password'),
+                ),
               ),
             ),
           ],

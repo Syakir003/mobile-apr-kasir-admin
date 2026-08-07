@@ -3,9 +3,10 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../../core/pdf/pdf_theme.dart';
+import '../../core/utils/currency.dart';
 import '../../data/models/invoice.dart';
 import '../../data/models/manual_payment.dart';
-import '../pos/cart_state.dart' show formatRupiah;
 
 /// Struk 80mm (roll80) untuk sebuah [invoice] beserta daftar [payments].
 /// Dipakai lewat `Printing.layoutPdf` (pola `unit_label_pdf.dart`). Struk
@@ -14,7 +15,8 @@ Future<Uint8List> buildReceiptPdf(
   Invoice invoice,
   List<ManualPayment> payments,
 ) async {
-  final doc = pw.Document();
+  final doc = pw.Document(theme: await pdfTheme());
+  final logo = await pdfLogo();
   doc.addPage(
     pw.Page(
       pageFormat: PdfPageFormat.roll80,
@@ -22,6 +24,8 @@ Future<Uint8List> buildReceiptPdf(
       build: (context) => pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
+          pw.Center(child: pw.Image(logo, height: 24)),
+          pw.SizedBox(height: 4),
           pw.Center(
             child: pw.Text(
               'Ayub Podo Rukun',

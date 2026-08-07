@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_filter_chip.dart';
 import 'stock_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 const _reasonLabel = {
   'penjualan': 'Penjualan',
@@ -50,23 +53,16 @@ class _StokScreenState extends ConsumerState<StokScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Row(
               children: [
-                _Seg(label: 'Stok', selected: _tab == 0, onTap: () => setState(() => _tab = 0)),
+                AppFilterChip(label: 'Stok', selected: _tab == 0, onTap: () => setState(() => _tab = 0)),
                 const SizedBox(width: 8),
-                _Seg(label: 'Mutasi', selected: _tab == 1, onTap: () => setState(() => _tab = 1)),
+                AppFilterChip(label: 'Mutasi', selected: _tab == 1, onTap: () => setState(() => _tab = 1)),
               ],
             ),
           ),
           Expanded(
             child: async.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text('Gagal memuat stok: $e',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: AppColors.slate500)),
-                ),
-              ),
+              loading: () => const AppSkeletonList(),
+              error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat stok'),
               data: (d) => _tab == 0 ? _stockList(d) : _movementList(d.movements),
             ),
           ),
@@ -165,7 +161,8 @@ class _StockTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: row.low ? const Color(0xFFFDE68A) : AppColors.slate200),
+        border: Border.all(
+            color: row.low ? AppColors.amberBorder : AppColors.hairline),
       ),
       child: Row(
         children: [
@@ -188,38 +185,6 @@ class _StockTile extends StatelessWidget {
                 color: row.low ? AppColors.warning : AppColors.slate700),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Seg extends StatelessWidget {
-  const _Seg({required this.label, required this.selected, required this.onTap});
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? AppColors.teal600 : Colors.white,
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-                color: selected ? AppColors.teal600 : AppColors.slate200),
-          ),
-          child: Text(label,
-              style: TextStyle(
-                  color: selected ? Colors.white : AppColors.slate600,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13)),
-        ),
       ),
     );
   }

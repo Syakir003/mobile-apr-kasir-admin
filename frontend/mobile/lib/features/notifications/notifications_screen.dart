@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/app_notification.dart';
 import 'notifications_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Daftar notifikasi in-app. Semua ditandai terbaca saat layar dibuka; ketuk
 /// item job untuk membuka detail job terkait.
@@ -32,8 +34,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Notifikasi')),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Gagal memuat: $e')),
+        loading: () => const AppSkeletonList(),
+        error: (e, _) => AppErrorState(error: e),
         data: (items) {
           if (items.isEmpty) {
             return const _EmptyState();

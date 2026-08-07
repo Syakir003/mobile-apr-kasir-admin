@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/currency.dart';
+import '../../../core/utils/error_message.dart';
+import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/form_field.dart';
+import '../../../core/widgets/form_scaffold.dart';
 import '../../../data/models/installation_package.dart';
 import '../../../data/models/sparepart.dart';
 import '../master_providers.dart';
@@ -98,7 +103,7 @@ class _PackageFormScreenState extends ConsumerState<PackageFormScreen> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal menyimpan: $e'),
+          content: Text('Gagal menyimpan: ${errorMessage(e)}'),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -109,100 +114,145 @@ class _PackageFormScreenState extends ConsumerState<PackageFormScreen> {
   Widget build(BuildContext context) {
     final sparepartsAsync = ref.watch(sparepartListProvider);
     final spareparts = sparepartsAsync.value ?? const <Sparepart>[];
-    return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit Paket' : 'Tambah Paket')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+    return AppFormScaffold(
+      title: _isEdit ? 'Edit Paket' : 'Tambah Paket',
+      formKey: _formKey,
+      busy: _busy,
+      submitLabel: 'Simpan',
+      submitKey: const Key('submit'),
+      onSubmit: _submit,
+      children: [
+        AppFormCard(
+          title: 'Detail Paket',
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-            TextFormField(
+            AppTextField(
               key: const Key('name'),
+              label: 'Nama Paket',
+              required: true,
+              hint: 'Contoh: Paket Servis Rutin',
               controller: _name,
-              decoration: const InputDecoration(labelText: 'Nama Paket'),
+              enabled: !_busy,
               validator: _requiredValidator,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
+            const SizedBox(height: kFieldGap),
+            AppTextField(
               key: const Key('description'),
-              controller: _description,
+              label: 'Deskripsi',
+              hint: 'Apa saja yang termasuk dalam paket ini...',
               maxLines: 3,
-              decoration:
-                  const InputDecoration(labelText: 'Deskripsi (opsional)'),
+              controller: _description,
+              enabled: !_busy,
             ),
-            const SizedBox(height: 12),
-            SwitchListTile(
+            const SizedBox(height: kFieldGap),
+            AppSwitchTile(
               key: const Key('active'),
-              title: const Text('Aktif'),
+              title: 'Paket Aktif',
+              subtitle: 'Tampil di pilihan kasir dan teknisi.',
               value: _active,
-              onChanged: (v) => setState(() => _active = v),
-            ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Item Paket',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                TextButton.icon(
-                  key: const Key('add-item'),
-                  onPressed: () => _addItem(spareparts),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Tambah Item'),
-                ),
-              ],
-            ),
-            if (_items.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
-                child: Text('Belum ada item.'),
-              )
-            else
-              for (var i = 0; i < _items.length; i++)
-                Card(
-                  child: ListTile(
-                    title: Text(_items[i].name),
-                    subtitle: Text(
-                      '${_items[i].qty} ${_items[i].unit} • Rp ${_items[i].extraPricePerUnit}/unit',
-                    ),
-                    trailing: IconButton(
-                      key: Key('remove-item-$i'),
-                      icon: const Icon(Icons.delete_outline),
-                      color: AppColors.danger,
-                      onPressed: () => _removeItem(i),
-                    ),
-                  ),
-                ),
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 50,
-              width: double.infinity,
-              child: FilledButton(
-                key: const Key('submit'),
-                onPressed: _busy ? null : _submit,
-                child: _busy
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Simpan'),
-              ),
+              onChanged: _busy ? null : (v) => setState(() => _active = v),
             ),
           ],
         ),
+        const SizedBox(height: AppSpacing.grid),
+        AppFormCard(
+          title: 'Item Paket',
+          subtitle: 'Sparepart yang otomatis ikut saat paket ini dipilih.',
+          children: [
+            if (_items.isEmpty)
+              const AppEmptyState(
+                icon: Icons.inventory_2_outlined,
+                title: 'Belum ada item',
+                message: 'Paket masih boleh disimpan tanpa item.',
+                compact: true,
+              )
+            else
+              for (var i = 0; i < _items.length; i++)
+                AppRevealIn.at(
+                  i,
+                  rise: 8,
+                  child: Padding(
+                    padding: EdgeInsets.only(top: i == 0 ? 0 : 8),
+                    child: _ItemRow(
+                      item: _items[i],
+                      onRemove: () => _removeItem(i),
+                      removeKey: Key('remove-item-$i'),
+                    ),
+                  ),
+                ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              key: const Key('add-item'),
+              onPressed: _busy ? null : () => _addItem(spareparts),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Tambah Item'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Satu baris item paket di dalam kartu — kartu di dalam kartu dihindari,
+/// jadi barisnya cuma permukaan Mist dengan tombol hapus di kanan.
+class _ItemRow extends StatelessWidget {
+  const _ItemRow({
+    required this.item,
+    required this.onRemove,
+    required this.removeKey,
+  });
+
+  final PackageItem item;
+  final VoidCallback onRemove;
+  final Key removeKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+      decoration: BoxDecoration(
+        color: AppColors.mist,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  item.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: AppFonts.display,
+                    fontSize: 14,
+                    height: 20 / 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textInk,
+                  ),
+                ),
+                Text(
+                  '${item.qty} ${item.unit} • ${formatRupiah(item.extraPricePerUnit)}/unit',
+                  style: const TextStyle(
+                    fontFamily: AppFonts.body,
+                    fontSize: 12,
+                    height: 16 / 12,
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            key: removeKey,
+            icon: const Icon(Icons.delete_outline),
+            color: AppColors.danger,
+            tooltip: 'Hapus item',
+            onPressed: onRemove,
+          ),
+        ],
       ),
     );
   }
@@ -228,7 +278,8 @@ class _PackageItemDialogState extends State<_PackageItemDialog> {
   void initState() {
     super.initState();
     _selected = widget.spareparts.first;
-    _extraPrice = TextEditingController(text: '${_selected.sellPrice}');
+    _extraPrice =
+        TextEditingController(text: formatRupiahInput(_selected.sellPrice));
   }
 
   @override
@@ -243,18 +294,13 @@ class _PackageItemDialogState extends State<_PackageItemDialog> {
     setState(() {
       _selected = s;
       // Harga ekstra otomatis dari sellPrice sparepart (bisa diedit lagi).
-      _extraPrice.text = '${s.sellPrice}';
+      _extraPrice.text = formatRupiahInput(s.sellPrice);
     });
   }
 
   String? _numValidator(String? v) {
     if (v == null || v.trim().isEmpty) return 'Wajib diisi';
     return num.tryParse(v.trim()) == null ? 'Harus berupa angka' : null;
-  }
-
-  String? _intValidator(String? v) {
-    if (v == null || v.trim().isEmpty) return 'Wajib diisi';
-    return int.tryParse(v.trim()) == null ? 'Harus berupa angka' : null;
   }
 
   void _save() {
@@ -265,7 +311,7 @@ class _PackageItemDialogState extends State<_PackageItemDialog> {
         name: _selected.name,
         qty: num.parse(_qty.text.trim()),
         unit: _selected.unit,
-        extraPricePerUnit: int.parse(_extraPrice.text.trim()),
+        extraPricePerUnit: parseRupiahInput(_extraPrice.text),
       ),
     );
   }
@@ -276,43 +322,48 @@ class _PackageItemDialogState extends State<_PackageItemDialog> {
       title: const Text('Tambah Item'),
       content: Form(
         key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DropdownButtonFormField<Sparepart>(
-              key: const Key('item-sparepart'),
-              initialValue: _selected,
-              decoration: const InputDecoration(labelText: 'Sparepart'),
-              items: [
-                for (final s in widget.spareparts)
-                  DropdownMenuItem(value: s, child: Text(s.name)),
-              ],
-              onChanged: _onSparepartChanged,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('item-qty'),
-              controller: _qty,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              decoration: InputDecoration(
-                labelText: 'Qty (${_selected.unit})',
+        // Pesan validasi hilang begitu field diperbaiki, tidak
+        // menunggu tombol submit ditekan lagi.
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        child: SizedBox(
+          // Dialog Material melebar mengikuti isinya; tanpa lebar tetap,
+          // kolom-kolomnya menyusut sampai labelnya terpotong.
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AppSelectField<Sparepart>(
+                key: const Key('item-sparepart'),
+                label: 'Sparepart',
+                required: true,
+                value: _selected,
+                items: [
+                  for (final s in widget.spareparts)
+                    DropdownMenuItem(value: s, child: Text(s.name)),
+                ],
+                onChanged: _onSparepartChanged,
               ),
-              validator: _numValidator,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('item-extra-price'),
-              controller: _extraPrice,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration:
-                  const InputDecoration(labelText: 'Harga Ekstra / unit'),
-              validator: _intValidator,
-            ),
-          ],
+              const SizedBox(height: kFieldGap),
+              AppNumberField(
+                key: const Key('item-qty'),
+                label: 'Qty',
+                required: true,
+                decimal: true,
+                suffixText: _selected.unit,
+                controller: _qty,
+                validator: _numValidator,
+              ),
+              const SizedBox(height: kFieldGap),
+              AppMoneyField(
+                key: const Key('item-extra-price'),
+                label: 'Harga Ekstra / unit',
+                required: true,
+                controller: _extraPrice,
+                validator: rupiahRequiredValidator,
+              ),
+            ],
+          ),
         ),
       ),
       actions: [

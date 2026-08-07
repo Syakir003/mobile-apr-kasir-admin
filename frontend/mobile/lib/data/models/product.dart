@@ -80,7 +80,9 @@ class Product {
       'btu': btu,
       'watt': watt,
       'warranty': warranty,
-      'buy_price': buyPrice,
+      // `buy_price` TIDAK ikut: sejak migrasi 0021 kolomnya sudah dipindah ke
+      // tabel `item_costs` (khusus admin). Menyertakannya di sini membuat
+      // insert/update gagal — kolomnya tak ada lagi di `products`.
       'sell_price': sellPrice,
       'stock': stock,
       'photo_url': photoUrl,

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:epos_ac/core/widgets/form_field.dart';
 
 const _admin =
     AppUser(uid: 'a1', email: 'a@x.id', displayName: 'Adm', role: UserRole.admin);
@@ -219,7 +220,10 @@ void main() {
     );
     expect(role.onChanged, isNull);
 
-    final active = tester.widget<SwitchListTile>(
+    // Sakelar akun kini memakai `AppSwitchTile` (baris penuh bisa ditekan),
+    // bukan `SwitchListTile` bawaan; kontraknya tetap sama — `onChanged` null
+    // berarti terkunci.
+    final active = tester.widget<AppSwitchTile>(
       find.byKey(const Key('user-active')),
     );
     expect(active.onChanged, isNull);

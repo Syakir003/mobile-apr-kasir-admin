@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/form_field.dart';
+import '../../../core/widgets/form_scaffold.dart';
 import '../../../data/models/service_item.dart';
 import '../master_providers.dart';
+import '../../../core/utils/error_message.dart';
 
 class ServiceFormScreen extends ConsumerStatefulWidget {
   const ServiceFormScreen({super.key, this.initial});
@@ -34,7 +36,9 @@ class _ServiceFormScreenState extends ConsumerState<ServiceFormScreen> {
     final s = widget.initial;
     _name = TextEditingController(text: s?.name ?? '');
     _category = TextEditingController(text: s?.category ?? '');
-    _basePrice = TextEditingController(text: s == null ? '' : '${s.basePrice}');
+    _basePrice = TextEditingController(
+      text: s == null ? '' : formatRupiahInput(s.basePrice),
+    );
     _duration =
         TextEditingController(text: s?.durationMinutes?.toString() ?? '');
     _description = TextEditingController(text: s?.description ?? '');
@@ -70,7 +74,7 @@ class _ServiceFormScreenState extends ConsumerState<ServiceFormScreen> {
       id: widget.initial?.id ?? '',
       name: _name.text.trim(),
       category: _category.text.trim(),
-      basePrice: int.parse(_basePrice.text.trim()),
+      basePrice: parseRupiahInput(_basePrice.text),
       durationMinutes: durText.isEmpty ? null : int.parse(durText),
       description: descText.isEmpty ? null : descText,
       active: _active,
@@ -92,7 +96,7 @@ class _ServiceFormScreenState extends ConsumerState<ServiceFormScreen> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal menyimpan: $e'),
+          content: Text('Gagal menyimpan: ${errorMessage(e)}'),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -101,91 +105,83 @@ class _ServiceFormScreenState extends ConsumerState<ServiceFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit Jasa' : 'Tambah Jasa')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+    return AppFormScaffold(
+      title: _isEdit ? 'Edit Jasa' : 'Tambah Jasa',
+      formKey: _formKey,
+      busy: _busy,
+      submitLabel: 'Simpan',
+      submitKey: const Key('submit'),
+      onSubmit: _submit,
+      children: [
+        AppFormCard(
+          title: 'Detail Jasa',
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-            TextFormField(
+            AppTextField(
               key: const Key('name'),
+              label: 'Nama',
+              required: true,
+              hint: 'Contoh: Cuci AC Split',
               controller: _name,
-              decoration: const InputDecoration(labelText: 'Nama'),
+              enabled: !_busy,
               validator: _requiredValidator,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
+            const SizedBox(height: kFieldGap),
+            AppTextField(
               key: const Key('category'),
+              label: 'Kategori',
+              required: true,
               controller: _category,
-              decoration: const InputDecoration(labelText: 'Kategori'),
+              enabled: !_busy,
               validator: _requiredValidator,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('basePrice'),
-              controller: _basePrice,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(labelText: 'Harga Dasar'),
-              validator: (v) => _intValidator(v),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('duration'),
-              controller: _duration,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(
-                labelText: 'Durasi (menit, opsional)',
-              ),
-              validator: (v) => _intValidator(v, required: false),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('description'),
-              controller: _description,
-              maxLines: 3,
-              decoration:
-                  const InputDecoration(labelText: 'Deskripsi (opsional)'),
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              key: const Key('active'),
-              title: const Text('Aktif'),
-              value: _active,
-              onChanged: (v) => setState(() => _active = v),
-            ),
-            const SizedBox(height: 24),
-                  ],
+            const SizedBox(height: kFieldGap),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: AppMoneyField(
+                    key: const Key('basePrice'),
+                    label: 'Harga Dasar',
+                    required: true,
+                    controller: _basePrice,
+                    enabled: !_busy,
+                    validator: rupiahRequiredValidator,
+                  ),
                 ),
-              ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: AppNumberField(
+                    key: const Key('duration'),
+                    label: 'Estimasi Durasi',
+                    hint: '45',
+                    suffixText: 'menit',
+                    controller: _duration,
+                    enabled: !_busy,
+                    validator: (v) => _intValidator(v, required: false),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 50,
-              width: double.infinity,
-              child: FilledButton(
-                key: const Key('submit'),
-                onPressed: _busy ? null : _submit,
-                child: _busy
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Simpan'),
-              ),
+            const SizedBox(height: kFieldGap),
+            AppTextField(
+              key: const Key('description'),
+              label: 'Keterangan Singkat',
+              hint: 'Deskripsi layanan atau rincian pekerjaan...',
+              maxLines: 3,
+              controller: _description,
+              enabled: !_busy,
+            ),
+            const SizedBox(height: kFieldGap),
+            AppSwitchTile(
+              key: const Key('active'),
+              title: 'Status Jasa Aktif',
+              subtitle: 'Tampil di pilihan kasir dan teknisi',
+              value: _active,
+              onChanged: _busy ? null : (v) => setState(() => _active = v),
             ),
           ],
         ),
-      ),
+      ],
     );
   }
 }

@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_filter_chip.dart';
 import 'audit_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Kelompok aksi → warna, supaya jenis aktivitas terbaca sekilas.
 Color auditActionColor(String action) {
@@ -18,8 +23,13 @@ Color auditActionColor(String action) {
   };
 }
 
-/// Riwayat audit (admin). Menampilkan 200 aktivitas terakhir dari
-/// `audit_logs`, dengan detail JSON yang bisa dibuka per baris.
+/// Semua grup aksi yang dikenal. Dipakai sebagai daftar chip TETAP — dulu
+/// daftarnya diturunkan dari data yang sedang tampil, yang membuat chip
+/// menghilang begitu filternya dipakai (sekali memilih "Stok", satu-satunya
+/// chip tersisa adalah "Stok" dan pengguna terjebak di sana).
+const _auditGroups = ['pos', 'order', 'job', 'request', 'stock', 'user'];
+
+/// Riwayat audit (admin) — siapa melakukan apa, kapan, dengan detail apa.
 class AuditLogScreen extends ConsumerStatefulWidget {
   const AuditLogScreen({super.key});
 
@@ -28,12 +38,33 @@ class AuditLogScreen extends ConsumerStatefulWidget {
 }
 
 class _AuditLogScreenState extends ConsumerState<AuditLogScreen> {
-  /// null = semua. Berisi prefix grup aksi ('pos', 'job', …).
-  String? _filter;
+  final _searchController = TextEditingController();
+  Timer? _debounce;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  /// Tunggu pengguna berhenti mengetik sebelum menembak query — tanpa ini
+  /// setiap huruf memicu satu request ke Supabase.
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      ref.read(auditFilterProvider.notifier).update(
+            (f) => f.reset(search: value),
+          );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final filter = ref.watch(auditFilterProvider);
     final async = ref.watch(auditLogsProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Riwayat Aktivitas'),
@@ -45,70 +76,205 @@ class _AuditLogScreenState extends ConsumerState<AuditLogScreen> {
           ),
         ],
       ),
-      body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text('Gagal memuat riwayat: $e',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.slate500)),
+      body: Column(
+        children: [
+          _SearchField(
+            controller: _searchController,
+            onChanged: _onSearchChanged,
+            onClear: () {
+              _searchController.clear();
+              _onSearchChanged('');
+            },
           ),
-        ),
-        data: (entries) {
-          final groups = <String>{
-            for (final e in entries) e.action.split('.').first,
-          }.toList()
-            ..sort();
-          final shown = _filter == null
-              ? entries
-              : entries.where((e) => e.action.startsWith('$_filter.')).toList();
-
-          return Column(
-            children: [
-              if (groups.length > 1)
-                SizedBox(
-                  height: 52,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    children: [
-                      _Chip(
-                        label: 'Semua',
-                        selected: _filter == null,
-                        onTap: () => setState(() => _filter = null),
-                      ),
-                      for (final g in groups)
-                        _Chip(
-                          label: _groupLabel(g),
-                          selected: _filter == g,
-                          onTap: () => setState(() => _filter = g),
-                        ),
-                    ],
-                  ),
+          _RangeBar(
+            selected: filter.range,
+            onSelect: (r) => ref
+                .read(auditFilterProvider.notifier)
+                .update((f) => f.reset(range: r)),
+          ),
+          _GroupBar(
+            selected: filter.group,
+            onSelect: (g) => ref.read(auditFilterProvider.notifier).update(
+                  (f) => g == null ? f.reset(clearGroup: true) : f.reset(group: g),
                 ),
-              Expanded(
-                child: shown.isEmpty
-                    ? const Center(
-                        child: Text('Belum ada aktivitas tercatat.',
-                            style: TextStyle(color: AppColors.slate500)),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                        itemCount: shown.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) => _EntryTile(entry: shown[i]),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: async.when(
+              loading: () => const AppSkeletonList(),
+              error: (e, _) =>
+                  AppErrorState(error: e, title: 'Gagal memuat riwayat'),
+              data: (page) {
+                if (page.entries.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Text(
+                        'Tidak ada aktivitas pada rentang & filter ini.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.slate500),
                       ),
-              ),
-            ],
-          );
-        },
+                    ),
+                  );
+                }
+                return RefreshIndicator(
+                  onRefresh: () async => ref.invalidate(auditLogsProvider),
+                  child: ListView.separated(
+                    key: const Key('audit-list'),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                    // +1 baris untuk kaki daftar (tombol muat lebih / penutup).
+                    itemCount: page.entries.length + 1,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (_, i) {
+                      if (i == page.entries.length) {
+                        return _ListFooter(
+                          count: page.entries.length,
+                          hasMore: page.hasMore,
+                          onLoadMore: () => ref
+                              .read(auditFilterProvider.notifier)
+                              .update((f) => f.nextPage),
+                        );
+                      }
+                      return _EntryTile(entry: page.entries[i]);
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-String _groupLabel(String group) => switch (group) {
+class _SearchField extends StatelessWidget {
+  const _SearchField({
+    required this.controller,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: TextField(
+        key: const Key('audit-search'),
+        controller: controller,
+        onChanged: onChanged,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: 'Cari aksi atau ID target…',
+          prefixIcon: const Icon(Icons.search, size: 20),
+          suffixIcon: ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (_, value, __) => value.text.isEmpty
+                ? const SizedBox.shrink()
+                : IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: 'Hapus pencarian',
+                    onPressed: onClear,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RangeBar extends StatelessWidget {
+  const _RangeBar({required this.selected, required this.onSelect});
+
+  final AuditRange selected;
+  final ValueChanged<AuditRange> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppFilterChipBar(
+      key: const Key('audit-range'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      children: [
+        for (final r in AuditRange.values)
+          AppFilterChip(
+            label: r.label,
+            selected: selected == r,
+            onTap: () => onSelect(r),
+          ),
+      ],
+    );
+  }
+}
+
+class _GroupBar extends StatelessWidget {
+  const _GroupBar({required this.selected, required this.onSelect});
+
+  final String? selected;
+  final ValueChanged<String?> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppFilterChipBar(
+      key: const Key('audit-group'),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+      children: [
+        AppFilterChip(
+          label: 'Semua',
+          selected: selected == null,
+          onTap: () => onSelect(null),
+        ),
+        for (final g in _auditGroups)
+          AppFilterChip(
+            label: groupLabel(g),
+            selected: selected == g,
+            onTap: () => onSelect(g),
+          ),
+      ],
+    );
+  }
+}
+
+class _ListFooter extends StatelessWidget {
+  const _ListFooter({
+    required this.count,
+    required this.hasMore,
+    required this.onLoadMore,
+  });
+
+  final int count;
+  final bool hasMore;
+  final VoidCallback onLoadMore;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        children: [
+          if (hasMore)
+            OutlinedButton.icon(
+              key: const Key('audit-load-more'),
+              onPressed: onLoadMore,
+              icon: const Icon(Icons.expand_more, size: 18),
+              label: const Text('Muat lebih banyak'),
+            )
+          else
+            Text(
+              count == 0 ? '' : 'Semua $count aktivitas sudah ditampilkan.',
+              style: const TextStyle(fontSize: 12, color: AppColors.slate400),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+String groupLabel(String group) => switch (group) {
       'pos' => 'Transaksi',
       'job' => 'Job',
       'request' => 'Pengajuan',
@@ -127,14 +293,19 @@ class _EntryTile extends StatelessWidget {
     final color = auditActionColor(entry.action);
     final details = entry.detail.entries
         .where((e) => e.value != null && '${e.value}'.isNotEmpty)
-        .toList();
+        .toList()
+      // Urut abjad label supaya posisi field tidak berubah-ubah antar baris
+      // (urutan kunci JSON dari Postgres tidak dijamin stabil).
+      ..sort((a, b) =>
+          auditDetailLabel(a.key).compareTo(auditDetailLabel(b.key)));
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.slate200),
-      ),
+    // Kartu ini memakai `Card` (bukan Container berdekorasi) karena ExpansionTile
+    // memakai ListTile di dalamnya: ListTile melukis background dan ripple pada
+    // Material terdekat, jadi dekorasi berwarna di antaranya membuat Flutter
+    // melempar assertion "ListTile background color or ink splashes may be
+    // invisible" sekaligus menelan efek ripple-nya.
+    return Card(
+      clipBehavior: Clip.antiAlias,
       child: Theme(
         // Hilangkan garis pemisah bawaan ExpansionTile agar sejalan dengan
         // kartu-kartu lain di aplikasi.
@@ -155,23 +326,43 @@ class _EntryTile extends StatelessWidget {
           title: Text(entry.label,
               style: const TextStyle(
                   fontWeight: FontWeight.w600, color: AppColors.slate900)),
-          subtitle: Text(
-            [
-              if (entry.actorName.isNotEmpty) entry.actorName else 'Sistem',
-              if (entry.at != null) _fmt(entry.at!),
-            ].join(' • '),
-            style: const TextStyle(fontSize: 12, color: AppColors.slate500),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Row(
+              children: [
+                const Icon(Icons.person_outline,
+                    size: 12, color: AppColors.slate400),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    entry.actorName.isNotEmpty ? entry.actorName : 'Sistem',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.slate500),
+                  ),
+                ),
+                if (entry.at != null) ...[
+                  const SizedBox(width: 8),
+                  const Icon(Icons.schedule,
+                      size: 12, color: AppColors.slate400),
+                  const SizedBox(width: 4),
+                  Text(
+                    formatAuditTime(entry.at!),
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.slate500),
+                  ),
+                ],
+              ],
+            ),
           ),
           children: [
+            _DetailRow(label: 'Aksi', value: entry.action),
             if (entry.target.isNotEmpty)
               _DetailRow(label: 'Target', value: entry.target),
             for (final d in details)
-              _DetailRow(label: d.key, value: '${d.value}'),
-            if (entry.target.isEmpty && details.isEmpty)
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Tanpa detail tambahan.',
-                    style: TextStyle(color: AppColors.slate500, fontSize: 12)),
+              _DetailRow(
+                label: auditDetailLabel(d.key),
+                value: auditDetailValue(d.key, d.value),
               ),
           ],
         ),
@@ -219,49 +410,4 @@ class _DetailRow extends StatelessWidget {
       ),
     );
   }
-}
-
-class _Chip extends StatelessWidget {
-  const _Chip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8, top: 10, bottom: 10),
-      child: Material(
-        color: selected ? AppColors.teal600 : Colors.white,
-        borderRadius: BorderRadius.circular(999),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(999),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                  color: selected ? AppColors.teal600 : AppColors.slate200),
-            ),
-            child: Text(label,
-                style: TextStyle(
-                    color: selected ? Colors.white : AppColors.slate600,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13)),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-String _fmt(DateTime d) {
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(d.day)}-${two(d.month)}-${d.year} ${two(d.hour)}:${two(d.minute)}';
 }

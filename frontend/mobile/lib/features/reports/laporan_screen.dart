@@ -5,6 +5,8 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/technician_job.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import 'reports_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 const _methodLabel = {
   'tunai': 'Tunai',
@@ -31,15 +33,8 @@ class LaporanScreen extends ConsumerWidget {
         ],
       ),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text('Gagal memuat laporan: $e',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.slate500)),
-          ),
-        ),
+        loading: () => const AppSkeletonDetail(),
+        error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat laporan'),
         data: (a) => ListView(
           padding: const EdgeInsets.all(16),
           children: [

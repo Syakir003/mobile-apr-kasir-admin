@@ -4,10 +4,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_filter_chip.dart';
+import '../../core/widgets/status_badge.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/technician_job.dart';
 import '../notifications/notification_bell.dart';
 import 'job_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Warna chip status job (dipakai layar daftar & detail).
 Color jobStatusColor(JobStatus status) => switch (status) {
@@ -54,13 +58,13 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Row(
               children: [
-                _FilterChip(
+                AppFilterChip(
                   label: 'Aktif',
                   selected: !_showDone,
                   onTap: () => setState(() => _showDone = false),
                 ),
                 const SizedBox(width: 8),
-                _FilterChip(
+                AppFilterChip(
                   label: 'Selesai',
                   selected: _showDone,
                   onTap: () => setState(() => _showDone = true),
@@ -70,15 +74,8 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
           ),
           Expanded(
             child: jobsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text('Gagal memuat job: $e',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: AppColors.slate500)),
-                ),
-              ),
+              loading: () => const AppSkeletonList(),
+              error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat job'),
               data: (all) {
                 final jobs = all
                     .where((j) => _showDone ? !j.status.isActive : j.status.isActive)
@@ -171,63 +168,8 @@ class _JobCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  job.status.label,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
+              StatusBadge(label: job.status.label, color: color),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? AppColors.teal600 : Colors.white,
-      borderRadius: BorderRadius.circular(999),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-                color: selected ? AppColors.teal600 : AppColors.slate200),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? Colors.white : AppColors.slate600,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-            ),
           ),
         ),
       ),

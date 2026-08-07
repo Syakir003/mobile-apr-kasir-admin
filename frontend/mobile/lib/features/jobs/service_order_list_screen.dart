@@ -3,8 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/status_badge.dart';
 import '../../data/models/service_order.dart';
 import 'job_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Ringkasan order service (admin/kasir): member, jenis, progres unit selesai,
 /// dan status. Order pemasangan lahir dari checkout POS; order service/
@@ -33,15 +36,8 @@ class ServiceOrderListScreen extends ConsumerWidget {
         label: const Text('Order Baru'),
       ),
       body: ordersAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text('Gagal memuat order: $e',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.slate500)),
-          ),
-        ),
+        loading: () => const AppSkeletonList(),
+        error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat order'),
         data: (orders) {
           if (orders.isEmpty) {
             return const Center(
@@ -115,26 +111,12 @@ class _OrderCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    order.status.label,
-                    style: TextStyle(
-                        color: color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ),
+                StatusBadge(label: order.status.label, color: color),
               ],
             ),
             const SizedBox(height: 12),
             ClipRRect(
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(AppRadius.pill),
               child: LinearProgressIndicator(
                 value: progress,
                 minHeight: 6,

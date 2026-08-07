@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/job_history_extra.dart';
 import '../models/job_photo.dart';
 import '../models/material_request.dart';
 import '../models/service_order.dart';
@@ -43,6 +44,12 @@ abstract interface class JobRepository {
 
   /// Pengajuan tambahan untuk satu job (terbaru dulu), lengkap dengan itemnya.
   Future<List<MaterialRequest>> fetchRequests(String jobId);
+
+  /// Ringkasan foto & material untuk BANYAK job sekaligus (dua query, bukan
+  /// dua query per job). Dipakai layar riwayat service yang menampilkan
+  /// puluhan entri sekaligus. Job tanpa data balik memetakan ke
+  /// [JobHistoryExtra.empty].
+  Future<Map<String, JobHistoryExtra>> fetchHistoryExtras(List<String> jobIds);
 }
 
 /// Nama bucket Storage privat untuk foto bukti pengerjaan.
@@ -160,6 +167,61 @@ class SupabaseJobRepository implements JobRepository {
           'items': byReq[r['id']] ?? const [],
         }),
     ];
+  }
+
+  @override
+  Future<Map<String, JobHistoryExtra>> fetchHistoryExtras(
+      List<String> jobIds) async {
+    if (jobIds.isEmpty) return const {};
+
+    final photoRows = await _client
+        .from('job_photos')
+        .select('job_id,kind')
+        .inFilter('job_id', jobIds);
+    final reqRows = await _client
+        .from('material_requests')
+        .select('job_id,status,total')
+        .inFilter('job_id', jobIds);
+
+    final before = <String, int>{};
+    final after = <String, int>{};
+    for (final r in _asMaps(photoRows)) {
+      final jid = (r['job_id'] as String?) ?? '';
+      if (r['kind'] == PhotoKind.sesudah.value) {
+        after[jid] = (after[jid] ?? 0) + 1;
+      } else {
+        before[jid] = (before[jid] ?? 0) + 1;
+      }
+    }
+
+    final items = <String, int>{};
+    final totals = <String, int>{};
+    final pending = <String, int>{};
+    for (final r in _asMaps(reqRows)) {
+      final jid = (r['job_id'] as String?) ?? '';
+      final status = RequestStatus.fromValue(r['status']);
+      if (status == RequestStatus.approved) {
+        items[jid] = (items[jid] ?? 0) + 1;
+        totals[jid] = (totals[jid] ?? 0) + ((r['total'] as num?)?.toInt() ?? 0);
+      } else if (status == RequestStatus.pending) {
+        pending[jid] = (pending[jid] ?? 0) + 1;
+      }
+    }
+
+    // Nilai 0 sengaja tidak dibedakan antara "memang tak ada" dan "disaring
+    // RLS" — dari sisi client keduanya tak bisa dibedakan. UI menanganinya
+    // dengan tidak menampilkan baris material sama sekali saat nol, alih-alih
+    // menuliskan klaim "tanpa material" yang belum tentu benar.
+    return {
+      for (final id in jobIds)
+        id: JobHistoryExtra(
+          photosBefore: before[id] ?? 0,
+          photosAfter: after[id] ?? 0,
+          materialItems: items[id] ?? 0,
+          materialTotal: totals[id] ?? 0,
+          materialPending: pending[id] ?? 0,
+        ),
+    };
   }
 
   List<Map<String, dynamic>> _asMaps(dynamic rows) => [

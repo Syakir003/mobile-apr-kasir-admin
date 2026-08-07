@@ -3,11 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/error_message.dart';
 import '../../data/models/ac_unit.dart';
 import '../../data/models/member.dart';
 import '../members/member_providers.dart';
 import '../pos/pos_providers.dart' show techniciansProvider;
 import 'job_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Jenis order manual yang bisa dijadwalkan (pemasangan lahir dari checkout).
 enum _OrderType {
@@ -82,7 +85,7 @@ class _ServiceOrderCreateScreenState
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text('$e'.replaceFirst('Exception: ', '')),
+        content: Text(errorMessage(e)),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -96,15 +99,8 @@ class _ServiceOrderCreateScreenState
     return Scaffold(
       appBar: AppBar(title: const Text('Order Service Baru')),
       body: membersAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text('Gagal memuat member: $e',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.slate500)),
-          ),
-        ),
+        loading: () => const AppSkeletonDetail(),
+        error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat member'),
         data: (members) {
           final active = members.where((m) => m.active).toList();
           return ListView(
@@ -238,7 +234,7 @@ class _UnitPicker extends ConsumerWidget {
         padding: EdgeInsets.symmetric(vertical: 8),
         child: LinearProgressIndicator(),
       ),
-      error: (e, _) => Text('Gagal memuat unit: $e',
+      error: (e, _) => Text('Gagal memuat unit: ${errorMessage(e)}',
           style: const TextStyle(color: AppColors.slate500)),
       data: (units) {
         if (units.isEmpty) {
@@ -289,7 +285,7 @@ class _TechnicianDropdown extends ConsumerWidget {
     final techsAsync = ref.watch(techniciansProvider);
     return techsAsync.when(
       loading: () => const LinearProgressIndicator(),
-      error: (e, _) => Text('Gagal memuat teknisi: $e',
+      error: (e, _) => Text('Gagal memuat teknisi: ${errorMessage(e)}',
           style: const TextStyle(color: AppColors.slate500)),
       data: (list) => DropdownButtonFormField<String?>(
         key: const Key('order-technician'),

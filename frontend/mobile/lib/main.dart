@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router/app_router.dart';
@@ -36,6 +37,15 @@ class EposApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'E-POS AC',
       theme: AppTheme.light(),
+      // Seluruh teks aplikasi berbahasa Indonesia; tanpa delegate ini dialog
+      // bawaan Material (date picker, tooltip "Cancel"/"OK") tetap Inggris.
+      locale: const Locale('id'),
+      supportedLocales: const [Locale('id'), Locale('en')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       routerConfig: router,
     );
   }

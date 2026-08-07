@@ -36,7 +36,13 @@ void main() {
     expect(back.btu, p.btu);
     expect(back.watt, p.watt);
     expect(back.warranty, p.warranty);
-    expect(back.buyPrice, p.buyPrice);
+    // Harga modal SENGAJA tidak ikut roundtrip: sejak migrasi 0021 ia disimpan
+    // di tabel `item_costs` (khusus admin), bukan kolom `products`. Kalau
+    // `toMap` sampai memuatnya lagi, insert/update ke Supabase akan gagal
+    // dengan "column buy_price does not exist" — jadi ini dijaga eksplisit.
+    expect(map.containsKey('buy_price'), isFalse,
+        reason: 'harga modal tidak boleh ikut ke baris products');
+    expect(back.buyPrice, 0);
     expect(back.sellPrice, p.sellPrice);
     expect(back.stock, p.stock);
     expect(back.description, p.description);
@@ -86,7 +92,10 @@ void main() {
     expect(back.sku, s.sku);
     expect(back.category, s.category);
     expect(back.unit, s.unit);
-    expect(back.buyPrice, s.buyPrice);
+    // Sama seperti Product: harga modal hidup di `item_costs`, bukan di sini.
+    expect(map.containsKey('buy_price'), isFalse,
+        reason: 'harga modal tidak boleh ikut ke baris spareparts');
+    expect(back.buyPrice, 0);
     expect(back.sellPrice, s.sellPrice);
     expect(back.stock, 12.5);
     expect(back.minStock, 5);

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/form_field.dart';
+import '../../../core/widgets/form_scaffold.dart';
 import '../../../data/models/product.dart';
+import '../../../data/repositories/item_cost_repository.dart';
 import '../master_providers.dart';
+import '../../../core/utils/error_message.dart';
 
 class ProductFormScreen extends ConsumerStatefulWidget {
   const ProductFormScreen({super.key, this.initial});
@@ -47,13 +50,35 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _btu = TextEditingController(text: p?.btu?.toString() ?? '');
     _watt = TextEditingController(text: p?.watt?.toString() ?? '');
     _warranty = TextEditingController(text: p?.warranty ?? '');
-    _buyPrice = TextEditingController(text: p == null ? '' : '${p.buyPrice}');
-    _sellPrice = TextEditingController(text: p == null ? '' : '${p.sellPrice}');
+    _buyPrice = TextEditingController(
+      text: p == null ? '' : formatRupiahInput(p.buyPrice),
+    );
+    _sellPrice = TextEditingController(
+      text: p == null ? '' : formatRupiahInput(p.sellPrice),
+    );
     _stock = TextEditingController(text: p == null ? '' : '${p.stock}');
     _description = TextEditingController(text: p?.description ?? '');
     _inverter = p?.inverter ?? false;
     _category = p?.category ?? kProductCategories.first;
     _active = p?.active ?? true;
+    if (_isEdit) _loadCost();
+  }
+
+  /// Harga modal tinggal di tabel `item_costs` (migrasi 0021), bukan lagi kolom
+  /// `products.buy_price` — jadi `widget.initial.buyPrice` selalu 0 dan nilainya
+  /// harus diambil sendiri. Gagal baca (mis. peran bukan admin) dibiarkan
+  /// senyap: field tetap kosong, dan menyimpan form tak akan menimpanya dengan 0
+  /// karena `_submit` hanya menulis biaya saat field-nya benar-benar diisi.
+  Future<void> _loadCost() async {
+    try {
+      final value = await ref
+          .read(itemCostRepositoryProvider)
+          .fetch(CostKind.product, widget.initial!.id);
+      if (!mounted || value == 0) return;
+      setState(() => _buyPrice.text = formatRupiahInput(value));
+    } catch (_) {
+      // Harga modal opsional — form tetap bisa dipakai tanpanya.
+    }
   }
 
   @override
@@ -104,8 +129,8 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       btu: btuText.isEmpty ? null : int.parse(btuText),
       watt: wattText.isEmpty ? null : int.parse(wattText),
       warranty: warrantyText.isEmpty ? null : warrantyText,
-      buyPrice: int.parse(_buyPrice.text.trim()),
-      sellPrice: int.parse(_sellPrice.text.trim()),
+      buyPrice: parseRupiahInput(_buyPrice.text),
+      sellPrice: parseRupiahInput(_sellPrice.text),
       stock: int.parse(_stock.text.trim()),
       photoUrl: widget.initial?.photoUrl,
       description: descText.isEmpty ? null : descText,
@@ -114,10 +139,20 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     );
     final repo = ref.read(productRepositoryProvider);
     try {
+      final String id;
       if (_isEdit) {
-        await repo.update(widget.initial!.id, product);
+        id = widget.initial!.id;
+        await repo.update(id, product);
       } else {
-        await repo.create(product);
+        id = await repo.create(product);
+      }
+      // Harga modal disimpan terpisah — baris produk tak lagi punya kolomnya.
+      // Hanya ditulis bila field diisi, supaya membuka-lalu-menyimpan form
+      // tanpa menyentuh field ini tidak menimpa biaya lama dengan 0.
+      if (_buyPrice.text.trim().isNotEmpty) {
+        await ref
+            .read(itemCostRepositoryProvider)
+            .save(CostKind.product, id, parseRupiahInput(_buyPrice.text));
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -129,7 +164,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal menyimpan: $e'),
+          content: Text('Gagal menyimpan: ${errorMessage(e)}'),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -138,44 +173,63 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit Produk' : 'Tambah Produk')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+    return AppFormScaffold(
+      title: _isEdit ? 'Edit Produk' : 'Tambah Produk',
+      formKey: _formKey,
+      busy: _busy,
+      submitLabel: 'Simpan',
+      submitKey: const Key('submit'),
+      onSubmit: _submit,
+      // Dua belas kolom dipecah jadi tiga kelompok. Satu kartu berisi semuanya
+      // tidak memberi tahu apa pun tentang isinya, dan pengguna kehilangan
+      // tempat begitu menggulir melewati layar pertama.
+      children: [
+        AppFormCard(
+          title: 'Identitas Produk',
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-            TextFormField(
+            AppTextField(
               key: const Key('name'),
+              label: 'Nama',
+              required: true,
+              hint: 'Contoh: AC Split 1 PK Inverter',
               controller: _name,
-              decoration: const InputDecoration(labelText: 'Nama'),
+              enabled: !_busy,
               validator: _requiredValidator,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('brand'),
-              controller: _brand,
-              decoration: const InputDecoration(labelText: 'Merek'),
-              validator: _requiredValidator,
+            const SizedBox(height: kFieldGap),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: AppTextField(
+                    key: const Key('brand'),
+                    label: 'Merek',
+                    required: true,
+                    controller: _brand,
+                    enabled: !_busy,
+                    validator: _requiredValidator,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: AppTextField(
+                    key: const Key('type'),
+                    label: 'Tipe',
+                    required: true,
+                    controller: _type,
+                    enabled: !_busy,
+                    validator: _requiredValidator,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('type'),
-              controller: _type,
-              decoration: const InputDecoration(labelText: 'Tipe'),
-              validator: _requiredValidator,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
+            const SizedBox(height: kFieldGap),
+            AppSelectField<String>(
               key: const Key('category'),
-              initialValue: _category,
-              decoration: const InputDecoration(labelText: 'Kategori'),
+              label: 'Kategori',
+              required: true,
+              value: _category,
+              enabled: !_busy,
               items: [
                 // Sertakan nilai tersimpan meski di luar daftar baku, agar
                 // form edit tak crash saat data lama memakai kategori lain.
@@ -187,113 +241,132 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               ],
               onChanged: (v) => setState(() => _category = v ?? _category),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('pk'),
-              controller: _pk,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-              ],
-              decoration: const InputDecoration(labelText: 'PK'),
-              validator: _doubleValidator,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('btu'),
-              controller: _btu,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(labelText: 'BTU (opsional)'),
-              validator: (v) => _intValidator(v, required: false),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('watt'),
-              controller: _watt,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(labelText: 'Watt (opsional)'),
-              validator: (v) => _intValidator(v, required: false),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('warranty'),
-              controller: _warranty,
-              decoration: const InputDecoration(labelText: 'Garansi (opsional)'),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('buyPrice'),
-              controller: _buyPrice,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(labelText: 'Harga Beli'),
-              validator: (v) => _intValidator(v),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('sellPrice'),
-              controller: _sellPrice,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(labelText: 'Harga Jual'),
-              validator: (v) => _intValidator(v),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('stock'),
-              controller: _stock,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(labelText: 'Stok'),
-              validator: (v) => _intValidator(v),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('description'),
-              controller: _description,
-              maxLines: 3,
-              decoration:
-                  const InputDecoration(labelText: 'Deskripsi (opsional)'),
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              key: const Key('inverter'),
-              title: const Text('Inverter'),
-              value: _inverter,
-              onChanged: (v) => setState(() => _inverter = v),
-            ),
-            SwitchListTile(
-              key: const Key('active'),
-              title: const Text('Aktif'),
-              value: _active,
-              onChanged: (v) => setState(() => _active = v),
-            ),
-            const SizedBox(height: 24),
-                  ],
+          ],
+        ),
+        const SizedBox(height: AppSpacing.grid),
+        AppFormCard(
+          title: 'Spesifikasi',
+          subtitle: 'Selain PK, semuanya boleh dikosongkan.',
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: AppNumberField(
+                    key: const Key('pk'),
+                    label: 'PK',
+                    required: true,
+                    decimal: true,
+                    hint: '1',
+                    controller: _pk,
+                    enabled: !_busy,
+                    validator: _doubleValidator,
+                  ),
                 ),
-              ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: AppNumberField(
+                    key: const Key('btu'),
+                    label: 'BTU',
+                    hint: '9000',
+                    controller: _btu,
+                    enabled: !_busy,
+                    validator: (v) => _intValidator(v, required: false),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: AppNumberField(
+                    key: const Key('watt'),
+                    label: 'Watt',
+                    hint: '660',
+                    suffixText: 'W',
+                    controller: _watt,
+                    enabled: !_busy,
+                    validator: (v) => _intValidator(v, required: false),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 50,
-              width: double.infinity,
-              child: FilledButton(
-                key: const Key('submit'),
-                onPressed: _busy ? null : _submit,
-                child: _busy
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Simpan'),
-              ),
+            const SizedBox(height: kFieldGap),
+            AppTextField(
+              key: const Key('warranty'),
+              label: 'Garansi',
+              hint: 'Mis. 1 tahun unit, 5 tahun kompresor',
+              controller: _warranty,
+              enabled: !_busy,
+            ),
+            const SizedBox(height: kFieldGap),
+            AppTextField(
+              key: const Key('description'),
+              label: 'Deskripsi',
+              hint: 'Catatan tambahan tentang produk ini...',
+              maxLines: 3,
+              controller: _description,
+              enabled: !_busy,
+            ),
+            const SizedBox(height: kFieldGap),
+            AppSwitchTile(
+              key: const Key('inverter'),
+              title: 'Inverter',
+              subtitle: 'Kompresor berkecepatan variabel.',
+              value: _inverter,
+              onChanged: _busy ? null : (v) => setState(() => _inverter = v),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: AppSpacing.grid),
+        AppFormCard(
+          title: 'Harga & Stok',
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: AppMoneyField(
+                    key: const Key('buyPrice'),
+                    label: 'Harga Beli',
+                    required: true,
+                    controller: _buyPrice,
+                    enabled: !_busy,
+                    validator: rupiahRequiredValidator,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: AppMoneyField(
+                    key: const Key('sellPrice'),
+                    label: 'Harga Jual',
+                    required: true,
+                    controller: _sellPrice,
+                    enabled: !_busy,
+                    validator: rupiahRequiredValidator,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: kFieldGap),
+            AppNumberField(
+              key: const Key('stock'),
+              label: 'Stok',
+              required: true,
+              hint: '0',
+              suffixText: 'unit',
+              controller: _stock,
+              enabled: !_busy,
+              validator: (v) => _intValidator(v),
+            ),
+            const SizedBox(height: kFieldGap),
+            AppSwitchTile(
+              key: const Key('active'),
+              title: 'Produk Aktif',
+              subtitle: 'Tampil di pilihan kasir dan teknisi.',
+              value: _active,
+              onChanged: _busy ? null : (v) => setState(() => _active = v),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

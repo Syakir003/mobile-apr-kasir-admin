@@ -4,6 +4,7 @@ import '../../core/router/app_router.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/invoice.dart';
+import '../../data/models/job_history_extra.dart';
 import '../../data/models/job_photo.dart';
 import '../../data/models/material_request.dart';
 import '../../data/models/service_order.dart';
@@ -33,6 +34,24 @@ final unitJobHistoryProvider =
     FutureProvider.autoDispose.family<List<TechnicianJob>, String>(
   (ref, unitId) => ref.watch(jobRepositoryProvider).fetchJobsByUnit(unitId),
 );
+
+/// Riwayat satu unit AC, lengkap dengan ringkasan foto & material per entri.
+///
+/// Digabung dalam satu provider (bukan satu provider per job) supaya layar
+/// riwayat cukup menunggu sekali dan tidak menembakkan dua query per baris.
+typedef UnitHistory = ({
+  List<TechnicianJob> jobs,
+  Map<String, JobHistoryExtra> extras,
+});
+
+final unitHistoryProvider =
+    FutureProvider.autoDispose.family<UnitHistory, String>((ref, unitId) async {
+  final repo = ref.watch(jobRepositoryProvider);
+  final jobs = await repo.fetchJobsByUnit(unitId);
+  final extras =
+      await repo.fetchHistoryExtras([for (final j in jobs) j.id]);
+  return (jobs: jobs, extras: extras);
+});
 
 /// Satu job by id (family). Null bila tidak ada.
 final jobProvider = FutureProvider.autoDispose.family<TechnicianJob?, String>(

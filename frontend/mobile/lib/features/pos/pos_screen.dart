@@ -6,6 +6,8 @@ import '../../core/theme/app_theme.dart';
 import 'cart_state.dart';
 import 'item_picker_sheet.dart';
 import 'pos_providers.dart';
+import '../../core/utils/error_message.dart';
+import '../../core/widgets/form_field.dart';
 
 /// Layar keranjang POS: daftar baris item, ringkasan total, dan tombol
 /// lanjut ke checkout (`/pos/checkout`).
@@ -238,7 +240,7 @@ class _CartLineTileState extends ConsumerState<_CartLineTile> {
                 Container(
                   decoration: BoxDecoration(
                     color: AppColors.slate100,
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
                   ),
                   child: Row(
                     children: [
@@ -293,11 +295,11 @@ class _CartLineTileState extends ConsumerState<_CartLineTile> {
               ),
               if (line.withInstallation) ...[
                 const SizedBox(height: 4),
-                TextFormField(
-                  key: Key('room-location-${widget.index}'),
+                AppTextField(
+                  fieldKey: Key('room-location-${widget.index}'),
+                  label: 'Lokasi Ruangan',
+                  hint: 'Contoh: Kamar Utama',
                   controller: _room,
-                  decoration:
-                      const InputDecoration(labelText: 'Lokasi Ruangan'),
                   onChanged: (v) =>
                       notifier.setInstallation(widget.index, roomLocation: v),
                 ),
@@ -323,10 +325,10 @@ class _TechnicianDropdown extends ConsumerWidget {
     final technicians = ref.watch(techniciansProvider);
     final notifier = ref.read(cartProvider.notifier);
     return technicians.when(
-      data: (list) => DropdownButtonFormField<String?>(
-        key: Key('technician-$index'),
-        initialValue: line.technicianId,
-        decoration: const InputDecoration(labelText: 'Teknisi'),
+      data: (list) => AppSelectField<String?>(
+        fieldKey: Key('technician-$index'),
+        label: 'Teknisi',
+        value: line.technicianId,
         items: [
           const DropdownMenuItem<String?>(
             value: null,
@@ -342,7 +344,7 @@ class _TechnicianDropdown extends ConsumerWidget {
         ),
       ),
       loading: () => const LinearProgressIndicator(),
-      error: (e, _) => Text('Gagal memuat teknisi: $e'),
+      error: (e, _) => Text('Gagal memuat teknisi: ${errorMessage(e)}'),
     );
   }
 }

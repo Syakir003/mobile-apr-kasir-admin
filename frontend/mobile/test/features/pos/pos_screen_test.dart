@@ -6,6 +6,8 @@ import 'package:epos_ac/features/pos/pos_providers.dart';
 import 'package:epos_ac/features/pos/pos_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:epos_ac/core/router/app_router.dart';
+import 'package:epos_ac/data/models/app_user.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -33,6 +35,7 @@ Widget _host({
   );
   return ProviderScope(
     overrides: [
+      currentUserProvider.overrideWith((ref) => Stream.value(_signedInKasir)),
       productRepositoryProvider.overrideWithValue(products),
       sparepartRepositoryProvider.overrideWithValue(spareparts),
       serviceRepositoryProvider.overrideWithValue(services),
@@ -60,6 +63,15 @@ const _product = Product(
   sellPrice: 3500000,
   stock: 5,
   category: 'AC 1 PK',
+);
+
+/// POS ada di balik login; provider daftar master digerbangi
+/// [streamWhenSignedIn] sehingga tanpa sesi stream-nya tak pernah terbuka.
+const _signedInKasir = AppUser(
+  uid: 'u-kasir',
+  email: 'kasir@eposac.local',
+  displayName: 'Kasir Dewi',
+  role: UserRole.kasir,
 );
 
 void main() {

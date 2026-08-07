@@ -6,6 +6,8 @@ import 'package:epos_ac/features/pos/checkout_screen.dart';
 import 'package:epos_ac/features/pos/pos_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:epos_ac/core/router/app_router.dart';
+import 'package:epos_ac/data/models/app_user.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -48,6 +50,7 @@ Widget _host({
   );
   return ProviderScope(
     overrides: [
+      currentUserProvider.overrideWith((ref) => Stream.value(_signedInKasir)),
       cartProvider.overrideWith(() => _SeededCartNotifier(seed)),
       checkoutCallerProvider.overrideWithValue(caller),
       if (memberRepo != null)
@@ -65,6 +68,16 @@ void _useTallViewport(WidgetTester tester) {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 }
+
+/// Checkout ada di balik login. Sejak provider daftar digerbangi
+/// [streamWhenSignedIn] (core/supabase/session_gate.dart), tanpa sesi stream
+/// member & unit sengaja tak pernah terbuka — sama seperti di aplikasi.
+const _signedInKasir = AppUser(
+  uid: 'u-kasir',
+  email: 'kasir@eposac.local',
+  displayName: 'Kasir Dewi',
+  role: UserRole.kasir,
+);
 
 void main() {
   testWidgets('submit kosong menampilkan error validasi, caller tidak terpanggil',

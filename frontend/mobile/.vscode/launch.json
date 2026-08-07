@@ -1,0 +1,80 @@
+{
+  // Konfigurasi Run/Debug VS Code untuk app Flutter epos_ac.
+  //
+  // PENTING — folder mana yang dibuka di VS Code:
+  //   * Untuk ANDROID, buka `D:\epos_ac_run` (junction ke frontend/mobile),
+  //     BUKAN path aslinya. Nama folder proyek mengandung KOMA
+  //     ("E-POS Admin, Kasir dan Teknisi Ayub Podo Rukun") dan Gradle menolak
+  //     path berkoma dengan error "invalid characters". Junction-nya sudah ada;
+  //     kalau hilang, buat lagi dari PowerShell:
+  //       New-Item -ItemType Junction -Path 'D:\epos_ac_run' `
+  //         -Target 'D:\E-POS Admin, Kasir dan Teknisi Ayub Podo Rukun\frontend\mobile'
+  //   * Untuk CHROME & test, path asli tidak masalah.
+  //
+  // KENAPA ADA --dart-define DI SINI:
+  // Tanpa itu app memakai default `http://127.0.0.1:54321`. Di HP, 127.0.0.1
+  // berarti HP itu sendiri — bukan laptop — jadi login gagal dengan error
+  // koneksi yang menyesatkan (tampak seperti backend mati). Angka di bawah
+  // harus IP LAN laptop yang menjalankan `supabase start`.
+  //
+  // >>> GANTI IP INI kalau pindah jaringan / IP berubah. Cek dengan:
+  //       ipconfig            (Windows, lihat adapter Wi-Fi)
+  //     lalu pastikan terjangkau:
+  //       curl http://<IP>:54321/auth/v1/health
+  //     Syarat lain: HP & laptop di Wi-Fi yang SAMA, dan Windows Firewall
+  //     mengizinkan inbound port 54321.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "HP Android (Supabase lokal via LAN)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "args": [
+        "--dart-define=SUPABASE_URL=http://192.168.100.51:54321"
+      ]
+    },
+    {
+      "name": "HP Android — tanya IP dulu",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      // Varian yang menanyakan IP saat dijalankan — berguna kalau sering
+      // berpindah jaringan sehingga IP laptop berubah-ubah.
+      "args": [
+        "--dart-define=SUPABASE_URL=http://${input:supabaseHost}:54321"
+      ]
+    },
+    {
+      "name": "Chrome (Supabase lokal)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      // Port tetap supaya sesi login di Chrome tidak hilang tiap kali dijalankan
+      // ulang (origin berubah = localStorage baru = harus login lagi).
+      "args": ["--web-port=5599"]
+    },
+    {
+      "name": "Supabase Cloud (isi URL & anon key)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      // Dipakai setelah `supabase db push` ke proyek cloud. Ambil nilainya dari
+      // Dashboard > Project Settings > API. anon key aman ada di sini (ia memang
+      // ikut dalam binary aplikasi); JANGAN pernah menaruh service_role key.
+      "args": [
+        "--dart-define=SUPABASE_URL=https://GANTI-REF.supabase.co",
+        "--dart-define=SUPABASE_ANON_KEY=GANTI-ANON-KEY"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "supabaseHost",
+      "type": "promptString",
+      "description": "IP LAN laptop yang menjalankan Supabase (cek: ipconfig)",
+      "default": "192.168.100.51"
+    }
+  ]
+}

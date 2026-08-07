@@ -4,9 +4,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/status_badge.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/managed_user.dart';
 import 'user_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Daftar akun pengguna (admin). Nonaktif ditampilkan pudar tapi tetap
 /// terlihat — akun tidak pernah dihapus, hanya dinonaktifkan.
@@ -27,15 +30,8 @@ class UserListScreen extends ConsumerWidget {
         label: const Text('Akun Baru'),
       ),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text('Gagal memuat akun: $e',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.slate500)),
-          ),
-        ),
+        loading: () => const AppSkeletonList(),
+        error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat akun'),
         data: (users) {
           if (users.isEmpty) {
             return const Center(
@@ -120,7 +116,11 @@ class _UserTile extends StatelessWidget {
                         ),
                         if (isMe) ...[
                           const SizedBox(width: 6),
-                          const _Tag(text: 'Anda', color: AppColors.slate500),
+                          const StatusBadge(
+                            label: 'Anda',
+                            color: AppColors.slate500,
+                            showDot: false,
+                          ),
                         ],
                       ],
                     ),
@@ -139,9 +139,10 @@ class _UserTile extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  _Tag(
-                    text: user.roleLabel,
+                  StatusBadge(
+                    label: user.roleLabel,
                     color: dim ? AppColors.slate400 : _roleColor(user.role).$1,
+                    showDot: false,
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -166,26 +167,7 @@ class _UserTile extends StatelessWidget {
 (Color, Color) _roleColor(UserRole? role) => switch (role) {
       UserRole.admin => (AppColors.teal700, AppColors.teal50),
       UserRole.kasir => (AppColors.slate700, AppColors.slate100),
-      UserRole.teknisi => (AppColors.warning, const Color(0xFFFEF3C7)),
+      UserRole.teknisi => (AppColors.warning, AppColors.amberSurface),
       null => (AppColors.slate500, AppColors.slate100),
     };
 
-class _Tag extends StatelessWidget {
-  const _Tag({required this.text, required this.color});
-  final String text;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(text,
-          style: TextStyle(
-              fontSize: 11, fontWeight: FontWeight.w700, color: color)),
-    );
-  }
-}

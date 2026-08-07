@@ -4,9 +4,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/error_message.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/managed_user.dart';
 import 'user_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/form_field.dart';
+import '../../core/widgets/form_scaffold.dart';
+import '../../core/widgets/notice_panel.dart';
 
 const _roleLabels = {
   UserRole.admin: 'Admin — akses penuh',
@@ -93,7 +98,7 @@ class _UserFormScreenState extends ConsumerState<UserFormScreen> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text('$e'.replaceFirst('Exception: ', '')),
+        content: Text(errorMessage(e)),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -107,13 +112,15 @@ class _UserFormScreenState extends ConsumerState<UserFormScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Reset Password'),
-        content: TextField(
-          controller: controller,
-          obscureText: true,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Password baru',
-            hintText: 'Minimal 6 karakter',
+        content: SizedBox(
+          // Dialog Material melebar mengikuti isinya; tanpa lebar tetap,
+          // kolomnya menyusut sampai labelnya terpotong.
+          width: 320,
+          child: AppPasswordField(
+            label: 'Password baru',
+            required: true,
+            hint: 'Minimal 6 karakter',
+            controller: controller,
           ),
         ),
         actions: [
@@ -149,7 +156,7 @@ class _UserFormScreenState extends ConsumerState<UserFormScreen> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text('$e'.replaceFirst('Exception: ', '')),
+        content: Text(errorMessage(e)),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -174,32 +181,43 @@ class _UserFormScreenState extends ConsumerState<UserFormScreen> {
       if (existing == null) {
         return Scaffold(
           appBar: AppBar(title: const Text('Ubah Akun')),
-          body: const Center(child: CircularProgressIndicator()),
+          body: const AppSkeletonDetail(),
         );
       }
       _seed(existing);
     }
 
-    return Scaffold(
-      appBar: AppBar(title: Text(_isCreate ? 'Akun Baru' : 'Ubah Akun')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+    return AppFormScaffold(
+      title: _isCreate ? 'Akun Baru' : 'Ubah Akun',
+      formKey: _formKey,
+      busy: _busy,
+      submitLabel: _isCreate ? 'Buat Akun' : 'Simpan Perubahan',
+      submitKey: const Key('user-submit'),
+      onSubmit: _submit,
+      secondary: _isCreate
+          ? null
+          : OutlinedButton.icon(
+              key: const Key('user-reset-password'),
+              onPressed: _busy ? null : _resetPassword,
+              icon: const Icon(Icons.lock_reset, size: 18),
+              label: const Text('Reset'),
+            ),
+      children: [
+        AppFormCard(
+          title: 'Kredensial',
           children: [
-            _label('Email'),
-            TextFormField(
-              key: const Key('user-email'),
+            AppTextField(
+              fieldKey: const Key('user-email'),
+              label: 'Email',
+              required: _isCreate,
+              hint: 'nama@contoh.com',
+              helper: _isCreate
+                  ? null
+                  : 'Email login tidak bisa diubah dari sini.',
               controller: _email,
               enabled: _isCreate && !_busy,
               keyboardType: TextInputType.emailAddress,
-              autocorrect: false,
-              decoration: InputDecoration(
-                hintText: 'nama@contoh.com',
-                helperText: _isCreate
-                    ? null
-                    : 'Email login tidak bisa diubah dari sini.',
-              ),
+              prefixIcon: const Icon(Icons.mail_outline, size: 18),
               validator: (v) {
                 if (!_isCreate) return null;
                 final value = (v ?? '').trim();
@@ -210,38 +228,42 @@ class _UserFormScreenState extends ConsumerState<UserFormScreen> {
                 return null;
               },
             ),
-            const SizedBox(height: 16),
             if (_isCreate) ...[
-              _label('Password'),
-              TextFormField(
-                key: const Key('user-password'),
+              const SizedBox(height: kFieldGap),
+              AppPasswordField(
+                fieldKey: const Key('user-password'),
+                label: 'Password',
+                required: true,
+                hint: 'Minimal 6 karakter',
                 controller: _password,
                 enabled: !_busy,
-                obscureText: true,
-                decoration:
-                    const InputDecoration(hintText: 'Minimal 6 karakter'),
                 validator: (v) => (v ?? '').length < 6
                     ? 'Password minimal 6 karakter'
                     : null,
               ),
-              const SizedBox(height: 16),
             ],
-            _label('Nama Tampilan'),
-            TextFormField(
-              key: const Key('user-name'),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.grid),
+        AppFormCard(
+          title: 'Identitas & Akses',
+          children: [
+            AppTextField(
+              fieldKey: const Key('user-name'),
+              label: 'Nama Tampilan',
+              required: true,
+              hint: 'Mis. Budi Santoso',
               controller: _displayName,
               enabled: !_busy,
-              decoration: const InputDecoration(hintText: 'Mis. Budi Santoso'),
               validator: (v) =>
                   (v ?? '').trim().isEmpty ? 'Nama wajib diisi' : null,
             ),
-            const SizedBox(height: 16),
-            _label('Peran'),
-            DropdownButtonFormField<UserRole>(
-              key: const Key('user-role'),
-              initialValue: _role,
-              isExpanded: true,
-              decoration: const InputDecoration(),
+            const SizedBox(height: kFieldGap),
+            AppSelectField<UserRole>(
+              fieldKey: const Key('user-role'),
+              label: 'Peran',
+              required: true,
+              value: _role,
               items: [
                 for (final r in UserRole.values)
                   DropdownMenuItem(value: r, child: Text(_roleLabels[r]!)),
@@ -250,85 +272,32 @@ class _UserFormScreenState extends ConsumerState<UserFormScreen> {
                   ? null
                   : (v) => setState(() => _role = v!),
             ),
-            if (isSelf)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: _Hint(
-                    'Peran & status akun sendiri tidak bisa diubah, supaya '
-                    'Anda tidak terkunci keluar dari sistem.'),
+            if (isSelf) ...[
+              const SizedBox(height: 12),
+              const NoticePanel(
+                icon: Icons.lock_outline,
+                text: 'Peran & status akun sendiri tidak bisa diubah, '
+                    'supaya Anda tidak terkunci keluar dari sistem.',
               ),
+            ],
             if (!_isCreate) ...[
-              const SizedBox(height: 8),
-              SwitchListTile(
+              const SizedBox(height: kFieldGap),
+              AppSwitchTile(
                 key: const Key('user-active'),
+                title: 'Akun aktif',
+                subtitle: _active
+                    ? 'Bisa login dan memakai aplikasi.'
+                    : 'Kehilangan peran pada token berikutnya — tidak bisa '
+                        'memakai aplikasi.',
                 value: _active,
                 onChanged: (_busy || isSelf)
                     ? null
                     : (v) => setState(() => _active = v),
-                title: const Text('Akun aktif'),
-                subtitle: Text(_active
-                    ? 'Bisa login dan memakai aplikasi.'
-                    : 'Kehilangan peran pada token berikutnya — tidak bisa '
-                        'memakai aplikasi.'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ],
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 52,
-              child: FilledButton.icon(
-                key: const Key('user-submit'),
-                onPressed: _busy ? null : _submit,
-                icon: _busy
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.check),
-                label: Text(_isCreate ? 'Buat Akun' : 'Simpan Perubahan'),
-              ),
-            ),
-            if (!_isCreate) ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 48,
-                child: OutlinedButton.icon(
-                  key: const Key('user-reset-password'),
-                  onPressed: _busy ? null : _resetPassword,
-                  icon: const Icon(Icons.lock_reset),
-                  label: const Text('Reset Password'),
-                ),
               ),
             ],
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(text,
-            style: const TextStyle(
-                fontWeight: FontWeight.w600, color: AppColors.slate700)),
-      );
-}
-
-class _Hint extends StatelessWidget {
-  const _Hint(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.slate100,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
-      child: Text(text, style: const TextStyle(color: AppColors.slate500)),
+      ],
     );
   }
 }

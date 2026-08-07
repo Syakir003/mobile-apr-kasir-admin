@@ -64,7 +64,7 @@ class Sparepart {
       'sku': sku,
       'category': category,
       'unit': unit,
-      'buy_price': buyPrice,
+      // `buy_price` TIDAK ikut — sudah pindah ke `item_costs` (migrasi 0021).
       'sell_price': sellPrice,
       'stock': stock,
       'min_stock': minStock,

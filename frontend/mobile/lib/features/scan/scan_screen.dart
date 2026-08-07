@@ -8,6 +8,8 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/ac_unit.dart';
 import '../../data/models/app_user.dart';
 import '../members/member_providers.dart';
+import '../../core/utils/error_message.dart';
+import '../../core/widgets/form_field.dart';
 
 /// Layar scan barcode unit AC dengan fallback input manual.
 /// Validasi terhadap job/servis menyusul di Fase 5; di sini hanya lookup.
@@ -51,7 +53,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Gagal mencari: $e'),
+          content: Text('Gagal mencari: ${errorMessage(e)}'),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -67,13 +69,17 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
+      // Isi sheet bisa lebih tinggi dari layar pendek (mis. jendela 575px),
+      // dulu menghasilkan "BOTTOM OVERFLOWED BY 7.4 PIXELS".
+      isScrollControlled: true,
       builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               const _GrabHandle(),
               const SizedBox(height: 12),
               Row(
@@ -114,7 +120,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                         horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: AppColors.teal50,
-                      borderRadius: BorderRadius.circular(999),
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
                     ),
                     child: Text(
                       unit.status.label,
@@ -160,7 +166,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                     ),
                   ),
                 ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -227,6 +234,25 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                     ),
                   ),
                 ),
+                // `errorBuilder` hanya terpanggil bila plugin benar-benar
+                // melempar error. Saat izin kamera masih menggantung atau
+                // ditolak diam-diam (lazim di browser), tampilan tinggal kotak
+                // hitam tanpa penjelasan — petunjuk ini memastikan pengguna
+                // selalu tahu ada jalan lain.
+                const IgnorePointer(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(24, 0, 24, 16),
+                      child: Text(
+                        'Kamera tidak muncul atau izin ditolak? '
+                        'Ketik barcode manual di kolom bawah.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -238,15 +264,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
               child: Row(
                 children: [
                   Expanded(
-                    child: TextField(
+                    child: AppTextField(
                       key: const Key('manual-input'),
+                      label: 'Input barcode manual',
+                      hint: 'Ketik kode di bodi unit',
                       controller: _manualController,
-                      decoration: const InputDecoration(
-                        labelText: 'Input barcode manual',
-                        prefixIcon: Icon(Icons.qr_code),
-                        isDense: true,
-                      ),
-                      onSubmitted: _lookup,
+                      prefixIcon: const Icon(Icons.qr_code, size: 18),
+                      textInputAction: TextInputAction.search,
+                      onFieldSubmitted: _lookup,
                     ),
                   ),
                   const SizedBox(width: 10),

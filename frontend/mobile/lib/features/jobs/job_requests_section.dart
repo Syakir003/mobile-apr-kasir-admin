@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/status_badge.dart';
+import '../../core/utils/error_message.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/material_request.dart';
 import '../../data/models/technician_job.dart';
 import '../master/master_providers.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import 'job_providers.dart';
+import '../../core/widgets/form_field.dart';
 
 /// Warna badge status pengajuan.
 Color requestStatusColor(RequestStatus s) => switch (s) {
@@ -66,7 +69,7 @@ class JobRequestsSection extends ConsumerWidget {
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: LinearProgressIndicator(),
               ),
-              error: (e, _) => Text('Gagal memuat pengajuan: $e',
+              error: (e, _) => Text('Gagal memuat pengajuan: ${errorMessage(e)}',
                   style: const TextStyle(color: AppColors.slate500)),
               data: (requests) {
                 if (requests.isEmpty) {
@@ -153,7 +156,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text('$e'.replaceFirst('Exception: ', '')),
+        content: Text(errorMessage(e)),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -186,7 +189,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text('$e'.replaceFirst('Exception: ', '')),
+        content: Text(errorMessage(e)),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -245,19 +248,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
                         color: AppColors.slate900,
                         fontSize: 15)),
               ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(r.status.label,
-                    style: TextStyle(
-                        color: color,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600)),
-              ),
+              StatusBadge(label: r.status.label, color: color),
             ],
           ),
           const SizedBox(height: 8),
@@ -307,10 +298,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: _busy ? null : _rejectWithNote,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.red600,
-                      side: const BorderSide(color: Color(0xFFFECACA)),
-                    ),
+                    style: AppButtonStyles.destructive(),
                     child: const Text('Tolak'),
                   ),
                 ),
@@ -555,7 +543,7 @@ class _SubmitRequestSheetState extends ConsumerState<_SubmitRequestSheet> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text('$e'.replaceFirst('Exception: ', '')),
+        content: Text(errorMessage(e)),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -603,12 +591,11 @@ class _SubmitRequestSheetState extends ConsumerState<_SubmitRequestSheet> {
             label: const Text('Tambah Item'),
           ),
           const SizedBox(height: 12),
-          TextField(
+          AppTextField(
+            label: 'Catatan',
+            hint: 'Alasan tambahan…',
             controller: _note,
-            decoration: const InputDecoration(
-              labelText: 'Catatan (opsional)',
-              hintText: 'Alasan tambahan…',
-            ),
+            enabled: !_busy,
           ),
           const SizedBox(height: 14),
           Row(

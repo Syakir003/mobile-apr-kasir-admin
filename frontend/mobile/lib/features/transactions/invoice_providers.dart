@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/supabase/session_gate.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/invoice.dart';
 import '../../data/models/manual_payment.dart';
@@ -11,18 +12,20 @@ final invoiceRepositoryProvider = Provider<InvoiceRepository>(
 
 /// Daftar invoice terbaru (100 terakhir, urut created_at desc).
 final invoicesStreamProvider = StreamProvider<List<Invoice>>(
-  (ref) => ref.watch(invoiceRepositoryProvider).watchAll(),
+  (ref) => streamWhenSignedIn(
+      ref, () => ref.watch(invoiceRepositoryProvider).watchAll()),
 );
 
 /// Satu invoice by id (family). Null bila dokumen tidak ada.
 final invoiceProvider = StreamProvider.family<Invoice?, String>(
-  (ref, id) => ref.watch(invoiceRepositoryProvider).watchById(id),
+  (ref, id) => streamWhenSignedIn(
+      ref, () => ref.watch(invoiceRepositoryProvider).watchById(id)),
 );
 
 /// Daftar pembayaran manual milik satu invoice (family by invoiceId).
 final invoicePaymentsProvider = StreamProvider.family<List<ManualPayment>, String>(
-  (ref, invoiceId) =>
-      ref.watch(invoiceRepositoryProvider).watchPayments(invoiceId),
+  (ref, invoiceId) => streamWhenSignedIn(
+      ref, () => ref.watch(invoiceRepositoryProvider).watchPayments(invoiceId)),
 );
 
 /// Memanggil RPC `record_payment` dengan payload mentah.

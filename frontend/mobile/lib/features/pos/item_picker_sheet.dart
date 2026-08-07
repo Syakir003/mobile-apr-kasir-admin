@@ -8,6 +8,8 @@ import '../../data/models/sparepart.dart';
 import '../master/master_providers.dart';
 import 'cart_state.dart';
 import 'pos_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Bottom sheet pemilihan item (Produk/Sparepart/Jasa) untuk ditambahkan ke
 /// keranjang POS. Dibuka lewat `showModalBottomSheet` dari `pos_screen.dart`.
@@ -91,7 +93,7 @@ class _ItemPickerSheetState extends ConsumerState<ItemPickerSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFCBD5E1),
+                  color: AppColors.slate300,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -100,9 +102,13 @@ class _ItemPickerSheetState extends ConsumerState<ItemPickerSheet> {
                 child: TextField(
                   key: const Key('item-filter'),
                   controller: _query,
+                  // Kotak cari memakai hint, bukan label melayang: labelnya
+                  // menyusut jadi 12px begitu diketik, padahal kata kuncinya
+                  // sendiri yang perlu terbaca.
                   decoration: const InputDecoration(
-                    labelText: 'Cari nama item',
+                    hintText: 'Cari nama item',
                     prefixIcon: Icon(Icons.search),
+                    isDense: true,
                   ),
                   onChanged: (v) =>
                       setState(() => _filter = v.trim().toLowerCase()),
@@ -158,7 +164,7 @@ class _ProductTab extends StatelessWidget {
     return products.when(
       data: (list) {
         final filtered =
-            list.where((p) => matches(p.name.toLowerCase())).toList();
+            list.where((p) => p.active && matches(p.name.toLowerCase())).toList();
         if (filtered.isEmpty) {
           return const Center(child: Text('Tidak ada produk.'));
         }
@@ -180,8 +186,8 @@ class _ProductTab extends StatelessWidget {
           },
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Gagal memuat produk: $e')),
+      loading: () => const AppSkeletonList(),
+      error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat produk'),
     );
   }
 }
@@ -202,7 +208,7 @@ class _SparepartTab extends StatelessWidget {
     return spareparts.when(
       data: (list) {
         final filtered =
-            list.where((s) => matches(s.name.toLowerCase())).toList();
+            list.where((s) => s.active && matches(s.name.toLowerCase())).toList();
         if (filtered.isEmpty) {
           return const Center(child: Text('Tidak ada sparepart.'));
         }
@@ -224,8 +230,8 @@ class _SparepartTab extends StatelessWidget {
           },
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Gagal memuat sparepart: $e')),
+      loading: () => const AppSkeletonList(),
+      error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat sparepart'),
     );
   }
 }
@@ -246,7 +252,7 @@ class _ServiceTab extends StatelessWidget {
     return services.when(
       data: (list) {
         final filtered =
-            list.where((s) => matches(s.name.toLowerCase())).toList();
+            list.where((s) => s.active && matches(s.name.toLowerCase())).toList();
         if (filtered.isEmpty) {
           return const Center(child: Text('Tidak ada jasa.'));
         }
@@ -268,8 +274,8 @@ class _ServiceTab extends StatelessWidget {
           },
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Gagal memuat jasa: $e')),
+      loading: () => const AppSkeletonList(),
+      error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat jasa'),
     );
   }
 }

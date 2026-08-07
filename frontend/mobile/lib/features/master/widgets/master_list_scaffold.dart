@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_skeleton.dart';
+import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/status_badge.dart';
 
 /// Scaffold generik untuk daftar master data: AppBar berjudul, kolom cari,
 /// daftar item dengan badge "Nonaktif" bila tidak aktif, dan FAB tambah.
@@ -65,11 +69,35 @@ class _MasterListScaffoldState<T> extends State<MasterListScaffold<T>> {
                 hintText: widget.searchHint,
                 prefixIcon: const Icon(Icons.search),
                 isDense: true,
+                // Tombol hapus muncul memudar begitu ada isian, bukan
+                // berkedip masuk-keluar per ketikan.
+                suffixIcon: AppSwap(
+                  alignment: Alignment.center,
+                  switchKey: _query.isEmpty,
+                  child: _query.isEmpty
+                      ? const SizedBox.shrink()
+                      : IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          tooltip: 'Hapus pencarian',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                          },
+                        ),
+                ),
               ),
               onChanged: (v) => setState(() => _query = v.trim()),
             ),
           ),
-          Expanded(child: _buildList(context)),
+          Expanded(
+            child: AppSwap(
+              alignment: Alignment.topCenter,
+              switchKey: widget.items.hasValue
+                  ? 'data'
+                  : (widget.items.hasError ? 'error' : 'loading'),
+              child: _buildList(context),
+            ),
+          ),
         ],
       ),
     );
@@ -77,21 +105,24 @@ class _MasterListScaffoldState<T> extends State<MasterListScaffold<T>> {
 
   Widget _buildList(BuildContext context) {
     return widget.items.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text('Gagal memuat data: $e',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppColors.slate500)),
-        ),
-      ),
+      // Kerangka baris, bukan spinner: bentuk daftar sudah terlihat sebelum
+      // datanya sampai, jadi tidak ada lompatan dari layar kosong ke daftar.
+      loading: () => const AppSkeletonList(),
+      error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat data'),
       data: (all) {
         final filtered = _query.isEmpty
             ? all
             : all.where((item) => widget.matches(item, _query)).toList();
         if (filtered.isEmpty) {
-          return const _EmptyState();
+          return AppEmptyState(
+            icon: _query.isEmpty ? Icons.inbox_outlined : Icons.search_off,
+            title: _query.isEmpty
+                ? 'Belum ada data'
+                : 'Tidak ada yang cocok',
+            message: _query.isEmpty
+                ? 'Tekan tombol Tambah untuk membuat entri pertama.'
+                : 'Coba kata kunci lain, atau kosongkan kolom pencarian.',
+          );
         }
         return ListView.separated(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
@@ -99,11 +130,15 @@ class _MasterListScaffoldState<T> extends State<MasterListScaffold<T>> {
           separatorBuilder: (_, __) => const SizedBox(height: 10),
           itemBuilder: (context, index) {
             final item = filtered[index];
-            return _MasterCard(
-              title: widget.titleOf(item),
-              subtitle: widget.subtitleOf(item),
-              active: widget.isActive(item),
-              onTap: () => widget.onEdit(item),
+            return AppRevealIn.at(
+              index,
+              rise: 10,
+              child: _MasterCard(
+                title: widget.titleOf(item),
+                subtitle: widget.subtitleOf(item),
+                active: widget.isActive(item),
+                onTap: () => widget.onEdit(item),
+              ),
             );
           },
         );
@@ -130,10 +165,15 @@ class _MasterCard extends StatelessWidget {
     final initial = title.trim().isEmpty
         ? '?'
         : title.trim().characters.first.toUpperCase();
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.md),
+    return AppPressable(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: Ink(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          boxShadow: AppShadows.metric,
+        ),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
@@ -185,49 +225,13 @@ class _MasterCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              _StatusBadge(active: active),
+              StatusBadge.tone(
+                active ? AppBadgeTone.success : AppBadgeTone.draft,
+                label: active ? 'Aktif' : 'Nonaktif',
+              ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.active});
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = active ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7);
-    final fg = active ? AppColors.green600 : AppColors.warning;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        active ? 'Aktif' : 'Nonaktif',
-        style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.inbox_outlined, size: 48, color: AppColors.slate300),
-          SizedBox(height: 12),
-          Text('Belum ada data.', style: TextStyle(color: AppColors.slate500)),
-        ],
       ),
     );
   }

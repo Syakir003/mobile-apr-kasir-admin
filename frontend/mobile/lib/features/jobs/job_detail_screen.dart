@@ -6,6 +6,9 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/notice_panel.dart';
+import '../../core/widgets/status_badge.dart';
+import '../../core/utils/error_message.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/job_photo.dart';
 import '../../data/models/technician_job.dart';
@@ -14,6 +17,9 @@ import '../pos/pos_providers.dart' show techniciansProvider;
 import 'job_list_screen.dart' show jobStatusColor;
 import 'job_providers.dart';
 import 'job_requests_section.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/form_field.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Detail satu job teknisi + aksi berbasis peran & status:
 /// teknisi memulai (scan barcode) lalu menyelesaikan (isi diagnosa);
@@ -51,7 +57,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text('$e'.replaceFirst('Exception: ', '')),
+        content: Text(errorMessage(e)),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -69,7 +75,10 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       );
       return;
     }
-    final scanned = await _scanBarcode(job.unitBarcode);
+    final scanned = await _scanBarcode(
+      job.unitBarcode,
+      unitLabel: job.unitTitle.isEmpty ? 'unit pada job ini' : job.unitTitle,
+    );
     if (scanned == null) return;
     await _run(
       () => caller(
@@ -91,6 +100,31 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   }
 
   Future<void> _cancel(TechnicianJob job) async {
+    // Aksi destruktif tanpa undo — minta konfirmasi dulu.
+    final yakin = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Batalkan Job?'),
+        content: Text(
+          'Pekerjaan ${job.typeLabel} untuk ${job.memberName.isNotEmpty ? job.memberName : 'pelanggan ini'} '
+          'akan dibatalkan. Tindakan ini tidak bisa dikembalikan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Tidak jadi'),
+          ),
+          FilledButton(
+            key: const Key('confirm-cancel-job'),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.red600),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Ya, batalkan'),
+          ),
+        ],
+      ),
+    );
+    if (yakin != true) return;
+
     final caller = ref.read(updateJobStatusCallerProvider);
     await _run(
       () => caller({'jobId': job.id, 'action': 'cancel'}),
@@ -100,7 +134,10 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
 
   /// Buka pemindai; kembalikan barcode bila cocok dengan [expected], null bila
   /// dibatalkan. Barcode salah ditolak di dalam sheet (rule 8.2).
-  Future<String?> _scanBarcode(String expected) {
+  ///
+  /// [unitLabel] dipakai sebagai petunjuk di layar — nilai [expected] sendiri
+  /// tidak pernah ditampilkan utuh, lihat [_ScanSheet].
+  Future<String?> _scanBarcode(String expected, {required String unitLabel}) {
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -108,7 +145,8 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
-      builder: (sheetContext) => _ScanSheet(expected: expected),
+      builder: (sheetContext) =>
+          _ScanSheet(expected: expected, unitLabel: unitLabel),
     );
   }
 
@@ -133,8 +171,8 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         ],
       ),
       body: jobAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Gagal memuat: $e')),
+        loading: () => const AppSkeletonDetail(),
+        error: (e, _) => AppErrorState(error: e),
         data: (job) {
           if (job == null) {
             return const Center(child: Text('Job tidak ditemukan.'));
@@ -191,7 +229,9 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       if (job.status == JobStatus.assigned) {
         // Foto SEBELUM wajib sebelum memulai (rule 8.3) — tombol dikunci.
         if (!hasBefore) {
-          widgets.add(const _LockHint(
+          widgets.add(const NoticePanel(
+            tone: NoticeTone.warning,
+            icon: Icons.lock_outline,
             text: 'Unggah foto SEBELUM dulu untuk memulai pekerjaan.',
           ));
           widgets.add(const SizedBox(height: 10));
@@ -226,12 +266,9 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         height: 48,
         child: OutlinedButton.icon(
           onPressed: _busy ? null : () => _cancel(job),
-          icon: const Icon(Icons.cancel_outlined, color: AppColors.red600),
+          icon: const Icon(Icons.cancel_outlined, color: AppColors.coral),
           label: const Text('Batalkan Job'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.red600,
-            side: const BorderSide(color: Color(0xFFFECACA)),
-          ),
+          style: AppButtonStyles.destructive(),
         ),
       ));
     }
@@ -383,18 +420,7 @@ class _HeaderCard extends StatelessWidget {
                 ],
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                job.status.label,
-                style: TextStyle(
-                    color: color, fontSize: 12, fontWeight: FontWeight.w600),
-              ),
-            ),
+            StatusBadge(label: job.status.label, color: color),
           ],
         ),
       ),
@@ -566,33 +592,6 @@ class _StatusHint extends StatelessWidget {
 }
 
 /// Petunjuk kuning saat sebuah aksi terkunci oleh prasyarat (mis. foto sebelum).
-class _LockHint extends StatelessWidget {
-  const _LockHint({required this.text});
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFEF3C7),
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: const Color(0xFFFDE68A)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.lock_outline, size: 20, color: Color(0xFFB45309)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(text,
-                style: const TextStyle(color: Color(0xFF92400E), fontSize: 13)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Panel penugasan teknisi (admin/kasir): dropdown teknisi aktif + tombol simpan.
 class _AssignPanel extends ConsumerStatefulWidget {
   const _AssignPanel({required this.job, required this.busy, required this.onAssigned});
@@ -631,7 +630,7 @@ class _AssignPanelState extends ConsumerState<_AssignPanel> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text('$e'.replaceFirst('Exception: ', '')),
+        content: Text(errorMessage(e)),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -654,13 +653,13 @@ class _AssignPanelState extends ConsumerState<_AssignPanel> {
             const SizedBox(height: 10),
             techsAsync.when(
               loading: () => const LinearProgressIndicator(),
-              error: (e, _) => Text('Gagal memuat teknisi: $e',
+              error: (e, _) => Text('Gagal memuat teknisi: ${errorMessage(e)}',
                   style: const TextStyle(color: AppColors.slate500)),
-              data: (list) => DropdownButtonFormField<String?>(
-                key: const Key('assign-technician'),
-                initialValue:
+              data: (list) => AppSelectField<String?>(
+                fieldKey: const Key('assign-technician'),
+                label: 'Teknisi',
+                value:
                     list.any((t) => t.uid == _selected) ? _selected : null,
-                decoration: const InputDecoration(labelText: 'Teknisi'),
                 items: [
                   const DropdownMenuItem<String?>(
                     value: null,
@@ -696,9 +695,16 @@ class _AssignPanelState extends ConsumerState<_AssignPanel> {
 }
 
 /// Sheet pemindai barcode; pop dengan nilai barcode saat cocok [expected].
+///
+/// [expected] TIDAK pernah ditampilkan utuh: scan barcode adalah bukti bahwa
+/// teknisi benar-benar berada di depan unit, jadi menuliskan barcodenya di
+/// layar sama saja memberi jawabannya untuk diketik lewat input manual.
+/// Yang ditampilkan hanya identitas unit + 4 karakter terakhir barcode,
+/// cukup untuk memastikan unit yang benar tanpa bisa direkonstruksi.
 class _ScanSheet extends StatefulWidget {
-  const _ScanSheet({required this.expected});
+  const _ScanSheet({required this.expected, required this.unitLabel});
   final String expected;
+  final String unitLabel;
 
   @override
   State<_ScanSheet> createState() => _ScanSheetState();
@@ -706,6 +712,13 @@ class _ScanSheet extends StatefulWidget {
 
 class _ScanSheetState extends State<_ScanSheet> {
   bool _handled = false;
+
+  /// 4 karakter terakhir barcode — pembeda antar unit di alamat yang sama,
+  /// tapi terlalu sedikit untuk diketik di input manual.
+  String get _barcodeHint {
+    final value = widget.expected.trim();
+    return value.length <= 4 ? '' : '…${value.substring(value.length - 4)}';
+  }
 
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
@@ -746,8 +759,12 @@ class _ScanSheetState extends State<_ScanSheet> {
                     fontWeight: FontWeight.bold,
                     color: AppColors.slate900)),
             const SizedBox(height: 4),
-            Text('Cocokkan dengan ${widget.expected}',
-                style: const TextStyle(color: AppColors.slate500)),
+            Text(
+              'Pindai barcode pada ${widget.unitLabel}'
+              '${_barcodeHint.isEmpty ? '' : ' (berakhiran $_barcodeHint)'}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.slate500),
+            ),
             const SizedBox(height: 14),
             ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.md),
@@ -812,15 +829,14 @@ class _ManualEntryState extends State<_ManualEntry> {
     return Row(
       children: [
         Expanded(
-          child: TextField(
+          child: AppTextField(
             key: const Key('job-scan-manual'),
+            label: 'Input barcode manual',
+            hint: 'Ketik kode di bodi unit',
             controller: _controller,
-            decoration: const InputDecoration(
-              labelText: 'Input barcode manual',
-              prefixIcon: Icon(Icons.qr_code),
-              isDense: true,
-            ),
-            onSubmitted: widget.onSubmit,
+            prefixIcon: const Icon(Icons.qr_code, size: 18),
+            textInputAction: TextInputAction.search,
+            onFieldSubmitted: widget.onSubmit,
           ),
         ),
         const SizedBox(width: 10),
@@ -889,7 +905,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text('$e'.replaceFirst('Exception: ', '')),
+        content: Text(errorMessage(e)),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -938,7 +954,7 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: LinearProgressIndicator(),
               ),
-              error: (e, _) => Text('Gagal memuat foto: $e',
+              error: (e, _) => Text('Gagal memuat foto: ${errorMessage(e)}',
                   style: const TextStyle(color: AppColors.slate500)),
               data: (photos) {
                 Widget group(PhotoKind kind) => _PhotoGroup(

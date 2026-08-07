@@ -3,12 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/status_badge.dart';
 import '../../data/models/invoice.dart';
 import '../../data/models/manual_payment.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import 'invoice_providers.dart';
 import 'payment_form_sheet.dart';
 import 'receipt_pdf.dart';
+import '../../core/utils/error_message.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Warna chip status invoice (dipakai layar detail & daftar).
 Color statusColor(InvoiceStatus status) => switch (status) {
@@ -35,8 +39,8 @@ class InvoiceDetailScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Detail Transaksi')),
       body: invoiceAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Gagal memuat: $e')),
+        loading: () => const AppSkeletonDetail(),
+        error: (e, _) => AppErrorState(error: e),
         data: (invoice) {
           if (invoice == null) {
             return const Center(child: Text('Invoice tidak ditemukan.'));
@@ -70,9 +74,10 @@ class InvoiceDetailScreen extends ConsumerWidget {
                 height: 50,
                 child: OutlinedButton.icon(
                   key: const Key('print-receipt'),
-                  onPressed: () => Printing.layoutPdf(
-                    onLayout: (_) => buildReceiptPdf(invoice, payments),
-                  ),
+                  // `layoutPdf` menyelesaikan future-nya tanpa memberi tanda
+                  // apa pun bila dialog cetak diblokir browser, sehingga dulu
+                  // tombol ini terasa "tidak melakukan apa-apa".
+                  onPressed: () => _shareReceipt(context, invoice, payments),
                   icon: const Icon(Icons.receipt_long_outlined),
                   label: const Text('Bagikan Struk'),
                 ),
@@ -82,6 +87,34 @@ class InvoiceDetailScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+}
+
+/// Buka dialog cetak/simpan struk, dengan umpan balik yang jelas.
+///
+/// Di web, `Printing.layoutPdf` menyelesaikan future-nya sama saja baik dialog
+/// cetak terbuka maupun diblokir popup-blocker. Sukses ditandai snackbar
+/// singkat agar pengguna tahu tombolnya memang bekerja; kegagalan memunculkan
+/// pesan, bukan diam.
+Future<void> _shareReceipt(
+  BuildContext context,
+  Invoice invoice,
+  List<ManualPayment> payments,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await Printing.layoutPdf(
+      onLayout: (_) => buildReceiptPdf(invoice, payments),
+      name: 'Struk-${invoice.number}',
+    );
+    messenger.showSnackBar(
+      SnackBar(content: Text('Struk ${invoice.number} disiapkan.')),
+    );
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(
+      content: Text('Gagal menyiapkan struk: ${errorMessage(e)}'),
+      backgroundColor: AppColors.danger,
+    ));
   }
 }
 
@@ -107,7 +140,10 @@ class _InfoCard extends StatelessWidget {
                         fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                 ),
-                _StatusPill(status: invoice.status),
+                StatusBadge(
+                  label: invoice.status.label,
+                  color: statusColor(invoice.status),
+                ),
               ],
             ),
             const SizedBox(height: 6),
@@ -281,32 +317,6 @@ Widget _row(String label, String value, {bool bold = false}) {
       ],
     ),
   );
-}
-
-/// Pill status invoice (bg tint + teks berwarna).
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.status});
-  final InvoiceStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = statusColor(status);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        status.label,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
-        ),
-      ),
-    );
-  }
 }
 
 String _formatDate(DateTime d) {

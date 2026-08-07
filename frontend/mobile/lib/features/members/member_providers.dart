@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/supabase/session_gate.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/ac_unit.dart';
 import '../../data/models/member.dart';
@@ -16,7 +17,8 @@ final memberRepositoryProvider = Provider<CrudRepository<Member>>((ref) {
 });
 
 final membersStreamProvider = StreamProvider<List<Member>>(
-  (ref) => ref.watch(memberRepositoryProvider).watchAll(),
+  (ref) => streamWhenSignedIn(
+      ref, () => ref.watch(memberRepositoryProvider).watchAll()),
 );
 
 final acUnitRepositoryProvider = Provider<AcUnitRepository>(
@@ -25,8 +27,8 @@ final acUnitRepositoryProvider = Provider<AcUnitRepository>(
 
 /// Unit AC milik satu member (family by memberId).
 final memberUnitsProvider = StreamProvider.family<List<AcUnit>, String>(
-  (ref, memberId) =>
-      ref.watch(acUnitRepositoryProvider).watchByMember(memberId),
+  (ref, memberId) => streamWhenSignedIn(ref,
+      () => ref.watch(acUnitRepositoryProvider).watchByMember(memberId)),
 );
 
 /// Satu unit AC by id (family). Dipakai layar riwayat service yang dapat

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/models/app_user.dart';
 import '../router/app_router.dart';
+import '../theme/app_motion.dart';
 import '../theme/app_theme.dart';
 
 typedef Destination = ({IconData icon, String label, String route});
@@ -226,7 +227,7 @@ class _MobileNav extends StatelessWidget {
               height: 4,
               decoration: BoxDecoration(
                 color: AppColors.slate200,
-                borderRadius: BorderRadius.circular(999),
+                borderRadius: BorderRadius.circular(AppRadius.pill),
               ),
             ),
             const SizedBox(height: 6),
@@ -282,159 +283,223 @@ class _Sidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Sidebar teal dengan sudut kanan membulat 32px dan bayangan ke arah
+    // konten — mengikuti frame `SideNavBar` (10:267) pada desain.
+    final showCta = destinations.any((d) => d.route == '/pos');
+
     return Container(
       width: 260,
+      padding: const EdgeInsets.symmetric(vertical: 32),
       decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(right: BorderSide(color: AppColors.slate200)),
+        color: AppColors.tealDeep,
+        borderRadius: BorderRadius.horizontal(right: Radius.circular(32)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadowSoft,
+            offset: Offset(4, 0),
+            blurRadius: 20,
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header logo
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: const BoxDecoration(
-              border:
-                  Border(bottom: BorderSide(color: AppColors.slate200)),
-            ),
+          // Header: avatar bercincin Teal Bright + brand + peran.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
             child: Row(
               children: [
                 Container(
-                  width: 34,
-                  height: 34,
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
-                    color: AppColors.teal600,
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.navAvatarRing, width: 2),
                   ),
-                  child: const Icon(Icons.ac_unit,
-                      color: Colors.white, size: 20),
+                  clipBehavior: Clip.antiAlias,
+                  padding: const EdgeInsets.all(4),
+                  child: Image.asset('assets/brand/favicon-512.png'),
                 ),
                 const SizedBox(width: 12),
-                const Text(
-                  'E-POS AC',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: AppColors.slate900,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'E-POS AC',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: AppFonts.display,
+                          fontSize: 18,
+                          height: 24 / 18,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        _roleLabel(user?.role),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: AppFonts.body,
+                          fontSize: 12,
+                          height: 16 / 12,
+                          color: AppColors.navMuted,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-          // Menu
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(12),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                  child: Text(
-                    'MENU ${_roleLabel(user?.role).toUpperCase()}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.6,
-                      color: AppColors.slate400,
+
+          // CTA transaksi baru — hanya untuk peran yang punya akses POS.
+          if (showCta)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              child: Material(
+                color: AppColors.navAccent,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                child: InkWell(
+                  onTap: () => context.go('/pos'),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: const Padding(
+                    padding:
+                        EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add, size: 16, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text(
+                          'Transaksi Baru',
+                          style: TextStyle(
+                            fontFamily: AppFonts.display,
+                            fontSize: 15,
+                            height: 20 / 15,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                for (var i = 0; i < destinations.length; i++)
-                  _SidebarItem(
-                    destination: destinations[i],
-                    selected: i == selectedIndex,
-                    onTap: () => onSelected(i),
-                  ),
-              ],
+              ),
+            ),
+
+          // Menu — item aktif berupa pill yang membulat di sisi kiri saja.
+          //
+          // Admin punya 16 destinasi, jadi daftar ini hampir selalu menggulir.
+          // Tanpa peredup di kedua ujung, item yang setengah tergulir terpotong
+          // rata di tengah huruf dan terbaca seperti tampilan yang rusak, bukan
+          // seperti daftar yang masih ada lanjutannya.
+          Expanded(
+            child: ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (rect) => const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black,
+                  Colors.black,
+                  Colors.transparent,
+                ],
+                stops: [0, 0.05, 0.94, 1],
+              ).createShader(rect),
+              child: ListView(
+                padding: const EdgeInsets.only(left: 8, top: 6, bottom: 10),
+                children: [
+                  for (var i = 0; i < destinations.length; i++)
+                    _SidebarItem(
+                      destination: destinations[i],
+                      selected: i == selectedIndex,
+                      onTap: () => onSelected(i),
+                    ),
+                ],
+              ),
             ),
           ),
-          // Footer user + logout
+
+          // Footer: profil + logout, dipisah garis Teal Pale 10%.
           Container(
-            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.only(top: 16),
+            padding: const EdgeInsets.fromLTRB(24, 17, 24, 0),
             decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: AppColors.slate200)),
+              border: Border(top: BorderSide(color: AppColors.navDivider)),
             ),
             child: Column(
               children: [
-                // Tap area profil (avatar + nama) menuju halaman Profil.
-                Material(
-                  color: Colors.transparent,
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                  child: InkWell(
-                    onTap: () => context.go('/profile'),
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    hoverColor: AppColors.slate100,
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 20,
-                            backgroundColor: AppColors.teal50,
-                            child: Text(
-                              _roleLabel(user?.role).characters.first,
-                              style: const TextStyle(
-                                color: AppColors.teal700,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  user?.displayName.isNotEmpty == true
-                                      ? user!.displayName
-                                      : '${_roleLabel(user?.role)} User',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.slate900,
-                                  ),
-                                ),
-                                const Text(
-                                  'Lihat profil',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: AppColors.slate500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(Icons.chevron_right,
-                              size: 18, color: AppColors.slate400),
-                        ],
-                      ),
-                    ),
-                  ),
+                _SidebarAction(
+                  icon: Icons.person_outline,
+                  label: user?.displayName.isNotEmpty == true
+                      ? user!.displayName
+                      : 'Profil',
+                  onTap: () => context.go('/profile'),
                 ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton.icon(
-                    onPressed: onLogout,
-                    icon: const Icon(Icons.logout, size: 18),
-                    label: const Text('Logout'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.red600,
-                      alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                      ),
-                    ),
-                  ),
+                _SidebarAction(
+                  icon: Icons.logout,
+                  label: 'Logout',
+                  onTap: onLogout,
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Baris aksi pada footer sidebar (profil / logout).
+class _SidebarAction extends StatelessWidget {
+  const _SidebarAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        hoverColor: Colors.white.withValues(alpha: 0.06),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              Icon(icon, size: 16, color: AppColors.navMuted),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: AppFonts.display,
+                    fontSize: 15,
+                    height: 20 / 15,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.navMuted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -453,33 +518,62 @@ class _SidebarItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fg = selected ? AppColors.teal700 : AppColors.slate600;
+    // Item aktif sengaja menempel ke tepi kanan sidebar (hanya sudut kiri yang
+    // membulat) supaya menyatu dengan area konten, seperti pada desain.
+    const shape = BorderRadius.horizontal(left: Radius.circular(AppRadius.pill));
+    final fg = selected ? AppColors.navAccent : AppColors.navMuted;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Material(
-        color: selected ? AppColors.teal50 : Colors.transparent,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          hoverColor: AppColors.slate100,
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-            child: Row(
-              children: [
-                Icon(destination.icon, size: 20, color: fg),
-                const SizedBox(width: 12),
-                Text(
-                  destination.label,
-                  style: TextStyle(
-                    color: fg,
-                    fontSize: 14,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.w500,
+      padding: const EdgeInsets.only(bottom: 6),
+      // Pil aktif berpindah dengan memudar, bukan berkedip dari satu baris ke
+      // baris lain: sidebar adalah elemen yang paling sering dilihat, dan
+      // pergantian mendadak di sana yang paling terasa kaku.
+      child: AnimatedContainer(
+        duration: AppDurations.base,
+        curve: AppCurves.standard,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.mistDeep : Colors.transparent,
+          borderRadius: shape,
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          borderRadius: shape,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: shape,
+            hoverColor: Colors.white.withValues(alpha: 0.06),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              child: Row(
+                children: [
+                  AnimatedScale(
+                    duration: AppDurations.base,
+                    curve: AppCurves.emphasized,
+                    scale: selected ? 1.08 : 1,
+                    child: Icon(destination.icon, size: 18, color: fg),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: AnimatedDefaultTextStyle(
+                      duration: AppDurations.base,
+                      curve: AppCurves.standard,
+                      style: TextStyle(
+                        fontFamily: AppFonts.display,
+                        fontSize: 15,
+                        height: 20 / 15,
+                        fontWeight:
+                            selected ? FontWeight.w600 : FontWeight.w500,
+                        color: fg,
+                      ),
+                      child: Text(
+                        destination.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

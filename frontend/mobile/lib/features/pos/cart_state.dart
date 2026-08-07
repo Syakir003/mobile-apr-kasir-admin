@@ -1,4 +1,9 @@
+import '../../core/utils/currency.dart';
 import '../../core/utils/phone.dart';
+
+// Pemakai lama mengimpor `formatRupiah` dari sini; diteruskan agar impor
+// `cart_state.dart` di layar POS tetap cukup.
+export '../../core/utils/currency.dart' show formatRupiah;
 
 /// Jenis baris keranjang, sesuai `CheckoutItem.kind` pada kontrak
 /// `checkoutTransaction` (`functions/src/pos/validation.ts`).
@@ -141,10 +146,25 @@ class Cart {
 ({int subtotal, int taxAmount, int grandTotal}) computeCartTotals(Cart cart) {
   final subtotal =
       cart.lines.fold<int>(0, (sum, line) => sum + line.lineTotal);
-  final taxBase = subtotal - cart.discount;
+  // Diskon melebihi subtotal ditolak backend (`checkout_transaction`) dan
+  // dikunci di form checkout. Dijepit di sini supaya pratinjau tidak sempat
+  // menampilkan pajak & total NEGATIF selama pengguna masih mengetik.
+  final taxBase = (subtotal - cart.discount).clamp(0, subtotal);
   final taxAmount = (taxBase * cart.taxPercent / 100).round();
   final grandTotal = taxBase + taxAmount + cart.transportFee;
   return (subtotal: subtotal, taxAmount: taxAmount, grandTotal: grandTotal);
+}
+
+/// Pesan kesalahan diskon, atau null bila sah. Dipakai form checkout untuk
+/// menampilkan error inline sekaligus mengunci tombol submit — supaya tidak
+/// perlu menunggu penolakan dari database.
+String? cartDiscountError(Cart cart) {
+  if (cart.discount < 0) return 'Diskon tidak boleh negatif';
+  final subtotal = cart.lines.fold<int>(0, (sum, line) => sum + line.lineTotal);
+  if (cart.discount > subtotal) {
+    return 'Diskon melebihi subtotal (${formatRupiah(subtotal)})';
+  }
+  return null;
 }
 
 /// Menggabungkan [line] baru ke [lines]: baris dengan kind+refId sama
@@ -241,17 +261,4 @@ List<int> incompleteServiceLines(Cart cart) {
     if (line.unitIds.length < line.qty.round()) result.add(i);
   }
   return result;
-}
-
-/// Format rupiah sederhana tanpa dependensi `intl`: pemisah ribuan titik.
-/// Contoh: `104900` -> `'Rp 104.900'`.
-String formatRupiah(int value) {
-  final negative = value < 0;
-  final digits = value.abs().toString();
-  final buffer = StringBuffer();
-  for (var i = 0; i < digits.length; i++) {
-    if (i > 0 && (digits.length - i) % 3 == 0) buffer.write('.');
-    buffer.write(digits[i]);
-  }
-  return 'Rp ${negative ? '-' : ''}$buffer';
 }

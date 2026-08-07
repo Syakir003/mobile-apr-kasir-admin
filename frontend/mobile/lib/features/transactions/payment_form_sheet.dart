@@ -5,6 +5,10 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/invoice.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import 'invoice_providers.dart';
+import '../../core/utils/error_message.dart';
+import '../../core/widgets/form_field.dart';
+import '../../core/widgets/notice_panel.dart';
+import '../../core/theme/app_motion.dart';
 
 /// Membuka bottom sheet pencatatan pembayaran manual untuk [invoice].
 Future<void> showPaymentFormSheet(BuildContext context, Invoice invoice) {
@@ -46,7 +50,10 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
 
   int get _sisa => widget.invoice.sisa;
 
-  int? get _amountInput => int.tryParse(_amount.text.trim());
+  // Kolomnya `AppMoneyField`, jadi teksnya sudah berpemisah titik —
+  // `int.tryParse` akan gagal membacanya.
+  int? get _amountInput =>
+      _amount.text.trim().isEmpty ? null : parseRupiahInput(_amount.text);
 
   int get _change {
     final input = _amountInput ?? 0;
@@ -61,8 +68,8 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
   }
 
   String? _amountValidator(String? v) {
-    final n = int.tryParse((v ?? '').trim());
-    if (n == null || n <= 0) return 'Nominal harus lebih dari 0';
+    final n = parseRupiahInput(v ?? '');
+    if (n <= 0) return 'Nominal harus lebih dari 0';
     if (_method != PaymentMethod.tunai && n > _sisa) {
       return 'Melebihi sisa tagihan';
     }
@@ -101,7 +108,7 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
       setState(() => _busy = false);
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Gagal mencatat pembayaran: $e'),
+          content: Text('Gagal mencatat pembayaran: ${errorMessage(e)}'),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -114,6 +121,9 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
       padding: const EdgeInsets.all(16),
       child: Form(
         key: _formKey,
+        // Pesan validasi hilang begitu field diperbaiki, tidak
+        // menunggu tombol submit ditekan lagi.
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -160,58 +170,75 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<PaymentMethod>(
+            const SizedBox(height: 20),
+            AppSelectField<PaymentMethod>(
               key: const Key('method'),
-              initialValue: _method,
-              decoration: const InputDecoration(labelText: 'Metode'),
+              label: 'Metode',
+              required: true,
+              value: _method,
+              enabled: !_busy,
               items: [
                 for (final m in PaymentMethod.values)
                   DropdownMenuItem(value: m, child: Text(m.label)),
               ],
               onChanged: (v) => setState(() => _method = v ?? _method),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
+            const SizedBox(height: kFieldGap),
+            AppMoneyField(
               key: const Key('amount'),
+              label: _method == PaymentMethod.tunai
+                  ? 'Uang Diterima'
+                  : 'Nominal',
+              required: true,
               controller: _amount,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: _method == PaymentMethod.tunai
-                    ? 'Uang Diterima (Rp)'
-                    : 'Nominal (Rp)',
-              ),
+              enabled: !_busy,
               validator: _amountValidator,
               onChanged: (_) => setState(() {}),
             ),
-            if (_method == PaymentMethod.tunai && _change > 0) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Kembalian: ${formatRupiah(_change)}',
-                key: const Key('change'),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('note'),
-              controller: _note,
-              decoration:
-                  const InputDecoration(labelText: 'Catatan (opsional)'),
+            // Kembalian muncul memudar begitu nominalnya melebihi sisa
+            // tagihan, jadi kasir melihatnya berubah sambil mengetik.
+            AppSwap(
+              alignment: Alignment.topLeft,
+              switchKey: _method == PaymentMethod.tunai && _change > 0
+                  ? _change
+                  : 0,
+              child: _method == PaymentMethod.tunai && _change > 0
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: NoticePanel(
+                        key: const Key('change'),
+                        tone: NoticeTone.success,
+                        icon: Icons.payments_outlined,
+                        text: 'Kembalian: ${formatRupiah(_change)}',
+                      ),
+                    )
+                  : const SizedBox(width: double.infinity),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: kFieldGap),
+            AppTextField(
+              key: const Key('note'),
+              label: 'Catatan',
+              hint: 'Mis. transfer via BCA a.n. Budi',
+              controller: _note,
+              enabled: !_busy,
+            ),
+            const SizedBox(height: 24),
             SizedBox(
               height: 50,
               child: FilledButton(
                 key: const Key('pay-submit'),
                 onPressed: _busy ? null : _submit,
-                child: _busy
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Simpan Pembayaran'),
+                child: AppSwap(
+                  alignment: Alignment.center,
+                  switchKey: _busy,
+                  child: _busy
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Simpan Pembayaran'),
+                ),
               ),
             ),
           ],

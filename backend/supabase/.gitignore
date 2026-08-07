@@ -6,3 +6,6 @@
 .env.keys
 .env.local
 .env.*.local
+
+# Dump data lokal (berisi tabel auth: hash password & token) — jangan di-commit.
+dump/

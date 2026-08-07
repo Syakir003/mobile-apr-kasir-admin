@@ -3,11 +3,13 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../../core/pdf/pdf_theme.dart';
 import '../../data/models/ac_unit.dart';
 
 /// Label A6 untuk ditempel di unit AC: QR + barcode + identitas unit.
 Future<Uint8List> buildUnitLabelPdf(AcUnit unit) async {
-  final doc = pw.Document();
+  final doc = pw.Document(theme: await pdfTheme());
+  final logo = await pdfLogo();
   doc.addPage(
     pw.Page(
       pageFormat: PdfPageFormat.a6,
@@ -15,6 +17,8 @@ Future<Uint8List> buildUnitLabelPdf(AcUnit unit) async {
         child: pw.Column(
           mainAxisAlignment: pw.MainAxisAlignment.center,
           children: [
+            pw.Image(logo, height: 30),
+            pw.SizedBox(height: 6),
             pw.Text(
               'Ayub Podo Rukun',
               style: const pw.TextStyle(

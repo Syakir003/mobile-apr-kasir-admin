@@ -197,20 +197,29 @@ final analyticsProvider = FutureProvider.autoDispose<Analytics>((ref) async {
   }
 
   // --- Stok: nilai persediaan + item menipis ---
+  // Harga modal tidak lagi menempel pada baris barang: sejak migrasi 0021 ia
+  // tinggal di `item_costs` yang hanya terbaca admin. Laporan memang layar
+  // admin, jadi cukup ambil tabel itu sekali lalu dipetakan per id.
   final products = await client
       .from('products')
-      .select('name,stock,buy_price,active')
+      .select('id,name,stock,active')
       .eq('active', true);
   final spareparts = await client
       .from('spareparts')
-      .select('name,stock,min_stock,buy_price,active')
+      .select('id,name,stock,min_stock,active')
       .eq('active', true);
+  final costRows = await client.from('item_costs').select('kind,ref_id,buy_price');
+  final costs = <String, int>{
+    for (final r in (costRows as List))
+      '${(r as Map)['kind']}:${r['ref_id']}':
+          ((r['buy_price'] as num?) ?? 0).toInt(),
+  };
 
   var inventoryValue = 0;
   final lowStock = <LowStockItem>[];
   for (final r in (products as List)) {
     final stock = (r['stock'] as num?) ?? 0;
-    inventoryValue += (stock * ((r['buy_price'] as num?) ?? 0)).toInt();
+    inventoryValue += (stock * (costs['product:${r['id']}'] ?? 0)).toInt();
     if (stock <= 3) {
       lowStock.add(LowStockItem(name: '${r['name']}', stock: stock, min: 3));
     }
@@ -218,7 +227,7 @@ final analyticsProvider = FutureProvider.autoDispose<Analytics>((ref) async {
   for (final r in (spareparts as List)) {
     final stock = (r['stock'] as num?) ?? 0;
     final min = (r['min_stock'] as num?) ?? 0;
-    inventoryValue += (stock * ((r['buy_price'] as num?) ?? 0)).toInt();
+    inventoryValue += (stock * (costs['sparepart:${r['id']}'] ?? 0)).toInt();
     if (stock <= min) {
       lowStock.add(LowStockItem(name: '${r['name']}', stock: stock, min: min));
     }

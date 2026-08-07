@@ -8,6 +8,11 @@ import '../members/member_providers.dart';
 import 'cart_state.dart';
 import 'member_picker_sheet.dart';
 import 'pos_providers.dart';
+import '../../core/utils/error_message.dart';
+import '../../core/widgets/form_field.dart';
+import '../../core/widgets/form_scaffold.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/theme/app_motion.dart';
 
 /// Form checkout: data pelanggan + diskon/pajak/transport + catatan, lalu
 /// panggil `checkoutTransaction`. Pola sama seperti
@@ -43,9 +48,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     _name = TextEditingController(text: cart.customerName);
     _phone = TextEditingController(text: cart.customerPhone);
     _address = TextEditingController(text: cart.customerAddress);
-    _discount = TextEditingController(text: cart.discount.toString());
+    _discount =
+        TextEditingController(text: formatRupiahInput(cart.discount));
     _taxPercent = TextEditingController(text: _trimZero(cart.taxPercent));
-    _transportFee = TextEditingController(text: cart.transportFee.toString());
+    _transportFee =
+        TextEditingController(text: formatRupiahInput(cart.transportFee));
     _notes = TextEditingController(text: cart.notes);
   }
 
@@ -67,11 +74,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   String? _requiredValidator(String? v) =>
       (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null;
 
+  /// Kolom uang memakai [AppMoneyField], yang hanya menerima digit dan
+  /// menyisipkan pemisah ribuan sendiri — nilai negatif atau berhuruf sudah
+  /// tidak mungkin masuk. Validator ini tinggal menjaga batas bawahnya.
   String? _nonNegativeIntValidator(String? v) {
     if (v == null || v.trim().isEmpty) return null;
-    final n = int.tryParse(v.trim());
-    if (n == null || n < 0) return 'Angka tidak valid';
-    return null;
+    return parseRupiahInput(v) < 0 ? 'Angka tidak valid' : null;
   }
 
   String? _taxPercentValidator(String? v) {
@@ -131,9 +139,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       phone: _phone.text.trim(),
       address: _address.text.trim(),
     );
-    notifier.setDiscount(int.tryParse(_discount.text.trim()) ?? 0);
+    notifier.setDiscount(parseRupiahInput(_discount.text));
     notifier.setTaxPercent(double.tryParse(_taxPercent.text.trim()) ?? 0);
-    notifier.setTransportFee(int.tryParse(_transportFee.text.trim()) ?? 0);
+    notifier.setTransportFee(parseRupiahInput(_transportFee.text));
     notifier.setNotes(_notes.text.trim());
 
     final payload = buildCheckoutPayload(ref.read(cartProvider));
@@ -153,7 +161,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       setState(() => _busy = false);
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Gagal checkout: $e'),
+          content: Text('Gagal checkout: ${errorMessage(e)}'),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -163,11 +171,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   @override
   Widget build(BuildContext context) {
     final cart = ref.watch(cartProvider);
-    final discount = int.tryParse(_discount.text.trim()) ?? cart.discount;
+    final discount = _discount.text.trim().isEmpty
+        ? cart.discount
+        : parseRupiahInput(_discount.text);
     final taxPercent =
         double.tryParse(_taxPercent.text.trim()) ?? cart.taxPercent;
-    final transportFee =
-        int.tryParse(_transportFee.text.trim()) ?? cart.transportFee;
+    final transportFee = _transportFee.text.trim().isEmpty
+        ? cart.transportFee
+        : parseRupiahInput(_transportFee.text);
     final previewCart = cart.copyWith(
       discount: discount,
       taxPercent: taxPercent,
@@ -180,100 +191,127 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       appBar: AppBar(title: const Text('Checkout')),
       body: Form(
         key: _formKey,
+        // Pesan validasi ikut hilang begitu field diperbaiki, tidak menunggu
+        // tombol submit ditekan lagi.
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const _SectionLabel('Data Pelanggan'),
-            _MemberPickerField(
-              memberSelected: memberSelected,
-              name: cart.customerName,
-              phone: cart.customerPhone,
-              onPick: _busy ? null : _pickMember,
-              onClear: _busy ? null : _clearMember,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('name'),
-              controller: _name,
-              readOnly: memberSelected,
-              decoration: InputDecoration(
-                labelText: 'Nama Pelanggan',
-                filled: memberSelected,
-                helperText: memberSelected ? 'Dari data member' : null,
-              ),
-              validator: _requiredValidator,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('phone'),
-              controller: _phone,
-              readOnly: memberSelected,
-              keyboardType: TextInputType.phone,
-              decoration: InputDecoration(
-                labelText: 'Nomor HP',
-                filled: memberSelected,
-                helperText: memberSelected
-                    ? 'Nomor member — tidak bisa diubah di sini'
-                    : 'Disimpan dalam format +628xxxxxxxx',
-              ),
-              validator: _requiredValidator,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('address'),
-              controller: _address,
-              maxLines: 2,
-              decoration:
-                  const InputDecoration(labelText: 'Alamat (opsional)'),
+            AppFormCard(
+              title: 'Data Pelanggan',
+              children: [
+                _MemberPickerField(
+                  memberSelected: memberSelected,
+                  name: cart.customerName,
+                  phone: cart.customerPhone,
+                  onPick: _busy ? null : _pickMember,
+                  onClear: _busy ? null : _clearMember,
+                ),
+                const SizedBox(height: kFieldGap),
+                AppTextField(
+                  key: const Key('name'),
+                  label: 'Nama Pelanggan',
+                  required: true,
+                  hint: 'Nama di struk',
+                  controller: _name,
+                  enabled: !_busy,
+                  readOnly: memberSelected,
+                  helper: memberSelected ? 'Dari data member' : null,
+                  validator: _requiredValidator,
+                ),
+                const SizedBox(height: kFieldGap),
+                AppTextField(
+                  key: const Key('phone'),
+                  label: 'Nomor HP',
+                  required: true,
+                  hint: '08xxxxxxxxxx',
+                  keyboardType: TextInputType.phone,
+                  prefixIcon: const Icon(Icons.phone_outlined, size: 18),
+                  controller: _phone,
+                  enabled: !_busy,
+                  readOnly: memberSelected,
+                  helper: memberSelected
+                      ? 'Nomor member — tidak bisa diubah di sini'
+                      : 'Disimpan dalam format +628xxxxxxxx',
+                  validator: _requiredValidator,
+                ),
+                const SizedBox(height: kFieldGap),
+                AppTextField(
+                  key: const Key('address'),
+                  label: 'Alamat',
+                  hint: 'Alamat pemasangan atau pengiriman',
+                  maxLines: 2,
+                  controller: _address,
+                  enabled: !_busy,
+                ),
+              ],
             ),
             if (memberSelected && cart.lines.any(_isService)) ...[
-              const SizedBox(height: 20),
-              const _SectionLabel('Unit AC yang Dikerjakan'),
-              _ServiceUnitsSection(memberId: cart.memberId),
+              const SizedBox(height: AppSpacing.grid),
+              AppFormCard(
+                title: 'Unit AC yang Dikerjakan',
+                children: [_ServiceUnitsSection(memberId: cart.memberId)],
+              ),
             ],
-            const SizedBox(height: 20),
-            const _SectionLabel('Rincian Biaya'),
-            TextFormField(
-              key: const Key('discount'),
-              controller: _discount,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Diskon (Rp)'),
-              validator: _nonNegativeIntValidator,
-              onChanged: (_) => setState(() {}),
+            const SizedBox(height: AppSpacing.grid),
+            AppFormCard(
+              title: 'Rincian Biaya',
+              children: [
+                AppMoneyField(
+                  key: const Key('discount'),
+                  label: 'Diskon',
+                  controller: _discount,
+                  enabled: !_busy,
+                  validator: (v) =>
+                      _nonNegativeIntValidator(v) ??
+                      cartDiscountError(previewCart),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: kFieldGap),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: AppNumberField(
+                        key: const Key('taxPercent'),
+                        label: 'Pajak',
+                        decimal: true,
+                        hint: '0',
+                        suffixText: '%',
+                        controller: _taxPercent,
+                        enabled: !_busy,
+                        validator: _taxPercentValidator,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: AppMoneyField(
+                        key: const Key('transportFee'),
+                        label: 'Ongkos Transport',
+                        controller: _transportFee,
+                        enabled: !_busy,
+                        validator: _nonNegativeIntValidator,
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: kFieldGap),
+                AppTextField(
+                  key: const Key('notes'),
+                  label: 'Catatan',
+                  hint: 'Catatan untuk struk atau teknisi...',
+                  maxLines: 3,
+                  controller: _notes,
+                  enabled: !_busy,
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('taxPercent'),
-              controller: _taxPercent,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Pajak (%)'),
-              validator: _taxPercentValidator,
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('transportFee'),
-              controller: _transportFee,
-              keyboardType: TextInputType.number,
-              decoration:
-                  const InputDecoration(labelText: 'Ongkos Transport (Rp)'),
-              validator: _nonNegativeIntValidator,
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('notes'),
-              controller: _notes,
-              maxLines: 3,
-              decoration:
-                  const InputDecoration(labelText: 'Catatan (opsional)'),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
+            const SizedBox(height: AppSpacing.grid),
+            AppCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _summaryRow('Subtotal', formatRupiah(totals.subtotal)),
@@ -288,21 +326,28 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     ),
                   ],
                 ),
-              ),
             ),
             const SizedBox(height: 24),
             SizedBox(
               height: 50,
               child: FilledButton(
                 key: const Key('submit'),
-                onPressed: _busy ? null : _submit,
-                child: _busy
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Buat Transaksi'),
+                // Diskon tak sah dikunci di sini juga, bukan hanya lewat
+                // validator, supaya tombolnya jelas-jelas mati.
+                onPressed: (_busy || cartDiscountError(previewCart) != null)
+                    ? null
+                    : _submit,
+                child: AppSwap(
+                  alignment: Alignment.center,
+                  switchKey: _busy,
+                  child: _busy
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Buat Transaksi'),
+                ),
               ),
             ),
           ],
@@ -360,7 +405,7 @@ class _ServiceUnitsSection extends ConsumerWidget {
         padding: EdgeInsets.symmetric(vertical: 12),
         child: LinearProgressIndicator(),
       ),
-      error: (e, _) => Text('Gagal memuat unit AC: $e',
+      error: (e, _) => Text('Gagal memuat unit AC: ${errorMessage(e)}',
           style: const TextStyle(color: AppColors.danger)),
       data: (list) {
         if (list.isEmpty) {
@@ -468,10 +513,10 @@ class _ServiceTechnicianDropdown extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final technicians = ref.watch(techniciansProvider);
     return technicians.when(
-      data: (list) => DropdownButtonFormField<String?>(
-        key: Key('service-technician-$index'),
-        initialValue: line.technicianId,
-        decoration: const InputDecoration(labelText: 'Teknisi'),
+      data: (list) => AppSelectField<String?>(
+        fieldKey: Key('service-technician-$index'),
+        label: 'Teknisi',
+        value: line.technicianId,
         items: [
           const DropdownMenuItem<String?>(
             value: null,
@@ -484,7 +529,7 @@ class _ServiceTechnicianDropdown extends ConsumerWidget {
             ref.read(cartProvider.notifier).setServiceTechnician(index, v),
       ),
       loading: () => const LinearProgressIndicator(),
-      error: (e, _) => Text('Gagal memuat teknisi: $e'),
+      error: (e, _) => Text('Gagal memuat teknisi: ${errorMessage(e)}'),
     );
   }
 }
@@ -582,23 +627,3 @@ class _MemberPickerField extends StatelessWidget {
   }
 }
 
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(
-        text.toUpperCase(),
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.6,
-          color: AppColors.slate400,
-        ),
-      ),
-    );
-  }
-}

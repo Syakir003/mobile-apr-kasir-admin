@@ -3,29 +3,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
+import '../../core/theme/app_motion.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/tanggal.dart';
 import '../../core/widgets/adaptive_scaffold.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/page_header.dart';
 import '../../data/models/app_user.dart';
 import '../jobs/job_providers.dart';
 import '../notifications/notification_bell.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import '../reports/reports_providers.dart';
+import '../transactions/invoice_providers.dart';
+import 'metric_card.dart';
+import 'recent_transactions_card.dart';
+import 'sales_trend_card.dart';
 
-const _accents = [
-  AppColors.teal600,
-  AppColors.blue600,
-  AppColors.orange600,
-  AppColors.indigo600,
-  AppColors.green600,
-  AppColors.red600,
-];
-
-String _roleName(UserRole? r) => switch (r) {
-      UserRole.admin => 'Admin',
-      UserRole.kasir => 'Kasir',
-      UserRole.teknisi => 'Teknisi',
-      null => '',
-    };
+/// Lebar maksimum area konten — desain memakai canvas 1020px dengan padding
+/// 40px, jadi isinya berhenti di 940px meski jendela lebih lebar.
+const _contentMaxWidth = 940.0;
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -33,79 +30,74 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider).value;
-    // Pintasan = destinasi role selain Dashboard itu sendiri.
-    final shortcuts = destinationsForRole(user?.role)
-        .where((d) => d.route != '/')
-        .toList();
+    final role = user?.role;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard'),
-        actions: [
-          const Padding(
+        title: const Text('E-POS AC'),
+        actions: const [
+          Padding(
             padding: EdgeInsets.only(right: 8),
             child: _RealtimeBadge(),
           ),
-          const NotificationBell(),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Keluar',
-            onPressed: () => ref.read(authRepositoryProvider).signOut(),
-          ),
-          const SizedBox(width: 4),
+          NotificationBell(),
+          SizedBox(width: 8),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          _Greeting(user: user),
-          const SizedBox(height: 20),
-          _MetricsSection(role: user?.role),
-          Text(
-            'Akses Cepat',
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(color: AppColors.slate900),
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, c) {
-              final cols = c.maxWidth >= 1000
-                  ? 4
-                  : c.maxWidth >= 640
-                      ? 3
-                      : 2;
-              return GridView.count(
-                crossAxisCount: cols,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 14,
-                crossAxisSpacing: 14,
-                childAspectRatio: 1.35,
+      body: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          padding: EdgeInsets.all(AppSpacing.pageFor(constraints.maxWidth)),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _contentMaxWidth),
+              // Bagian halaman muncul berurutan dari atas ke bawah, bukan
+              // serempak sebagai satu blok. Jenjangnya pendek (±55ms) — cukup
+              // untuk memandu mata membaca dari header ke metrik ke tabel,
+              // tidak sampai terasa sebagai menunggu.
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  for (var i = 0; i < shortcuts.length; i++)
-                    _ActionCard(
-                      icon: shortcuts[i].icon,
-                      label: shortcuts[i].label,
-                      accent: _accents[i % _accents.length],
-                      onTap: () => context.go(shortcuts[i].route),
+                  AppRevealIn.at(
+                    0,
+                    child: PageHeader(
+                      title: 'Dashboard',
+                      subtitle: formatTanggalPanjang(DateTime.now()),
+                      subtitleIcon: Icons.calendar_today_outlined,
+                      action: role == UserRole.teknisi
+                          ? null
+                          : PageHeaderAction(
+                              icon: Icons.download_outlined,
+                              label: 'Ekspor Laporan',
+                              onPressed: () => context.go('/laporan'),
+                            ),
                     ),
+                  ),
+                  const SizedBox(height: AppSpacing.section),
+                  AppRevealIn.at(1, child: _Metrics(role: role)),
+                  if (role != UserRole.teknisi) ...[
+                    const SizedBox(height: AppSpacing.section),
+                    AppRevealIn.at(2, child: const _SalesTrend()),
+                    const SizedBox(height: AppSpacing.section),
+                    AppRevealIn.at(3, child: const _RecentTransactions()),
+                  ],
+                  const SizedBox(height: AppSpacing.section),
+                  AppRevealIn.at(4, child: _QuickAccess(role: role)),
                 ],
-              );
-            },
+              ),
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-/// Kartu metrik ringkas. Admin/kasir melihat penjualan & tagihan; teknisi
-/// melihat ringkasan job miliknya. Error disembunyikan agar dashboard tetap
-/// tampil (mis. peran tanpa akhir baca tabel finansial).
-class _MetricsSection extends ConsumerWidget {
-  const _MetricsSection({required this.role});
+/// Grid kartu metrik. Kartu pertama selalu varian gradient sesuai desain.
+///
+/// Error sengaja disembunyikan agar dashboard tetap tampil untuk peran yang
+/// tidak berhak membaca tabel finansial.
+class _Metrics extends ConsumerWidget {
+  const _Metrics({required this.role});
   final UserRole? role;
 
   @override
@@ -117,210 +109,191 @@ class _MetricsSection extends ConsumerWidget {
       final aktif = jobs.where((j) => j.status.isActive).length;
       final selesai = jobs.length - aktif;
       return _grid([
-        _MetricCard(label: 'Job Aktif', value: '$aktif', accent: AppColors.teal600),
-        _MetricCard(label: 'Job Selesai', value: '$selesai', accent: AppColors.green600),
+        MetricCard(
+          label: 'Job Berjalan',
+          value: '$aktif',
+          icon: Icons.handyman_outlined,
+          sub: 'Dari ${jobs.length} job ditugaskan',
+          featured: true,
+          onTap: () => context.go('/jobs'),
+        ),
+        MetricCard(
+          label: 'Job Selesai',
+          value: '$selesai',
+          icon: Icons.task_alt,
+          sub: 'Total sepanjang waktu',
+          onTap: () => context.go('/jobs'),
+        ),
       ]);
     }
 
     final async = ref.watch(analyticsProvider);
-    return async.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.only(bottom: 20),
-        child: Center(child: CircularProgressIndicator()),
-      ),
-      error: (_, __) => const SizedBox.shrink(),
-      data: (a) => _grid([
-        _MetricCard(
+    return AppSwap(
+      switchKey: async.hasValue ? 'data' : 'loading',
+      child: async.when(
+        // Kerangka berbentuk kartu, bukan spinner: tata letak dashboard sudah
+        // terlihat sejak awal sehingga yang berubah hanya angkanya.
+        loading: () => const AppSkeletonCards(),
+        error: (_, __) => const SizedBox.shrink(),
+        data: (a) => _grid([
+          MetricCard(
             label: 'Penjualan Hari Ini',
             value: formatRupiah(a.salesToday),
-            accent: AppColors.teal600),
-        _MetricCard(
+            icon: Icons.trending_up,
+            sub: '${a.txToday} transaksi',
+            featured: true,
+            mono: true,
+          ),
+          MetricCard(
             label: 'Transaksi Hari Ini',
             value: '${a.txToday}',
-            accent: AppColors.blue600),
-        _MetricCard(
+            icon: Icons.shopping_cart_outlined,
+            sub: '${a.txMonth} bulan ini',
+            onTap: () => context.go('/transactions'),
+          ),
+          MetricCard(
             label: 'Belum Lunas',
             value: '${a.unpaidCount}',
-            sub: formatRupiah(a.piutang),
-            accent: AppColors.warning),
-        _MetricCard(
+            icon: Icons.receipt_long_outlined,
+            sub: 'Piutang ${formatRupiah(a.piutang)}',
+            badge: a.unpaidCount > 0 ? const MetricAlertBadge() : null,
+            onTap: () => context.go('/transactions'),
+          ),
+          MetricCard(
             label: 'Stok Menipis',
             value: '${a.lowStock.length}',
-            accent: AppColors.orange600),
-      ]),
+            icon: Icons.inventory_outlined,
+            sub: 'Item di bawah stok minimum',
+            badge: a.lowStock.isNotEmpty
+                ? const MetricAlertBadge(label: 'CEK STOK')
+                : null,
+            onTap: () => context.go('/stok'),
+          ),
+        ]),
+      ),
     );
   }
 
   Widget _grid(List<Widget> tiles) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
-      child: LayoutBuilder(
-        builder: (context, c) {
-          final cols = c.maxWidth >= 640 ? 4 : 2;
-          return GridView.count(
-            crossAxisCount: cols > tiles.length ? tiles.length : cols,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 1.7,
-            children: tiles,
-          );
-        },
+    return GridView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      // Desain menaruh 4 kartu sejajar pada canvas 940px → ±220px per kartu.
+      // `mainAxisExtent` dipakai (bukan rasio) karena tinggi kartu tidak
+      // bergantung lebar kolom. Desain menyebut minimal 140px, tapi isinya
+      // (label 2 baris + angka 32/40 + sub-teks + padding 24) butuh 168px;
+      // memaksa 140px membuat kartu overflow.
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 260,
+        mainAxisExtent: 168,
+        mainAxisSpacing: AppSpacing.grid,
+        crossAxisSpacing: AppSpacing.grid,
       ),
+      children: tiles,
     );
   }
 }
 
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.label,
-    required this.value,
-    this.sub,
-    required this.accent,
-  });
+class _SalesTrend extends ConsumerWidget {
+  const _SalesTrend();
 
-  final String label;
-  final String value;
-  final String? sub;
-  final Color accent;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(analyticsProvider).maybeWhen(
+          data: (a) => SalesTrendCard(days: a.dailySales),
+          orElse: () => const SizedBox.shrink(),
+        );
+  }
+}
+
+class _RecentTransactions extends ConsumerWidget {
+  const _RecentTransactions();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(invoicesStreamProvider).maybeWhen(
+          data: (list) => RecentTransactionsCard(invoices: list),
+          orElse: () => const SizedBox.shrink(),
+        );
+  }
+}
+
+/// Pintasan ke modul lain. Tidak ada di desain desktop — sidebar sudah memuat
+/// semuanya — tapi dipertahankan karena di layar sempit bottom nav cuma
+/// menampilkan 4 destinasi sebelum sisanya masuk menu "Lainnya".
+class _QuickAccess extends StatelessWidget {
+  const _QuickAccess({required this.role});
+  final UserRole? role;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.slate200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final shortcuts =
+        destinationsForRole(role).where((d) => d.route != '/').toList();
+    if (shortcuts.isEmpty) return const SizedBox.shrink();
+
+    return AppSectionCard(
+      title: 'Akses Cepat',
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 12,
         children: [
-          Row(
-            children: [
-              Container(
-                  width: 8,
-                  height: 8,
-                  decoration:
-                      BoxDecoration(color: accent, shape: BoxShape.circle)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 12, color: AppColors.slate500)),
+          for (final (i, s) in shortcuts.indexed)
+            AppRevealIn.at(
+              i,
+              rise: 8,
+              child: _ShortcutChip(
+                icon: s.icon,
+                label: s.label,
+                onTap: () => context.go(s.route),
               ),
-            ],
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.slate900)),
-              if (sub != null)
-                Text(sub!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.slate400)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Greeting extends StatelessWidget {
-  const _Greeting({required this.user});
-  final AppUser? user;
-
-  @override
-  Widget build(BuildContext context) {
-    final name = user?.displayName.isNotEmpty == true
-        ? user!.displayName
-        : 'Pengguna';
-    final roleSuffix = user != null ? ' · ${_roleName(user!.role)}' : '';
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.teal700, AppColors.teal600],
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Halo, $name 👋',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Selamat datang kembali di E-POS AC$roleSuffix.',
-            style: const TextStyle(color: Color(0xFFCFF5EF), fontSize: 14),
-          ),
         ],
       ),
     );
   }
 }
 
-class _ActionCard extends StatelessWidget {
-  const _ActionCard({
+class _ShortcutChip extends StatelessWidget {
+  const _ShortcutChip({
     required this.icon,
     required this.label,
-    required this.accent,
     required this.onTap,
   });
 
   final IconData icon;
   final String label;
-  final Color accent;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.md),
+    const radius = BorderRadius.all(Radius.circular(AppRadius.pill));
+
+    return AppPressable(
+      onTap: onTap,
+      borderRadius: radius,
+      // Pil kecil: cukup diangkat sedikit, skala besar malah terlihat melompat.
+      pressedScale: 0.96,
+      hoverLift: 1,
+      child: Ink(
+        decoration: const BoxDecoration(
+          color: AppColors.mist,
+          borderRadius: radius,
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
-                child: Icon(icon, color: accent, size: 24),
-              ),
+              Icon(icon, size: 18, color: AppColors.tealDeep),
+              const SizedBox(width: 8),
               Text(
                 label,
                 style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 15,
-                  color: AppColors.slate900,
+                  fontFamily: AppFonts.display,
+                  fontSize: 14,
+                  height: 20 / 14,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.tealDeep,
                 ),
               ),
             ],
@@ -331,45 +304,44 @@ class _ActionCard extends StatelessWidget {
   }
 }
 
+/// Penanda bahwa data dashboard mengalir realtime dari Supabase.
 class _RealtimeBadge extends StatelessWidget {
   const _RealtimeBadge();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: AppColors.teal50,
-        borderRadius: BorderRadius.circular(999),
+        color: AppColors.successSurface,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _Dot(),
+          SizedBox(
+            width: 6,
+            height: 6,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppColors.successGreen,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
           SizedBox(width: 6),
           Text(
             'Realtime',
             style: TextStyle(
-              color: AppColors.teal700,
+              fontFamily: AppFonts.body,
               fontSize: 12,
-              fontWeight: FontWeight.w600,
+              height: 16 / 12,
+              fontWeight: FontWeight.w500,
+              color: AppColors.successGreen,
             ),
           ),
         ],
       ),
     );
   }
-}
-
-class _Dot extends StatelessWidget {
-  const _Dot();
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 8,
-        height: 8,
-        decoration: const BoxDecoration(
-          color: AppColors.green600,
-          shape: BoxShape.circle,
-        ),
-      );
 }

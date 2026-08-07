@@ -6,6 +6,8 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/ac_unit.dart';
 import '../../data/models/member.dart';
 import 'member_providers.dart';
+import '../../core/utils/error_message.dart';
+import '../../core/widgets/app_skeleton.dart';
 
 class MemberDetailScreen extends ConsumerWidget {
   const MemberDetailScreen({super.key, required this.memberId, this.initial});
@@ -67,8 +69,13 @@ class MemberDetailScreen extends ConsumerWidget {
             ),
           ),
           units.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Text('Gagal memuat unit: $e'),
+            loading: () => const AppSkeletonList(
+              count: 2,
+              hasLeading: false,
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+            ),
+            error: (e, _) => Text('Gagal memuat unit: ${errorMessage(e)}'),
             data: (list) => list.isEmpty
                 ? const Text('Belum ada unit AC.')
                 : Column(
@@ -167,8 +174,8 @@ class _MemberCard extends StatelessWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFEF3C7),
-                      borderRadius: BorderRadius.circular(6),
+                      color: AppColors.amberSurface,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
                     ),
                     child: const Text(
                       'Nonaktif',

@@ -3,6 +3,8 @@ import 'package:epos_ac/features/members/member_form_screen.dart';
 import 'package:epos_ac/features/members/member_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:epos_ac/core/router/app_router.dart';
+import 'package:epos_ac/data/models/app_user.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -22,7 +24,10 @@ Widget _host(FakeCrudRepository<Member> repo) {
     ],
   );
   return ProviderScope(
-    overrides: [memberRepositoryProvider.overrideWithValue(repo)],
+    overrides: [
+      currentUserProvider.overrideWith((ref) => Stream.value(_signedInAdmin)),
+      memberRepositoryProvider.overrideWithValue(repo),
+    ],
     child: MaterialApp.router(routerConfig: router),
   );
 }
@@ -33,6 +38,17 @@ void _useTallViewport(WidgetTester tester) {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 }
+
+/// Layar master ada di balik login, jadi test harus menyediakan sesi. Sejak
+/// provider daftar digerbangi [streamWhenSignedIn] (lihat core/supabase/
+/// session_gate.dart), tanpa sesi stream-nya sengaja tak pernah terbuka dan
+/// daftar tetap kosong — persis seperti di aplikasi sungguhan.
+const _signedInAdmin = AppUser(
+  uid: 'u-admin',
+  email: 'admin@eposac.local',
+  displayName: 'Admin Ayub',
+  role: UserRole.admin,
+);
 
 void main() {
   testWidgets('submit kosong menampilkan error validasi', (tester) async {

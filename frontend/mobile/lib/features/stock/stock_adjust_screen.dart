@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/error_message.dart';
 import 'stock_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Arah mutasi. Backend hanya menerima `qtyChange` bertanda; pemisahan
 /// arah/jumlah di UI menghindari user mengetik minus secara manual.
@@ -99,7 +102,7 @@ class _StockAdjustScreenState extends ConsumerState<StockAdjustScreen> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text('$e'.replaceFirst('Exception: ', '')),
+        content: Text(errorMessage(e)),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -113,15 +116,8 @@ class _StockAdjustScreenState extends ConsumerState<StockAdjustScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Stok Masuk & Penyesuaian')),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text('Gagal memuat item: $e',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.slate500)),
-          ),
-        ),
+        loading: () => const AppSkeletonDetail(),
+        error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat item'),
         data: (d) {
           final items = _kind == 'product' ? d.products : d.spareparts;
           final selected =
@@ -317,7 +313,7 @@ class _Preview extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: kurang ? const Color(0xFFFEF2F2) : AppColors.teal50,
+        color: kurang ? AppColors.dangerSurface : AppColors.tealSurface,
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Text(

@@ -7,6 +7,9 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/ac_unit.dart';
 import 'member_providers.dart';
 import 'unit_label_pdf.dart';
+import '../../core/utils/error_message.dart';
+import '../../core/widgets/form_field.dart';
+import '../../core/widgets/form_scaffold.dart';
 
 const _kPkOptions = <double>[0.5, 0.75, 1, 1.5, 2];
 
@@ -120,7 +123,7 @@ class _UnitFormScreenState extends ConsumerState<UnitFormScreen> {
       setState(() => _busy = false);
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Gagal menyimpan: $e'),
+          content: Text('Gagal menyimpan: ${errorMessage(e)}'),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -144,7 +147,7 @@ class _UnitFormScreenState extends ConsumerState<UnitFormScreen> {
       setState(() => _busy = false);
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Gagal generate barcode: $e'),
+          content: Text('Gagal generate barcode: ${errorMessage(e)}'),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -160,115 +163,147 @@ class _UnitFormScreenState extends ConsumerState<UnitFormScreen> {
   Widget build(BuildContext context) {
     // Pk lama di luar opsi standar tetap ditampilkan agar dropdown valid.
     final pkItems = {..._kPkOptions, _pk}.toList()..sort();
-    return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit Unit AC' : 'Tambah Unit AC')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+    return AppFormScaffold(
+      title: _isEdit ? 'Edit Unit AC' : 'Tambah Unit AC',
+      formKey: _formKey,
+      busy: _busy,
+      submitLabel: 'Simpan',
+      submitKey: const Key('submit'),
+      onSubmit: _submit,
+      children: [
+        AppFormCard(
+          title: 'Identitas Unit',
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-            TextFormField(
-              key: const Key('brand'),
-              controller: _brand,
-              decoration: const InputDecoration(labelText: 'Merek'),
-              validator: _requiredValidator,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('model'),
-              controller: _model,
-              decoration: const InputDecoration(labelText: 'Model'),
-              validator: _requiredValidator,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<double>(
-              key: const Key('pk'),
-              initialValue: _pk,
-              decoration: const InputDecoration(labelText: 'PK'),
-              items: [
-                for (final pk in pkItems)
-                  DropdownMenuItem(value: pk, child: Text('$pk PK')),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: AppTextField(
+                    key: const Key('brand'),
+                    label: 'Merek',
+                    required: true,
+                    controller: _brand,
+                    enabled: !_busy,
+                    validator: _requiredValidator,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: AppTextField(
+                    key: const Key('model'),
+                    label: 'Model',
+                    required: true,
+                    controller: _model,
+                    enabled: !_busy,
+                    validator: _requiredValidator,
+                  ),
+                ),
               ],
-              onChanged: (v) => setState(() => _pk = v ?? _pk),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
+            const SizedBox(height: kFieldGap),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: AppSelectField<double>(
+                    key: const Key('pk'),
+                    label: 'PK',
+                    required: true,
+                    value: _pk,
+                    enabled: !_busy,
+                    items: [
+                      for (final pk in pkItems)
+                        DropdownMenuItem(value: pk, child: Text('$pk PK')),
+                    ],
+                    onChanged: (v) => setState(() => _pk = v ?? _pk),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: AppSelectField<AcUnitStatus>(
+                    key: const Key('status'),
+                    label: 'Status',
+                    required: true,
+                    value: _status,
+                    enabled: !_busy,
+                    items: [
+                      for (final s in AcUnitStatus.values)
+                        DropdownMenuItem(value: s, child: Text(s.label)),
+                    ],
+                    onChanged: (v) => setState(() => _status = v ?? _status),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: kFieldGap),
+            AppTextField(
               key: const Key('roomLocation'),
+              label: 'Lokasi Ruangan',
+              hint: 'Contoh: Ruang Meeting Lt. 2',
               controller: _roomLocation,
-              decoration: const InputDecoration(labelText: 'Lokasi Ruangan'),
+              enabled: !_busy,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
+            const SizedBox(height: kFieldGap),
+            AppTextField(
               key: const Key('serialNumber'),
+              label: 'Serial Number',
+              hint: 'Tertera di bodi unit',
               controller: _serialNumber,
-              decoration:
-                  const InputDecoration(labelText: 'Serial Number (opsional)'),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<AcUnitStatus>(
-              key: const Key('status'),
-              initialValue: _status,
-              decoration: const InputDecoration(labelText: 'Status'),
-              items: [
-                for (final s in AcUnitStatus.values)
-                  DropdownMenuItem(value: s, child: Text(s.label)),
-              ],
-              onChanged: (v) => setState(() => _status = v ?? _status),
-            ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            if (_isEdit) ...[
-              const SizedBox(height: 12),
-              if (_barcodeValue.isNotEmpty)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.qr_code_2),
-                  title: Text(_barcodeValue),
-                  subtitle: const Text('Barcode unit'),
-                ),
-              if (_barcodeValue.isEmpty)
-                OutlinedButton.icon(
-                  key: const Key('generate-barcode'),
-                  onPressed: _busy ? null : _generateBarcode,
-                  icon: const Icon(Icons.qr_code_2),
-                  label: const Text('Generate Barcode'),
-                )
-              else
-                OutlinedButton.icon(
-                  key: const Key('print-label'),
-                  onPressed: _busy ? null : _printLabel,
-                  icon: const Icon(Icons.print_outlined),
-                  label: const Text('Cetak Label'),
-                ),
-            ],
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 50,
-              width: double.infinity,
-              child: FilledButton(
-                key: const Key('submit'),
-                onPressed: _busy ? null : _submit,
-                child: _busy
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Simpan'),
-              ),
+              enabled: !_busy,
             ),
           ],
         ),
-      ),
+        if (_isEdit) ...[
+          const SizedBox(height: AppSpacing.grid),
+          AppFormCard(
+            title: 'Barcode Unit',
+            subtitle: 'Dipakai teknisi untuk memindai unit di lokasi.',
+            children: [
+              if (_barcodeValue.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.mistDeep,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.qr_code_2,
+                        size: 20,
+                        color: AppColors.tealDeep,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _barcodeValue,
+                          style: AppTextStyles.monoCode,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  key: const Key('print-label'),
+                  onPressed: _busy ? null : _printLabel,
+                  icon: const Icon(Icons.print_outlined, size: 18),
+                  label: const Text('Cetak Label'),
+                ),
+              ] else
+                OutlinedButton.icon(
+                  key: const Key('generate-barcode'),
+                  onPressed: _busy ? null : _generateBarcode,
+                  icon: const Icon(Icons.qr_code_2, size: 18),
+                  label: const Text('Generate Barcode'),
+                ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }

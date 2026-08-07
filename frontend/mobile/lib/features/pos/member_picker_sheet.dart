@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/member.dart';
 import '../members/member_providers.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/empty_state.dart';
 
 /// Bottom sheet pemilihan member terdaftar untuk transaksi POS. Pola sama
 /// dengan `ItemPickerSheet` (`item_picker_sheet.dart`): filter di client atas
@@ -49,7 +51,7 @@ class _MemberPickerSheetState extends ConsumerState<MemberPickerSheet> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: const Color(0xFFCBD5E1),
+                color: AppColors.slate300,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -73,8 +75,9 @@ class _MemberPickerSheetState extends ConsumerState<MemberPickerSheet> {
                 key: const Key('member-filter'),
                 controller: _query,
                 decoration: const InputDecoration(
-                  labelText: 'Cari nama / nomor HP',
+                  hintText: 'Cari nama / nomor HP',
                   prefixIcon: Icon(Icons.search),
+                  isDense: true,
                 ),
                 onChanged: (v) =>
                     setState(() => _filter = v.trim().toLowerCase()),
@@ -132,9 +135,8 @@ class _MemberPickerSheetState extends ConsumerState<MemberPickerSheet> {
                     },
                   );
                 },
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(child: Text('Gagal memuat member: $e')),
+                loading: () => const AppSkeletonList(hasLeading: false),
+                error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat member'),
               ),
             ),
           ],

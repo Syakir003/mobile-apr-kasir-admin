@@ -6,6 +6,9 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/phone.dart';
 import '../../data/models/member.dart';
 import 'member_providers.dart';
+import '../../core/utils/error_message.dart';
+import '../../core/widgets/form_field.dart';
+import '../../core/widgets/form_scaffold.dart';
 
 class MemberFormScreen extends ConsumerStatefulWidget {
   const MemberFormScreen({super.key, this.initial});
@@ -97,7 +100,7 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal menyimpan: $e'),
+          content: Text('Gagal menyimpan: ${errorMessage(e)}'),
           backgroundColor: AppColors.danger,
         ),
       );
@@ -109,92 +112,82 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
     // Jaga langganan stream members tetap hidup supaya snapshot untuk
     // cek duplikat nomor HP di validator sudah terisi saat submit.
     ref.watch(membersStreamProvider);
-    return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit Member' : 'Tambah Member')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+    return AppFormScaffold(
+      title: _isEdit ? 'Edit Member' : 'Tambah Member',
+      formKey: _formKey,
+      busy: _busy,
+      submitLabel: 'Simpan',
+      submitKey: const Key('submit'),
+      onSubmit: _submit,
+      children: [
+        AppFormCard(
+          title: 'Data Pelanggan',
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-            TextFormField(
+            AppTextField(
               key: const Key('name'),
+              label: 'Nama',
+              required: true,
+              hint: 'Nama pelanggan atau perusahaan',
               controller: _name,
-              decoration: const InputDecoration(labelText: 'Nama'),
+              enabled: !_busy,
               validator: _requiredValidator,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
+            const SizedBox(height: kFieldGap),
+            AppTextField(
               key: const Key('phone'),
-              controller: _phone,
+              label: 'Nomor HP',
+              required: true,
+              hint: '08xxxxxxxxxx',
+              helper: 'Disimpan dalam format +628xxxxxxxx',
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Nomor HP',
-                helperText: 'Disimpan dalam format +628xxxxxxxx',
-              ),
+              prefixIcon: const Icon(Icons.phone_outlined, size: 18),
+              controller: _phone,
+              enabled: !_busy,
               validator: _phoneValidator,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('address'),
-              controller: _address,
-              maxLines: 2,
-              decoration: const InputDecoration(labelText: 'Alamat'),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
+            const SizedBox(height: kFieldGap),
+            AppSelectField<String>(
               key: const Key('customerType'),
-              initialValue: _customerType,
-              decoration: const InputDecoration(labelText: 'Jenis Pelanggan'),
+              label: 'Jenis Pelanggan',
+              required: true,
+              value: _customerType,
+              enabled: !_busy,
               items: [
                 for (final t in kCustomerTypes)
                   DropdownMenuItem(value: t, child: Text(t)),
               ],
-              onChanged: (v) => setState(() => _customerType = v ?? _customerType),
+              onChanged: (v) =>
+                  setState(() => _customerType = v ?? _customerType),
             ),
-            const SizedBox(height: 12),
-            TextFormField(
+            const SizedBox(height: kFieldGap),
+            AppTextField(
+              key: const Key('address'),
+              label: 'Alamat',
+              hint: 'Alamat pemasangan atau penagihan',
+              maxLines: 2,
+              controller: _address,
+              enabled: !_busy,
+            ),
+            const SizedBox(height: kFieldGap),
+            AppTextField(
               key: const Key('notes'),
-              controller: _notes,
+              label: 'Catatan',
+              hint: 'Preferensi jadwal, patokan lokasi, dll.',
               maxLines: 3,
-              decoration: const InputDecoration(labelText: 'Catatan (opsional)'),
+              controller: _notes,
+              enabled: !_busy,
             ),
-            const SizedBox(height: 12),
-            SwitchListTile(
+            const SizedBox(height: kFieldGap),
+            AppSwitchTile(
               key: const Key('active'),
-              title: const Text('Aktif'),
+              title: 'Member Aktif',
+              subtitle: 'Bisa dipilih saat transaksi dan order servis.',
               value: _active,
-              onChanged: (v) => setState(() => _active = v),
-            ),
-            const SizedBox(height: 24),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 50,
-              width: double.infinity,
-              child: FilledButton(
-                key: const Key('submit'),
-                onPressed: _busy ? null : _submit,
-                child: _busy
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Simpan'),
-              ),
+              onChanged: _busy ? null : (v) => setState(() => _active = v),
             ),
           ],
         ),
-      ),
+      ],
     );
   }
 }
