@@ -1,0 +1,68 @@
+{
+  "project_info": {
+    "project_number": "948610217072",
+    "project_id": "ayub-podo-rukun",
+    "storage_bucket": "ayub-podo-rukun.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:948610217072:android:fc339e7354a5a4b41ef0b5",
+        "android_client_info": {
+          "package_name": "com.apr.epos"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "948610217072-rdsnjhh4fd4s6m9h1u1ae1jkoend9llt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUEVph0W5v7fwaaB1nP4fqRBCNDm0ewUU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "948610217072-rdsnjhh4fd4s6m9h1u1ae1jkoend9llt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:948610217072:android:e9c67e4356d0361c1ef0b5",
+        "android_client_info": {
+          "package_name": "com.ayubpodorukun.epos_ac"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "948610217072-rdsnjhh4fd4s6m9h1u1ae1jkoend9llt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUEVph0W5v7fwaaB1nP4fqRBCNDm0ewUU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "948610217072-rdsnjhh4fd4s6m9h1u1ae1jkoend9llt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

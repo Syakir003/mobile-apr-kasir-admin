@@ -1,0 +1,16 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The INTERNET permission is required for development. Specifically,
+         the Flutter tool needs it to communicate with the running application
+         to allow setting breakpoints, to provide hot reload, etc.
+    -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Supabase lokal disajikan lewat http:// polos di LAN mesin dev.
+         Sejak Android 9 (API 28) cleartext diblokir secara default, sehingga
+         tanpa ini aplikasi gagal login dengan error koneksi yang menyesatkan
+         (tampak seperti backend mati, padahal request-nya tak pernah keluar).
+
+         Sengaja hanya di manifest DEBUG: build rilis tetap menolak cleartext,
+         karena produksi memakai https://<ref>.supabase.co. -->
+    <application android:usesCleartextTraffic="true" />
+</manifest>

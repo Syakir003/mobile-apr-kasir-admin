@@ -5,7 +5,11 @@
 build/
 *.iml
 .idea/
-android/
+# android/ SENGAJA dilacak: berisi konfigurasi yang tak bisa diregenerasi
+# `flutter create` — plugin google-services, channel notifikasi FCM di
+# MainActivity, meta-data manifest, dan google-services.json. Penyaringan
+# berkas mesin-lokal (local.properties, .gradle, keystore) diserahkan ke
+# android/.gitignore.
 ios/
 web/
 linux/
