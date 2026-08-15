@@ -20,6 +20,9 @@ dependencies:
   printing: ^5.13.2
   firebase_core: ^4.12.1
   firebase_messaging: ^16.4.3
+  # Membuka WhatsApp dari layar Pengingat lewat tautan wa.me — "adapter manual"
+  # pengiriman pesan servis selama Cloud API Meta belum disetujui.
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

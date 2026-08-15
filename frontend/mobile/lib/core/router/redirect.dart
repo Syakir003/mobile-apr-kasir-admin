@@ -12,6 +12,9 @@ const _adminOnlyPrefixes = [
   '/stok',
   '/users',
   '/audit',
+  // Layar antrean '/pengingat' boleh kasir; hanya pengaturan siklus servisnya
+  // yang admin-only, sesuai RPC `save_reminder_settings`.
+  '/pengingat/pengaturan',
 ];
 
 /// Prefix lokasi POS, riwayat transaksi, & order service: boleh admin & kasir,
@@ -21,6 +24,9 @@ const _kasirAdminPrefixes = [
   '/pos',
   '/transactions',
   '/orders',
+  // Antrean pengingat memuat nama, nomor HP, dan alamat pelanggan — tertutup
+  // dari teknisi, sama seperti RLS `wa_outbox` di migrasi 0023.
+  '/pengingat',
 ];
 
 String? computeRedirect({
