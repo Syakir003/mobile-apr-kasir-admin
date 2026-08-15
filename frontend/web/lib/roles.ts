@@ -39,6 +39,13 @@ const riwayat: MenuItem = { label: "Riwayat", href: "/transaksi", icon: "receipt
 const order: MenuItem = { label: "Order", href: "/orders", icon: "clipboard" };
 const job: MenuItem = { label: "Job", href: "/jobs", icon: "wrench" };
 const profil: MenuItem = { label: "Profil", href: "/profil", icon: "user" };
+// Antrean pengingat servis WhatsApp — admin & kasir saja; RLS `wa_outbox`
+// menutup data pelanggan dari teknisi.
+const pengingat: MenuItem = {
+  label: "Pengingat",
+  href: "/pengingat",
+  icon: "bell",
+};
 
 export function menuForRole(role: Role | null): MenuItem[] {
   switch (role) {
@@ -54,10 +61,11 @@ export function menuForRole(role: Role | null): MenuItem[] {
         { label: "Member", href: "/member", icon: "users" },
         order,
         job,
+        pengingat,
         profil,
       ];
     case "kasir":
-      return [dashboard, pos, riwayat, order, profil];
+      return [dashboard, pos, riwayat, order, pengingat, profil];
     case "teknisi":
       return [dashboard, job, { label: "Scan", href: "/scan", icon: "qr" }, profil];
     default:

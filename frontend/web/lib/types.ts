@@ -35,6 +35,10 @@ export type AcUnitStatus =
 
 export type ItemKind = "product" | "sparepart" | "service";
 
+export type WaKind = "selesai_servis" | "reminder_h3" | "reminder_h7";
+
+export type WaStatus = "pending" | "terkirim" | "gagal" | "dibatalkan";
+
 // ---- Label Indonesia untuk UI ---------------------------------------------
 
 export const roleLabel: Record<Role, string> = {
@@ -60,6 +64,12 @@ export const jobStatusLabel: Record<JobStatus, string> = {
   dibatalkan: "Dibatalkan",
 };
 
+export const waKindLabel: Record<WaKind, string> = {
+  selesai_servis: "Selesai Servis",
+  reminder_h3: "Pengingat H-3",
+  reminder_h7: "Terlambat 7 Hari",
+};
+
 // ---- Baris tabel (subset yang dipakai contoh) -----------------------------
 
 export type Invoice = {
@@ -68,6 +78,23 @@ export type Invoice = {
   customer_name: string;
   grand_total: number;
   status: InvoiceStatus;
+  created_at: string;
+};
+
+/**
+ * Satu baris antrean WhatsApp (`wa_outbox`). `phone` sudah ternormalisasi ke
+ * `62xxx` dan `body` sudah tersusun lengkap oleh Postgres — web hanya
+ * menampilkannya, tidak pernah menyusun ulang redaksi pesannya.
+ */
+export type WaMessage = {
+  id: string;
+  member_id: string;
+  phone: string;
+  kind: WaKind;
+  unit_ids: string[] | null;
+  due_date: string | null;
+  body: string;
+  status: WaStatus;
   created_at: string;
 };
 
