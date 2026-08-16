@@ -77,6 +77,24 @@ export function assignTechnicianJob(
   return callRpc<{ ok: boolean }>(supabase, "assign_technician_job", payload);
 }
 
+// ---- antrean pengingat WhatsApp -------------------------------------------
+
+/**
+ * Menandai satu pesan antrean sudah dikirim. Dipanggil SETELAH tautan wa.me
+ * benar-benar terbuka — kalau statusnya diubah lebih dulu dan WhatsApp gagal
+ * terbuka, pesan itu hilang dari antrean tanpa pernah sampai ke pelanggan.
+ */
+export function markWaSent(supabase: SupabaseClient, payload: { id: string }) {
+  return callRpc<{ ok: boolean }>(supabase, "mark_wa_sent", payload);
+}
+
+export function cancelWaMessage(
+  supabase: SupabaseClient,
+  payload: { id: string; reason?: string },
+) {
+  return callRpc<{ ok: boolean }>(supabase, "cancel_wa_message", payload);
+}
+
 export type JobAction = "start" | "complete" | "cancel";
 
 export function updateTechnicianJobStatus(

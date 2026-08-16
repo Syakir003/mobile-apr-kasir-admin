@@ -41,6 +41,7 @@ class AcUnit {
     this.installationDate,
     this.lastServiceDate,
     this.nextServiceDate,
+    this.serviceIntervalDays,
     this.status = AcUnitStatus.menungguPemasangan,
   });
 
@@ -55,6 +56,13 @@ class AcUnit {
   final DateTime? installationDate;
   final DateTime? lastServiceDate;
   final DateTime? nextServiceDate;
+
+  /// Override siklus servis unit ini dalam hari; null = ikut default
+  /// `reminder_settings`. Hanya dibaca di sini — penulisannya lewat RPC
+  /// `set_unit_service_interval` (admin), jadi kolom ini sengaja **tidak** ikut
+  /// [toMap] supaya update biasa dari form tidak menimpanya.
+  final int? serviceIntervalDays;
+
   final AcUnitStatus status;
 
   factory AcUnit.fromMap(String id, Map<String, dynamic> data) {
@@ -70,6 +78,7 @@ class AcUnit {
       installationDate: _toDate(data['installation_date']),
       lastServiceDate: _toDate(data['last_service_date']),
       nextServiceDate: _toDate(data['next_service_date']),
+      serviceIntervalDays: (data['service_interval_days'] as num?)?.toInt(),
       status: AcUnitStatus.fromValue(data['status']),
     );
   }
@@ -102,6 +111,7 @@ class AcUnit {
     DateTime? installationDate,
     DateTime? lastServiceDate,
     DateTime? nextServiceDate,
+    int? serviceIntervalDays,
     AcUnitStatus? status,
   }) {
     return AcUnit(
@@ -116,6 +126,7 @@ class AcUnit {
       installationDate: installationDate ?? this.installationDate,
       lastServiceDate: lastServiceDate ?? this.lastServiceDate,
       nextServiceDate: nextServiceDate ?? this.nextServiceDate,
+      serviceIntervalDays: serviceIntervalDays ?? this.serviceIntervalDays,
       status: status ?? this.status,
     );
   }

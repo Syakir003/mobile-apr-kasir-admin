@@ -101,6 +101,8 @@ stateDiagram-v2
   note right of selesai
     unit AC -> aktif
     last_service_date terisi
+    next_service_date dijadwalkan
+    (cuci/maintenance saja)
     order selesai bila
     semua unit selesai
   end note
@@ -126,6 +128,36 @@ flowchart LR
 
 ---
 
+## 6. Pengingat servis via WhatsApp
+
+Pesan tidak pernah dikirim langsung dari trigger — semuanya masuk antrean
+`wa_outbox` dulu, supaya cara kirimnya bisa diganti tanpa menyentuh skema.
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#CCFBF1','primaryBorderColor':'#0F766E','lineColor':'#64748B','primaryTextColor':'#0F172A','fontFamily':'system-ui'}}}%%
+flowchart TD
+  J["Job cuci/maintenance selesai"] --> N["member_ac_units<br/>next_service_date = +interval"]
+  J --> Q1["wa_outbox: selesai_servis"]
+  N --> CRON{{"pg_cron harian 09:00 WIB<br/>enqueue_service_reminders()"}}
+  CRON -->|"H-3"| Q2["wa_outbox: reminder_h3"]
+  CRON -->|"H+7 & belum pesan"| Q3["wa_outbox: reminder_h7"]
+
+  Q1 --> UI["Layar Pengingat<br/>(admin/kasir)"]
+  Q2 --> UI
+  Q3 --> UI
+  UI -->|"buka wa.me lalu"| MS["rpc: mark_wa_sent<br/>status: terkirim"]
+  UI -->|"tidak relevan"| CX["rpc: cancel_wa_message<br/>status: dibatalkan"]
+
+  UI -.->|"nanti, adapter cloud_api"| EF["Edge Function send-wa<br/>(kirim otomatis)"]
+```
+
+> Interval diambil dari override per unit (`service_interval_days`), lalu default
+> per jenis job (`reminder_settings`). Job berjalan pada unit yang sama otomatis
+> menghentikan pengingatnya. `dedupe_key` menjamin scheduler yang jalan berkali-kali
+> tidak pernah membuat pesan kembar.
+
+---
+
 ### Ringkas untuk web (Next.js)
 
 | Butuh | Caranya |
@@ -135,6 +167,7 @@ flowchart LR
 | Buat transaksi | `supabase.rpc('checkout_transaction', { payload })` |
 | Catat bayar | `supabase.rpc('record_payment', { payload })` |
 | Tugaskan/kerjakan job | `assign_technician_job` / `update_technician_job_status` |
+| Kirim pengingat servis | buka `https://wa.me/<phone>?text=…` lalu `mark_wa_sent` |
 | Tampilkan data | `supabase.from('...').select()` (RLS otomatis) |
 
 Semua RPC & kontrak lengkapnya ada di halaman **Panduan Backend**.

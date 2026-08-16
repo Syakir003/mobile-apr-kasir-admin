@@ -48,6 +48,13 @@ List<Destination> destinationsForRole(UserRole? role) {
     label: 'Profil',
     route: '/profile',
   );
+  // Antrean pengingat servis WhatsApp — admin & kasir saja (teknisi tidak boleh
+  // melihat data pelanggan, lihat `redirect.dart`).
+  const pengingat = (
+    icon: Icons.notifications_active_outlined,
+    label: 'Pengingat',
+    route: '/pengingat',
+  );
   if (role == UserRole.admin) {
     return const [
       dashboard,
@@ -60,6 +67,7 @@ List<Destination> destinationsForRole(UserRole? role) {
       (icon: Icons.people_outlined, label: 'Member', route: '/members'),
       order,
       job,
+      pengingat,
       (icon: Icons.inventory_outlined, label: 'Stok', route: '/stok'),
       (icon: Icons.bar_chart_outlined, label: 'Laporan', route: '/laporan'),
       (icon: Icons.manage_accounts_outlined, label: 'Akun', route: '/users'),
@@ -69,7 +77,7 @@ List<Destination> destinationsForRole(UserRole? role) {
     ];
   }
   if (role == UserRole.kasir) {
-    return const [dashboard, pos, riwayat, order, profile];
+    return const [dashboard, pos, riwayat, order, pengingat, profile];
   }
   if (role == UserRole.teknisi) {
     return const [dashboard, job, scan, profile];

@@ -298,6 +298,51 @@ void main() {
       '/',
     );
   });
+  test('kasir boleh buka antrean /pengingat', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/pengingat',
+      ),
+      isNull,
+    );
+  });
+  test('teknisi buka /pengingat diarahkan ke / (data pelanggan tertutup)', () {
+    expect(
+      computeRedirect(
+        user: teknisi,
+        role: UserRole.teknisi,
+        loading: false,
+        location: '/pengingat',
+      ),
+      '/',
+    );
+  });
+  test('kasir buka /pengingat/pengaturan diarahkan ke / (admin-only)', () {
+    expect(
+      computeRedirect(
+        user: kasir,
+        role: UserRole.kasir,
+        loading: false,
+        location: '/pengingat/pengaturan',
+      ),
+      '/',
+    );
+  });
+  test('admin buka /pengingat/pengaturan tidak di-redirect', () {
+    expect(
+      computeRedirect(
+        user: admin,
+        role: UserRole.admin,
+        loading: false,
+        location: '/pengingat/pengaturan',
+      ),
+      isNull,
+    );
+  });
+
   test('admin buka semua modul master tidak di-redirect', () {
     for (final loc in [
       '/products',

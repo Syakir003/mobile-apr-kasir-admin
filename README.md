@@ -57,6 +57,10 @@ Migrasi backend (urut):
 | `..._stock_manual.sql` | RPC `adjust_stock` (barang masuk & penyesuaian) |
 | `..._user_management.sql` | RPC `update_user_account` |
 | `..._audit_read_payment_info.sql` | Baca `audit_logs` (admin) + `job_payment_info` |
+| `..._service_reminders.sql` | Skema pengingat servis + antrean `wa_outbox` |
+| `..._schedule_on_job_complete.sql` | Isi `next_service_date` & antre pesan saat job selesai |
+| `..._reminder_scheduler.sql` | `pg_cron` harian: panen jadwal H-3 & H+7 |
+| `..._reminder_rpc.sql` | RPC antrean WA + pengaturan interval |
 
 ---
 
@@ -125,7 +129,7 @@ Ringkasan hak akses (detail lengkap di dokumen fitur §4.4):
 3. **Realtime**: hanya tabel yang terdaftar di publication `supabase_realtime`
    yang bisa `.stream()`/subscribe (users, products, spareparts, services,
    packages, members, member_ac_units, invoices, manual_payments, service_orders,
-   service_order_units, technician_jobs).
+   service_order_units, technician_jobs, wa_outbox).
 4. **Nomor HP = identitas member** (disimpan ternormalisasi via `normalize_phone`).
    Transaksi pelanggan baru otomatis membuat member; HP sama → member lama.
 5. **Barcode unit** unik, format `ACUNIT-YYYYMMDD-NNNN`. Teknisi wajib scan &
@@ -243,6 +247,19 @@ Dipakai untuk **peringatan** (badge) di detail job — bukan blokir. Teknisi han
 boleh menanyakan job miliknya; `hasInvoice: false` untuk order manual yang belum
 ditagih.
 
+### Pengingat servis (antrean WhatsApp)
+
+| RPC | Peran | Payload → efek |
+|-----|-------|----------------|
+| `mark_wa_sent` | admin, kasir | `{id}` → status `terkirim`, catat `sent_by`/`sent_at`/`provider` |
+| `cancel_wa_message` | admin, kasir | `{id, reason?}` → status `dibatalkan` |
+| `save_reminder_settings` | admin | `{jobType, intervalDays, active}` → default siklus per jenis job |
+| `set_unit_service_interval` | admin | `{unitId, intervalDays?}` → override per unit; tanpa `intervalDays` = kembali ke default |
+| `set_member_wa_opt_out` | admin, kasir | `{memberId, optOut}` → pelanggan berhenti dikirimi pengingat |
+
+`save_reminder_settings` **tidak** menggeser `next_service_date` unit yang sudah
+dijadwalkan — interval baru berlaku mulai servis berikutnya.
+
 ### Lainnya
 
 - `generate_ac_unit_barcode(p_unit_id text)` → barcode untuk unit yang belum punya.
@@ -257,12 +274,68 @@ Di `backend/supabase/functions/`. Deploy: `supabase functions deploy <nama>`.
 | Fungsi | Kegunaan | Secret |
 |--------|----------|--------|
 | `send-push` | Kirim FCM push saat baris `notifications` dibuat | `FCM_SERVICE_ACCOUNT`, `PUSH_WEBHOOK_SECRET` |
+| `send-wa` | Adapter kirim WhatsApp (kerangka; lihat "Pengingat Servis") | `WA_WEBHOOK_SECRET`, `WA_TOKEN`, `WA_PHONE_NUMBER_ID` |
 | `admin-users` | Buat akun baru & reset password (butuh `service_role`) | — (pakai env bawaan runtime) |
 
 `admin-users` menerima `{ action: "create", email, password, displayName, role }`
 atau `{ action: "resetPassword", userId, password }`. Pemanggil wajib login dan
 perannya dicek **ke tabel** `public.users` (bukan sekadar klaim JWT), sehingga
 admin yang baru dinonaktifkan langsung kehilangan akses.
+
+---
+
+## Pengingat Servis via WhatsApp
+
+Setiap job **cuci** atau **maintenance** yang selesai mengisi
+`member_ac_units.next_service_date` (kolomnya ada sejak migrasi pertama tapi
+dulu tidak pernah diisi). Dari situ pesan tidak langsung dikirim, melainkan
+diantre di tabel `wa_outbox`:
+
+| Kapan | `kind` | Isi |
+|-------|--------|-----|
+| Job selesai | `selesai_servis` | Konfirmasi pekerjaan + tanggal servis berikutnya |
+| H-3 sebelum jatuh tempo | `reminder_h3` | Ajakan menjadwalkan teknisi |
+| H+7 setelah lewat | `reminder_h7` | Pengingat terakhir bila belum memesan |
+
+Urutan penentuan interval (yang pertama ketemu menang):
+`member_ac_units.service_interval_days` (override per unit) →
+`reminder_settings.interval_days` (default per jenis job, diatur admin dari
+`/pengingat/pengaturan`) → tidak dijadwalkan sama sekali.
+
+Panen jadwal harian dilakukan `pg_cron` (`enqueue_service_reminders()`, 02:00
+UTC = 09:00 WIB). Aman dijalankan berkali-kali: `wa_outbox.dedupe_key` unik per
+(pelanggan, jenis, tanggal jatuh tempo), dan unit yang sudah punya job berjalan
+otomatis berhenti diingatkan.
+
+> `pg_cron` harus diaktifkan lebih dulu di **Dashboard Supabase → Database →
+> Extensions**; tanpa itu `supabase db push` gagal di migrasi scheduler.
+
+### Cara kirim sekarang: adapter `manual`
+
+Admin/kasir membuka **Pengingat** (mobile `/pengingat`, web `/pengingat`), menekan
+satu tombol, dan WhatsApp terbuka dengan pesan sudah terisi penuh — tinggal Send.
+Nol biaya dan nomor tidak berisiko diblokir, sekaligus kesempatan menguji redaksi
+pesan ke pelanggan asli. Status baru ditandai terkirim **setelah** WhatsApp
+benar-benar terbuka.
+
+### Naik ke WhatsApp Cloud API (nanti)
+
+Urutannya, dan **tidak ada migrasi skema maupun perubahan UI** di langkah mana pun:
+
+1. Verifikasi bisnis di Meta Business Manager.
+2. Daftarkan nomor khusus WhatsApp Business (nomor yang dipakai di sini tidak bisa
+   lagi dipakai di aplikasi WhatsApp biasa).
+3. Ajukan 3 template kategori **Utility** — salin redaksinya persis dari
+   `build_wa_body()` di migrasi `..._service_reminders.sql`.
+4. `supabase secrets set WA_TOKEN=… WA_PHONE_NUMBER_ID=… WA_WEBHOOK_SECRET=…`
+   lalu `supabase functions deploy send-wa`.
+5. Isi `app_config`: `wa_adapter='cloud_api'`, `wa_function_url`, `wa_secret`.
+6. Pasang trigger `pg_net` dari `wa_outbox` ke `send-wa` (polanya sama dengan
+   `enqueue_push()` untuk FCM).
+
+**Biayanya**: template Utility Indonesia sekitar Rp 340/pesan, tanpa kuota gratis
+— jatah 1.000 percakapan/bulan sudah dihapus Meta per 1 Juli 2025. Mulai
+1 Oktober 2026 template utility di dalam service window pun ikut ditagih.
 
 ---
 
@@ -274,7 +347,8 @@ Sumber kebenaran kolom: file di `frontend/mobile/lib/data/models/*.dart` dan
 Tabel inti: `users`, `members`, `member_ac_units`, `products`, `spareparts`,
 `services`, `installation_packages(+_items)`, `transactions(+_items)`,
 `invoices(+_items)`, `manual_payments`, `stock_movements`, `service_orders`,
-`service_order_units`, `technician_jobs`, `audit_logs`.
+`service_order_units`, `technician_jobs`, `audit_logs`, `reminder_settings`,
+`wa_outbox`.
 
 Nilai status (text snake_case di DB):
 
@@ -285,6 +359,8 @@ Nilai status (text snake_case di DB):
 | Order Service | `terjadwal`, `dalam_pengerjaan`, `selesai`, `dibatalkan` |
 | Invoice | `belum_dibayar`, `dp`, `kurang_bayar`, `lunas`, `refund`, `batal` |
 | Pembayaran (method) | `tunai`, `transfer`, `qris`, `ewallet` |
+| Antrean WA (`wa_outbox.status`) | `pending`, `terkirim`, `gagal`, `dibatalkan` |
+| Jenis pesan WA (`wa_outbox.kind`) | `selesai_servis`, `reminder_h3`, `reminder_h7` |
 
 ---
 
@@ -304,7 +380,8 @@ Nilai status (text snake_case di DB):
 | Laporan / dashboard metrik | ✅ (data) | ✅ (tren + produk terlaris) |
 | Foto bukti sebelum/sesudah | ✅ | ✅ (upload kamera/galeri di Job) |
 | Pengajuan sparepart/material + approval | ✅ | ✅ (ajukan + approve/tolak di Job) |
-| Notifikasi realtime (in-app) | ✅ | ✅ (Supabase Realtime; FCM push menyusul) |
+| Notifikasi realtime (in-app) | ✅ | ✅ (Supabase Realtime + FCM push) |
+| Pengingat servis via WhatsApp | ✅ (jadwal + antrean + scheduler) | ✅ (`/pengingat`, kirim manual wa.me) |
 | Stok masuk & penyesuaian manual | ✅ (`adjust_stock`) | ✅ (`/stok/adjust`) |
 | Manajemen akun (buat/peran/nonaktif) | ✅ (RPC + Edge Function) | ✅ (`/users`) |
 | Riwayat audit | ✅ (baca admin) | ✅ (`/audit`) |
