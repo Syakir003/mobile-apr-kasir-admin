@@ -41,6 +41,10 @@ void main() {
           WaKind.reminderH3);
       expect(WaMessage.fromMap('w', _row(kind: 'reminder_h7')).kind,
           WaKind.reminderH7);
+      expect(WaMessage.fromMap('w', _row(kind: 'menang_undian')).kind,
+          WaKind.menangUndian);
+      expect(WaMessage.fromMap('w', _row(kind: 'voucher_baru')).kind,
+          WaKind.voucherBaru);
     });
 
     test('semua status antrean dikenali', () {

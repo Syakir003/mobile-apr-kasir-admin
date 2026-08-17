@@ -78,6 +78,8 @@ AppBadgeTone waKindTone(WaKind kind) => switch (kind) {
       WaKind.selesaiServis => AppBadgeTone.success,
       WaKind.reminderH3 => AppBadgeTone.pending,
       WaKind.reminderH7 => AppBadgeTone.danger,
+      WaKind.menangUndian => AppBadgeTone.success,
+      WaKind.voucherBaru => AppBadgeTone.success,
     };
 
 class _WaCard extends ConsumerStatefulWidget {

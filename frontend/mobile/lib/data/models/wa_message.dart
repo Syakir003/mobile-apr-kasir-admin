@@ -9,7 +9,9 @@ DateTime? _toDate(Object? v) => switch (v) {
 enum WaKind {
   selesaiServis('selesai_servis', 'Selesai Servis'),
   reminderH3('reminder_h3', 'Pengingat H-3'),
-  reminderH7('reminder_h7', 'Terlambat 7 Hari');
+  reminderH7('reminder_h7', 'Terlambat 7 Hari'),
+  menangUndian('menang_undian', 'Menang Undian'),
+  voucherBaru('voucher_baru', 'Voucher Baru');
 
   const WaKind(this.value, this.label);
 
