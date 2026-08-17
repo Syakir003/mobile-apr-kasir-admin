@@ -35,7 +35,12 @@ export type AcUnitStatus =
 
 export type ItemKind = "product" | "sparepart" | "service";
 
-export type WaKind = "selesai_servis" | "reminder_h3" | "reminder_h7";
+export type WaKind =
+  | "selesai_servis"
+  | "reminder_h3"
+  | "reminder_h7"
+  | "menang_undian"
+  | "voucher_baru";
 
 export type WaStatus = "pending" | "terkirim" | "gagal" | "dibatalkan";
 
@@ -68,6 +73,63 @@ export const waKindLabel: Record<WaKind, string> = {
   selesai_servis: "Selesai Servis",
   reminder_h3: "Pengingat H-3",
   reminder_h7: "Terlambat 7 Hari",
+  menang_undian: "Menang Undian",
+  voucher_baru: "Voucher Baru",
+};
+
+export type VoucherDiscountType = "persen" | "nominal";
+export type VoucherStatus = "aktif" | "terpakai" | "kadaluarsa" | "dibatalkan";
+export type VoucherSource = "undian" | "manual";
+export type UndianStatus = "berjalan" | "selesai" | "dibatalkan";
+
+export const voucherStatusLabel: Record<VoucherStatus, string> = {
+  aktif: "Aktif",
+  terpakai: "Terpakai",
+  kadaluarsa: "Kadaluarsa",
+  dibatalkan: "Dibatalkan",
+};
+
+export const undianStatusLabel: Record<UndianStatus, string> = {
+  berjalan: "Berjalan",
+  selesai: "Selesai",
+  dibatalkan: "Dibatalkan",
+};
+
+export type Voucher = {
+  id: string;
+  code: string;
+  member_id: string;
+  discount_type: VoucherDiscountType;
+  discount_value: number;
+  max_discount_cap: number | null;
+  min_purchase: number | null;
+  expires_at: string;
+  status: VoucherStatus;
+  source: VoucherSource;
+  note: string | null;
+  created_at: string;
+};
+
+export type Undian = {
+  id: string;
+  title: string;
+  description: string | null;
+  winner_count: number;
+  discount_type: VoucherDiscountType;
+  discount_value: number;
+  max_discount_cap: number | null;
+  min_purchase: number | null;
+  voucher_valid_days: number;
+  status: UndianStatus;
+  drawn_at: string | null;
+  created_at: string;
+};
+
+export type UndianParticipant = {
+  id: string;
+  undian_id: string;
+  member_id: string;
+  source: "otomatis" | "manual";
 };
 
 // ---- Baris tabel (subset yang dipakai contoh) -----------------------------

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ItemKind, PaymentMethod } from "./types";
+import type { ItemKind, PaymentMethod, VoucherDiscountType } from "./types";
 
 // Wrapper typed untuk RPC Postgres. SEMUA penulisan data lewat sini — jangan
 // insert/update tabel finansial/operasional langsung dari client.
@@ -93,6 +93,88 @@ export function cancelWaMessage(
   payload: { id: string; reason?: string },
 ) {
   return callRpc<{ ok: boolean }>(supabase, "cancel_wa_message", payload);
+}
+
+// ---- voucher & undian --------------------------------------------------
+
+export type CreateVoucherPayload = {
+  memberId: string;
+  discountType: VoucherDiscountType;
+  discountValue: number;
+  maxDiscountCap?: number;
+  minPurchase?: number;
+  expiresAt: string; // 'YYYY-MM-DD'
+  note?: string;
+};
+
+export function createVoucher(
+  supabase: SupabaseClient,
+  payload: CreateVoucherPayload,
+) {
+  return callRpc<{ ok: boolean; voucherId: string; code: string }>(
+    supabase,
+    "create_voucher",
+    payload,
+  );
+}
+
+export function cancelVoucher(
+  supabase: SupabaseClient,
+  payload: { voucherId: string; reason?: string },
+) {
+  return callRpc<{ ok: boolean }>(supabase, "cancel_voucher", payload);
+}
+
+export type CreateUndianPayload = {
+  title: string;
+  description?: string;
+  criteria: { dateFrom?: string; dateTo?: string; mustHaveAcPurchase?: boolean };
+  winnerCount: number;
+  discountType: VoucherDiscountType;
+  discountValue: number;
+  maxDiscountCap?: number;
+  minPurchase?: number;
+  voucherValidDays: number;
+};
+
+export function createUndian(
+  supabase: SupabaseClient,
+  payload: CreateUndianPayload,
+) {
+  return callRpc<{ ok: boolean; undianId: string; participantCount: number }>(
+    supabase,
+    "create_undian",
+    payload,
+  );
+}
+
+export function updateUndianParticipants(
+  supabase: SupabaseClient,
+  payload: { undianId: string; add?: string[]; remove?: string[] },
+) {
+  return callRpc<{ ok: boolean; participantCount: number }>(
+    supabase,
+    "update_undian_participants",
+    payload,
+  );
+}
+
+export function drawUndian(
+  supabase: SupabaseClient,
+  payload: { undianId: string },
+) {
+  return callRpc<{ ok: boolean; undianId: string; winnerCount: number }>(
+    supabase,
+    "draw_undian",
+    payload,
+  );
+}
+
+export function cancelUndian(
+  supabase: SupabaseClient,
+  payload: { undianId: string },
+) {
+  return callRpc<{ ok: boolean }>(supabase, "cancel_undian", payload);
 }
 
 export type JobAction = "start" | "complete" | "cancel";

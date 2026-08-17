@@ -13,6 +13,8 @@ const kindClass: Record<string, string> = {
   selesai_servis: "bg-emerald-50 text-emerald-700",
   reminder_h3: "bg-amber-50 text-amber-700",
   reminder_h7: "bg-red-50 text-red-600",
+  menang_undian: "bg-emerald-50 text-emerald-700",
+  voucher_baru: "bg-emerald-50 text-emerald-700",
 };
 
 export default async function PengingatPage() {
