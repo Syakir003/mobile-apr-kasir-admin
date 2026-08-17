@@ -145,6 +145,9 @@ class CartNotifier extends Notifier<Cart> {
 
   void setNotes(String value) => state = state.copyWith(notes: value);
 
+  void setVoucherCode(String value) =>
+      state = state.copyWith(voucherCode: value);
+
   /// Mengosongkan keranjang. Dipanggil setelah checkout sukses.
   void clear() => state = const Cart();
 }

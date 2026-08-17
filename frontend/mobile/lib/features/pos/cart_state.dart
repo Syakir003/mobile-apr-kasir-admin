@@ -90,12 +90,14 @@ class Cart {
     this.customerPhone = '',
     this.customerAddress = '',
     this.notes = '',
+    this.voucherCode = '',
   });
 
   final List<CartLine> lines;
   final int discount;
   final double taxPercent;
   final int transportFee;
+  final String voucherCode;
 
   /// Member yang dipilih dari daftar (kosong = pelanggan diketik manual).
   /// TIDAK ikut dikirim ke server: `checkout_transaction` mencocokkan member
@@ -119,6 +121,7 @@ class Cart {
     String? customerPhone,
     String? customerAddress,
     String? notes,
+    String? voucherCode,
     bool clearMember = false,
   }) {
     return Cart(
@@ -131,6 +134,7 @@ class Cart {
       customerPhone: customerPhone ?? this.customerPhone,
       customerAddress: customerAddress ?? this.customerAddress,
       notes: notes ?? this.notes,
+      voucherCode: voucherCode ?? this.voucherCode,
     );
   }
 }
@@ -243,6 +247,8 @@ Map<String, dynamic> buildCheckoutPayload(Cart cart) {
   if (notes.isNotEmpty) payload['notes'] = notes;
   if (installations.isNotEmpty) payload['installations'] = installations;
   if (serviceUnits.isNotEmpty) payload['serviceUnits'] = serviceUnits;
+  final voucherCode = cart.voucherCode.trim();
+  if (voucherCode.isNotEmpty) payload['voucherCode'] = voucherCode.toUpperCase();
   return payload;
 }
 

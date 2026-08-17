@@ -39,6 +39,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   late final TextEditingController _taxPercent;
   late final TextEditingController _transportFee;
   late final TextEditingController _notes;
+  late final TextEditingController _voucherCode;
   bool _busy = false;
 
   @override
@@ -54,6 +55,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     _transportFee =
         TextEditingController(text: formatRupiahInput(cart.transportFee));
     _notes = TextEditingController(text: cart.notes);
+    _voucherCode = TextEditingController(text: cart.voucherCode);
   }
 
   static String _trimZero(double v) =>
@@ -68,6 +70,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     _taxPercent.dispose();
     _transportFee.dispose();
     _notes.dispose();
+    _voucherCode.dispose();
     super.dispose();
   }
 
@@ -142,6 +145,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     notifier.setDiscount(parseRupiahInput(_discount.text));
     notifier.setTaxPercent(double.tryParse(_taxPercent.text.trim()) ?? 0);
     notifier.setTransportFee(parseRupiahInput(_transportFee.text));
+    notifier.setVoucherCode(_voucherCode.text.trim());
     notifier.setNotes(_notes.text.trim());
 
     final payload = buildCheckoutPayload(ref.read(cartProvider));
@@ -257,6 +261,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             AppFormCard(
               title: 'Rincian Biaya',
               children: [
+                AppTextField(
+                  key: const Key('voucherCode'),
+                  label: 'Kode Voucher (opsional)',
+                  hint: 'VCR-XXXXXX',
+                  controller: _voucherCode,
+                  enabled: !_busy,
+                ),
+                const SizedBox(height: kFieldGap),
                 AppMoneyField(
                   key: const Key('discount'),
                   label: 'Diskon',
