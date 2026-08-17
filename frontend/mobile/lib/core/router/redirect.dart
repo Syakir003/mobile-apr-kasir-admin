@@ -15,6 +15,8 @@ const _adminOnlyPrefixes = [
   // Layar antrean '/pengingat' boleh kasir; hanya pengaturan siklus servisnya
   // yang admin-only, sesuai RPC `save_reminder_settings`.
   '/pengingat/pengaturan',
+  // Kasir hanya menukar kode voucher lewat Checkout, bukan lewat layar ini.
+  '/voucher',
 ];
 
 /// Prefix lokasi POS, riwayat transaksi, & order service: boleh admin & kasir,
