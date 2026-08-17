@@ -92,20 +92,35 @@ on conflict (id) do update
       active = excluded.active;
 
 -- ------------------------------------------------------------------ products
+-- buy_price pindah ke item_costs sejak migrasi 20260806000021 (admin-only
+-- cost data) — kolomnya sudah tidak ada di products/spareparts.
 insert into products (id, name, brand, type, pk, inverter, btu, watt, warranty,
-                      buy_price, sell_price, stock, category, description) values
-  ('10000000-0000-0000-0000-000000000001', 'Daikin FTKC-15 1 PK Inverter', 'Daikin', 'split', 1,   true,  9000, 720, '1 thn unit / 4 thn kompresor', 4200000, 5500000, 8, 'AC Split', 'Inverter hemat listrik, PK 1'),
-  ('10000000-0000-0000-0000-000000000002', 'Panasonic CS-YN5 1/2 PK',      'Panasonic', 'split', 0.5, false, 5000, 380, '1 thn unit / 3 thn kompresor', 2400000, 3200000, 12, 'AC Split', 'Standar non-inverter, PK 0.5'),
-  ('10000000-0000-0000-0000-000000000003', 'Sharp AH-A9 1 PK',             'Sharp', 'split', 1,   false, 9000, 660, '1 thn unit / 5 thn kompresor', 3100000, 4200000, 6, 'AC Split', 'Non-inverter, PK 1'),
-  ('10000000-0000-0000-0000-000000000004', 'Gree GWC-18 2 PK Inverter',    'Gree', 'split', 2,   true,  18000, 1450, '1 thn unit / 5 thn kompresor', 6100000, 7900000, 4, 'AC Split', 'Inverter ruangan besar, PK 2');
+                      sell_price, stock, category, description) values
+  ('10000000-0000-0000-0000-000000000001', 'Daikin FTKC-15 1 PK Inverter', 'Daikin', 'split', 1,   true,  9000, 720, '1 thn unit / 4 thn kompresor', 5500000, 8, 'AC Split', 'Inverter hemat listrik, PK 1'),
+  ('10000000-0000-0000-0000-000000000002', 'Panasonic CS-YN5 1/2 PK',      'Panasonic', 'split', 0.5, false, 5000, 380, '1 thn unit / 3 thn kompresor', 3200000, 12, 'AC Split', 'Standar non-inverter, PK 0.5'),
+  ('10000000-0000-0000-0000-000000000003', 'Sharp AH-A9 1 PK',             'Sharp', 'split', 1,   false, 9000, 660, '1 thn unit / 5 thn kompresor', 4200000, 6, 'AC Split', 'Non-inverter, PK 1'),
+  ('10000000-0000-0000-0000-000000000004', 'Gree GWC-18 2 PK Inverter',    'Gree', 'split', 2,   true,  18000, 1450, '1 thn unit / 5 thn kompresor', 7900000, 4, 'AC Split', 'Inverter ruangan besar, PK 2');
+
+insert into item_costs (kind, ref_id, buy_price) values
+  ('product', '10000000-0000-0000-0000-000000000001', 4200000),
+  ('product', '10000000-0000-0000-0000-000000000002', 2400000),
+  ('product', '10000000-0000-0000-0000-000000000003', 3100000),
+  ('product', '10000000-0000-0000-0000-000000000004', 6100000);
 
 -- ------------------------------------------------------------------ spareparts
-insert into spareparts (id, name, sku, category, unit, buy_price, sell_price, stock, min_stock) values
-  ('20000000-0000-0000-0000-000000000001', 'Freon R32',            'FRN-R32', 'Freon',    'kg',    90000,  150000, 25, 5),
-  ('20000000-0000-0000-0000-000000000002', 'Pipa Tembaga 1/4-3/8', 'PIP-1438','Pipa',     'meter', 45000,  75000,  60, 10),
-  ('20000000-0000-0000-0000-000000000003', 'Bracket Outdoor',      'BRK-OUT', 'Bracket',  'set',   35000,  65000,  20, 4),
-  ('20000000-0000-0000-0000-000000000004', 'Kabel NYM 3x1.5',      'KBL-315', 'Kabel',    'meter', 8000,   15000,  100, 20),
-  ('20000000-0000-0000-0000-000000000005', 'Kapasitor 25uF',       'KAP-25',  'Kelistrikan','pcs', 22000,  45000,  15, 3);
+insert into spareparts (id, name, sku, category, unit, sell_price, stock, min_stock) values
+  ('20000000-0000-0000-0000-000000000001', 'Freon R32',            'FRN-R32', 'Freon',    'kg',    150000, 25, 5),
+  ('20000000-0000-0000-0000-000000000002', 'Pipa Tembaga 1/4-3/8', 'PIP-1438','Pipa',     'meter', 75000,  60, 10),
+  ('20000000-0000-0000-0000-000000000003', 'Bracket Outdoor',      'BRK-OUT', 'Bracket',  'set',   65000,  20, 4),
+  ('20000000-0000-0000-0000-000000000004', 'Kabel NYM 3x1.5',      'KBL-315', 'Kabel',    'meter', 15000,  100, 20),
+  ('20000000-0000-0000-0000-000000000005', 'Kapasitor 25uF',       'KAP-25',  'Kelistrikan','pcs', 45000,  15, 3);
+
+insert into item_costs (kind, ref_id, buy_price) values
+  ('sparepart', '20000000-0000-0000-0000-000000000001', 90000),
+  ('sparepart', '20000000-0000-0000-0000-000000000002', 45000),
+  ('sparepart', '20000000-0000-0000-0000-000000000003', 35000),
+  ('sparepart', '20000000-0000-0000-0000-000000000004', 8000),
+  ('sparepart', '20000000-0000-0000-0000-000000000005', 22000);
 
 -- ------------------------------------------------------------------ services
 insert into services (id, name, category, base_price, duration_minutes, description) values
