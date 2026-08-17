@@ -61,6 +61,10 @@ Migrasi backend (urut):
 | `..._schedule_on_job_complete.sql` | Isi `next_service_date` & antre pesan saat job selesai |
 | `..._reminder_scheduler.sql` | `pg_cron` harian: panen jadwal H-3 & H+7 |
 | `..._reminder_rpc.sql` | RPC antrean WA + pengaturan interval |
+| `..._voucher_undian_schema.sql` | Skema `undian`, `undian_participants`, `vouchers` + 2 kind `wa_outbox` baru |
+| `..._undian_rpc.sql` | RPC undian: buat, peserta, tarik, batal |
+| `..._voucher_rpc.sql` | RPC voucher ad-hoc: buat, batal |
+| `..._checkout_voucher.sql` | `checkout_transaction` menerima `voucherCode` |
 
 ---
 
@@ -166,7 +170,8 @@ Error dilempar sebagai exception dengan pesan Indonesia.
   // opsional — pemasangan unit AC baru; itemIndex menunjuk index item product
   "installations": [
     { "itemIndex": 0, "roomLocation": "Kamar Utama", "technicianId": "<uuid|null>" }
-  ]
+  ],
+  "voucherCode": "VCR-XXXXXX",  // opsional
 }
 // return
 { "invoiceId": "<uuid>", "invoiceNumber": "INV-...", "memberId": "<uuid>", "transactionId": "<uuid>" }
@@ -260,6 +265,22 @@ ditagih.
 `save_reminder_settings` **tidak** menggeser `next_service_date` unit yang sudah
 dijadwalkan — interval baru berlaku mulai servis berikutnya.
 
+### Voucher & Undian
+
+| RPC | Peran | Payload → Efek |
+|-----|-------|----------------|
+| `create_undian` | admin | `{title, description?, criteria, winnerCount, discountType, discountValue, maxDiscountCap?, minPurchase?, voucherValidDays}` → buat undian + auto-populate peserta dari kriteria |
+| `update_undian_participants` | admin | `{undianId, add?, remove?}` → tambah/hapus peserta manual (hanya selama `berjalan`) |
+| `draw_undian` | admin | `{undianId}` → pilih pemenang acak, buat voucher + antre WA per pemenang, tutup undian |
+| `cancel_undian` | admin | `{undianId}` → batalkan undian yang belum ditarik |
+| `create_voucher` | admin | `{memberId, discountType, discountValue, maxDiscountCap?, minPurchase?, expiresAt, note?}` → voucher ad-hoc + antre WA |
+| `cancel_voucher` | admin | `{voucherId, reason?}` → batalkan voucher aktif |
+
+Voucher selalu terikat ke satu `memberId` dan ditukar dengan cara diinput
+admin/kasir sebagai `voucherCode` di `checkout_transaction` — validasi (aktif,
+belum kedaluwarsa, milik pelanggan transaksi ini, memenuhi `min_purchase`) dan
+perhitungan potongan sepenuhnya di server. Tidak ada langkah "klaim" terpisah.
+
 ### Lainnya
 
 - `generate_ac_unit_barcode(p_unit_id text)` → barcode untuk unit yang belum punya.
@@ -348,7 +369,7 @@ Tabel inti: `users`, `members`, `member_ac_units`, `products`, `spareparts`,
 `services`, `installation_packages(+_items)`, `transactions(+_items)`,
 `invoices(+_items)`, `manual_payments`, `stock_movements`, `service_orders`,
 `service_order_units`, `technician_jobs`, `audit_logs`, `reminder_settings`,
-`wa_outbox`.
+`wa_outbox`, `undian`, `undian_participants`, `vouchers`.
 
 Nilai status (text snake_case di DB):
 
@@ -360,7 +381,9 @@ Nilai status (text snake_case di DB):
 | Invoice | `belum_dibayar`, `dp`, `kurang_bayar`, `lunas`, `refund`, `batal` |
 | Pembayaran (method) | `tunai`, `transfer`, `qris`, `ewallet` |
 | Antrean WA (`wa_outbox.status`) | `pending`, `terkirim`, `gagal`, `dibatalkan` |
-| Jenis pesan WA (`wa_outbox.kind`) | `selesai_servis`, `reminder_h3`, `reminder_h7` |
+| Jenis pesan WA (`wa_outbox.kind`) | `selesai_servis`, `reminder_h3`, `reminder_h7`, `menang_undian`, `voucher_baru` |
+| Voucher (`vouchers.status`) | `aktif`, `terpakai`, `kadaluarsa`, `dibatalkan` |
+| Undian (`undian.status`) | `berjalan`, `selesai`, `dibatalkan` |
 
 ---
 
@@ -385,6 +408,7 @@ Nilai status (text snake_case di DB):
 | Stok masuk & penyesuaian manual | ✅ (`adjust_stock`) | ✅ (`/stok/adjust`) |
 | Manajemen akun (buat/peran/nonaktif) | ✅ (RPC + Edge Function) | ✅ (`/users`) |
 | Riwayat audit | ✅ (baca admin) | ✅ (`/audit`) |
+| Voucher/Diskon + Undian | ✅ (RPC undian/voucher, reuse antrean WA) | ✅ (`/voucher`, `/undian`) |
 
 Spesifikasi lengkap: **`Dokumen_Fitur_EPOS_AC_Mobile_Realtime.docx`**.
 
