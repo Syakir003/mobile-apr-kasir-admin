@@ -62,6 +62,11 @@ List<Destination> destinationsForRole(UserRole? role) {
     label: 'Voucher',
     route: '/voucher',
   );
+  const undian = (
+    icon: Icons.card_giftcard_outlined,
+    label: 'Undian',
+    route: '/undian',
+  );
   if (role == UserRole.admin) {
     return const [
       dashboard,
@@ -76,6 +81,7 @@ List<Destination> destinationsForRole(UserRole? role) {
       job,
       pengingat,
       voucher,
+      undian,
       (icon: Icons.inventory_outlined, label: 'Stok', route: '/stok'),
       (icon: Icons.bar_chart_outlined, label: 'Laporan', route: '/laporan'),
       (icon: Icons.manage_accounts_outlined, label: 'Akun', route: '/users'),

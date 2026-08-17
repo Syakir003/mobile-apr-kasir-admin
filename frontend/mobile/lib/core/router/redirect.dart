@@ -17,6 +17,7 @@ const _adminOnlyPrefixes = [
   '/pengingat/pengaturan',
   // Kasir hanya menukar kode voucher lewat Checkout, bukan lewat layar ini.
   '/voucher',
+  '/undian',
 ];
 
 /// Prefix lokasi POS, riwayat transaksi, & order service: boleh admin & kasir,

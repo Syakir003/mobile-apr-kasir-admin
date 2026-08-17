@@ -39,6 +39,9 @@ import '../../features/notifications/notifications_screen.dart';
 import '../../features/pos/checkout_screen.dart';
 import '../../features/reminders/reminder_settings_screen.dart';
 import '../../features/reminders/wa_outbox_screen.dart';
+import '../../features/undian/undian_detail_screen.dart';
+import '../../features/undian/undian_form_screen.dart';
+import '../../features/undian/undian_list_screen.dart';
 import '../../features/vouchers/voucher_form_screen.dart';
 import '../../features/vouchers/voucher_list_screen.dart';
 import '../../features/pos/pos_screen.dart';
@@ -289,6 +292,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'baru',
                 builder: (_, __) => const VoucherFormScreen(),
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/undian',
+            builder: (_, __) => const UndianListScreen(),
+            routes: [
+              GoRoute(
+                path: 'baru',
+                builder: (_, __) => const UndianFormScreen(),
+              ),
+              GoRoute(
+                path: ':id',
+                builder: (context, state) => UndianDetailScreen(
+                  undianId: state.pathParameters['id']!,
+                ),
               ),
             ],
           ),
