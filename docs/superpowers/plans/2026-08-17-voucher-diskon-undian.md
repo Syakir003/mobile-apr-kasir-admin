@@ -35,7 +35,7 @@
 - Consumes: `jwt_role()`, `wa_phone()`, `tgl_id()` (migrasi 0023).
 - Dikonsumsi Task 2 (RPC undian), Task 3 (RPC voucher), Task 4 (checkout).
 
-- [ ] **Step 1: Tulis migrasi skema**
+- [x] **Step 1: Tulis migrasi skema**
 
 ```sql
 -- =============================================================================
@@ -233,7 +233,7 @@ revoke execute on function generate_voucher_code() from anon, public;
 revoke execute on function build_voucher_wa_body(uuid) from anon, public;
 ```
 
-- [ ] **Step 2: Terapkan & verifikasi**
+- [x] **Step 2: Terapkan & verifikasi**
 
 ```bash
 cd backend && npx supabase db reset
@@ -266,7 +266,7 @@ select count(*) from undian;     -- harus 0
 rollback;
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/supabase/migrations/20260817000027_voucher_undian_schema.sql
@@ -284,7 +284,7 @@ git commit -m "feat(db): skema voucher/diskon + undian"
 - Produces: `create_undian(payload)`, `update_undian_participants(payload)`, `draw_undian(payload)`, `cancel_undian(payload)`.
 - Consumes: `assert_caller_role()` (migrasi 0005), `generate_voucher_code()`/`build_voucher_wa_body()` (Task 1), `wa_phone()`/`business_date_key()`.
 
-- [ ] **Step 1: Tulis RPC**
+- [x] **Step 1: Tulis RPC**
 
 ```sql
 -- ============================================================================
@@ -643,7 +643,7 @@ revoke execute on function cancel_undian(jsonb) from anon, public;
 grant  execute on function cancel_undian(jsonb) to authenticated;
 ```
 
-- [ ] **Step 2: Terapkan & verifikasi**
+- [x] **Step 2: Terapkan & verifikasi**
 
 ```bash
 cd backend && npx supabase db reset
@@ -663,7 +663,7 @@ select kind, due_date from wa_outbox where dedupe_key like 'voucher:%';
 
 Verifikasi peran: sebagai kasir, panggil `create_undian`/`draw_undian` → harus ditolak.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/supabase/migrations/20260817000028_undian_rpc.sql
@@ -681,7 +681,7 @@ git commit -m "feat(db): RPC undian (buat, peserta, tarik, batal)"
 - Produces: `create_voucher(payload)`, `cancel_voucher(payload)`.
 - Consumes: `generate_voucher_code()`/`build_voucher_wa_body()` (Task 1).
 
-- [ ] **Step 1: Tulis RPC**
+- [x] **Step 1: Tulis RPC**
 
 ```sql
 -- ============================================================================
@@ -830,7 +830,7 @@ revoke execute on function cancel_voucher(jsonb) from anon, public;
 grant  execute on function cancel_voucher(jsonb) to authenticated;
 ```
 
-- [ ] **Step 2: Terapkan & verifikasi**
+- [x] **Step 2: Terapkan & verifikasi**
 
 ```bash
 cd backend && npx supabase db reset
@@ -848,7 +848,7 @@ select cancel_voucher(jsonb_build_object('voucherId', '<voucherId>'));  -- HARUS
 
 Sebagai kasir: `create_voucher` harus ditolak; sebagai teknisi: keduanya ditolak.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/supabase/migrations/20260817000029_voucher_rpc.sql
@@ -869,7 +869,7 @@ git commit -m "feat(db): RPC voucher ad-hoc (buat, batal)"
 
 **Kenapa redefinisi fungsi:** validasi & pemakaian voucher harus atomik dengan transaksi (satu commit) — kode ditandai `terpakai` HANYA jika seluruh checkout berhasil.
 
-- [ ] **Step 1: Tulis migrasi — definisi ulang penuh**
+- [x] **Step 1: Tulis migrasi — definisi ulang penuh**
 
 ```sql
 -- =============================================================================
@@ -1479,7 +1479,7 @@ revoke execute on function checkout_transaction(jsonb) from anon, public;
 grant  execute on function checkout_transaction(jsonb) to authenticated;
 ```
 
-- [ ] **Step 2: Terapkan & verifikasi**
+- [x] **Step 2: Terapkan & verifikasi**
 
 ```bash
 cd backend && npx supabase db reset
@@ -1499,7 +1499,7 @@ select create_voucher(jsonb_build_object('memberId', (select id from members whe
 
 Jalankan juga `flutter test`/regression checkout yang sudah ada di mobile (Task 9) setelah migrasi ini untuk memastikan payload lama (tanpa `voucherCode`) tidak berubah perilaku.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add backend/supabase/migrations/20260817000030_checkout_voucher.sql
@@ -1522,7 +1522,7 @@ git commit -m "feat(db): checkout_transaction menerima kode voucher"
 - Produces: `Voucher`, `VoucherDiscountType`, `VoucherStatus`, `VoucherSource`, `Undian`, `UndianStatus`, `UndianParticipant`. `WaKind` menambah `menangUndian`/`voucherBaru`.
 - Dikonsumsi Task 6 (providers), Task 7 (layar voucher), Task 8 (layar undian).
 
-- [ ] **Step 1: Model `Voucher`**
+- [x] **Step 1: Model `Voucher`**
 
 ```dart
 // frontend/mobile/lib/data/models/voucher.dart
@@ -1628,7 +1628,7 @@ class Voucher {
 }
 ```
 
-- [ ] **Step 2: Model `Undian`**
+- [x] **Step 2: Model `Undian`**
 
 ```dart
 // frontend/mobile/lib/data/models/undian.dart
@@ -1730,7 +1730,7 @@ class UndianParticipant {
 }
 ```
 
-- [ ] **Step 3: Perluas `WaKind`**
+- [x] **Step 3: Perluas `WaKind`**
 
 Di `wa_message.dart`, tambah 2 nilai ke enum `WaKind` (setelah `reminderH7`):
 
@@ -1741,7 +1741,7 @@ Di `wa_message.dart`, tambah 2 nilai ke enum `WaKind` (setelah `reminderH7`):
 
 (ganti `;` di akhir `reminderH7(...)` jadi `,` karena bukan anggota terakhir lagi).
 
-- [ ] **Step 4: Perbaiki switch yang jadi tidak exhaustive**
+- [x] **Step 4: Perbaiki switch yang jadi tidak exhaustive**
 
 Di `wa_outbox_screen.dart`, `waKindTone` harus menangani 2 kind baru (Dart menolak compile kalau switch atas enum tidak lengkap):
 
@@ -1755,7 +1755,7 @@ AppBadgeTone waKindTone(WaKind kind) => switch (kind) {
     };
 ```
 
-- [ ] **Step 5: Update test yang sudah ada**
+- [x] **Step 5: Update test yang sudah ada**
 
 Di `wa_message_test.dart`, grup `'semua jenis pesan dikenali'`, tambah 2 assertion:
 
@@ -1766,7 +1766,7 @@ Di `wa_message_test.dart`, grup `'semua jenis pesan dikenali'`, tambah 2 asserti
           WaKind.voucherBaru);
 ```
 
-- [ ] **Step 6: Test model baru**
+- [x] **Step 6: Test model baru**
 
 ```dart
 // frontend/mobile/test/data/voucher_test.dart
@@ -1874,7 +1874,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 7: Jalankan test**
+- [x] **Step 7: Jalankan test**
 
 ```bash
 cd frontend/mobile && flutter analyze && flutter test test/data/voucher_test.dart test/data/undian_test.dart test/data/wa_message_test.dart
@@ -1882,7 +1882,7 @@ cd frontend/mobile && flutter analyze && flutter test test/data/voucher_test.dar
 
 Expected: semua PASS, `flutter analyze` tanpa error (terutama exhaustiveness `waKindTone`).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add frontend/mobile/lib/data/models/voucher.dart frontend/mobile/lib/data/models/undian.dart frontend/mobile/lib/data/models/wa_message.dart frontend/mobile/lib/features/reminders/wa_outbox_screen.dart frontend/mobile/test/data/voucher_test.dart frontend/mobile/test/data/undian_test.dart frontend/mobile/test/data/wa_message_test.dart
@@ -1902,7 +1902,7 @@ git commit -m "feat(app): model Voucher/Undian + perluas WaKind"
 - Produces: `vouchersStreamProvider`, `createVoucherCallerProvider`, `cancelVoucherCallerProvider`, `undianListProvider`, `undianParticipantsProvider`, `createUndianCallerProvider`, `updateUndianParticipantsCallerProvider`, `drawUndianCallerProvider`, `cancelUndianCallerProvider`.
 - Dikonsumsi Task 7 (layar voucher), Task 8 (layar undian).
 
-- [ ] **Step 1: `voucher_providers.dart`**
+- [x] **Step 1: `voucher_providers.dart`**
 
 ```dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1949,7 +1949,7 @@ final cancelVoucherCallerProvider =
 });
 ```
 
-- [ ] **Step 2: `undian_providers.dart`**
+- [x] **Step 2: `undian_providers.dart`**
 
 ```dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -2041,7 +2041,7 @@ final cancelUndianCallerProvider =
 });
 ```
 
-- [ ] **Step 3: Verifikasi**
+- [x] **Step 3: Verifikasi**
 
 ```bash
 cd frontend/mobile && flutter analyze
@@ -2049,7 +2049,7 @@ cd frontend/mobile && flutter analyze
 
 Expected: tanpa error (providers ini tidak punya widget test tersendiri — dilatih tidak langsung lewat widget test layar di Task 7/8).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/mobile/lib/features/vouchers/voucher_providers.dart frontend/mobile/lib/features/undian/undian_providers.dart
@@ -2071,7 +2071,7 @@ git commit -m "feat(app): providers voucher & undian"
 **Interfaces:**
 - Consumes: `vouchersStreamProvider`/`createVoucherCallerProvider`/`cancelVoucherCallerProvider` (Task 6), `waMemberNamesProvider` (reuse dari `reminder_providers.dart`), `MemberPickerSheet` (reuse dari `features/pos/member_picker_sheet.dart`), `AppFormScaffold`/`AppFormCard`/`AppSelectField`/`AppTextField` (widget yang sudah ada).
 
-- [ ] **Step 1: `voucher_list_screen.dart`**
+- [x] **Step 1: `voucher_list_screen.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -2258,7 +2258,7 @@ class _VoucherCardState extends ConsumerState<_VoucherCard> {
 }
 ```
 
-- [ ] **Step 2: `voucher_form_screen.dart`**
+- [x] **Step 2: `voucher_form_screen.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -2471,7 +2471,7 @@ class _VoucherFormScreenState extends ConsumerState<VoucherFormScreen> {
 }
 ```
 
-- [ ] **Step 3: Rute**
+- [x] **Step 3: Rute**
 
 Di `app_router.dart`, tambah import untuk `VoucherListScreen`/`VoucherFormScreen`, lalu di dalam route tree (sejajar dengan blok `/pengingat`):
 
@@ -2488,7 +2488,7 @@ Di `app_router.dart`, tambah import untuk `VoucherListScreen`/`VoucherFormScreen
           ),
 ```
 
-- [ ] **Step 4: Menu & guard**
+- [x] **Step 4: Menu & guard**
 
 Di `adaptive_scaffold.dart`, tambah destinasi (admin only — sejajar deklarasi `pengingat`):
 
@@ -2504,7 +2504,7 @@ masukkan `voucher,` ke daftar `role == UserRole.admin` (sejajar `pengingat`).
 
 Di `redirect.dart`, tambah `'/voucher'` ke `_adminOnlyPrefixes` (kasir hanya menukar kode lewat Checkout, bukan lewat layar ini).
 
-- [ ] **Step 5: Widget test**
+- [x] **Step 5: Widget test**
 
 ```dart
 // frontend/mobile/test/features/vouchers/voucher_list_screen_test.dart
@@ -2525,13 +2525,13 @@ void main() {
 
 (Widget test penuh dengan `ProviderScope` override butuh fake Supabase stream — di luar cakupan plan ini; test ini cukup memastikan fungsi murni `voucherStatusTone` exhaustive dan tidak melempar.)
 
-- [ ] **Step 6: Jalankan**
+- [x] **Step 6: Jalankan**
 
 ```bash
 cd frontend/mobile && flutter analyze && flutter test test/features/vouchers/voucher_list_screen_test.dart
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/mobile/lib/features/vouchers frontend/mobile/lib/core/router/app_router.dart frontend/mobile/lib/core/router/redirect.dart frontend/mobile/lib/core/widgets/adaptive_scaffold.dart frontend/mobile/test/features/vouchers
@@ -2554,7 +2554,7 @@ git commit -m "feat(app): layar Voucher + rute/menu"
 **Interfaces:**
 - Consumes: `undianListProvider`/`undianParticipantsProvider`/`createUndianCallerProvider`/`updateUndianParticipantsCallerProvider`/`drawUndianCallerProvider`/`cancelUndianCallerProvider` (Task 6), `MemberPickerSheet`, `waMemberNamesProvider`.
 
-- [ ] **Step 1: `undian_list_screen.dart`**
+- [x] **Step 1: `undian_list_screen.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -2647,7 +2647,7 @@ class UndianListScreen extends ConsumerWidget {
 }
 ```
 
-- [ ] **Step 2: `undian_form_screen.dart`**
+- [x] **Step 2: `undian_form_screen.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -2912,7 +2912,7 @@ class _UndianFormScreenState extends ConsumerState<UndianFormScreen> {
 }
 ```
 
-- [ ] **Step 3: `undian_detail_screen.dart`**
+- [x] **Step 3: `undian_detail_screen.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -3207,7 +3207,7 @@ class _UndianDetailScreenState extends ConsumerState<UndianDetailScreen> {
 }
 ```
 
-- [ ] **Step 4: Rute**
+- [x] **Step 4: Rute**
 
 Di `app_router.dart`, tambah import untuk ketiga layar undian, lalu:
 
@@ -3230,7 +3230,7 @@ Di `app_router.dart`, tambah import untuk ketiga layar undian, lalu:
           ),
 ```
 
-- [ ] **Step 5: Menu & guard**
+- [x] **Step 5: Menu & guard**
 
 Di `adaptive_scaffold.dart`, tambah destinasi admin only (sejajar `voucher`):
 
@@ -3244,7 +3244,7 @@ Di `adaptive_scaffold.dart`, tambah destinasi admin only (sejajar `voucher`):
 
 masukkan `undian,` ke daftar `role == UserRole.admin`. Di `redirect.dart`, tambah `'/undian'` ke `_adminOnlyPrefixes`.
 
-- [ ] **Step 6: Widget test**
+- [x] **Step 6: Widget test**
 
 ```dart
 // frontend/mobile/test/features/undian/undian_list_screen_test.dart
@@ -3263,13 +3263,13 @@ void main() {
 }
 ```
 
-- [ ] **Step 7: Jalankan**
+- [x] **Step 7: Jalankan**
 
 ```bash
 cd frontend/mobile && flutter analyze && flutter test test/features/undian/undian_list_screen_test.dart
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add frontend/mobile/lib/features/undian frontend/mobile/lib/core/router/app_router.dart frontend/mobile/lib/core/router/redirect.dart frontend/mobile/lib/core/widgets/adaptive_scaffold.dart frontend/mobile/test/features/undian
@@ -3290,7 +3290,7 @@ git commit -m "feat(app): layar Undian (peserta, tarik, batal) + rute/menu"
 - Modifies: `Cart` (tambah field `voucherCode`), `CartNotifier` (tambah `setVoucherCode`), `buildCheckoutPayload` (kirim `voucherCode` bila diisi).
 - Consumes: RPC `checkout_transaction` yang sudah menerima `voucherCode` (Task 4) — validasi & penerapan diskon sepenuhnya di server, klien tidak menghitung ulang potongan voucher.
 
-- [ ] **Step 1: Tambah field `voucherCode` ke `Cart`**
+- [x] **Step 1: Tambah field `voucherCode` ke `Cart`**
 
 Di `cart_state.dart`, tambah field ke class `Cart`:
 
@@ -3300,7 +3300,7 @@ Di `cart_state.dart`, tambah field ke class `Cart`:
 
 Tambah ke constructor (`this.voucherCode = ''`), ke `copyWith` (parameter `String? voucherCode` + `voucherCode: voucherCode ?? this.voucherCode`).
 
-- [ ] **Step 2: Kirim di payload**
+- [x] **Step 2: Kirim di payload**
 
 Di `buildCheckoutPayload`, setelah blok `discount/taxPercent/transportFee`:
 
@@ -3311,7 +3311,7 @@ Di `buildCheckoutPayload`, setelah blok `discount/taxPercent/transportFee`:
 
 (diletakkan sebelum `return payload;`, sejajar penambahan `notes`/`installations`/`serviceUnits` yang sudah ada).
 
-- [ ] **Step 3: `CartNotifier.setVoucherCode`**
+- [x] **Step 3: `CartNotifier.setVoucherCode`**
 
 Di `pos_providers.dart`, tambah method di `CartNotifier` (sejajar `setNotes`):
 
@@ -3320,7 +3320,7 @@ Di `pos_providers.dart`, tambah method di `CartNotifier` (sejajar `setNotes`):
       state = state.copyWith(voucherCode: value);
 ```
 
-- [ ] **Step 4: Field di layar Checkout**
+- [x] **Step 4: Field di layar Checkout**
 
 Di `checkout_screen.dart`:
 - Tambah `late final TextEditingController _voucherCode;` ke state, inisialisasi di `initState` (`TextEditingController(text: cart.voucherCode)`), dispose di `dispose`.
@@ -3341,7 +3341,7 @@ Di `checkout_screen.dart`:
 
 Kode divalidasi & potongannya dihitung sepenuhnya oleh `checkout_transaction` di server — tidak ada pratinjau potongan voucher di ringkasan biaya klien (baris "Diskon" yang sudah ada tetap menampilkan `cart.discount` manual saja); error dari RPC (kode invalid/kedaluwarsa/salah pelanggan/di bawah minimal) muncul lewat jalur `catch` yang sudah ada di `_submit()`.
 
-- [ ] **Step 5: Verifikasi**
+- [x] **Step 5: Verifikasi**
 
 ```bash
 cd frontend/mobile && flutter analyze && flutter test
@@ -3349,7 +3349,7 @@ cd frontend/mobile && flutter analyze && flutter test
 
 Expected: seluruh suite test yang ada tetap PASS (payload lama tanpa `voucherCode` tidak berubah bentuk — field baru hanya ditambahkan saat diisi).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/mobile/lib/features/pos/cart_state.dart frontend/mobile/lib/features/pos/pos_providers.dart frontend/mobile/lib/features/pos/checkout_screen.dart
@@ -3370,7 +3370,7 @@ git commit -m "feat(app): field kode voucher di Checkout"
 - Produces (rpc.ts): `createVoucher`, `cancelVoucher`, `createUndian`, `updateUndianParticipants`, `drawUndian`, `cancelUndian`.
 - Dikonsumsi Task 11 (`/voucher`), Task 12 (`/undian`).
 
-- [ ] **Step 1: Perluas `WaKind` + label**
+- [x] **Step 1: Perluas `WaKind` + label**
 
 Di `types.ts`, ganti:
 
@@ -3396,7 +3396,7 @@ dan tambah 2 baris ke `waKindLabel`:
   voucher_baru: "Voucher Baru",
 ```
 
-- [ ] **Step 2: Tipe voucher/undian**
+- [x] **Step 2: Tipe voucher/undian**
 
 Tambah ke `types.ts` (setelah `waKindLabel`/`WaMessage`):
 
@@ -3457,7 +3457,7 @@ export type UndianParticipant = {
 };
 ```
 
-- [ ] **Step 3: RPC wrapper**
+- [x] **Step 3: RPC wrapper**
 
 Tambah ke `rpc.ts` (setelah bagian "antrean pengingat WhatsApp"), termasuk import tipe:
 
@@ -3551,7 +3551,7 @@ export function cancelUndian(
 }
 ```
 
-- [ ] **Step 4: Label kind baru di layar Pengingat**
+- [x] **Step 4: Label kind baru di layar Pengingat**
 
 Di `pengingat/page.tsx`, tambah 2 baris ke `kindClass`:
 
@@ -3562,7 +3562,7 @@ Di `pengingat/page.tsx`, tambah 2 baris ke `kindClass`:
 
 (baris lain di halaman itu tidak berubah — `waKindLabel[row.kind]` sudah otomatis memetakan label baru dari Step 1.)
 
-- [ ] **Step 5: Verifikasi**
+- [x] **Step 5: Verifikasi**
 
 ```bash
 cd frontend/web && npm run typecheck
@@ -3570,7 +3570,7 @@ cd frontend/web && npm run typecheck
 
 Expected: 0 error.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/web/lib/types.ts frontend/web/lib/rpc.ts "frontend/web/app/(app)/pengingat/page.tsx"
@@ -3589,7 +3589,7 @@ git commit -m "feat(web): tipe & RPC voucher/undian + label kind WA baru"
 **Interfaces:**
 - Consumes: `Voucher`/`voucherStatusLabel` (Task 10), `createVoucher`/`cancelVoucher` (Task 10).
 
-- [ ] **Step 1: List (`page.tsx`)**
+- [x] **Step 1: List (`page.tsx`)**
 
 ```tsx
 import Link from "next/link";
@@ -3690,7 +3690,7 @@ export default async function VoucherPage() {
 }
 ```
 
-- [ ] **Step 2: Aksi batalkan (`_components/voucher-actions.tsx`)**
+- [x] **Step 2: Aksi batalkan (`_components/voucher-actions.tsx`)**
 
 ```tsx
 "use client";
@@ -3736,7 +3736,7 @@ export function VoucherActions({ id, code }: { id: string; code: string }) {
 }
 ```
 
-- [ ] **Step 3: Form buat (`baru/page.tsx`)**
+- [x] **Step 3: Form buat (`baru/page.tsx`)**
 
 Web belum punya picker member bergambar seperti mobile (`MemberPickerSheet`) — nomor HP sudah jadi identitas unik member (README §Aturan Penting 4), jadi form ini mencari member langsung lewat nomor HP yang diketik.
 
@@ -3888,17 +3888,17 @@ export default function VoucherBaruPage() {
 }
 ```
 
-- [ ] **Step 4: Lepas `voucher` dari placeholder**
+- [x] **Step 4: Lepas `voucher` dari placeholder**
 
 Di `app/(app)/[...slug]/page.tsx`, komentar baris 1 masih menyebut daftar rute belum diimplementasi — tidak perlu diubah (komentar generik, tidak mendaftar nama per rute). Next.js App Router otomatis mengutamakan `app/(app)/voucher/page.tsx` yang literal di atas catch-all `[...slug]`, jadi tidak ada langkah tambahan di sini.
 
-- [ ] **Step 5: Verifikasi**
+- [x] **Step 5: Verifikasi**
 
 ```bash
 cd frontend/web && npm run typecheck
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add "frontend/web/app/(app)/voucher"
@@ -3918,7 +3918,7 @@ git commit -m "feat(web): halaman Voucher (list, buat, batalkan)"
 **Interfaces:**
 - Consumes: `Undian`/`UndianParticipant`/`undianStatusLabel` (Task 10), `createUndian`/`drawUndian`/`cancelUndian` (Task 10).
 
-- [ ] **Step 1: List (`page.tsx`)**
+- [x] **Step 1: List (`page.tsx`)**
 
 ```tsx
 import Link from "next/link";
@@ -4002,7 +4002,7 @@ export default async function UndianPage() {
 }
 ```
 
-- [ ] **Step 2: Form buat (`baru/page.tsx`)**
+- [x] **Step 2: Form buat (`baru/page.tsx`)**
 
 ```tsx
 "use client";
@@ -4190,7 +4190,7 @@ export default function UndianBaruPage() {
 }
 ```
 
-- [ ] **Step 3: Detail + aksi (`[id]/page.tsx`, `[id]/_components/undian-actions.tsx`)**
+- [x] **Step 3: Detail + aksi (`[id]/page.tsx`, `[id]/_components/undian-actions.tsx`)**
 
 ```tsx
 // frontend/web/app/(app)/undian/[id]/page.tsx
@@ -4350,13 +4350,13 @@ export function UndianActions({ undianId }: { undianId: string }) {
 }
 ```
 
-- [ ] **Step 4: Verifikasi**
+- [x] **Step 4: Verifikasi**
 
 ```bash
 cd frontend/web && npm run typecheck
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add "frontend/web/app/(app)/undian"
@@ -4370,7 +4370,7 @@ git commit -m "feat(web): halaman Undian (list, buat, detail, tarik, batal)"
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Migrasi & Model Data & Status**
+- [x] **Step 1: Migrasi & Model Data & Status**
 
 Tambah 4 baris ke tabel migrasi (setelah `..._reminder_rpc.sql`):
 
@@ -4390,7 +4390,7 @@ Di bagian **Model Data & Status**, tambah `undian`, `undian_participants`, `vouc
 
 Tambah 2 nilai ke baris **Jenis pesan WA**: `menang_undian`, `voucher_baru`.
 
-- [ ] **Step 2: Kontrak RPC**
+- [x] **Step 2: Kontrak RPC**
 
 Tambah subbagian baru setelah "Pengingat servis (antrean WhatsApp)":
 
@@ -4418,7 +4418,7 @@ Update deskripsi `checkout_transaction(payload)` (tambah baris `voucherCode?` ke
   "voucherCode": "VCR-XXXXXX",  // opsional
 ```
 
-- [ ] **Step 3: Status Fitur (MVP)**
+- [x] **Step 3: Status Fitur (MVP)**
 
 Tambah baris:
 
@@ -4426,7 +4426,7 @@ Tambah baris:
 | Voucher/Diskon + Undian | ✅ (jadwal + antrean + scheduler reuse WA) | ✅ (`/voucher`, `/undian`) |
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add README.md
