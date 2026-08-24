@@ -4,3 +4,5 @@ functions/lib/
 CLAUDE.md
 *.bundle
 firestore-debug.log
+.env
+
