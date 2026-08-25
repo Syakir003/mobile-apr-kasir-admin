@@ -7,6 +7,8 @@ import '../../core/widgets/status_badge.dart';
 import '../../data/models/invoice.dart';
 import '../../data/models/manual_payment.dart';
 import '../pos/cart_state.dart' show formatRupiah;
+import 'delivery_note_pdf.dart';
+import 'invoice_pdf.dart';
 import 'invoice_providers.dart';
 import 'payment_form_sheet.dart';
 import 'receipt_pdf.dart';
@@ -82,6 +84,26 @@ class InvoiceDetailScreen extends ConsumerWidget {
                   label: const Text('Bagikan Struk'),
                 ),
               ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 50,
+                child: OutlinedButton.icon(
+                  key: const Key('print-invoice'),
+                  onPressed: () => _shareInvoice(context, invoice),
+                  icon: const Icon(Icons.description_outlined),
+                  label: const Text('Cetak Invoice'),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 50,
+                child: OutlinedButton.icon(
+                  key: const Key('print-delivery-note'),
+                  onPressed: () => _shareDeliveryNote(context, invoice),
+                  icon: const Icon(Icons.local_shipping_outlined),
+                  label: const Text('Cetak Surat Jalan'),
+                ),
+              ),
             ],
           );
         },
@@ -113,6 +135,44 @@ Future<void> _shareReceipt(
   } catch (e) {
     messenger.showSnackBar(SnackBar(
       content: Text('Gagal menyiapkan struk: ${errorMessage(e)}'),
+      backgroundColor: AppColors.danger,
+    ));
+  }
+}
+
+/// Buka dialog cetak/simpan Invoice A4 (pola sama dengan [_shareReceipt]).
+Future<void> _shareInvoice(BuildContext context, Invoice invoice) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await Printing.layoutPdf(
+      onLayout: (_) => buildInvoicePdf(invoice),
+      name: 'Invoice-${invoice.number}',
+    );
+    messenger.showSnackBar(
+      SnackBar(content: Text('Invoice ${invoice.number} disiapkan.')),
+    );
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(
+      content: Text('Gagal menyiapkan invoice: ${errorMessage(e)}'),
+      backgroundColor: AppColors.danger,
+    ));
+  }
+}
+
+/// Buka dialog cetak/simpan Surat Jalan (pola sama dengan [_shareReceipt]).
+Future<void> _shareDeliveryNote(BuildContext context, Invoice invoice) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await Printing.layoutPdf(
+      onLayout: (_) => buildDeliveryNotePdf(invoice),
+      name: 'Surat-Jalan-${invoice.number}',
+    );
+    messenger.showSnackBar(
+      SnackBar(content: Text('Surat Jalan ${invoice.number} disiapkan.')),
+    );
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(
+      content: Text('Gagal menyiapkan surat jalan: ${errorMessage(e)}'),
       backgroundColor: AppColors.danger,
     ));
   }

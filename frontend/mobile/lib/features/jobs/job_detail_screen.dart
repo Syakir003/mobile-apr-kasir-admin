@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:printing/printing.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
@@ -11,11 +12,13 @@ import '../../core/widgets/status_badge.dart';
 import '../../core/utils/error_message.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/job_photo.dart';
+import '../../data/models/material_request.dart';
 import '../../data/models/technician_job.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import '../pos/pos_providers.dart' show techniciansProvider;
 import 'job_list_screen.dart' show jobStatusColor;
 import 'job_providers.dart';
+import 'job_report_pdf.dart';
 import 'job_requests_section.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/form_field.dart';
@@ -150,16 +153,58 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     );
   }
 
+  /// Buka dialog cetak/simpan Laporan Pekerjaan, dengan umpan balik jelas
+  /// (pola sama dengan `_shareReceipt` di invoice_detail_screen.dart).
+  Future<void> _printJobReport(
+    BuildContext context,
+    TechnicianJob job,
+    List<MaterialRequest> requests,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final materials = requests
+        .where((r) => r.isApproved)
+        .expand((r) => r.items)
+        .toList(growable: false);
+    try {
+      await Printing.layoutPdf(
+        onLayout: (_) => buildJobReportPdf(job, materials),
+        name: 'Laporan-Pekerjaan-${job.id.substring(0, 8)}',
+      );
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Laporan Pekerjaan disiapkan.')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text('Gagal menyiapkan laporan: ${errorMessage(e)}'),
+        backgroundColor: AppColors.danger,
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final jobAsync = ref.watch(jobProvider(widget.jobId));
     final role = ref.watch(currentUserProvider).value?.role;
     final unitId = jobAsync.value?.unitId;
+    final requests =
+        ref.watch(jobRequestsProvider(widget.jobId)).value ??
+            const <MaterialRequest>[];
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detail Job'),
         actions: [
+          // Kasir/admin/teknisi bisa cetak laporan pekerjaan (rangkap kartu
+          // garansi) kapan saja job sudah dimuat — cocok dicetak blank di
+          // lapangan atau lengkap setelah job selesai.
+          if (jobAsync.value != null)
+            IconButton(
+              key: const Key('print-job-report'),
+              icon: const Icon(Icons.print_outlined),
+              tooltip: 'Cetak Laporan Pekerjaan',
+              onPressed: () =>
+                  _printJobReport(context, jobAsync.value!, requests),
+            ),
           // Teknisi perlu tahu apa yang pernah dikerjakan pada unit ini.
           if (unitId != null)
             IconButton(
