@@ -54,6 +54,8 @@ export type RecordPaymentPayload = {
   invoiceId: string;
   method: PaymentMethod;
   amount: number;
+  /** Uang tunai diserahkan pelanggan (>= amount). Kembalian = cashReceived - amount. */
+  cashReceived?: number;
   note?: string;
 };
 

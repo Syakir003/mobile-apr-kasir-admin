@@ -135,13 +135,40 @@ void main() {
       expect(back.invoiceId, 'inv1');
       expect(back.method, PaymentMethod.transfer);
       expect(back.amount, 500000);
+      expect(back.cashReceived, isNull);
+      expect(back.change, 0);
       expect(back.note, 'Transfer BCA');
       expect(back.proofUrl, 'https://example.com/proof.jpg');
       expect(back.createdBy, 'uid-kasir-1');
       expect(back.createdAt, DateTime(2026, 7, 12, 10, 30));
     });
 
-    test('default: note, proofUrl, createdAt null', () {
+    test('tunai lebih: cashReceived tersimpan, change = selisih', () {
+      const p = ManualPayment(
+        invoiceId: 'inv1',
+        method: PaymentMethod.tunai,
+        amount: 80000,
+        cashReceived: 100000,
+        createdBy: 'uid-kasir-1',
+      );
+      expect(p.change, 20000);
+      final back = ManualPayment.fromMap('gen', p.toMap());
+      expect(back.cashReceived, 100000);
+      expect(back.change, 20000);
+    });
+
+    test('cashReceived == amount: tak dianggap kembalian', () {
+      const p = ManualPayment(
+        invoiceId: 'inv1',
+        method: PaymentMethod.tunai,
+        amount: 50000,
+        cashReceived: 50000,
+        createdBy: 'u1',
+      );
+      expect(p.change, 0);
+    });
+
+    test('default: cashReceived, note, proofUrl, createdAt null', () {
       const p = ManualPayment(
         invoiceId: 'inv1',
         method: PaymentMethod.tunai,
@@ -149,10 +176,13 @@ void main() {
         createdBy: 'uid-kasir-1',
       );
       expect(p.id, '');
+      expect(p.cashReceived, isNull);
+      expect(p.change, 0);
       expect(p.note, isNull);
       expect(p.proofUrl, isNull);
       expect(p.createdAt, isNull);
       final back = ManualPayment.fromMap('gen', p.toMap());
+      expect(back.cashReceived, isNull);
       expect(back.note, isNull);
       expect(back.proofUrl, isNull);
       expect(back.createdAt, isNull);

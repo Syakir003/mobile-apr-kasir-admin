@@ -18,6 +18,7 @@ class ManualPayment {
     required this.invoiceId,
     required this.method,
     required this.amount,
+    this.cashReceived,
     this.note,
     this.proofUrl,
     required this.createdBy,
@@ -27,11 +28,20 @@ class ManualPayment {
   final String id;
   final String invoiceId;
   final PaymentMethod method;
+
+  /// Uang yang masuk ke tagihan (di-clamp ke sisa untuk tunai lebih).
   final int amount;
+
+  /// Uang tunai fisik yang diserahkan pelanggan; null bila non-tunai / pas.
+  final int? cashReceived;
   final String? note;
   final String? proofUrl;
   final String createdBy;
   final DateTime? createdAt;
+
+  /// Kembalian = uang diterima − yang masuk tagihan (0 bila tak ada `cashReceived`).
+  int get change =>
+      (cashReceived != null && cashReceived! > amount) ? cashReceived! - amount : 0;
 
   factory ManualPayment.fromMap(String id, Map<String, dynamic> data) {
     return ManualPayment(
@@ -39,6 +49,7 @@ class ManualPayment {
       invoiceId: (data['invoice_id'] as String?) ?? '',
       method: PaymentMethod.fromValue(data['method']),
       amount: (data['amount'] as num?)?.toInt() ?? 0,
+      cashReceived: (data['cash_received'] as num?)?.toInt(),
       note: data['note'] as String?,
       proofUrl: data['proof_url'] as String?,
       createdBy: (data['created_by'] as String?) ?? '',
@@ -51,6 +62,7 @@ class ManualPayment {
       'invoice_id': invoiceId,
       'method': method.value,
       'amount': amount,
+      'cash_received': cashReceived,
       'note': note,
       'proof_url': proofUrl,
       'created_by': createdBy,
@@ -63,6 +75,7 @@ class ManualPayment {
     String? invoiceId,
     PaymentMethod? method,
     int? amount,
+    int? cashReceived,
     String? note,
     String? proofUrl,
     String? createdBy,
@@ -73,6 +86,7 @@ class ManualPayment {
       invoiceId: invoiceId ?? this.invoiceId,
       method: method ?? this.method,
       amount: amount ?? this.amount,
+      cashReceived: cashReceived ?? this.cashReceived,
       note: note ?? this.note,
       proofUrl: proofUrl ?? this.proofUrl,
       createdBy: createdBy ?? this.createdBy,

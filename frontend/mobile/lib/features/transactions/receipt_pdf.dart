@@ -66,7 +66,12 @@ Future<Uint8List> buildReceiptPdf(
             pw.Text('Pembayaran',
                 style: const pw.TextStyle(
                     fontSize: 9, fontWeight: pw.FontWeight.bold)),
-            for (final p in payments) _amountRow(p.method.label, p.amount),
+            for (final p in payments)
+              if (p.change > 0) ...[
+                _amountRow('${p.method.label} (diterima)', p.cashReceived!),
+                _amountRow('Kembali', p.change),
+              ] else
+                _amountRow(p.method.label, p.amount),
             pw.SizedBox(height: 2),
           ],
           _amountRow('Dibayar', invoice.totalPaid),

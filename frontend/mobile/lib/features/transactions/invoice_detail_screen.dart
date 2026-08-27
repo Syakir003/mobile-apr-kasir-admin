@@ -330,7 +330,15 @@ class _PaymentsCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(p.method.label),
+                            Text(p.change > 0
+                                ? '${p.method.label} (diterima)'
+                                : p.method.label),
+                            if (p.change > 0)
+                              Text(
+                                'Kembalian ${formatRupiah(p.change)}',
+                                style: const TextStyle(
+                                    fontSize: 12, color: AppColors.success),
+                              ),
                             if (p.createdAt != null)
                               Text(
                                 _formatDate(p.createdAt!),
@@ -341,7 +349,7 @@ class _PaymentsCard extends StatelessWidget {
                           ],
                         ),
                       ),
-                      Text(formatRupiah(p.amount)),
+                      Text(formatRupiah(p.change > 0 ? p.cashReceived! : p.amount)),
                     ],
                   ),
                 ),

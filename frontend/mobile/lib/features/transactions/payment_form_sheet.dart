@@ -29,8 +29,10 @@ Future<void> showPaymentFormSheet(BuildContext context, Invoice invoice) {
 }
 
 /// Form pencatatan pembayaran manual. Aturan nominal:
-/// - **tunai**: uang diterima boleh melebihi sisa; kembalian ditampilkan dan
-///   yang dikirim ke server = `min(input, sisa)` (nominal pas).
+/// - **tunai**: uang diterima boleh melebihi sisa; `amount` ke server =
+///   `min(input, sisa)` (nominal pas), plus `cashReceived` = input agar
+///   kembalian tersimpan & tercetak di struk. Kembalian juga tampil di form
+///   dan dikonfirmasi lewat dialog setelah simpan.
 /// - **non-tunai**: input tidak boleh melebihi sisa (validator menolak).
 class PaymentFormSheet extends ConsumerStatefulWidget {
   const PaymentFormSheet({super.key, required this.invoice});
@@ -80,16 +82,18 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _busy = true);
     final input = _amountInput ?? 0;
-    // Tunai: catat nominal pas (kembalian dihitung di client). Non-tunai
-    // sudah dijaga validator agar <= sisa.
-    final amount = _method == PaymentMethod.tunai && input > _sisa
-        ? _sisa
-        : input;
+    // Tunai lebih: yang masuk tagihan = sisa (nominal pas), tapi uang tunai
+    // yang diserahkan tetap dikirim sebagai `cashReceived` supaya kembalian
+    // tersimpan & tercetak di struk. Non-tunai dijaga validator agar <= sisa.
+    final isCashOver = _method == PaymentMethod.tunai && input > _sisa;
+    final amount = isCashOver ? _sisa : input;
+    final change = _change;
     final payload = <String, dynamic>{
       'invoiceId': widget.invoice.id,
       'method': _method.value,
       'amount': amount,
     };
+    if (isCashOver) payload['cashReceived'] = input;
     final note = _note.text.trim();
     if (note.isNotEmpty) payload['note'] = note;
 
@@ -99,9 +103,38 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
     try {
       await caller(payload);
       if (!mounted) return;
+      // Dialog kembalian ditumpuk di atas sheet dulu (context masih hidup),
+      // baru sheet ditutup — kasir harus melihat angka yang diserahkan.
+      // Spinner dimatikan lebih dulu supaya tak ada yang beranimasi di balik
+      // dialog (kalau tidak, `pumpAndSettle` di test tak pernah selesai).
+      if (change > 0) {
+        setState(() => _busy = false);
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.payments_outlined, color: AppColors.success),
+            title: const Text('Kembalian'),
+            content: Text(
+              'Berikan kembalian ke pelanggan:\n${formatRupiah(change)}',
+              style: const TextStyle(fontSize: 16),
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Selesai'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+      }
       navigator.pop();
       messenger.showSnackBar(
-        const SnackBar(content: Text('Pembayaran tercatat.')),
+        SnackBar(
+          content: Text(change > 0
+              ? 'Pembayaran tercatat. Kembalian ${formatRupiah(change)}.'
+              : 'Pembayaran tercatat.'),
+        ),
       );
     } catch (e) {
       if (!mounted) return;

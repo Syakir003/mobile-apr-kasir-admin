@@ -84,5 +84,40 @@ void main() {
     expect(captured!['invoiceId'], 'inv1');
     expect(captured!['method'], 'tunai');
     expect(captured!['amount'], 50000);
+    // Uang tunai fisik dikirim terpisah supaya kembalian tersimpan di struk.
+    expect(captured!['cashReceived'], 100000);
+
+    // Dialog kembalian dikonfirmasi kasir sebelum sheet ditutup.
+    expect(find.widgetWithText(AlertDialog, 'Kembalian'), findsOneWidget);
+    expect(find.textContaining('Rp 50.000'), findsWidgets);
+    await tester.tap(find.widgetWithText(FilledButton, 'Selesai'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('non-tunai: cashReceived tidak dikirim, tanpa dialog kembalian',
+      (tester) async {
+    _useTallViewport(tester);
+    Map<String, dynamic>? captured;
+    await tester.pumpWidget(_host(
+      invoice: _invoice,
+      caller: (payload) async {
+        captured = payload;
+      },
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('method')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Transfer Bank').last);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('amount')), '50000');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pay-submit')));
+    await tester.pumpAndSettle();
+
+    expect(captured!['amount'], 50000);
+    expect(captured!.containsKey('cashReceived'), isFalse);
+    expect(find.widgetWithText(AlertDialog, 'Kembalian'), findsNothing);
   });
 }
