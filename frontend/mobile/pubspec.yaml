@@ -23,6 +23,7 @@ dependencies:
   # Membuka WhatsApp dari layar Pengingat lewat tautan wa.me — "adapter manual"
   # pengiriman pesan servis selama Cloud API Meta belum disetujui.
   url_launcher: ^6.3.2
+  flutter_local_notifications: ^22.3.0
 
 dev_dependencies:
   flutter_test:
