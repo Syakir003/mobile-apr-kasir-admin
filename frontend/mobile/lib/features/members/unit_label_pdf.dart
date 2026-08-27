@@ -6,7 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../../core/pdf/pdf_theme.dart';
 import '../../data/models/ac_unit.dart';
 
-/// Label A6 untuk ditempel di unit AC: QR + barcode + identitas unit.
+/// Label A6 untuk ditempel di unit AC: barcode Code 128 + identitas unit.
 Future<Uint8List> buildUnitLabelPdf(AcUnit unit) async {
   final doc = pw.Document(theme: await pdfTheme());
   final logo = await pdfLogo();
@@ -27,13 +27,18 @@ Future<Uint8List> buildUnitLabelPdf(AcUnit unit) async {
               ),
             ),
             pw.SizedBox(height: 10),
+            // Code 128: padat & terbaca kamera HP maupun scanner gun standar.
+            // Teks nilainya dicetak terpisah di bawah (pakai font tema), jadi
+            // `drawText` bawaan barcode dimatikan supaya tak dobel & tak
+            // menarik font Courier tanpa dukungan Unicode.
             pw.BarcodeWidget(
-              barcode: pw.Barcode.qrCode(),
+              barcode: pw.Barcode.code128(),
               data: unit.barcodeValue,
-              width: 110,
-              height: 110,
+              width: 240,
+              height: 80,
+              drawText: false,
             ),
-            pw.SizedBox(height: 10),
+            pw.SizedBox(height: 8),
             pw.Text(unit.barcodeValue, style: const pw.TextStyle(fontSize: 12)),
             pw.SizedBox(height: 6),
             pw.Text('${unit.brand} ${unit.model}'),
