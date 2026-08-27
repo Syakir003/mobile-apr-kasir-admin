@@ -56,15 +56,19 @@
       "args": ["--web-port=5599"]
     },
     {
-      "name": "Supabase Cloud (isi URL & anon key)",
+      "name": "Supabase Cloud (isi anon key)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
-      // Dipakai setelah `supabase db push` ke proyek cloud. Ambil nilainya dari
-      // Dashboard > Project Settings > API. anon key aman ada di sini (ia memang
-      // ikut dalam binary aplikasi); JANGAN pernah menaruh service_role key.
+      // Proyek cloud "Syakir003's Project" (ref xmzrzcgllztwikzdxfrt). anon key
+      // ambil dari Dashboard > Project Settings > API. anon/publishable key aman
+      // ada di sini (ia memang ikut dalam binary aplikasi); JANGAN pernah
+      // menaruh service_role key.
+      //
+      // CATATAN: build rilis (`flutter build apk`) TANPA flag ini pun sudah
+      // menunjuk ke cloud — lihat default di lib/core/supabase/supabase_bootstrap.dart.
       "args": [
-        "--dart-define=SUPABASE_URL=https://GANTI-REF.supabase.co",
+        "--dart-define=SUPABASE_URL=https://xmzrzcgllztwikzdxfrt.supabase.co",
         "--dart-define=SUPABASE_ANON_KEY=GANTI-ANON-KEY"
       ]
     }

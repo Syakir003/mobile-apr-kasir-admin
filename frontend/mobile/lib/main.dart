@@ -35,7 +35,7 @@ class EposApp extends ConsumerWidget {
     });
 
     return MaterialApp.router(
-      title: 'E-POS AC',
+      title: 'APR-POS',
       theme: AppTheme.light(),
       // Seluruh teks aplikasi berbahasa Indonesia; tanpa delegate ini dialog
       // bawaan Material (date picker, tooltip "Cancel"/"OK") tetap Inggris.

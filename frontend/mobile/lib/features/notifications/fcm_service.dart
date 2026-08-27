@@ -12,7 +12,7 @@ import '../../firebase_options.dart';
 /// dibuat native di MainActivity.kt (importance tak bisa diubah setelah
 /// channel ada, jadi id-nya dikunci di dua sisi).
 const _androidChannelId = 'epos_push_high';
-const _androidChannelName = 'Notifikasi E-POS';
+const _androidChannelName = 'Notifikasi APR-POS';
 
 /// Integrasi FCM: inisialisasi Firebase, minta izin, ambil token, dan daftarkan
 /// ke Supabase (`register_device_token`). Semua langkah di-guard — bila Firebase

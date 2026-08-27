@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "E-POS AC — Web",
-  description: "Web E-POS AC Realtime (Next.js) di atas backend Supabase.",
+  title: "APR-POS — Web",
+  description: "Web APR-POS (Next.js) di atas backend Supabase.",
 };
 
 export default function RootLayout({

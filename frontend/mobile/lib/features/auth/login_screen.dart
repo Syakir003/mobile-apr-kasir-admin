@@ -87,7 +87,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     const SizedBox(height: 20),
                     const Text(
-                      'E-POS AC Realtime',
+                      'APR-POS',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 22,

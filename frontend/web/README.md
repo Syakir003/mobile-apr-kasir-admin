@@ -1,4 +1,4 @@
-# E-POS AC — Web (Next.js)
+# APR-POS — Web (Next.js)
 
 Pondasi frontend web di atas **backend Supabase yang sama** dengan app Flutter.
 App Router + TypeScript + Tailwind v4 + `@supabase/ssr`.

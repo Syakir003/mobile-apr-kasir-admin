@@ -28,7 +28,7 @@ export default async function DashboardPage() {
       <div className="rounded-2xl bg-gradient-to-br from-brand-dark to-brand p-6 text-white">
         <h2 className="text-2xl font-bold">Halo, {name} 👋</h2>
         <p className="mt-1 text-teal-50">
-          Selamat datang di E-POS AC{role ? ` · ${roleLabel[role]}` : ""}.
+          Selamat datang di APR-POS{role ? ` · ${roleLabel[role]}` : ""}.
         </p>
       </div>
 

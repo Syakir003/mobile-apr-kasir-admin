@@ -21,7 +21,7 @@ export function Sidebar({
         <div className="grid h-9 w-9 place-items-center rounded-lg bg-brand text-white">
           ❄
         </div>
-        <b className="text-slate-900">E-POS AC</b>
+        <b className="text-slate-900">APR-POS</b>
       </div>
 
       <nav className="flex-1 overflow-y-auto p-3">

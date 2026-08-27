@@ -2,7 +2,7 @@
   "name": "epos-ac-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Web (Next.js) E-POS AC Realtime — konsumsi backend Supabase yang sama dengan app Flutter.",
+  "description": "Web (Next.js) APR-POS — konsumsi backend Supabase yang sama dengan app Flutter.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

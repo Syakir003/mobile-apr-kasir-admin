@@ -15,7 +15,7 @@ export default async function LoginPage({
             ❄
           </div>
           <h1 className="mt-5 text-2xl font-bold text-slate-900">
-            E-POS AC Realtime
+            APR-POS
           </h1>
           <p className="mt-1 text-slate-500">Masuk untuk melanjutkan</p>
         </div>

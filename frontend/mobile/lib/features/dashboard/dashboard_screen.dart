@@ -34,7 +34,7 @@ class DashboardScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('E-POS AC'),
+        title: const Text('APR-POS'),
         actions: const [
           Padding(
             padding: EdgeInsets.only(right: 8),

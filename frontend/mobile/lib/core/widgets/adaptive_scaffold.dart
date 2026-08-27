@@ -350,7 +350,7 @@ class _Sidebar extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Text(
-                        'E-POS AC',
+                        'APR-POS',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(

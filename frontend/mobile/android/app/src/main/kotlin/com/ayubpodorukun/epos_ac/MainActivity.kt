@@ -21,7 +21,7 @@ class MainActivity : FlutterActivity() {
         manager.createNotificationChannel(
             NotificationChannel(
                 "epos_push_high",
-                "Notifikasi E-POS",
+                "Notifikasi APR-POS",
                 NotificationManager.IMPORTANCE_HIGH,
             )
         )
