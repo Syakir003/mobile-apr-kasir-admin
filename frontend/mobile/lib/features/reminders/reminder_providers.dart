@@ -152,3 +152,78 @@ final setUnitServiceIntervalCallerProvider =
     );
   };
 });
+
+/// Satu redaksi pesan pengingat (`wa_reminder_templates`) + teks bawaannya.
+///
+/// [body] adalah teks yang berlaku sekarang; [defaultBody] teks pabrik untuk
+/// tombol "Reset ke bawaan". Placeholder `{nama}`, `{unit}`, `{tanggal}`
+/// disubstitusi `build_wa_body()` di Postgres saat pesan diantrekan.
+class WaTemplate {
+  const WaTemplate({
+    required this.kind,
+    required this.body,
+    required this.defaultBody,
+  });
+
+  final WaKind kind;
+  final String body;
+  final String defaultBody;
+
+  factory WaTemplate.fromMap(Map<String, dynamic> data) => WaTemplate(
+        kind: WaKind.fromValue(data['kind']),
+        body: (data['body'] as String?) ?? '',
+        defaultBody: (data['defaultBody'] as String?) ?? '',
+      );
+}
+
+/// Redaksi 3 pesan pengingat untuk layar editor. RPC `list_wa_reminder_templates`
+/// mengembalikan teks sekarang + teks bawaan sekaligus (admin/kasir).
+final waTemplatesProvider =
+    FutureProvider.autoDispose<List<WaTemplate>>((ref) async {
+  final rows = await ref
+      .read(supabaseProvider)
+      .rpc('list_wa_reminder_templates') as List<dynamic>;
+  return [
+    for (final r in rows)
+      WaTemplate.fromMap(Map<String, dynamic>.from(r as Map)),
+  ];
+});
+
+/// RPC `save_wa_reminder_templates` (admin). Map kind → teks; kunci yang tak
+/// dikirim tidak diubah.
+final saveWaTemplatesCallerProvider =
+    Provider<Future<void> Function(Map<WaKind, String>)>((ref) {
+  return (templates) async {
+    await ref.read(supabaseProvider).rpc(
+      'save_wa_reminder_templates',
+      params: {
+        'payload': {
+          'templates': {
+            for (final e in templates.entries) e.key.value: e.value,
+          },
+        },
+      },
+    );
+  };
+});
+
+/// Pesan pengingat yang sudah selesai diproses (`wa_outbox` selain `pending`) —
+/// terkirim, gagal, atau dibatalkan. Untuk layar Riwayat.
+///
+/// Query biasa, bukan Realtime: baris riwayat tidak berubah lagi. Dibatasi 100
+/// terbaru — volume pengingat kecil; kalau perlu lebih, tambah paginasi seperti
+/// [auditLogsProvider].
+final waHistoryProvider =
+    FutureProvider.autoDispose<List<WaMessage>>((ref) async {
+  final rows = await ref
+      .read(supabaseProvider)
+      .from('wa_outbox')
+      .select()
+      .neq('status', 'pending')
+      .order('created_at', ascending: false)
+      .limit(100);
+  return [
+    for (final r in rows)
+      WaMessage.fromMap(r['id'] as String, Map<String, dynamic>.from(r)),
+  ];
+});

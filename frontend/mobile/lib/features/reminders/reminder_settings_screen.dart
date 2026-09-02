@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/error_message.dart';
+import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/form_field.dart';
@@ -128,6 +129,41 @@ class _ReminderSettingsScreenState
       submitKey: const Key('submit'),
       onSubmit: _submit,
       children: [
+        AppCard(
+          onTap: _busy
+              ? null
+              : () => context.go('/pengingat/pengaturan/pesan'),
+          child: Row(
+            children: [
+              const Icon(Icons.edit_note, color: AppColors.tealDeep),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Teks pesan pengingat',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Ubah redaksi pesan WhatsApp ke pelanggan',
+                      style: TextStyle(
+                        fontFamily: AppFonts.body,
+                        fontSize: 13,
+                        height: 18 / 13,
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: AppColors.textMuted),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.grid),
         const NoticePanel(
           icon: Icons.info_outline,
           text: 'Perubahan berlaku untuk servis berikutnya. Jadwal yang sudah '

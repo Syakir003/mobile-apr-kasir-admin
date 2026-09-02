@@ -65,6 +65,8 @@ Migrasi backend (urut):
 | `..._undian_rpc.sql` | RPC undian: buat, peserta, tarik, batal |
 | `..._voucher_rpc.sql` | RPC voucher ad-hoc: buat, batal |
 | `..._checkout_voucher.sql` | `checkout_transaction` menerima `voucherCode` |
+| `..._payment_cash_received.sql` | Simpan & tampilkan kembalian bayar tunai lebih |
+| `..._wa_reminder_templates.sql` | Redaksi pesan pengingat bisa diedit admin (`wa_reminder_templates`, `default_wa_template`, `build_wa_body` v2) |
 
 ---
 
@@ -261,9 +263,20 @@ ditagih.
 | `save_reminder_settings` | admin | `{jobType, intervalDays, active}` → default siklus per jenis job |
 | `set_unit_service_interval` | admin | `{unitId, intervalDays?}` → override per unit; tanpa `intervalDays` = kembali ke default |
 | `set_member_wa_opt_out` | admin, kasir | `{memberId, optOut}` → pelanggan berhenti dikirimi pengingat |
+| `list_wa_reminder_templates` | admin, kasir | `()` → `[{kind, body, defaultBody, updatedAt}]` untuk layar editor teks |
+| `save_wa_reminder_templates` | admin | `{templates: {<kind>: "<teks>"}}` → upsert redaksi pesan; validasi placeholder |
 
 `save_reminder_settings` **tidak** menggeser `next_service_date` unit yang sudah
 dijadwalkan — interval baru berlaku mulai servis berikutnya.
+
+Redaksi 3 pesan pengingat (`selesai_servis`, `reminder_h3`, `reminder_h7`) ada di
+tabel `wa_reminder_templates` dengan placeholder `{nama}`, `{unit}`, `{tanggal}`
+yang disubstitusi `build_wa_body()` saat pesan diantrekan — teks bawaan tunggal
+di fungsi `default_wa_template()`. Admin mengeditnya di **Pengingat → Pengaturan →
+Teks pesan** (mobile `/pengingat/pengaturan/pesan`). Perubahan berlaku untuk
+pesan berikutnya; yang sudah di antrean sudah dibekukan `wa_outbox.body`-nya.
+Riwayat pesan terkirim/gagal/dibatalkan: **Pengingat → Riwayat** (mobile
+`/pengingat/riwayat`, web `/pengingat/riwayat`).
 
 ### Voucher & Undian
 
@@ -346,8 +359,10 @@ Urutannya, dan **tidak ada migrasi skema maupun perubahan UI** di langkah mana p
 1. Verifikasi bisnis di Meta Business Manager.
 2. Daftarkan nomor khusus WhatsApp Business (nomor yang dipakai di sini tidak bisa
    lagi dipakai di aplikasi WhatsApp biasa).
-3. Ajukan 3 template kategori **Utility** — salin redaksinya persis dari
-   `build_wa_body()` di migrasi `..._service_reminders.sql`.
+3. Ajukan 3 template kategori **Utility** — salin redaksinya dari tabel
+   `wa_reminder_templates` (yang mungkin sudah diedit admin), bukan lagi dari
+   teks bawaan. Placeholder `{nama}`/`{unit}`/`{tanggal}` dipetakan ke variabel
+   `{{1}}`/`{{2}}`/`{{3}}` milik Meta.
 4. `supabase secrets set WA_TOKEN=… WA_PHONE_NUMBER_ID=… WA_WEBHOOK_SECRET=…`
    lalu `supabase functions deploy send-wa`.
 5. Isi `app_config`: `wa_adapter='cloud_api'`, `wa_function_url`, `wa_secret`.
@@ -369,7 +384,8 @@ Tabel inti: `users`, `members`, `member_ac_units`, `products`, `spareparts`,
 `services`, `installation_packages(+_items)`, `transactions(+_items)`,
 `invoices(+_items)`, `manual_payments`, `stock_movements`, `service_orders`,
 `service_order_units`, `technician_jobs`, `audit_logs`, `reminder_settings`,
-`wa_outbox`, `undian`, `undian_participants`, `vouchers`.
+`wa_reminder_templates`, `wa_outbox`, `undian`, `undian_participants`,
+`vouchers`.
 
 Nilai status (text snake_case di DB):
 
@@ -405,6 +421,7 @@ Nilai status (text snake_case di DB):
 | Pengajuan sparepart/material + approval | ✅ | ✅ (ajukan + approve/tolak di Job) |
 | Notifikasi realtime (in-app) | ✅ | ✅ (Supabase Realtime + FCM push) |
 | Pengingat servis via WhatsApp | ✅ (jadwal + antrean + scheduler) | ✅ (`/pengingat`, kirim manual wa.me) |
+| Edit teks pesan pengingat + riwayat | ✅ (`wa_reminder_templates`, `save_wa_reminder_templates`) | ✅ (editor `/pengingat/pengaturan/pesan`, riwayat `/pengingat/riwayat`) |
 | Stok masuk & penyesuaian manual | ✅ (`adjust_stock`) | ✅ (`/stok/adjust`) |
 | Manajemen akun (buat/peran/nonaktif) | ✅ (RPC + Edge Function) | ✅ (`/users`) |
 | Riwayat audit | ✅ (baca admin) | ✅ (`/audit`) |

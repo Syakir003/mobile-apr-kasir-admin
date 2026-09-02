@@ -35,6 +35,12 @@ class WaOutboxScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Pengingat'),
         actions: [
+          IconButton(
+            key: const Key('buka-riwayat'),
+            icon: const Icon(Icons.history),
+            tooltip: 'Riwayat pengingat',
+            onPressed: () => context.go('/pengingat/riwayat'),
+          ),
           if (isAdmin)
             IconButton(
               key: const Key('buka-pengaturan'),

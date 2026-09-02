@@ -155,6 +155,12 @@ flowchart TD
 > per jenis job (`reminder_settings`). Job berjalan pada unit yang sama otomatis
 > menghentikan pengingatnya. `dedupe_key` menjamin scheduler yang jalan berkali-kali
 > tidak pernah membuat pesan kembar.
+>
+> Redaksi pesan datang dari `wa_reminder_templates` (placeholder `{nama}`,
+> `{unit}`, `{tanggal}` disubstitusi `build_wa_body()` saat baris dibuat). Admin
+> mengeditnya di **Pengingat → Pengaturan → Teks pesan**; perubahan berlaku untuk
+> pesan berikutnya. `wa_outbox.body` yang sudah ada tidak ikut berubah. Pesan yang
+> sudah diproses tampil di **Pengingat → Riwayat**.
 
 ---
 

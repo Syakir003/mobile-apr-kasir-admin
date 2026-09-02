@@ -60,6 +60,8 @@ class WaMessage {
     this.unitCount = 0,
     this.dueDate,
     this.createdAt,
+    this.sentAt,
+    this.error,
   });
 
   final String id;
@@ -72,6 +74,12 @@ class WaMessage {
   final int unitCount;
   final DateTime? dueDate;
   final DateTime? createdAt;
+
+  /// Diisi saat pesan ditandai terkirim. Null selama masih di antrean.
+  final DateTime? sentAt;
+
+  /// Alasan batal / keterangan gagal (kolom `error`). Dipakai layar Riwayat.
+  final String? error;
 
   /// Tautan yang membuka WhatsApp dengan pesan sudah terisi penuh, tinggal
   /// tekan kirim. Inilah "adapter manual" di sisi klien.
@@ -92,5 +100,7 @@ class WaMessage {
         unitCount: (data['unit_ids'] as List?)?.length ?? 0,
         dueDate: _toDate(data['due_date']),
         createdAt: _toDate(data['created_at']),
+        sentAt: _toDate(data['sent_at']),
+        error: data['error'] as String?,
       );
 }

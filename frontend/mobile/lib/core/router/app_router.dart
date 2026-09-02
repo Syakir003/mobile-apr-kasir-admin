@@ -38,6 +38,8 @@ import '../../features/members/unit_history_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 import '../../features/pos/checkout_screen.dart';
 import '../../features/reminders/reminder_settings_screen.dart';
+import '../../features/reminders/reminder_template_screen.dart';
+import '../../features/reminders/wa_history_screen.dart';
 import '../../features/reminders/wa_outbox_screen.dart';
 import '../../features/undian/undian_detail_screen.dart';
 import '../../features/undian/undian_form_screen.dart';
@@ -280,8 +282,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (_, __) => const WaOutboxScreen(),
             routes: [
               GoRoute(
+                path: 'riwayat',
+                builder: (_, __) => const WaHistoryScreen(),
+              ),
+              GoRoute(
                 path: 'pengaturan',
                 builder: (_, __) => const ReminderSettingsScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'pesan',
+                    builder: (_, __) => const ReminderTemplateScreen(),
+                  ),
+                ],
               ),
             ],
           ),

@@ -147,4 +147,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('buka-pengaturan')), findsOneWidget);
   });
+
+  testWidgets('semua peran melihat pintasan riwayat', (tester) async {
+    await tester.pumpWidget(_host(antrean: [_pesan()]));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('buka-riwayat')), findsOneWidget);
+  });
 }

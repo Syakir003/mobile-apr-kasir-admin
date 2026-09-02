@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Build DEBUG/PROFILE menambah INTERNET otomatis lewat manifest varian-nya,
+         tapi build RILIS tidak. Tanpa baris ini APK rilis tak bisa menjangkau
+         cloud Supabase / FCM sama sekali — login gagal seolah backend mati. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="APR-POS"
         android:name="${applicationName}"

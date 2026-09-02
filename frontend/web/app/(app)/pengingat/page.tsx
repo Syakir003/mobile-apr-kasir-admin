@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { formatTanggalPanjang } from "@/lib/format";
 import { waKindLabel, type WaMessage } from "@/lib/types";
@@ -35,7 +36,15 @@ export default async function PengingatPage() {
 
   return (
     <div className="p-6 md:p-8">
-      <h1 className="mb-1 text-2xl font-bold text-slate-900">Pengingat</h1>
+      <div className="mb-1 flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold text-slate-900">Pengingat</h1>
+        <Link
+          href="/pengingat/riwayat"
+          className="shrink-0 text-sm font-semibold text-brand hover:underline"
+        >
+          Riwayat &rarr;
+        </Link>
+      </div>
       <p className="mb-6 text-sm text-slate-500">
         Pesan menunggu dikirim. Tombol Kirim membuka WhatsApp dengan teks sudah
         terisi — tinggal tekan Send di sana.
