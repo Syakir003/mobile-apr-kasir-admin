@@ -38,12 +38,14 @@ export default async function PengingatPage() {
     <div className="p-6 md:p-8">
       <div className="mb-1 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold text-slate-900">Pengingat</h1>
-        <Link
-          href="/pengingat/riwayat"
-          className="shrink-0 text-sm font-semibold text-brand hover:underline"
-        >
-          Riwayat &rarr;
-        </Link>
+        <div className="flex shrink-0 items-center gap-4 text-sm font-semibold text-brand">
+          <Link href="/pengingat/pengaturan/pesan" className="hover:underline">
+            Teks Pesan
+          </Link>
+          <Link href="/pengingat/riwayat" className="hover:underline">
+            Riwayat &rarr;
+          </Link>
+        </div>
       </div>
       <p className="mb-6 text-sm text-slate-500">
         Pesan menunggu dikirim. Tombol Kirim membuka WhatsApp dengan teks sudah

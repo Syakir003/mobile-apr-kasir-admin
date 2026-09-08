@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ItemKind, PaymentMethod, VoucherDiscountType } from "./types";
+import type {
+  ItemKind,
+  PaymentMethod,
+  VoucherDiscountType,
+  WaKind,
+  WaTemplate,
+} from "./types";
 
 // Wrapper typed untuk RPC Postgres. SEMUA penulisan data lewat sini — jangan
 // insert/update tabel finansial/operasional langsung dari client.
@@ -95,6 +101,28 @@ export function cancelWaMessage(
   payload: { id: string; reason?: string },
 ) {
   return callRpc<{ ok: boolean }>(supabase, "cancel_wa_message", payload);
+}
+
+// ---- templat pesan pengingat ------------------------------------------------
+
+/** `list_wa_reminder_templates()` tidak menerima argumen — jangan lewat callRpc. */
+export async function listWaReminderTemplates(
+  supabase: SupabaseClient,
+): Promise<WaTemplate[]> {
+  const { data, error } = await supabase.rpc("list_wa_reminder_templates");
+  if (error) throw new Error(error.message);
+  return (data as WaTemplate[]) ?? [];
+}
+
+export function saveWaReminderTemplates(
+  supabase: SupabaseClient,
+  payload: { templates: Partial<Record<WaKind, string>> },
+) {
+  return callRpc<{ ok: boolean; saved: string[] }>(
+    supabase,
+    "save_wa_reminder_templates",
+    payload,
+  );
 }
 
 // ---- voucher & undian --------------------------------------------------

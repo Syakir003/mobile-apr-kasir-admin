@@ -77,6 +77,14 @@ export const waKindLabel: Record<WaKind, string> = {
   voucher_baru: "Voucher Baru",
 };
 
+/** Baris `list_wa_reminder_templates()` — teks yang berlaku + teks bawaan. */
+export type WaTemplate = {
+  kind: WaKind;
+  body: string;
+  defaultBody: string;
+  updatedAt: string | null;
+};
+
 export type VoucherDiscountType = "persen" | "nominal";
 export type VoucherStatus = "aktif" | "terpakai" | "kadaluarsa" | "dibatalkan";
 export type VoucherSource = "undian" | "manual";
