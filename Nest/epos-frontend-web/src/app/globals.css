@@ -1,0 +1,250 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+ * Font self-hosted lewat file .woff2 lokal (public/fonts/), BUKAN
+ * next/font/google — konsisten sama keputusan yang udah ada di layout.tsx
+ * (komentarnya: next/font/google butuh koneksi ke fonts.googleapis.com PAS
+ * BUILD, gagal di environment build yang offline/dibatasi). File-nya diambil
+ * dari paket @fontsource/* (npm, bukan CDN Google) lalu di-vendor ke sini,
+ * jadi build & runtime dua-duanya nol request ke domain luar.
+ *
+ * Subset weight dipilih seperlunya sesuai dipakainya di design system
+ * Flutter (lihat frontend/mobile/lib/core/theme/app_theme.dart — AppFonts,
+ * AppTextStyles): Plus Jakarta Sans buat heading/label tombol, Inter buat
+ * body/caption, JetBrains Mono buat nominal rupiah/kode/barcode.
+ * --------------------------------------------------------------------------- */
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  src: url('/fonts/plus-jakarta-sans-latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  src: url('/fonts/plus-jakarta-sans-latin-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  src: url('/fonts/plus-jakarta-sans-latin-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/inter-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/inter-latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/inter-latin-600-normal.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/jetbrains-mono-latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/jetbrains-mono-latin-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------------------
+ * Palet & token — di-port dari design system Flutter ("Corporate
+ * Modernism", ikut Style Guide Figma "DealDeck E-POS AC" node 78:5723, lihat
+ * AppColors di app_theme.dart). Nilai warna sengaja pakai hex yang SAMA
+ * PERSIS dengan konstanta Flutter-nya (bukan di-approx ke oklch) supaya dua
+ * sisi gampang dibandingin/di-audit kalau nanti Figma-nya di-update lagi.
+ *
+ * `.dark` TIDAK ada padanannya di Flutter (AppTheme cuma punya light()) —
+ * palet gelap di bawah ini komposisi baru yang tetap di keluarga teal yang
+ * sama, bukan hasil port 1:1.
+ * --------------------------------------------------------------------------- */
+:root {
+  /* --radius dasar 16px supaya --radius-xl (dipakai Card) jadi 20px — persis
+     radius kartu di style guide Figma. */
+  --radius: 1rem;
+
+  --background: #f6f8f8; /* AppColors.cloud */
+  --foreground: #0e1e1d; /* AppColors.textInk */
+  --card: #ffffff; /* AppColors.surface */
+  --card-foreground: #0e1e1d;
+  --popover: #ffffff;
+  --popover-foreground: #0e1e1d;
+  --primary: #0b6b62; /* AppColors.tealDeep */
+  --primary-foreground: #ffffff;
+  --secondary: #eaf6f4; /* AppColors.mist */
+  --secondary-foreground: #0b6b62;
+  --muted: #edf2f1; /* AppColors.slate100 */
+  --muted-foreground: #6f7977; /* AppColors.textMuted */
+  --accent: #eaf6f4; /* AppColors.mist */
+  --accent-foreground: #0b6b62;
+  --destructive: #dc2626; /* AppColors.coral */
+  --destructive-foreground: #ffffff;
+  --border: #d4e6e4; /* AppColors.hairline */
+  --input: #d4e6e4;
+  --ring: #0b6b62;
+  --chart-1: #0b6b62; /* tealDeep */
+  --chart-2: #14b8a6; /* tealBright */
+  --chart-3: #f59e0b; /* amber */
+  --chart-4: #4f46e5; /* indigo600 */
+  --chart-5: #dc2626; /* coral */
+
+  /* Shell aplikasi — sidebar. Fix dari audit tema: sebelumnya token-token
+     ini sudah didefinisikan tapi (a) --sidebar sendiri masih putih padahal
+     sidebar Flutter itu SOLID tealDeep, dan (b) dashboard-shell.tsx belum
+     pernah makan token-token ini sama sekali (masih bg-card generik). Ini
+     bukan padanan NavigationRailTheme Flutter (yang emang putih, tapi gak
+     pernah dirender di layar lebar) — ini padanan widget `_Sidebar` custom
+     di adaptive_scaffold.dart, yang itulah yang BENERAN muncul sebagai
+     sidebar desktop di app Flutter-nya. */
+  --sidebar: #0b6b62; /* AppColors.tealDeep — Container(color:) di _Sidebar */
+  --sidebar-foreground: rgba(153, 232, 221, 0.8); /* AppColors.navMuted — teks/ikon item nav non-aktif */
+  --sidebar-primary: #006b5f; /* AppColors.navAccent — teks/ikon item nav aktif & bg CTA "Transaksi Baru" */
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e5f7f5; /* AppColors.mistDeep — bg pill item nav aktif (BUKAN mist/#eaf6f4 biasa) */
+  --sidebar-accent-foreground: #006b5f; /* AppColors.navAccent */
+  --sidebar-border: rgba(153, 232, 221, 0.1); /* AppColors.navDivider — divider footer sidebar */
+  --sidebar-ring: #0b6b62;
+
+  /* Warna status khusus E-POS: dipakai di badge status job/invoice biar
+     konsisten di semua halaman (bukan bagian default shadcn) — sekarang
+     disamain ke AppBadgeTone Flutter. */
+  --status-warning: #f59e0b; /* AppColors.amber */
+  --status-warning-foreground: #422006;
+  --status-success: #16a34a; /* AppColors.successGreen */
+  --status-success-foreground: #ffffff;
+}
+
+.dark {
+  --background: #0b1b1a; /* AppColors.ink */
+  --foreground: #eaf3f1;
+  --card: #10201f;
+  --card-foreground: #eaf3f1;
+  --popover: #10201f;
+  --popover-foreground: #eaf3f1;
+  --primary: #14b8a6; /* tealBright — lebih kebaca di atas latar gelap */
+  --primary-foreground: #06231f;
+  --secondary: #123330;
+  --secondary-foreground: #99e8dd;
+  --muted: #123330;
+  --muted-foreground: #8fa6a2;
+  --accent: #123330;
+  --accent-foreground: #6df5e1;
+  --destructive: #f87171;
+  --destructive-foreground: #2a0a0a;
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: #14b8a6;
+  --chart-1: #14b8a6;
+  --chart-2: #6df5e1;
+  --chart-3: #fbbf24;
+  --chart-4: #818cf8;
+  --chart-5: #f87171;
+  --sidebar: #0e211f;
+  --sidebar-foreground: #eaf3f1;
+  --sidebar-primary: #14b8a6;
+  --sidebar-primary-foreground: #06231f;
+  --sidebar-accent: #123330;
+  --sidebar-accent-foreground: #6df5e1;
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: #14b8a6;
+  --status-warning: #fbbf24;
+  --status-warning-foreground: #2a1b03;
+  --status-success: #4ade80;
+  --status-success-foreground: #06230f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  /* Font stack di-port dari AppFonts Flutter: display = Plus Jakarta Sans
+     (heading & label tombol), sans/body = Inter, mono = JetBrains Mono
+     (nominal rupiah, kode, barcode). `--font-display` otomatis kepake lewat
+     utility Tailwind `font-display` (namespace --font-* dari @theme). */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* Shadow teal lembut — padanan AppShadows.card (`0 4px 10px
+     rgba(0,107,95,0.15)`) & AppShadows.elevated Flutter. Dipakai otomatis
+     lewat utility shadow-xs/shadow-sm/shadow-md/shadow-lg yang sudah kepake
+     di button/card/input (gak perlu ubah className komponen). */
+  --shadow-xs: 0 4px 10px rgba(11, 107, 98, 0.08);
+  --shadow-sm: 0 4px 10px rgba(11, 107, 98, 0.15);
+  --shadow-md: 0 8px 24px rgba(11, 107, 98, 0.18);
+  --shadow-lg: 0 8px 40px rgba(11, 107, 98, 0.25);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-status-warning: var(--status-warning);
+  --color-status-warning-foreground: var(--status-warning-foreground);
+  --color-status-success: var(--status-success);
+  --color-status-success-foreground: var(--status-success-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

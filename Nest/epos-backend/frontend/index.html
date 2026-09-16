@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>E-POS AC — Uji Siklus</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <strong>E-POS AC</strong>
+    <span class="muted">alat uji siklus (bukan tampilan final)</span>
+  </div>
+  <div class="topbar-right" id="whoami">
+    <span class="muted">belum login</span>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="login" class="tab-btn active">Login</button>
+  <button data-tab="master" class="tab-btn">Master Data</button>
+  <button data-tab="pos" class="tab-btn">POS / Checkout</button>
+  <button data-tab="jobs" class="tab-btn">Job Board</button>
+  <button data-tab="servis-mandiri" class="tab-btn">Servis Mandiri</button>
+  <button data-tab="invoice" class="tab-btn">Invoice &amp; Pembayaran</button>
+  <button data-tab="stock" class="tab-btn">Stok</button>
+  <button data-tab="shift" class="tab-btn">Kas &amp; Shift</button>
+  <button data-tab="reports" class="tab-btn">Laporan &amp; Dashboard</button>
+  <button data-tab="realtime" class="tab-btn">Realtime Log</button>
+</nav>
+
+<main>
+
+  <!-- ===================== LOGIN ===================== -->
+  <section class="tab-panel active" id="tab-login">
+    <div class="card">
+      <h2>Koneksi &amp; Login</h2>
+      <div class="row">
+        <label>API Base URL
+          <input id="apiBase" value="http://localhost:3000" />
+        </label>
+      </div>
+      <div class="row">
+        <label>Email
+          <input id="loginEmail" value="admin@toko.local" />
+        </label>
+        <label>Password
+          <input id="loginPassword" type="password" value="ganti-password-ini" />
+        </label>
+      </div>
+      <button id="btnLogin">Login</button>
+      <button id="btnLogout" class="secondary">Logout</button>
+      <p class="hint">
+        Default seed: <code>admin@toko.local</code> / <code>ganti-password-ini</code>.
+        Bikin user kasir/teknisi dari tab <b>Master Data</b> setelah login sebagai admin.
+      </p>
+    </div>
+  </section>
+
+  <!-- ===================== MASTER DATA ===================== -->
+  <section class="tab-panel" id="tab-master">
+    <div class="grid-2">
+      <div class="card">
+        <h3>Tambah User</h3>
+        <label>Email <input id="u_email" /></label>
+        <label>Password <input id="u_password" type="password" /></label>
+        <label>Nama <input id="u_displayName" /></label>
+        <label>Role
+          <select id="u_role">
+            <option value="teknisi">teknisi</option>
+            <option value="kasir">kasir</option>
+            <option value="admin">admin</option>
+          </select>
+        </label>
+        <button id="btnAddUser">Simpan User</button>
+      </div>
+
+      <div class="card">
+        <h3>Tambah Produk (unit AC)</h3>
+        <label>Nama <input id="p_name" placeholder="AC Split 1 PK" /></label>
+        <label>Brand <input id="p_brand" /></label>
+        <label>Tipe <input id="p_type" /></label>
+        <label>PK <input id="p_pk" type="number" step="0.1" /></label>
+        <label>BTU <input id="p_btu" type="number" /></label>
+        <label>Watt <input id="p_watt" type="number" /></label>
+        <label>Harga Jual <input id="p_sellPrice" type="number" /></label>
+        <label>Stok <input id="p_stock" type="number" value="10" /></label>
+        <button id="btnAddProduct">Simpan Produk</button>
+      </div>
+
+      <div class="card">
+        <h3>Tambah Sparepart</h3>
+        <label>Nama <input id="sp_name" /></label>
+        <label>Unit <input id="sp_unit" placeholder="pcs / meter / kg" /></label>
+        <label>Harga Jual <input id="sp_sellPrice" type="number" /></label>
+        <label>Stok <input id="sp_stock" type="number" value="50" /></label>
+        <button id="btnAddSparepart">Simpan Sparepart</button>
+      </div>
+
+      <div class="card">
+        <h3>Tambah Jasa</h3>
+        <label>Nama <input id="sv_name" placeholder="Cuci AC" /></label>
+        <label>Harga Dasar <input id="sv_basePrice" type="number" /></label>
+        <button id="btnAddService">Simpan Jasa</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Data Saat Ini</h3>
+      <button id="btnRefreshMaster">Muat / Refresh Semua</button>
+      <div class="grid-2">
+        <div>
+          <h4>Users</h4>
+          <table id="tbl_users"><thead><tr><th>Email</th><th>Nama</th><th>Role</th><th>Aktif</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div>
+          <h4>Produk</h4>
+          <table id="tbl_products"><thead><tr><th>Nama</th><th>Harga</th><th>Stok</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div>
+          <h4>Sparepart</h4>
+          <table id="tbl_spareparts"><thead><tr><th>Nama</th><th>Harga</th><th>Stok</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div>
+          <h4>Jasa</h4>
+          <table id="tbl_services"><thead><tr><th>Nama</th><th>Harga</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== VOUCHER & DISKON CAMPAIGN (SIKLUS 6) ===================== -->
+    <div class="card">
+      <h3>Voucher &amp; Diskon Campaign</h3>
+      <p class="hint">Admin bikin campaign, lalu tawarkan (targeted, bukan broadcast) ke member tertentu. Member yang ditawarkan bisa pakai vouchernya pas checkout di tab POS.</p>
+      <div class="row">
+        <label>Nama Campaign <input id="v_name" placeholder="Promo Kemerdekaan" /></label>
+        <label>Tipe Diskon
+          <select id="v_discountType">
+            <option value="percentage">percentage</option>
+            <option value="nominal">nominal</option>
+          </select>
+        </label>
+        <label>Nilai Diskon <input id="v_discountValue" type="number" min="0.01" step="0.01" /></label>
+        <label>Kategori (opsional) <input id="v_category" placeholder="kosongkan = semua kategori" /></label>
+      </div>
+      <div class="row">
+        <label class="muted"><input type="checkbox" id="v_firstPurchaseOnly" /> khusus pembelian pertama (kategori di atas)</label>
+        <label>Syarat &amp; Ketentuan <input id="v_terms" placeholder="opsional" /></label>
+      </div>
+      <div class="row">
+        <label>Mulai <input id="v_startDate" type="date" /></label>
+        <label>Sampai <input id="v_endDate" type="date" /></label>
+        <button id="btnAddVoucherCampaign">Simpan Campaign</button>
+      </div>
+      <table id="tbl_voucher_campaigns">
+        <thead><tr><th>Nama</th><th>Diskon</th><th>Kategori</th><th>First Purchase?</th><th>Periode</th><th>Aktif</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Tawarkan Voucher ke Member</h3>
+      <div class="row">
+        <label>Campaign <select id="vo_campaign"></select></label>
+        <input id="vo_memberSearch" placeholder="cari member: nama / no HP" />
+        <button id="btnSearchMembersForVoucher">Cari Member</button>
+      </div>
+      <div id="vo_memberResults" class="muted">belum ada hasil pencarian</div>
+      <button id="btnOfferVoucher">Tawarkan ke Member Terpilih</button>
+      <div id="vo_offerResult"></div>
+    </div>
+  </section>
+
+  <!-- ===================== POS / CHECKOUT ===================== -->
+  <section class="tab-panel" id="tab-pos">
+    <div class="card">
+      <h3>Tambah Item ke Keranjang</h3>
+      <div class="row">
+        <label>Jenis
+          <select id="cartKind">
+            <option value="product">product (bisa dipasang)</option>
+            <option value="sparepart">sparepart</option>
+            <option value="service">service</option>
+          </select>
+        </label>
+        <label>Item <select id="cartItemRef"></select></label>
+        <label>Qty <input id="cartQty" type="number" value="1" min="0.01" step="0.01" /></label>
+        <button id="btnAddToCart">Tambah</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Keranjang</h3>
+      <table id="tbl_cart">
+        <thead><tr><th>Item</th><th>Qty</th><th>Harga</th><th>Subtotal</th><th>Pasang Unit?</th><th>Lokasi Ruangan</th><th>Teknisi</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="cartTotals" class="totals"></div>
+    </div>
+
+    <div class="card">
+      <h3>Data Pelanggan &amp; Pembayaran</h3>
+      <div class="row">
+        <label>Nama <input id="c_name" /></label>
+        <label>No HP <input id="c_phone" placeholder="08xxxxxxxxxx" /></label>
+        <label>Alamat <input id="c_address" /></label>
+      </div>
+      <div class="row">
+        <label>Diskon (Rp) <input id="c_discount" type="number" value="0" /></label>
+        <label>Alasan Diskon <input id="c_discountReason" placeholder="wajib kalau diskon > 0" /></label>
+        <label>Pajak (%) <input id="c_taxPercent" type="number" value="0" /></label>
+        <label>Ongkos Transport (Rp) <input id="c_transportFee" type="number" value="0" /></label>
+      </div>
+      <div class="row">
+        <button id="btnCheckVoucher" type="button">Cek Voucher (by No HP)</button>
+        <label>Voucher yang mau dipakai
+          <select id="c_voucherClaim"><option value="">tidak pakai voucher</option></select>
+        </label>
+      </div>
+      <p class="hint">Diskon ad-hoc di atas dan diskon voucher <b>DIJUMLAH</b> (bukan pilih salah satu) kalau dua-duanya diisi.</p>
+      <label>Catatan <input id="c_notes" /></label>
+      <button id="btnCheckout">Buat Transaksi (Checkout)</button>
+    </div>
+  </section>
+
+  <!-- ===================== JOB BOARD ===================== -->
+  <section class="tab-panel" id="tab-jobs">
+    <div class="card">
+      <h3>Scan Unit</h3>
+      <p class="hint">Simulasi scan QR yang nempel di unit AC — tempel/ketik barcode-nya, langsung dibawa ke job servis aktifnya. Ini yang bakal jadi alur utama teknisi (mirip scan tiket di gate).</p>
+      <div class="row">
+        <input id="scanBarcode" placeholder="ACUNIT-20260822-0001" />
+        <button id="btnScanUnit">Cari</button>
+      </div>
+      <div id="scanResult"></div>
+    </div>
+
+    <div class="card">
+      <h3>Daftar Job Teknisi</h3>
+      <div class="row">
+        <label>Filter Status
+          <select id="jobStatusFilter">
+            <option value="">semua</option>
+            <option value="menunggu_penugasan">menunggu_penugasan</option>
+            <option value="assigned">assigned</option>
+            <option value="sedang_dikerjakan">sedang_dikerjakan</option>
+            <option value="menunggu_review">menunggu_review</option>
+            <option value="selesai">selesai</option>
+            <option value="dibatalkan">dibatalkan</option>
+          </select>
+        </label>
+        <button id="btnRefreshJobs">Refresh</button>
+        <label class="muted"><input type="checkbox" id="jobOnlyMine" /> hanya antrian saya (role teknisi)</label>
+      </div>
+      <table id="tbl_jobs">
+        <thead><tr><th>Unit / Barcode</th><th>Member</th><th>Tipe</th><th>Status</th><th>Teknisi</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card" id="jobDetailCard" style="display:none">
+      <h3>Detail Job <span id="jobDetailId" class="muted"></span></h3>
+      <div id="jobDetailBody"></div>
+
+      <h4>Assign Teknisi</h4>
+      <div class="row">
+        <select id="assignTechnician"></select>
+        <button id="btnAssign">Assign</button>
+      </div>
+
+      <h4>Mulai Pekerjaan (Scan Barcode)</h4>
+      <div class="row">
+        <input id="startBarcode" placeholder="scan / ketik barcodeValue unit" />
+        <button id="btnStart">Start</button>
+      </div>
+
+      <h4>Temuan Masalah (Checklist Dinamis)</h4>
+      <p class="muted">Bukan template tetap — tiap job punya daftar temuan sendiri. 1 temuan otomatis dibuat
+        dari keluhan customer saat intake (kalau ada); tambahkan temuan lain di sini kapan saja selama job aktif.</p>
+      <div class="row">
+        <input id="findingCategory" list="findingCategoryList" placeholder="ketik masalah/jenis servis (autocomplete)" autocomplete="off" />
+        <datalist id="findingCategoryList"></datalist>
+        <input id="findingNote" placeholder="catatan (opsional)" />
+        <button id="btnAddFinding">Tambah Temuan</button>
+      </div>
+      <div id="findingsList" class="muted">belum ada temuan</div>
+
+      <h5>Upload Foto ke Temuan</h5>
+      <div class="row">
+        <select id="findingSelect"></select>
+        <select id="findingPhotoKind">
+          <option value="sebelum">sebelum</option>
+          <option value="sesudah">sesudah</option>
+        </select>
+        <input id="findingPhotoFile" type="file" accept="image/*" />
+        <button id="btnUploadFindingPhoto">Upload</button>
+      </div>
+
+      <h4>Catatan</h4>
+      <div class="row">
+        <input id="jobNotes" placeholder="catatan pengerjaan" />
+        <button id="btnUpdateNotes">Simpan Catatan</button>
+      </div>
+
+      <h4>Pengajuan Material Tambahan</h4>
+      <div class="row">
+        <select id="mrKind">
+          <option value="sparepart">sparepart</option>
+          <option value="product">product</option>
+        </select>
+        <select id="mrItemRef"></select>
+        <input id="mrQty" type="number" value="1" min="0.01" step="0.01" />
+        <input id="mrNote" placeholder="catatan (opsional)" />
+        <button id="btnCreateMaterialRequest">Ajukan</button>
+      </div>
+      <table id="tbl_material_requests">
+        <thead><tr><th>Item</th><th>Total</th><th>Status</th><th>Aksi</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="row">
+        <button id="btnSubmitForReview">Ajukan Selesai (Teknisi)</button>
+        <button id="btnCancel" class="danger">Batalkan Job</button>
+      </div>
+
+      <h4>Review Admin</h4>
+      <p class="muted">Muncul relevan kalau status job <code>menunggu_review</code> — admin cek foto tiap
+        temuan + data tambahan (sparepart dll), lalu setujui atau kembalikan ke teknisi dengan catatan.</p>
+      <div class="row">
+        <button id="btnApproveComplete">Setujui (Admin)</button>
+      </div>
+      <div class="row">
+        <input id="sendBackNote" placeholder="catatan kenapa dikembalikan (wajib)" />
+        <button id="btnSendBack" class="danger">Kembalikan ke Teknisi (Admin)</button>
+      </div>
+    </div>
+
+    <!-- ===================== MODE OFFLINE TEKNISI (SIKLUS 9) — TES MANUAL ===================== -->
+    <div class="card">
+      <h3>Mode Offline Teknisi (Siklus 9) — Tes Manual</h3>
+      <p class="hint">Login sebagai teknisi. Simulasi alur offline: muat "today-bundle" dulu (data yang harusnya di-cache HP sebelum berangkat), susun beberapa aksi (seolah-olah dibuat offline), baru kirim sekaligus lewat sync-batch. Coba kirim batch yang SAMA 2x buat lihat idempotensi (<code>skipped_duplicate</code>).</p>
+      <button id="btnLoadTodayBundle">Muat Today-Bundle</button>
+      <div id="todayBundleResult" class="hint"></div>
+
+      <h4>Susun Aksi Offline</h4>
+      <div class="row">
+        <label>Job <select id="sync_job"></select></label>
+        <label>Jenis Aksi
+          <select id="sync_type">
+            <option value="finding_add">finding_add — tambah temuan</option>
+            <option value="material_add">material_add — ajukan sparepart</option>
+            <option value="notes_update">notes_update — ubah catatan</option>
+            <option value="submit_for_review">submit_for_review — ajukan selesai</option>
+          </select>
+        </label>
+      </div>
+      <div class="row" id="sync_field_finding">
+        <input id="sync_categoryName" placeholder="nama temuan (mis. AC bocor freon)" />
+        <input id="sync_findingNote" placeholder="catatan (opsional)" />
+      </div>
+      <div class="row" id="sync_field_material" style="display:none">
+        <select id="sync_sparepart"></select>
+        <input id="sync_qty" type="number" min="0.01" step="0.01" value="1" />
+      </div>
+      <div class="row" id="sync_field_notes" style="display:none">
+        <input id="sync_notes" placeholder="catatan pengerjaan" />
+      </div>
+      <button id="btnQueueAction">+ Tambah ke Antrian Offline</button>
+
+      <h4>Antrian Aksi (belum dikirim)</h4>
+      <table id="tbl_sync_queue">
+        <thead><tr><th>clientActionId</th><th>Jenis</th><th>Job</th><th>Payload</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="row">
+        <button id="btnSendSyncBatch">Kirim Sync-Batch</button>
+        <button id="btnResendSyncBatch" class="secondary">Kirim Ulang Batch Terakhir (tes idempoten)</button>
+      </div>
+      <h4>Hasil Sync-Batch</h4>
+      <table id="tbl_sync_result">
+        <thead><tr><th>clientActionId</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================== SERVIS MANDIRI (SIKLUS 2) ===================== -->
+  <section class="tab-panel" id="tab-servis-mandiri">
+    <div class="card">
+      <h3>Terima Servis Masuk (bukan dari pembelian)</h3>
+      <p class="hint">Buat customer yang bawa AC lama (bukan beli produk baru di sini) minta diperbaiki/diservis. Ini jalur masuk terpisah dari POS/Checkout, tapi numpang engine job teknisi yang sama.</p>
+
+      <h4>Data Pelanggan &amp; Keluhan</h4>
+      <div class="row">
+        <label>Nama <input id="sm_name" /></label>
+        <label>No HP <input id="sm_phone" placeholder="08xxxxxxxxxx" /></label>
+        <label>Alamat <input id="sm_address" /></label>
+      </div>
+      <label>Keluhan / Kondisi Barang <input id="sm_complaint" placeholder="AC gak dingin, udah 2 minggu" /></label>
+
+      <h4>Unit AC</h4>
+      <div class="row">
+        <label><input type="radio" name="sm_unit_mode" value="new" checked /> Unit baru (belum pernah tercatat)</label>
+        <label><input type="radio" name="sm_unit_mode" value="existing" /> Unit sudah terdaftar (scan barcode)</label>
+      </div>
+
+      <div id="sm_unit_new">
+        <div class="row">
+          <label>Brand <input id="sm_brand" /></label>
+          <label>Model/Tipe <input id="sm_model" /></label>
+          <label>PK <input id="sm_pk" type="number" step="0.1" /></label>
+          <label>Lokasi Ruangan <input id="sm_room" /></label>
+          <label>Serial Number <input id="sm_serial" /></label>
+        </div>
+      </div>
+
+      <div id="sm_unit_existing" style="display:none">
+        <div class="row">
+          <input id="sm_scan_barcode" placeholder="ACUNIT-20260822-0001" />
+          <button id="btnSmScan">Cari Unit</button>
+        </div>
+        <div id="sm_scan_result" class="hint"></div>
+      </div>
+
+      <h4>Penugasan (opsional)</h4>
+      <div class="row">
+        <label>Teknisi <select id="sm_technician"><option value="">Belum ditentukan</option></select></label>
+        <label>Jadwal <input id="sm_scheduled" type="datetime-local" /></label>
+      </div>
+
+      <button id="btnIntake">Terima Servis</button>
+      <div id="sm_intake_result"></div>
+    </div>
+
+    <div class="card">
+      <h3>Cek Status Servis Pelanggan</h3>
+      <div class="row">
+        <input id="sm_check_phone" placeholder="08xxxxxxxxxx" />
+        <button id="btnCheckServiceStatus">Cek</button>
+      </div>
+      <table id="tbl_service_orders">
+        <thead><tr><th>Tanggal</th><th>Tipe</th><th>Keluhan</th><th>Unit</th><th>Status Order</th><th>Job Teknisi</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Riwayat Servis Saya (Teknisi)</h3>
+      <p class="hint">Login sebagai teknisi dulu buat lihat riwayat job `selesai` milik sendiri.</p>
+      <div class="row">
+        <button id="btnLoadHistory">Muat Riwayat</button>
+      </div>
+      <table id="tbl_history">
+        <thead><tr><th>Selesai</th><th>Tipe</th><th>Unit</th><th>Member</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================== INVOICE & PEMBAYARAN ===================== -->
+  <section class="tab-panel" id="tab-invoice">
+    <div class="card">
+      <h3>Muat Invoice</h3>
+      <div class="row">
+        <input id="invoiceIdInput" placeholder="invoice id" />
+        <button id="btnLoadInvoice">Muat</button>
+        <button id="btnRefreshInvoiceList">Refresh Riwayat</button>
+      </div>
+      <table id="tbl_invoice_history">
+        <thead><tr><th>Nomor</th><th>Pelanggan</th><th>Status</th><th>Total</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card" id="invoiceDetailCard" style="display:none">
+      <h3>Invoice <span id="invNumber"></span> <span id="invStatus" class="badge"></span></h3>
+      <table id="tbl_invoice_items">
+        <thead><tr><th>Item</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="invTotals" class="totals"></div>
+
+      <h4>Riwayat Pembayaran</h4>
+      <table id="tbl_payments">
+        <thead><tr><th>Metode</th><th>Jumlah</th><th>Catatan</th><th>Waktu</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <h4>Catat Pembayaran</h4>
+      <div class="row">
+        <select id="payMethod">
+          <option value="tunai">tunai</option>
+          <option value="transfer">transfer</option>
+          <option value="qris">qris</option>
+          <option value="ewallet">ewallet</option>
+        </select>
+        <input id="payAmount" type="number" placeholder="jumlah" />
+        <input id="payNote" placeholder="catatan (opsional)" />
+        <button id="btnRecordPayment">Catat Pembayaran</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== STOK (SIKLUS 3) ===================== -->
+  <section class="tab-panel" id="tab-stock">
+    <p class="hint">Semua endpoint di tab ini admin-only. Reuse data master (produk/sparepart) dari tab Master Data — muat/refresh di sana dulu kalau select-nya kosong.</p>
+
+    <div class="card">
+      <h3>Barang Masuk (Stock In)</h3>
+      <div class="row">
+        <label>Jenis
+          <select id="st_in_kind">
+            <option value="product">product</option>
+            <option value="sparepart">sparepart</option>
+          </select>
+        </label>
+        <label>Item <select id="st_in_item"></select></label>
+        <label>Qty Masuk <input id="st_in_qty" type="number" min="0.01" step="0.01" value="1" /></label>
+        <label>Harga Beli (Rp) <input id="st_in_buyPrice" type="number" min="0" /></label>
+        <label>Catatan <input id="st_in_note" placeholder="restock dari supplier X" /></label>
+        <button id="btnStockIn">Simpan Barang Masuk</button>
+      </div>
+      <div id="st_in_result" class="hint"></div>
+    </div>
+
+    <div class="card">
+      <h3>Stock Opname</h3>
+      <p class="hint">Physical qty = angka final hasil hitung fisik (BUKAN selisih/delta) — server yang hitung deltanya dan langsung set stok ke angka ini.</p>
+      <div class="row">
+        <label>Jenis
+          <select id="st_op_kind">
+            <option value="product">product</option>
+            <option value="sparepart">sparepart</option>
+          </select>
+        </label>
+        <label>Item <select id="st_op_item"></select></label>
+        <label>Physical Qty (hasil hitung fisik) <input id="st_op_qty" type="number" min="0" step="0.01" /></label>
+        <button id="btnAddOpnameItem">+ Tambah ke Daftar Opname</button>
+      </div>
+      <table id="tbl_opname_items">
+        <thead><tr><th>Jenis</th><th>Item</th><th>Physical Qty</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="row">
+        <label>Catatan Opname (opsional, buat semua item di batch ini) <input id="st_op_note" placeholder="opname rutin bulanan" /></label>
+        <button id="btnSubmitOpname">Submit Opname</button>
+      </div>
+      <div id="st_opname_result"></div>
+    </div>
+
+    <div class="card">
+      <h3>Histori Stock Movements</h3>
+      <div class="row">
+        <label>Jenis
+          <select id="st_mv_kind">
+            <option value="">semua</option>
+            <option value="product">product</option>
+            <option value="sparepart">sparepart</option>
+          </select>
+        </label>
+        <label>Ref Id (opsional) <input id="st_mv_refId" placeholder="id produk/sparepart" /></label>
+        <label>Reason (opsional)
+          <select id="st_mv_reason">
+            <option value="">semua</option>
+            <option value="penjualan">penjualan</option>
+            <option value="pemakaian_servis">pemakaian_servis</option>
+            <option value="barang_masuk">barang_masuk</option>
+            <option value="opname">opname</option>
+          </select>
+        </label>
+        <label>Dari <input id="st_mv_from" type="date" /></label>
+        <label>Sampai <input id="st_mv_to" type="date" /></label>
+        <button id="btnLoadMovements">Muat Histori</button>
+      </div>
+      <table id="tbl_stock_movements">
+        <thead><tr><th>Waktu</th><th>Jenis</th><th>Item</th><th>Perubahan Qty</th><th>Alasan</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================== KAS & SHIFT KASIR (SIKLUS 4) ===================== -->
+  <section class="tab-panel" id="tab-shift">
+    <p class="hint">Buka/tutup shift khusus role kasir. Laporan bisa diakses admin (semua shift) &amp; kasir (shift miliknya sendiri saja).</p>
+
+    <div class="card">
+      <h3>Shift Saya</h3>
+      <button id="btnCheckMyShift">Cek Shift Aktif Saya</button>
+      <div id="myShiftInfo" class="hint"></div>
+
+      <div id="openShiftForm">
+        <h4>Buka Shift</h4>
+        <div class="row">
+          <label>Modal Awal (Rp) <input id="sh_openingBalance" type="number" min="0" value="0" /></label>
+          <button id="btnOpenShift">Buka Shift</button>
+        </div>
+      </div>
+
+      <div id="closeShiftForm" style="display:none">
+        <h4>Tutup Shift</h4>
+        <div class="row">
+          <label>Uang Fisik Akhir (Rp) <input id="sh_closingBalance" type="number" min="0" /></label>
+          <label>Catatan <input id="sh_closeNotes" placeholder="opsional" /></label>
+          <button id="btnCloseShift">Tutup Shift</button>
+        </div>
+        <div id="closeShiftResult"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Laporan Shift</h3>
+      <div class="row">
+        <input id="sh_reportId" placeholder="shift id (kosongkan = shift aktif saya)" />
+        <button id="btnLoadShiftReport">Muat Laporan</button>
+      </div>
+      <div id="shiftReportResult"></div>
+    </div>
+  </section>
+
+  <!-- ===================== LAPORAN & DASHBOARD (SIKLUS 8) ===================== -->
+  <section class="tab-panel" id="tab-reports">
+    <p class="hint">Semua endpoint di tab ini admin-only, kecuali "Setting Aplikasi" (lihat) yang boleh dibaca semua role login.</p>
+
+    <div class="card">
+      <h3>Dashboard Ringkas</h3>
+      <button id="btnRefreshDashboard">Muat / Refresh Dashboard</button>
+      <div id="dashboardResult"></div>
+    </div>
+
+    <div class="card">
+      <h3>Setting Aplikasi (app_config)</h3>
+      <p class="hint">GET boleh semua role (kasir butuh baca default_tax_percent). PUT khusus admin.</p>
+      <button id="btnLoadAppConfig">Muat Setting</button>
+      <table id="tbl_app_config">
+        <thead><tr><th>Key</th><th>Value Saat Ini</th><th>Ubah</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Laporan Penjualan</h3>
+      <div class="row">
+        <label>Dari <input id="rp_sales_from" type="date" /></label>
+        <label>Sampai <input id="rp_sales_to" type="date" /></label>
+        <button id="btnLoadSalesReport">Muat Laporan</button>
+      </div>
+      <div id="rp_sales_result"></div>
+    </div>
+
+    <div class="card">
+      <h3>Laporan Servis</h3>
+      <div class="row">
+        <label>Dari <input id="rp_service_from" type="date" /></label>
+        <label>Sampai <input id="rp_service_to" type="date" /></label>
+        <button id="btnLoadServiceReport">Muat Laporan</button>
+      </div>
+      <div id="rp_service_result"></div>
+    </div>
+
+    <div class="card">
+      <h3>Laporan Laba-Rugi</h3>
+      <p class="hint">HPP dari <code>item_costs</code> — nilai TERKINI, bukan snapshot histori harga beli (lihat catatan di roadmap Siklus 8). Item tanpa data harga beli tetap muncul dengan HPP = 0.</p>
+      <div class="row">
+        <label>Dari <input id="rp_pl_from" type="date" /></label>
+        <label>Sampai <input id="rp_pl_to" type="date" /></label>
+        <button id="btnLoadProfitLossReport">Muat Laporan</button>
+      </div>
+      <div id="rp_pl_result"></div>
+    </div>
+  </section>
+
+  <!-- ===================== REALTIME LOG ===================== -->
+  <section class="tab-panel" id="tab-realtime">
+    <div class="card">
+      <h3>Realtime Log (Socket.IO)</h3>
+      <div class="row">
+        <span id="rtStatus" class="badge">terputus</span>
+        <button id="btnConnectRt">Hubungkan</button>
+      </div>
+      <p class="hint">Menyambung ke gateway realtime NestJS, gabung room <code>admin-dashboard</code>, lalu menampilkan event: transaction.created, job.status_changed, invoice.updated, material_request.created/decided.</p>
+      <pre id="rtLog" class="log"></pre>
+    </div>
+  </section>
+
+</main>
+
+<!-- Panel debug: request/response API terakhir, buat bantu uji coba -->
+<footer class="card debug">
+  <h4>Debug — Panggilan API Terakhir</h4>
+  <pre id="debugLog" class="log"></pre>
+</footer>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
