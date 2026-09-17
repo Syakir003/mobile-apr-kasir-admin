@@ -142,7 +142,14 @@ class AdaptiveScaffold extends ConsumerWidget {
     final location = GoRouterState.of(context).matchedLocation;
     final selectedIndex = selectedIndexFor(destinations, location);
 
-    void onSelected(int index) => context.go(destinations[index].route);
+    // push (bukan go) supaya berpindah antar-menu tersusun di back stack —
+    // tombol back Android kembali ke menu sebelumnya sesuai urutan kunjungan,
+    // bukan langsung keluar app. Dijaga dari push duplikat kalau menu yang
+    // sama ditekan lagi saat sudah aktif.
+    void onSelected(int index) {
+      final route = destinations[index].route;
+      if (location != route) context.push(route);
+    }
 
     final wide = MediaQuery.sizeOf(context).width >= 800;
     if (wide) {
@@ -235,6 +242,10 @@ class _MobileNav extends StatelessWidget {
     final selectedInOverflow = selectedIndex - _maxPrimary;
     showModalBottomSheet<void>(
       context: context,
+      // Admin punya sampai 15 item overflow — tanpa ini sheet dibatasi 9/16
+      // tinggi layar dan Column-nya (tidak scroll) meluber, jadi separuh menu
+      // tidak bisa dijangkau sama sekali.
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
@@ -253,32 +264,39 @@ class _MobileNav extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
-            for (var i = 0; i < overflow.length; i++)
-              ListTile(
-                leading: Icon(
-                  overflow[i].icon,
-                  color: i == selectedInOverflow
-                      ? AppColors.teal700
-                      : AppColors.slate500,
-                ),
-                title: Text(
-                  overflow[i].label,
-                  style: TextStyle(
-                    color: i == selectedInOverflow
-                        ? AppColors.teal700
-                        : AppColors.slate900,
-                    fontWeight: i == selectedInOverflow
-                        ? FontWeight.w600
-                        : FontWeight.w500,
-                  ),
-                ),
-                selected: i == selectedInOverflow,
-                selectedTileColor: AppColors.teal50,
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  onSelected(_maxPrimary + i);
-                },
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (var i = 0; i < overflow.length; i++)
+                    ListTile(
+                      leading: Icon(
+                        overflow[i].icon,
+                        color: i == selectedInOverflow
+                            ? AppColors.teal700
+                            : AppColors.slate500,
+                      ),
+                      title: Text(
+                        overflow[i].label,
+                        style: TextStyle(
+                          color: i == selectedInOverflow
+                              ? AppColors.teal700
+                              : AppColors.slate900,
+                          fontWeight: i == selectedInOverflow
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                        ),
+                      ),
+                      selected: i == selectedInOverflow,
+                      selectedTileColor: AppColors.teal50,
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        onSelected(_maxPrimary + i);
+                      },
+                    ),
+                ],
               ),
+            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -387,7 +405,11 @@ class _Sidebar extends StatelessWidget {
                 color: AppColors.navAccent,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
                 child: InkWell(
-                  onTap: () => context.go('/pos'),
+                  // Lewat onSelected (bukan context.go langsung) supaya ikut
+                  // masuk back stack seperti menu lain.
+                  onTap: () => onSelected(
+                    destinations.indexWhere((d) => d.route == '/pos'),
+                  ),
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                   child: const Padding(
                     padding:
@@ -462,7 +484,9 @@ class _Sidebar extends StatelessWidget {
                   label: user?.displayName.isNotEmpty == true
                       ? user!.displayName
                       : 'Profil',
-                  onTap: () => context.go('/profile'),
+                  onTap: () => onSelected(
+                    destinations.indexWhere((d) => d.route == '/profile'),
+                  ),
                 ),
                 _SidebarAction(
                   icon: Icons.logout,
