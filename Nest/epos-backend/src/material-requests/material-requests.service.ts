@@ -13,6 +13,7 @@ import {
   MaterialRequestItemDto,
 } from './dto/create-material-request.dto';
 import { DecideMaterialRequestDto } from './dto/decide-material-request.dto';
+import { MaterialRequestQueryDto } from './dto/material-request-query.dto';
 
 type Role = 'admin' | 'kasir' | 'teknisi';
 
@@ -74,6 +75,48 @@ export class MaterialRequestsService {
       });
     }
     return priced;
+  }
+
+  /**
+   * Halaman admin "Pengajuan Masuk" — daftar SEMUA pengajuan lintas
+   * job/teknisi (beda dari materialRequests yang nempel di GET
+   * /technician-jobs/:id, yang scope-nya cuma 1 job). `counts` dihitung
+   * dari SEMUA baris (bukan cuma yang match filter `status`) — biar tab
+   * "Pending 3 / Disetujui 1 / Ditolak 1" di UI tetap kebaca lengkap
+   * walaupun user lagi nge-filter salah satu tab.
+   */
+  async findAll(query: MaterialRequestQueryDto) {
+    const where = query.status ? { status: query.status } : {};
+    // `count()` per status (bukan `groupBy`) — tipe hasilnya `number` polos,
+    // gak ada ambiguitas TS kayak `groupBy()._count` yang bentuknya suka
+    // ke-infer beda-beda tergantung konteks pemanggilan (sempat coba
+    // `groupBy` duluan, tipe `_count`-nya malah ke-infer `true | {...}`
+    // walau query-nya sendiri valid — daripada berkutat sama itu, 3x
+    // `count()` lebih simpel & tipenya pasti benar).
+    const [items, pending, approved, rejected] = await this.prisma.$transaction([
+      this.prisma.materialRequest.findMany({
+        where,
+        include: {
+          items: true,
+          job: {
+            select: {
+              id: true,
+              type: true,
+              unit: { select: { brand: true, model: true, barcodeValue: true } },
+              member: { select: { name: true } },
+            },
+          },
+          createdBy: { select: { id: true, displayName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.materialRequest.count({ where: { status: 'pending' } }),
+      this.prisma.materialRequest.count({ where: { status: 'approved' } }),
+      this.prisma.materialRequest.count({ where: { status: 'rejected' } }),
+    ]);
+
+    const counts = { all: pending + approved + rejected, pending, approved, rejected };
+    return { items, counts };
   }
 
   /** Teknisi mengajukan sparepart tambahan saat servis on-site. Belum potong stok. */

@@ -108,9 +108,11 @@ export function InvoicePrintClient({ invoiceId }: { invoiceId: string }) {
                 <td className="border border-black p-1 font-bold">NAMA</td>
                 <td className="border border-black p-1">{data.customerName ?? ''}</td>
               </tr>
+              {/* ALAMAT dibuat lebih tinggi dari baris lain — samain kayak
+                  nota fisik yang ngasih ruang 2 baris buat alamat panjang. */}
               <tr>
-                <td className="border border-black p-1 font-bold">ALAMAT</td>
-                <td className="border border-black p-1">{data.member?.address ?? ''}</td>
+                <td className="border border-black p-1 py-2.5 font-bold">ALAMAT</td>
+                <td className="border border-black p-1 py-2.5">{data.member?.address ?? ''}</td>
               </tr>
               <tr>
                 <td className="border border-black p-1 font-bold">TLP.</td>
@@ -123,7 +125,8 @@ export function InvoicePrintClient({ invoiceId }: { invoiceId: string }) {
         {/* Tabel item */}
         <table className="mt-3 w-full border-collapse border border-black text-[8px]">
           <thead>
-            <tr className="bg-gray-200">
+            {/* Nota fisik headernya polos putih (bukan abu2) — cuma bold. */}
+            <tr>
               <th className="border border-black p-1">NO.</th>
               <th className="border border-black p-1">
                 JUMLAH
@@ -179,11 +182,17 @@ export function InvoicePrintClient({ invoiceId }: { invoiceId: string }) {
           </tbody>
         </table>
 
-        <p className="mt-2 text-[10px]">TERBILANG : {terbilangRupiah(Number(data.grandTotal))}</p>
+        {/* TERBILANG dikasih kotak — nota fisik nge-box baris ini persis
+            kayak baris JUMLAH di atasnya, bukan cuma teks polos. */}
+        <p className="border-x border-b border-black p-1 text-[9px]">
+          TERBILANG : {terbilangRupiah(Number(data.grandTotal))}
+        </p>
 
-        {/* Catatan + tanda tangan */}
-        <div className="mt-3 flex items-start gap-3">
-          <div className="flex-[7] border border-black p-2">
+        {/* Catatan + tanda tangan — SATU kotak border nyambung (bukan 2 box
+            kepisah kek sebelumnya), pembatas cuma garis tengah — samain
+            kayak nota fisik. */}
+        <div className="flex items-stretch border-x border-b border-black">
+          <div className="flex-[7] p-2">
             <p className="text-[9px] font-bold">CATATAN :</p>
             <p className="mt-1 text-[7px]">
               * No. Laporan Pekerjaan : ..............................................
@@ -201,7 +210,7 @@ export function InvoicePrintClient({ invoiceId }: { invoiceId: string }) {
               * Suara Konsumen 082233889990. Pastikan Anda dilayani dengan baik
             </p>
           </div>
-          <div className="flex-[3] text-center">
+          <div className="flex-[3] border-l border-black p-2 text-center">
             <p className="text-[9px] font-bold">HORMAT KAMI</p>
             <div className="h-10" />
           </div>

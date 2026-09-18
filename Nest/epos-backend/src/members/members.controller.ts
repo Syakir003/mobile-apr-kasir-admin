@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -6,6 +6,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { MembersService } from './members.service';
 import { SetWaOptOutDto } from './dto/set-wa-opt-out.dto';
+import { CreateMemberDto } from './dto/create-member.dto';
 
 /** Baru ditambah Siklus 6 — sebelumnya MembersService murni internal
  * (findOrCreate dipanggil dari POS/ServiceOrders), gak ada endpoint REST
@@ -37,6 +38,14 @@ export class MembersController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.members.findOne(id);
+  }
+
+  /** Tambah member manual — daftarin pelanggan duluan sebelum ada transaksi
+   * apapun (sebelumnya member CUMA kebentuk otomatis dari checkout). */
+  @Roles('admin', 'kasir')
+  @Post()
+  create(@Body() dto: CreateMemberDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.members.create(dto, user.sub);
   }
 
   /** Pelanggan minta berhenti/lanjut dikirimi pengingat WA — Siklus WA/Fonnte. */

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Member } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateMemberDto } from './dto/create-member.dto';
 
 @Injectable()
 export class MembersService {
@@ -71,6 +72,63 @@ export class MembersService {
       },
     });
     return { member, isNew: true };
+  }
+
+  /**
+   * Tambah member manual (halaman "Member", tombol "Tambah Member") — beda
+   * dari findOrCreate() yang dipanggil checkout POS/servis: di sini gak ada
+   * transaksi yang nyertain, admin/kasir emang niat daftarin pelanggan
+   * duluan (mis. member baru yang belum pernah beli apa-apa).
+   *
+   * Pola "soft-warn + confirm" sama kayak StockService.stockIn(): kalau
+   * nomor HP udah kepake member lain DAN `confirmOverride` belum true,
+   * balikin `{status:'confirm_required', existingMember}` (HTTP 200,
+   * BUKAN error) biar FE bisa nampilin dialog "tetap lanjut / ganti
+   * nomor". Advisory lock (pg_advisory_xact_lock) sama persis kayak
+   * findOrCreate() — nyegah 2 submit bareng nomor HP yang sama lolos
+   * dua-duanya jadi 2 row.
+   */
+  async create(dto: CreateMemberDto, actorId: string) {
+    const phone = dto.phone ? this.normalizePhone(dto.phone) : '';
+
+    return this.prisma.$transaction(async (tx) => {
+      if (phone) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${phone}))`;
+
+        if (!dto.confirmOverride) {
+          const existing = await tx.member.findFirst({ where: { phone } });
+          if (existing) {
+            return {
+              status: 'confirm_required' as const,
+              existingMember: { id: existing.id, name: existing.name, phone: existing.phone },
+            };
+          }
+        }
+      }
+
+      const member = await tx.member.create({
+        data: {
+          name: dto.name,
+          phone,
+          address: dto.address ?? null,
+          customerType: dto.customerType ?? null,
+          memberSince: new Date(),
+          totalAcUnits: 0,
+          active: true,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'member.create_manual',
+          target: member.id,
+          detail: { name: member.name, phone: member.phone || null },
+        },
+      });
+
+      return { status: 'ok' as const, member };
+    });
   }
 
   /** Cari member by nama atau nomor HP (autocomplete) — dibutuhin Siklus 6

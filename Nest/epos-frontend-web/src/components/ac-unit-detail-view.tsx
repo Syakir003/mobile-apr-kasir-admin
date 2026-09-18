@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { statusBadgeVariant } from '@/app/(dashboard)/teknisi/queue/queue-client';
+import { BarcodeQr } from '@/components/barcode-qr';
 
 // Bentuk data ini SAMA PERSIS antara AcUnitsService.findOne (by id, dipakai
 // halaman Member -> detail unit) dan .lookupByBarcode (by barcodeValue,
@@ -96,6 +97,9 @@ export function AcUnitDetailView({
             <DetailRow label="Pemilik" value={member?.name || '-'} />
             <DetailRow label="No. HP" value={member?.phone || '-'} />
             <DetailRow label="Barcode" value={unit.barcodeValue} />
+            <div className="flex justify-center rounded-md border bg-white py-2">
+              <BarcodeQr value={unit.barcodeValue} size={88} />
+            </div>
             <DetailRow label="PK" value={unit.pk ? `${unit.pk} PK` : '-'} />
             <DetailRow label="No. Seri" value={unit.serialNumber || '-'} />
             <DetailRow

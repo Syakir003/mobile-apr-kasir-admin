@@ -23,18 +23,20 @@ export function PrintMenu({
   serviceOrders,
   variant = 'ghost',
   size = 'sm',
+  className,
 }: {
   invoiceId: string;
   serviceOrders: { id: string; _count: { serviceOrderUnits: number } }[];
   variant?: React.ComponentProps<typeof Button>['variant'];
   size?: React.ComponentProps<typeof Button>['size'];
+  className?: string;
 }) {
   const order = serviceOrders[0];
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant={variant} size={size}>
+        <Button variant={variant} size={size} className={className}>
           Cetak
           <ChevronDown className="size-3.5" />
         </Button>

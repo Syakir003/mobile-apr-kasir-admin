@@ -462,6 +462,12 @@ export class PosService {
           serviceOrderId,
           installedUnits,
           voucherDiscountAmount: appliedVoucher ? voucherDiscountAmount : undefined,
+          // Ditambah buat POS pay-immediately (frontend auto-panggil
+          // POST /invoices/:id/payments abis checkout sukses) — grandTotal
+          // WAJIB dari server, bukan preview client, karena diskon voucher
+          // cuma keitung final di sini (lihat komentar taxBase/grandTotal
+          // preview di pos/page.tsx yang eksplisit bilang gak bisa dipercaya).
+          grandTotal: totals.grandTotal,
         };
       });
       return { status: 'ok' as const, ...result };

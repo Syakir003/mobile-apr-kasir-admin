@@ -19,7 +19,7 @@ import { CurrencyInput } from '@/components/ui/currency-input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -216,11 +216,26 @@ function mergeLine(lines: CartLine[], line: CartLine): CartLine[] {
   return merged;
 }
 
+// Pill kategori panel "Cari & Tambah Item" — merge Produk/Sparepart/Jasa jadi
+// satu grid yang bisa difilter, padanan tab pill "Semua/AC Split/AC
+// Cassette/dst" di prototype. SENGAJA tetap dikelompokkan berdasar 3 jenis
+// data yang sudah ada (bukan bikin kolom kategori baru) — kategori granular
+// ala prototype (AC Split/Cassette/Freon) belum ada datanya di backend, dan
+// nambah itu di luar scope restyle tampilan ini.
+const CATEGORY_PILLS = [
+  { key: 'all', label: 'Semua' },
+  { key: 'product', label: 'Produk' },
+  { key: 'sparepart', label: 'Sparepart' },
+  { key: 'service', label: 'Jasa' },
+] as const;
+type CategoryKey = (typeof CATEGORY_PILLS)[number]['key'];
+
 export default function PosPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [lines, setLines] = React.useState<CartLine[]>([]);
   const [search, setSearch] = React.useState('');
+  const [kindFilter, setKindFilter] = React.useState<CategoryKey>('all');
   // Produk yang lagi dipilih buat nentuin batch mana yang mau ditambah ke
   // keranjang — dialog BatchPicker di bawah muncul selama ini gak null.
   const [batchPickerProduct, setBatchPickerProduct] = React.useState<Product | null>(null);
@@ -494,8 +509,10 @@ export default function PosPage() {
       // /transactions/:id di app mobile abis checkout sukses. Halaman
       // detail itu yang jadi tempat "Catat Pembayaran" (invoice lahir
       // dengan totalPaid: 0, lihat pos.service.ts) sekaligus nyimpen semua
-      // pilihan cetak (Invoice/Surat Jalan/Label Unit) lewat PrintMenu,
-      // jadi gak ada yang ketinggalan dibanding banner sukses yang lama.
+      // pilihan cetak (Invoice/Surat Jalan/Label Unit) lewat PrintMenu.
+      // (2026-09: sempat dicoba auto-bayar langsung LUNAS pas checkout,
+      // tapi konsepnya dibalikin lagi ke alur lama ini atas permintaan —
+      // yang dipertahankan cuma gaya visualnya, bukan alur bisnisnya.)
       router.push(`/invoices/${result.invoiceId}`);
     },
     onError: (err) => {
@@ -530,6 +547,74 @@ export default function PosPage() {
     s.name.toLowerCase().includes(q),
   );
 
+  // Kartu grid gabungan buat panel "Cari & Tambah Item" — tiap kartu bawa
+  // `onAdd`-nya sendiri (produk buka BatchPicker, sparepart/jasa langsung
+  // addLine), jadi grid tinggal render tanpa peduli beda logic per jenis.
+  const productCards = filteredProducts.map((p) => {
+    const outOfStock = p.stock <= 0;
+    return {
+      key: `product-${p.id}`,
+      name: p.name,
+      subtitle: outOfStock
+        ? 'Belum ada stok — input dulu lewat Barang Masuk'
+        : `Stok ${p.stock}${p.brand ? ` • ${p.brand}` : ''}`,
+      price: outOfStock ? undefined : String(p.sellPriceMin ?? 0),
+      disabled: outOfStock,
+      onAdd: () => setBatchPickerProduct(p),
+    };
+  });
+  const sparepartCards = filteredSpareparts.map((s) => ({
+    key: `sparepart-${s.id}`,
+    name: s.name,
+    subtitle: `Stok ${s.stock} ${s.unit}`,
+    price: s.sellPrice,
+    disabled: false,
+    onAdd: () =>
+      addLine({
+        kind: 'sparepart' as const,
+        refId: s.id,
+        name: s.name,
+        unit: s.unit,
+        unitPrice: Number(s.sellPrice),
+        qty: 1,
+        withInstallation: false,
+        roomLocation: '',
+      }),
+  }));
+  const serviceCards = filteredServices.map((s) => ({
+    key: `service-${s.id}`,
+    name: s.name,
+    subtitle: s.category ?? 'Jasa',
+    price: s.basePrice,
+    disabled: false,
+    onAdd: () =>
+      addLine({
+        kind: 'service' as const,
+        refId: s.id,
+        name: s.name,
+        unit: 'jasa',
+        unitPrice: Number(s.basePrice),
+        qty: 1,
+        withInstallation: false,
+        roomLocation: '',
+      }),
+  }));
+
+  const visibleCards =
+    kindFilter === 'all'
+      ? [...productCards, ...sparepartCards, ...serviceCards]
+      : kindFilter === 'product'
+        ? productCards
+        : kindFilter === 'sparepart'
+          ? sparepartCards
+          : serviceCards;
+  const cardsLoading =
+    (kindFilter === 'all' || kindFilter === 'product') && productsQuery.isLoading
+      ? true
+      : (kindFilter === 'all' || kindFilter === 'sparepart') && sparepartsQuery.isLoading
+        ? true
+        : (kindFilter === 'all' || kindFilter === 'service') && servicesQuery.isLoading;
+
   return (
     <div className="grid gap-6">
       <div>
@@ -559,98 +644,43 @@ export default function PosPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <Tabs defaultValue="product">
-              <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="product">Produk</TabsTrigger>
-                  <TabsTrigger value="sparepart">Sparepart</TabsTrigger>
-                  <TabsTrigger value="service">Jasa</TabsTrigger>
-                </TabsList>
-                <TabsContent value="product" className="mt-3">
-                  <ItemList
-                    isLoading={productsQuery.isLoading}
-                    isEmpty={filteredProducts.length === 0}
-                    emptyLabel="Tidak ada produk."
-                  >
-                    {filteredProducts.map((p) => {
-                      const outOfStock = p.stock <= 0;
-                      return (
-                        <ItemRow
-                          key={p.id}
-                          name={p.name}
-                          subtitle={
-                            outOfStock
-                              ? 'Belum ada stok — input dulu lewat Barang Masuk'
-                              : `Stok: ${p.stock}${p.brand ? ` • ${p.brand}` : ''}${
-                                  p.sellPriceMax && p.sellPriceMax !== p.sellPriceMin
-                                    ? ` • s.d. ${formatRupiah(p.sellPriceMax)}`
-                                    : ''
-                                }`
-                          }
-                          price={outOfStock ? undefined : String(p.sellPriceMin ?? 0)}
-                          disabled={outOfStock}
-                          onAdd={() => setBatchPickerProduct(p)}
-                        />
-                      );
-                    })}
-                  </ItemList>
-                </TabsContent>
-                <TabsContent value="sparepart" className="mt-3">
-                  <ItemList
-                    isLoading={sparepartsQuery.isLoading}
-                    isEmpty={filteredSpareparts.length === 0}
-                    emptyLabel="Tidak ada sparepart."
-                  >
-                    {filteredSpareparts.map((s) => (
-                      <ItemRow
-                        key={s.id}
-                        name={s.name}
-                        subtitle={`Stok: ${s.stock} ${s.unit}`}
-                        price={s.sellPrice}
-                        onAdd={() =>
-                          addLine({
-                            kind: 'sparepart',
-                            refId: s.id,
-                            name: s.name,
-                            unit: s.unit,
-                            unitPrice: Number(s.sellPrice),
-                            qty: 1,
-                            withInstallation: false,
-                            roomLocation: '',
-                          })
-                        }
-                      />
-                    ))}
-                  </ItemList>
-                </TabsContent>
-                <TabsContent value="service" className="mt-3">
-                  <ItemList
-                    isLoading={servicesQuery.isLoading}
-                    isEmpty={filteredServices.length === 0}
-                    emptyLabel="Tidak ada jasa."
-                  >
-                    {filteredServices.map((s) => (
-                      <ItemRow
-                        key={s.id}
-                        name={s.name}
-                        subtitle={s.category ?? undefined}
-                        price={s.basePrice}
-                        onAdd={() =>
-                          addLine({
-                            kind: 'service',
-                            refId: s.id,
-                            name: s.name,
-                            unit: 'jasa',
-                            unitPrice: Number(s.basePrice),
-                            qty: 1,
-                            withInstallation: false,
-                            roomLocation: '',
-                          })
-                        }
-                      />
-                    ))}
-                  </ItemList>
-                </TabsContent>
-              </Tabs>
+            <div className="mb-3 flex flex-wrap gap-2">
+              {CATEGORY_PILLS.map((pill) => (
+                <button
+                  key={pill.key}
+                  type="button"
+                  onClick={() => setKindFilter(pill.key)}
+                  className={cn(
+                    'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+                    kindFilter === pill.key
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'hover:bg-accent',
+                  )}
+                >
+                  {pill.label}
+                </button>
+              ))}
+            </div>
+            {cardsLoading ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">Memuat...</p>
+            ) : visibleCards.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                Tidak ada item yang cocok.
+              </p>
+            ) : (
+              <div className="grid max-h-[28rem] grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3">
+                {visibleCards.map((card) => (
+                  <ItemCard
+                    key={card.key}
+                    name={card.name}
+                    subtitle={card.subtitle}
+                    price={card.price}
+                    disabled={card.disabled}
+                    onAdd={card.onAdd}
+                  />
+                ))}
+              </div>
+            )}
             </CardContent>
         </Card>
 
@@ -985,6 +1015,8 @@ export default function PosPage() {
 
                 <Button
                   type="submit"
+                  size="lg"
+                  className="w-full"
                   disabled={checkoutMutation.isPending || lines.length === 0 || discountExceeds}
                 >
                   {checkoutMutation.isPending ? 'Memproses...' : 'Buat Transaksi'}
@@ -1095,27 +1127,10 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ItemList({
-  isLoading,
-  isEmpty,
-  emptyLabel,
-  children,
-}: {
-  isLoading: boolean;
-  isEmpty: boolean;
-  emptyLabel: string;
-  children: React.ReactNode;
-}) {
-  if (isLoading) {
-    return <p className="py-6 text-center text-sm text-muted-foreground">Memuat...</p>;
-  }
-  if (isEmpty) {
-    return <p className="py-6 text-center text-sm text-muted-foreground">{emptyLabel}</p>;
-  }
-  return <div className="grid max-h-64 gap-1 overflow-y-auto">{children}</div>;
-}
-
-function ItemRow({
+// Kartu grid item (Produk/Sparepart/Jasa gabungan) — padanan visual kartu
+// produk di prototype "Transaksi Baru" (nama + subtitle stok + harga +
+// tombol tambah), gantiin ItemRow/ItemList (tampilan list per-tab) yang lama.
+function ItemCard({
   name,
   subtitle,
   price,
@@ -1133,15 +1148,21 @@ function ItemRow({
       type="button"
       onClick={onAdd}
       disabled={disabled}
-      className={`flex items-center justify-between gap-2 rounded-md px-2 py-2 text-left transition-colors ${
-        disabled ? 'cursor-not-allowed opacity-50' : 'hover:bg-accent'
-      }`}
+      className={cn(
+        'flex flex-col items-start gap-2 rounded-lg border p-3 text-left transition-colors',
+        disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-primary hover:bg-accent',
+      )}
     >
-      <div>
-        <p className="text-sm font-medium">{name}</p>
-        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+      <div className="flex w-full items-start justify-between gap-2">
+        <p className="text-sm leading-tight font-medium">{name}</p>
+        <span className="shrink-0 rounded-full bg-secondary p-1 text-secondary-foreground">
+          <Plus className="size-3.5" />
+        </span>
       </div>
-      {price !== undefined && <Badge variant="secondary">{formatRupiah(price)}</Badge>}
+      {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+      {price !== undefined && (
+        <p className="text-sm font-semibold text-primary">{formatRupiah(price)}</p>
+      )}
     </button>
   );
 }

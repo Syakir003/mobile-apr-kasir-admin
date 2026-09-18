@@ -20,9 +20,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 // TANPA atribut `capture` — sengaja, biar gak maksa buka kamera device kayak
 // yang diminta user; ini murni file picker/galeri).
 //
-// Label unit AC di sistem ini dicetak Code128 (components/barcode-128.tsx),
-// tapi format lain (QR dkk) tetap dibuka -- kalau ke depannya ganti format
-// cetak, scanner ini gak perlu diubah.
+// Label unit AC di sistem ini dicetak QR Code (components/barcode-qr.tsx,
+// sebelumnya Code128 — lihat components/barcode-128.tsx yang sekarang
+// nganggur), tapi format lain tetap dibuka -- kalau ke depannya ganti
+// format cetak lagi, scanner ini gak perlu diubah.
 const SUPPORTED_FORMATS: Html5QrcodeSupportedFormats[] = [
   Html5QrcodeSupportedFormats.CODE_128,
   Html5QrcodeSupportedFormats.QR_CODE,

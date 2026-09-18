@@ -54,10 +54,11 @@ const PAYMENT_METHODS = [
   { value: 'transfer', label: 'Transfer Bank' },
   { value: 'qris', label: 'QRIS' },
   { value: 'ewallet', label: 'E-Wallet' },
+  { value: 'debit', label: 'Debit' },
 ] as const;
 
 const paymentSchema = z.object({
-  method: z.enum(['tunai', 'transfer', 'qris', 'ewallet']),
+  method: z.enum(['tunai', 'transfer', 'qris', 'ewallet', 'debit']),
   amount: requiredNumberField('Nominal wajib diisi'),
   note: z.string().optional(),
 });
@@ -138,6 +139,15 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
   const sisa = data ? Number(data.grandTotal) - Number(data.totalPaid) : 0;
   const canPay = !!data && data.status !== 'lunas' && data.status !== 'batal';
   const waPhone = data?.customerPhone || data?.member?.phone || null;
+  // Pembayaran PALING BARU — ditampilin di header ("Pembayaran: QRIS" ala
+  // prototype "Invoice & Struk"). Kalau invoice dibayar bertahap (DP lalu
+  // pelunasan), yang kebaca di header ya metode pelunasan terakhir.
+  const latestPayment =
+    data && data.manualPayments.length > 0
+      ? [...data.manualPayments].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        )[0]
+      : null;
 
   // Siklus WA/Fonnte — tombol "Kirim WA" manual (keputusan user: bukan
   // otomatis pas checkout, kasir/admin yang mutusin kapan kirim). Backend
@@ -207,19 +217,52 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
 
   return (
     <div className="grid gap-6">
-      <div>
-        <Link
-          href="/invoices"
-          className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Kembali ke Riwayat Transaksi
-        </Link>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">{data.number}</h1>
-          <Badge variant={invoiceStatusVariant(data.status)}>{statusLabel(data.status)}</Badge>
+      <Link
+        href="/invoices"
+        className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" />
+        Kembali ke Riwayat Transaksi
+      </Link>
+
+      {/* Header status-first ala prototype "Invoice & Struk" — status,
+          nomor invoice, total, dan metode pembayaran terakhir langsung
+          kebaca tanpa scroll. Warna header pakai token sidebar (teal) yang
+          sama dengan sidebar/dashboard, BUKAN warna baru. */}
+      <Card className="overflow-hidden py-0">
+        <div className="flex flex-wrap items-start justify-between gap-4 bg-sidebar px-6 py-5 text-sidebar-foreground">
+          <div>
+            <p className="text-sm text-sidebar-foreground/70">Invoice</p>
+            <h1 className="text-2xl font-bold text-white">{data.number}</h1>
+            <p className="mt-1 text-sm text-sidebar-foreground/70">
+              {formatDateTime(data.createdAt)}
+            </p>
+          </div>
+          <Badge variant={invoiceStatusVariant(data.status)} className="px-3 py-1 text-sm">
+            {statusLabel(data.status)}
+          </Badge>
         </div>
-      </div>
+        <CardContent className="grid gap-1.5 py-4">
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm text-muted-foreground">Total Tagihan</span>
+            <span className="text-2xl font-bold text-primary">
+              {formatRupiah(data.grandTotal)}
+            </span>
+          </div>
+          {latestPayment && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Pembayaran</span>
+              <span className="font-medium">{methodLabel(latestPayment.method)}</span>
+            </div>
+          )}
+          {sisa > 0 && data.status !== 'batal' && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Sisa Tagihan</span>
+              <span className="font-medium text-destructive">{formatRupiah(sisa)}</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
         <div className="grid h-fit gap-6">
@@ -285,10 +328,15 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
             </CardContent>
           </Card>
 
+          {/* Aksi ditaruh DI BAWAH Ringkasan (bukan baris terpisah di atas
+              kolom, dan bukan juga langsung nempel di header) — alurnya jadi
+              baca dulu detail & totalnya, baru mutusin aksi apa, padanan
+              baris "Kirim WA / Kirim Email / Cetak Struk" di prototype.
+              "Kirim Email" SENGAJA gak diikutin: belum ada kemampuan kirim
+              email di backend (beda kayak WA yang sudah ada integrasi
+              Fonnte). "Cetak Struk" dipenuhi PrintMenu yang sudah ada. */}
           <div className="grid gap-2">
-            {canPay && (
-              <Button onClick={() => setPayDialogOpen(true)}>Catat Pembayaran</Button>
-            )}
+            {canPay && <Button onClick={() => setPayDialogOpen(true)}>Catat Pembayaran</Button>}
             {waPhone && (
               <Button variant="outline" onClick={() => setWaDialogOpen(true)}>
                 <MessageCircle className="size-4" />
@@ -300,6 +348,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
               serviceOrders={data.serviceOrders}
               variant="outline"
               size="default"
+              className="w-full"
             />
           </div>
         </div>

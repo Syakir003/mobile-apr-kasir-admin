@@ -10,6 +10,14 @@ const ROLE_PREFIXES: Array<{ prefix: string; roles: Role[] }> = [
   { prefix: '/laporan', roles: ['admin'] },
   { prefix: '/pengaturan', roles: ['admin'] },
   { prefix: '/master', roles: ['admin'] },
+  // Input Transaksi Manual — admin-only (lebih ketat dari '/invoices' biasa
+  // yang kebuka juga buat kasir), harus didaftar terpisah dari '/invoices'
+  // karena prefix match di bawah pakai startsWith, bukan exact segment.
+  { prefix: '/invoices/manual', roles: ['admin'] },
+  // Pengajuan Masuk (approval sparepart tambahan) — admin-only, sama
+  // pembatasan kayak GET /material-requests di backend (teknisi lihat
+  // pengajuan miliknya lewat halaman job, bukan lewat rute ini).
+  { prefix: '/material-requests', roles: ['admin'] },
 ];
 
 const PUBLIC_PATHS = ['/login'];

@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -7,6 +7,7 @@ import type { CurrentUserPayload } from '../auth/decorators/current-user.decorat
 import { MaterialRequestsService } from './material-requests.service';
 import { CreateMaterialRequestDto } from './dto/create-material-request.dto';
 import { DecideMaterialRequestDto } from './dto/decide-material-request.dto';
+import { MaterialRequestQueryDto } from './dto/material-request-query.dto';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -18,6 +19,15 @@ export class MaterialRequestsController {
     private readonly realtime: RealtimeGateway,
     private readonly notifications: NotificationsService,
   ) {}
+
+  // Halaman admin "Pengajuan Masuk" — admin-only (sama pembatasan kayak
+  // Voucher/Audit), teknisi tetap lihat pengajuan MILIKNYA lewat GET
+  // /technician-jobs/:id yang udah ada, gak perlu endpoint lintas-job ini.
+  @Roles('admin')
+  @Get('material-requests')
+  findAll(@Query() query: MaterialRequestQueryDto) {
+    return this.requests.findAll(query);
+  }
 
   @Roles('admin', 'teknisi')
   @Post('technician-jobs/:jobId/materials')
