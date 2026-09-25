@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/voucher.dart';
 
@@ -20,23 +21,25 @@ final vouchersStreamProvider = StreamProvider.autoDispose<List<Voucher>>((ref) {
       });
 });
 
-/// RPC `create_voucher` (admin). Mengembalikan kode voucher yang dibuat.
+/// `POST /vouchers` (admin) — pengganti RPC `create_voucher` pada migrasi
+/// Flutter -> Nest. Payload sudah camelCase persis sama dengan
+/// `CreateVoucherDto` (dibangun di `voucher_form_screen.dart`), jadi
+/// diteruskan apa adanya tanpa adapter. Mengembalikan kode voucher yang
+/// dibuat.
 final createVoucherCallerProvider =
     Provider<Future<String> Function(Map<String, dynamic> payload)>((ref) {
   return (payload) async {
-    final result = await ref
-        .read(supabaseProvider)
-        .rpc('create_voucher', params: {'payload': payload});
-    return (result as Map)['code'] as String? ?? '';
+    final json = await const ApiClient().post('/vouchers', body: payload) as Map;
+    return json['code'] as String? ?? '';
   };
 });
 
-/// RPC `cancel_voucher` (admin).
+/// `POST /vouchers/:id/cancel` (admin) — pengganti RPC `cancel_voucher`.
 final cancelVoucherCallerProvider =
     Provider<Future<void> Function(String voucherId, {String? reason})>((ref) {
   return (voucherId, {reason}) async {
-    await ref.read(supabaseProvider).rpc('cancel_voucher', params: {
-      'payload': {'voucherId': voucherId, if (reason != null) 'reason': reason},
+    await const ApiClient().post('/vouchers/$voucherId/cancel', body: {
+      if (reason != null) 'reason': reason,
     });
   };
 });

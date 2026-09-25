@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -6,11 +6,21 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { AcUnitsService } from './ac-units.service';
 import { UpdateAcUnitDto } from './dto/update-ac-unit.dto';
+import { CreateAcUnitDto } from './dto/create-ac-unit.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('ac-units')
 export class AcUnitsController {
   constructor(private readonly acUnits: AcUnitsService) {}
+
+  // Sama pembatasan role kayak ServiceOrdersController.intake — kasir yang
+  // input "servis masuk mandiri" butuh ini buat catat unit AC lama customer.
+  @Roles('admin', 'kasir')
+  @Post()
+  create(@Body() dto: CreateAcUnitDto, @CurrentUser() user: CurrentUserPayload) {
+    const { memberId, ...data } = dto;
+    return this.acUnits.create(memberId, data, user.sub);
+  }
 
   @Roles('admin', 'kasir', 'teknisi')
   @Get('lookup/:barcodeValue')

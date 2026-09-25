@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -7,9 +7,11 @@ import type { CurrentUserPayload } from '../auth/decorators/current-user.decorat
 import { RemindersService } from './reminders.service';
 import { SaveReminderSettingsDto } from './dto/save-reminder-settings.dto';
 import { SaveWaTemplatesDto } from './dto/save-wa-templates.dto';
+import { SetUnitIntervalDto } from './dto/set-unit-interval.dto';
 
-/** Halaman "Pengingat WA" (admin) — padanan reminder_settings_screen.dart +
- * reminder_template_screen.dart mobile, digabung jadi 1 halaman 2 tab di web. */
+// Baca: admin/kasir (RLS reminder_settings & cek list_wa_reminder_templates).
+// Tulis: admin (cek di RPC save_*). POST /reminders/run-now DIHAPUS:
+// enqueue_service_reminders() khusus pg_cron (tanpa cek role di dalamnya).
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('reminders')
 export class RemindersController {
@@ -24,26 +26,26 @@ export class RemindersController {
   @Roles('admin')
   @Put('settings')
   saveSettings(@Body() dto: SaveReminderSettingsDto, @CurrentUser() user: CurrentUserPayload) {
-    return this.reminders.saveSettings(dto, user.sub);
+    return this.reminders.saveSettings(user, dto);
   }
 
   @Roles('admin', 'kasir')
   @Get('templates')
-  listTemplates() {
-    return this.reminders.listTemplates();
+  listTemplates(@CurrentUser() user: CurrentUserPayload) {
+    return this.reminders.listTemplates(user);
   }
 
   @Roles('admin')
   @Put('templates')
   saveTemplates(@Body() dto: SaveWaTemplatesDto, @CurrentUser() user: CurrentUserPayload) {
-    return this.reminders.saveTemplates(dto, user.sub);
+    return this.reminders.saveTemplates(user, dto);
   }
 
-  // Trigger manual — dipakai admin buat testing (gak perlu nunggu jam 9 pagi)
-  // ATAU nyusul jalanin siklus kalau server sempat mati pas jadwal cron-nya.
+  // Padanan RPC `set_unit_service_interval` — override siklus servis satu
+  // unit AC (form mobile "Tambah/Edit Unit AC").
   @Roles('admin')
-  @Post('run-now')
-  runNow() {
-    return this.reminders.runDailyEnqueue();
+  @Put('unit-interval')
+  setUnitInterval(@Body() dto: SetUnitIntervalDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.reminders.setUnitInterval(user, dto);
   }
 }

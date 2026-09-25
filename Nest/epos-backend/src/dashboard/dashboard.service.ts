@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { TechnicianJobStatus } from '@prisma/client';
+import { TechnicianJobStatus } from '../common/technician-job-status';
 import { PrismaService } from '../prisma/prisma.service';
 import { wibDayRange } from '../common/wib-date.util';
 

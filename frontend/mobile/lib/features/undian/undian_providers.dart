@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/undian.dart';
 
@@ -34,15 +35,17 @@ final undianParticipantsProvider = StreamProvider.autoDispose
           ]);
 });
 
-/// RPC `create_undian` (admin).
+/// `POST /undian` (admin) — pengganti RPC `create_undian` pada migrasi
+/// Flutter -> Nest. Payload sudah camelCase persis sama dengan
+/// `CreateUndianDto` (dibangun di `undian_form_screen.dart`), diteruskan apa
+/// adanya. `UndianService.create` di Nest memanggil RPC Postgres yang SAMA
+/// lewat `SupabaseRpcService` (masa transisi, lihat komentarnya) — bentuk
+/// respons identik dengan RPC langsung, parsing di bawah tidak berubah.
 final createUndianCallerProvider = Provider<
     Future<({String undianId, int participantCount})> Function(
         Map<String, dynamic> payload)>((ref) {
   return (payload) async {
-    final result = await ref
-        .read(supabaseProvider)
-        .rpc('create_undian', params: {'payload': payload});
-    final data = result as Map;
+    final data = await const ApiClient().post('/undian', body: payload) as Map;
     return (
       undianId: (data['undianId'] as String?) ?? '',
       participantCount: (data['participantCount'] as num?)?.toInt() ?? 0,
@@ -50,38 +53,34 @@ final createUndianCallerProvider = Provider<
   };
 });
 
-/// RPC `update_undian_participants` (admin).
+/// `PUT /undian/:id/participants` (admin) — pengganti RPC
+/// `update_undian_participants`. `undianId` sekarang di path (`UpdateUndianParticipantsDto`
+/// cuma `add`/`remove`), bukan di body payload.
 final updateUndianParticipantsCallerProvider = Provider<
     Future<void> Function(String undianId,
         {List<String> add, List<String> remove})>((ref) {
   return (undianId, {add = const [], remove = const []}) async {
-    await ref.read(supabaseProvider).rpc('update_undian_participants', params: {
-      'payload': {
-        'undianId': undianId,
-        if (add.isNotEmpty) 'add': add,
-        if (remove.isNotEmpty) 'remove': remove,
-      },
+    await const ApiClient().put('/undian/$undianId/participants', body: {
+      if (add.isNotEmpty) 'add': add,
+      if (remove.isNotEmpty) 'remove': remove,
     });
   };
 });
 
-/// RPC `draw_undian` (admin). Mengembalikan jumlah pemenang.
+/// `POST /undian/:id/draw` (admin) — pengganti RPC `draw_undian`. Mengembalikan
+/// jumlah pemenang.
 final drawUndianCallerProvider =
     Provider<Future<int> Function(String undianId)>((ref) {
   return (undianId) async {
-    final result = await ref.read(supabaseProvider).rpc('draw_undian', params: {
-      'payload': {'undianId': undianId},
-    });
-    return ((result as Map)['winnerCount'] as num?)?.toInt() ?? 0;
+    final data = await const ApiClient().post('/undian/$undianId/draw') as Map;
+    return (data['winnerCount'] as num?)?.toInt() ?? 0;
   };
 });
 
-/// RPC `cancel_undian` (admin).
+/// `POST /undian/:id/cancel` (admin) — pengganti RPC `cancel_undian`.
 final cancelUndianCallerProvider =
     Provider<Future<void> Function(String undianId)>((ref) {
   return (undianId) async {
-    await ref.read(supabaseProvider).rpc('cancel_undian', params: {
-      'payload': {'undianId': undianId},
-    });
+    await const ApiClient().post('/undian/$undianId/cancel');
   };
 });

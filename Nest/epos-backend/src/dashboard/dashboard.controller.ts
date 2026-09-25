@@ -9,8 +9,15 @@ import { DashboardService } from './dashboard.service';
 // halaman dashboard dibuka, lalu RealtimeGateway (Siklus 1) yang jaga data
 // tetap update tanpa refresh lewat event transaction.created/
 // job.status_changed/invoice.updated.
+//
+// 'kasir' ditambah sesi migrasi Flutter -> Nest: dashboard mobile
+// (analyticsProvider) tampil buat admin & kasir (bukan admin-only kayak web),
+// sama seperti dulu kasir bisa baca tabel invoices/transactions/technician_jobs
+// langsung lewat RLS "baca admin/kasir" yang berlaku di hampir semua tabel
+// finansial — endpoint ini cuma menyusul akses yang sudah ada, bukan
+// membuka akses baru.
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin')
+@Roles('admin', 'kasir')
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}

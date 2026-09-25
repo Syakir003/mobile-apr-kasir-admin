@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/supabase/session_gate.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/installation_package.dart';
@@ -8,44 +9,36 @@ import '../../data/models/service_item.dart';
 import '../../data/models/sparepart.dart';
 import '../../data/repositories/crud_repository.dart';
 import '../../data/repositories/item_cost_repository.dart';
+import '../../data/repositories/master_data_repository.dart';
 import '../../data/repositories/package_repository.dart';
 
+/// Sudah dipindah ke backend NestJS (`Nest*Repository`) sebagai repository
+/// rujukan migrasi Flutter -> Nest, sama pola seperti [itemCostRepositoryProvider].
+/// `watchAll()` tetap lewat Supabase Realtime di dalam masing-masing kelas —
+/// hanya `create`/`update` yang pindah. [SupabaseCrudRepository] /
+/// [SupabasePackageRepository] dibiarkan ada di file sumbernya untuk rollback
+/// cepat bila diperlukan.
 final productRepositoryProvider = Provider<CrudRepository<Product>>((ref) {
-  return SupabaseCrudRepository<Product>(
-    ref.watch(supabaseProvider),
-    'products',
-    Product.fromMap,
-    (p) => p.toMap(),
-  );
+  return NestProductRepository(ref.watch(supabaseProvider), const ApiClient());
 });
 
 final sparepartRepositoryProvider = Provider<CrudRepository<Sparepart>>((ref) {
-  return SupabaseCrudRepository<Sparepart>(
-    ref.watch(supabaseProvider),
-    'spareparts',
-    Sparepart.fromMap,
-    (s) => s.toMap(),
-  );
+  return NestSparepartRepository(ref.watch(supabaseProvider), const ApiClient());
 });
 
 final serviceRepositoryProvider = Provider<CrudRepository<ServiceItem>>((ref) {
-  return SupabaseCrudRepository<ServiceItem>(
-    ref.watch(supabaseProvider),
-    'services',
-    ServiceItem.fromMap,
-    (s) => s.toMap(),
-  );
+  return NestServiceRepository(ref.watch(supabaseProvider), const ApiClient());
 });
 
 final packageRepositoryProvider =
     Provider<CrudRepository<InstallationPackage>>((ref) {
-  return SupabasePackageRepository(ref.watch(supabaseProvider));
+  return NestPackageRepository(ref.watch(supabaseProvider), const ApiClient());
 });
 
 /// Harga modal (`item_costs`) — dipisah dari master data sejak migrasi 0021
 /// agar hanya terbaca admin. Di-override fake pada test form.
 final itemCostRepositoryProvider = Provider<ItemCostRepository>(
-  (ref) => SupabaseItemCostRepository(ref.watch(supabaseProvider)),
+  (ref) => NestItemCostRepository(const ApiClient()),
 );
 
 /// Harga modal satu barang. Key: `('product'|'sparepart', refId)`.

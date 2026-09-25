@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/router/app_router.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/app_user.dart';
@@ -11,8 +12,10 @@ import '../../data/models/service_order.dart';
 import '../../data/models/technician_job.dart';
 import '../../data/repositories/job_repository.dart';
 
+const _api = ApiClient();
+
 final jobRepositoryProvider = Provider<JobRepository>(
-  (ref) => SupabaseJobRepository(ref.watch(supabaseProvider)),
+  (ref) => NestJobRepository(_api),
 );
 
 /// Daftar job untuk pengguna aktif: teknisi hanya melihat job miliknya,
@@ -71,15 +74,12 @@ final signedPhotoUrlProvider =
   (ref, path) => ref.watch(jobRepositoryProvider).signedPhotoUrl(path),
 );
 
-/// RPC `add_job_photo` — catat metadata foto setelah biner terunggah ke Storage.
-final addJobPhotoCallerProvider =
-    Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
-  return (payload) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('add_job_photo', params: {'payload': payload});
-  };
-});
+// `add_job_photo` RPC DIHAPUS (bukan cuma dipindah) — `NestJobRepository
+// .uploadPhoto` di atas sudah melakukan upload BINER + catat metadata dalam
+// SATU panggilan multipart (`POST /technician-jobs/:id/photos`), jadi tak
+// ada lagi langkah "catat metadata" terpisah setelah upload. Lihat
+// job_detail_screen.dart `_PhotosSectionState._add` yang sudah disesuaikan
+// (tidak lagi memanggil provider kedua setelah `uploadPhoto`).
 
 /// Pengajuan tambahan untuk satu job. Segarkan dengan
 /// `ref.invalidate(jobRequestsProvider(jobId))` setelah submit/putusan.
@@ -88,35 +88,70 @@ final jobRequestsProvider =
   (ref, jobId) => ref.watch(jobRepositoryProvider).fetchRequests(jobId),
 );
 
-/// RPC `submit_material_request` (teknisi mengajukan tambahan).
+/// `POST /technician-jobs/:jobId/materials` (teknisi mengajukan tambahan) —
+/// pengganti RPC `submit_material_request`. Bentuk payload (`items` berisi
+/// `{kind, refId, qty}`, `note` opsional) sudah cocok 1:1 dengan
+/// `CreateMaterialRequestDto`.
+///
+/// CATATAN: backend sejak siklus batch-cost (2026-09) hanya menerima
+/// `kind: 'sparepart'` (`kind: 'product'` DICABUT dari scope pengajuan
+/// material, lihat DTO Nest) — `job_requests_section.dart`'s `_ItemPickerSheet`
+/// masih menawarkan item `kind: 'product'`. Ini gap pre-existing dari
+/// pekerjaan paralel lain (bukan diperkenalkan migrasi ini), disebut di
+/// laporan migrasi.
+Future<void> callSubmitMaterialRequest(
+  Map<String, dynamic> payload, {
+  required Future<dynamic> Function(String path, {Object? body}) post,
+}) {
+  return post('/technician-jobs/${payload['jobId']}/materials', body: {
+    'items': payload['items'],
+    if (payload['note'] != null) 'note': payload['note'],
+  });
+}
+
 final submitRequestCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
-  return (payload) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('submit_material_request', params: {'payload': payload});
-  };
+  return (payload) => callSubmitMaterialRequest(payload, post: _api.post);
 });
 
-/// RPC `decide_material_request` (admin/kasir approve/revise/reject).
+/// `PATCH /material-requests/:id/decide` (admin approve/revise/reject) —
+/// pengganti RPC `decide_material_request`. Dua penyesuaian bentuk terhadap
+/// payload lama:
+/// - key `note` -> `decisionNote` (nama field `DecideMaterialRequestDto`).
+/// - `items` (kalau ada, hanya saat decision='revise') HARUS sudah berbentuk
+///   `{kind, refId, qty}` per item (daftar PENGGANTI utuh, bukan patch
+///   `{itemId, qty}` per item lama) — transformasi ini dilakukan di
+///   `job_requests_section.dart._reviseThenApprove` (satu-satunya pemanggil),
+///   karena cuma di sana `kind`/`refId` item asli tersedia.
+Future<void> callDecideMaterialRequest(
+  Map<String, dynamic> payload, {
+  required Future<dynamic> Function(String path, {Object? body}) patch,
+}) {
+  return patch('/material-requests/${payload['requestId']}/decide', body: {
+    'decision': payload['decision'],
+    if (payload['note'] != null) 'decisionNote': payload['note'],
+    if (payload['items'] != null) 'items': payload['items'],
+  });
+}
+
 final decideRequestCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
-  return (payload) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('decide_material_request', params: {'payload': payload});
-  };
+  return (payload) => callDecideMaterialRequest(payload, patch: _api.patch);
 });
 
-/// RPC `mark_material_used` (teknisi pemilik/admin menandai material dipakai →
-/// stok baru dipotong di sini).
+/// `PATCH /material-requests/:id/mark-used` — pengganti RPC
+/// `mark_material_used` (teknisi pemilik/admin menandai material dipakai →
+/// stok baru dipotong di sini, sisi Nest).
+Future<void> callMarkMaterialUsed(
+  Map<String, dynamic> payload, {
+  required Future<dynamic> Function(String path, {Object? body}) patch,
+}) {
+  return patch('/material-requests/${payload['requestId']}/mark-used');
+}
+
 final markMaterialUsedCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
-  return (payload) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('mark_material_used', params: {'payload': payload});
-  };
+  return (payload) => callMarkMaterialUsed(payload, patch: _api.patch);
 });
 
 /// Daftar order service (admin/kasir).
@@ -127,6 +162,22 @@ final ordersProvider =
 
 /// RPC `create_service_order` — admin/kasir menjadwalkan order manual
 /// (service/maintenance/cuci) pada unit AC member yang sudah ada.
+///
+/// TETAP di Supabase (BUKAN dipindah) — `POST /service-orders/intake` bukan
+/// pengganti yang sepadan, bentuknya beda secara mendasar, bukan cuma nama
+/// field:
+/// - Payload ini kirim `unitIds` (BANYAK unit sekaligus, `_unitIds.toList()`
+///   dari `service_order_create_screen.dart`); `ServiceIntakeDto` cuma
+///   menerima SATU unit per order (`existingUnitId` xor `newUnit`).
+/// - Payload ini kirim `memberId` (member sudah ada); `ServiceIntakeDto`
+///   mewajibkan `customer: {name, phone, address?}` (alur intake pelanggan
+///   BARU/walk-in) + `complaint` wajib diisi — form ini tidak mengumpulkan
+///   keduanya (member sudah dipilih dari daftar, keluhan opsional).
+/// Memaksakan pemetaan 1:1 di sini akan mengubah semantik order manual
+/// multi-unit jadi intake single-unit — bukan migrasi, tapi menulis ulang
+/// fitur. Dibiarkan sebagai gap yang jelas (lihat laporan migrasi) sampai ada
+/// keputusan produk: form ini dipecah per-unit, atau `ServiceIntakeDto`
+/// diperluas menerima banyak unit dari member yang sudah ada.
 final createServiceOrderCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
   return (payload) async {
@@ -136,14 +187,18 @@ final createServiceOrderCallerProvider =
   };
 });
 
-/// RPC `assign_technician_job`. Dipisah agar mudah di-override fake di test.
+/// `PATCH /technician-jobs/:id/assign` — pengganti RPC `assign_technician_job`.
+Future<void> callAssignTechnician(
+  Map<String, dynamic> payload, {
+  required Future<dynamic> Function(String path, {Object? body}) patch,
+}) {
+  return patch('/technician-jobs/${payload['jobId']}/assign',
+      body: {'technicianId': payload['technicianId']});
+}
+
 final assignTechnicianCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
-  return (payload) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('assign_technician_job', params: {'payload': payload});
-  };
+  return (payload) => callAssignTechnician(payload, patch: _api.patch);
 });
 
 /// Ringkasan tagihan di balik satu job.
@@ -194,12 +249,66 @@ final jobPaymentInfoProvider =
   },
 );
 
-/// RPC `update_technician_job_status` (start/complete/cancel).
+/// Pengganti RPC `update_technician_job_status` — tiap `action` dulunya satu
+/// RPC dengan payload `{jobId, action, notes?, scannedBarcode?}`, sekarang
+/// rute Nest terpisah per aksi. Murni (tanpa Riverpod) supaya routing-nya
+/// bisa diuji tanpa mock HTTP, pola sama seperti `acUnitRowFromNest`.
+///
+/// GAP NYATA (lihat laporan migrasi untuk detail):
+/// - `'start'`: Nest (`StartJobDto` + `TechnicianJobsService.start`) SELALU
+///   mewajibkan `scannedBarcode` cocok dengan unit job ini, walau unit itu
+///   tak punya `barcodeValue` sama sekali. RPC lama hanya mewajibkan scan
+///   KALAU unit punya barcode. `job_detail_screen.dart._start` punya jalur
+///   "job tanpa unit/barcode: mulai langsung tanpa scan" yang PATAH oleh gap
+///   ini (Nest akan menolak 400 "Scan barcode unit diperlukan").
+/// - `'complete'`: dipetakan ke `submit-for-review` (SATU-SATUNYA rute
+///   Nest yang analog "teknisi menuntaskan job dari sisi teknisi") — TAPI
+///   `submit-for-review` mewajibkan minimal 1 `JobFinding` (checklist temuan)
+///   dengan foto sebelum+sesudah PER TEMUAN. App mobile ini tidak punya UI
+///   temuan sama sekali (masih model flat job-level `job_photos`), jadi
+///   endpoint ini akan SELALU menolak 400 "Minimal 1 temuan masalah harus
+///   diisi..." untuk job manapun yang dikerjakan lewat UI saat ini. Ini
+///   BUKAN bug migrasi — ini kesenjangan arsitektur nyata antara backend
+///   (sudah pindah ke model checklist+review) dan app mobile (belum). Tidak
+///   dipaksa-tambal di sini (menambal = menulis ulang businesslogic gate
+///   submit-for-review di Flutter, yang dilarang) — diserahkan ke keputusan
+///   produk: app mobile perlu UI temuan, atau `submit-for-review` perlu jalur
+///   kompatibel model lama (di luar scope "endpoint kecil" sesi ini).
+Future<void> callUpdateJobStatus(
+  Map<String, dynamic> payload, {
+  required Future<dynamic> Function(String path, {Object? body}) patch,
+}) async {
+  final jobId = payload['jobId'];
+  final action = payload['action'];
+  switch (action) {
+    case 'start':
+      await patch('/technician-jobs/$jobId/start',
+          body: {'scannedBarcode': payload['scannedBarcode'] ?? ''});
+      return;
+    case 'complete':
+    case 'submit_review':
+      final notes = (payload['notes'] as String?)?.trim();
+      if (notes != null && notes.isNotEmpty) {
+        await patch('/technician-jobs/$jobId/notes', body: {'notes': notes});
+      }
+      await patch('/technician-jobs/$jobId/submit-for-review');
+      return;
+    case 'approve':
+      await patch('/technician-jobs/$jobId/approve-complete');
+      return;
+    case 'send_back':
+      await patch('/technician-jobs/$jobId/send-back',
+          body: {'note': payload['note']});
+      return;
+    case 'cancel':
+      await patch('/technician-jobs/$jobId/cancel');
+      return;
+    default:
+      throw ArgumentError('Aksi tidak dikenal: $action');
+  }
+}
+
 final updateJobStatusCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
-  return (payload) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('update_technician_job_status', params: {'payload': payload});
-  };
+  return (payload) => callUpdateJobStatus(payload, patch: _api.patch);
 });

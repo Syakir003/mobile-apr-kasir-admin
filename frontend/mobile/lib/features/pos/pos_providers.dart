@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/member.dart';
 import 'cart_state.dart';
@@ -178,20 +179,28 @@ final techniciansProvider =
       );
 });
 
-/// Memanggil RPC `checkout_transaction`. Dipisah sebagai provider
-/// agar mudah di-override fake pada widget test (pola
-/// `acUnitBarcodeGeneratorProvider` di `member_providers.dart`).
+/// Memanggil `POST /pos/checkout` (dulu RPC `checkout_transaction` langsung
+/// dari client — sekarang diproksi lewat NestJS, tapi RPC Postgres yang sama
+/// persis yang dijalankan di baliknya, jadi bentuk payload tidak berubah).
+/// Dipisah sebagai provider agar mudah di-override fake pada widget test
+/// (pola `acUnitBarcodeGeneratorProvider` di `member_providers.dart`).
 final checkoutCallerProvider = Provider<
     Future<({String invoiceId, String invoiceNumber})> Function(
         Map<String, dynamic>)>((ref) {
-  return (payload) async {
-    final result = await ref
-        .read(supabaseProvider)
-        .rpc('checkout_transaction', params: {'payload': payload});
-    final data = result as Map;
-    return (
-      invoiceId: (data['invoiceId'] as String?) ?? '',
-      invoiceNumber: (data['invoiceNumber'] as String?) ?? '',
-    );
-  };
+  const api = ApiClient();
+  return (payload) => sendCheckout(api.post, payload);
 });
+
+/// Dipisah dari [checkoutCallerProvider] agar testable tanpa sesi Supabase
+/// nyata — [post] adalah `ApiClient.post` sungguhan atau fake pada test.
+Future<({String invoiceId, String invoiceNumber})> sendCheckout(
+  Future<dynamic> Function(String path, {Object? body}) post,
+  Map<String, dynamic> payload,
+) async {
+  final result = await post('/pos/checkout', body: payload);
+  final data = result as Map;
+  return (
+    invoiceId: (data['invoiceId'] as String?) ?? '',
+    invoiceNumber: (data['invoiceNumber'] as String?) ?? '',
+  );
+}

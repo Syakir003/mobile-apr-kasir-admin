@@ -2,7 +2,17 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcrypt';
-import { BCRYPT_ROUNDS } from '../src/common/password.util';
+
+// common/password.util.ts (dulu sumber BCRYPT_ROUNDS ini) sudah dihapus —
+// akun & password sekarang murni milik Supabase Auth (lihat
+// src/users/users.service.ts), bukan kolom users.password lagi. Seed user
+// di bawah masih ditulis buat schema lama itu dan BELUM diadaptasi (di luar
+// scope re-baseline sesi ini) — seed.sql/seed.ts cuma dev-local, tidak
+// pernah dijalankan ke Supabase production (lihat plan.md). Konstanta ini
+// dipertahankan lokal biar file ini tetap gak nambah IMPORT error baru;
+// error TS pre-existing lain di bawah (kolom `password` dst.) masih ada,
+// nunggu seed.ts diadaptasi terpisah.
+const BCRYPT_ROUNDS = 10;
 
 // Sama seperti PrismaService (src/prisma/prisma.service.ts) — Prisma 7.x +
 // driver adapter WAJIB dikasih connectionString-nya sendiri, gak otomatis

@@ -7,21 +7,22 @@ import {
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
-import { BCRYPT_ROUNDS, passwordChangeStamp } from '../common/password.util';
+import { SupabaseAuthAdminService } from './supabase-auth-admin.service';
 
 /**
- * Pengganti custom_access_token_hook Supabase (role disisipkan ke JWT dari
- * public.users). Di sini roleny disisipkan langsung saat sign JWT sendiri.
- * Bedanya dengan Supabase: JWT self-contained (gak bisa "dicabut" sebelum
- * expired) — user yang di-nonaktifkan admin baru kena efek begitu token lama
- * expired dan dia coba login ulang, atau begitu request berikutnya lewat
- * JwtStrategy.validate() yang re-check `active` ke DB (lihat jwt.strategy.ts).
+ * Masa transisi: identitas & password tetap milik Supabase Auth (auth.users),
+ * karena aplikasi Flutter terpasang masih login ke Supabase. Login web
+ * (POST /auth/login) memverifikasi password terhadap hash bcrypt di
+ * auth.users (baca saja), lalu menerbitkan JWT NestJS (iss "epos-nest").
+ * Role & status aktif selalu dari public.users (JwtStrategy.validate).
+ * Cutover penuh (hash dipindah ke tabel milik Nest) dikerjakan belakangan.
  */
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly authAdmin: SupabaseAuthAdminService,
   ) {}
 
   // Hash dummy cuma buat nyamain waktu respons pas email gak ketemu (lihat
@@ -29,28 +30,39 @@ export class AuthService {
   private readonly DUMMY_HASH =
     '$2b$10$CwTycUXWue0Thq9StjUM0uJ8OoQC0/JD1U1U1U1U1U1U1U1U1U1U1';
 
+  /** Hash bcrypt dari Supabase Auth; null bila akun auth tidak bisa login. */
+  private async authHash(where: { email?: string; id?: string }): Promise<{ id: string; hash: string } | null> {
+    const rows = await this.prisma.$queryRawUnsafe<{ id: string; hash: string | null }[]>(
+      `select id::text as id, encrypted_password as hash
+         from auth.users
+        where (($1::text is not null and lower(email) = lower($1)) or ($2::uuid is not null and id = $2::uuid))
+          and deleted_at is null
+          and (banned_until is null or banned_until < now())
+        limit 1`,
+      where.email ?? null,
+      where.id ?? null,
+    );
+    const row = rows[0];
+    return row?.hash ? { id: row.id, hash: row.hash } : null;
+  }
+
   async login(email: string, password: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user || !user.active) {
-      // Sebelumnya langsung return di sini TANPA jalanin bcrypt.compare sama
-      // sekali — beda waktu respons antara "email gak ada" (cepet) vs "email
-      // ada tapi password salah" (lambat, nunggu bcrypt) itu measurable dan
-      // bisa dipakai buat nge-enumerate email staff yang valid dari luar,
-      // walau pesan errornya sama-sama "Email atau password salah". Tetap
-      // jalanin bcrypt.compare pakai dummy hash biar waktunya senormal
-      // kasus password salah.
+    const auth = await this.authHash({ email });
+    const user = auth ? await this.prisma.user.findUnique({ where: { id: auth.id } }) : null;
+    if (!auth || !user || !user.active) {
+      // Tetap jalankan bcrypt dengan hash dummy: waktu respons "email tidak
+      // ada" harus sama dengan "password salah" (anti enumerasi email).
       await bcrypt.compare(password, this.DUMMY_HASH);
       throw new UnauthorizedException('Email atau password salah');
     }
 
-    const valid = await bcrypt.compare(password, user.password);
+    const valid = await bcrypt.compare(password, auth.hash);
     if (!valid) {
       throw new UnauthorizedException('Email atau password salah');
     }
 
-    const payload = { sub: user.id, role: user.role };
     return {
-      accessToken: await this.jwt.signAsync(payload),
+      accessToken: await this.jwt.signAsync({ sub: user.id, role: user.role }),
       user: {
         id: user.id,
         email: user.email,
@@ -61,62 +73,41 @@ export class AuthService {
   }
 
   /**
-   * Ganti password sendiri — SEMUA role (kasir/teknisi/admin), bukan cuma
-   * admin. Sebelumnya endpoint ini gak ada sama sekali: layar Profil di app
-   * Flutter lama manggil `auth.updateUser()` punya Supabase, dan itu ikut
-   * hilang pas pindah ke backend sendiri, jadi gak ada satu pun cara buat
-   * siapa pun ganti password.
+   * Ganti password sendiri — semua role. Password lama diverifikasi terhadap
+   * auth.users, password baru ditulis lewat Admin API GoTrue (Supabase Auth
+   * tetap satu-satunya penyimpan password, jadi login di aplikasi Flutter
+   * ikut memakai password baru).
    *
-   * Sengaja balikin `accessToken` BARU: `passwordChangedAt` yang di-set di
-   * sini bikin semua token lama (termasuk yang lagi dipakai buat manggil
-   * endpoint ini) ditolak JwtStrategy. Tanpa token pengganti, user langsung
-   * ke-logout tiap kali ganti password — bener secara keamanan tapi bikin
-   * bingung. Token baru punya `iat` >= stempel, jadi dia lolos.
+   * Batasan masa transisi: JWT (Nest maupun Supabase) yang sudah terbit tetap
+   * berlaku sampai kedaluwarsa — tidak ada lagi stempel passwordChangedAt
+   * karena kolom itu tidak ada di skema Supabase.
    */
-  async changePassword(
-    userId: string,
-    currentPassword: string,
-    newPassword: string,
-  ) {
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    // JwtAuthGuard udah mastiin user-nya ada & aktif, jadi ini pengaman
-    // ekstra buat kasus akun kehapus di tengah request.
-    if (!user || !user.active)
-      throw new UnauthorizedException('Akun tidak aktif');
+    const auth = await this.authHash({ id: userId });
+    if (!user || !user.active || !auth) throw new UnauthorizedException('Akun tidak aktif');
 
-    const valid = await bcrypt.compare(currentPassword, user.password);
-    if (!valid) throw new UnauthorizedException('Password lama salah');
-
-    // Cegah "ganti" ke password yang sama persis — bukan soal keamanan, tapi
-    // biar user gak ngira udah aman padahal gak ada yang berubah (dan biar
-    // stempel passwordChangedAt gak nendang sesi tanpa alasan).
-    if (await bcrypt.compare(newPassword, user.password)) {
+    if (!(await bcrypt.compare(currentPassword, auth.hash))) {
+      throw new UnauthorizedException('Password lama salah');
+    }
+    if (await bcrypt.compare(newPassword, auth.hash)) {
       throw new BadRequestException('Password baru harus beda dari yang lama');
     }
 
-    const changedAt = passwordChangeStamp();
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        password: await bcrypt.hash(newPassword, BCRYPT_ROUNDS),
-        passwordChangedAt: changedAt,
-      },
-    });
+    await this.authAdmin.updatePassword(userId, newPassword);
 
     await this.prisma.auditLog.create({
       data: {
         actorUid: userId,
         action: 'user.change_password',
         target: userId,
-        // JANGAN pernah nyimpen password (lama maupun baru) di detail audit,
-        // sekalipun ke-hash — audit log dibaca admin, bukan tempat rahasia.
+        // Jangan pernah menyimpan password (lama/baru, ter-hash pun) di audit.
         detail: { self: true },
       },
     });
 
-    const payload = { sub: user.id, role: user.role };
     return {
-      accessToken: await this.jwt.signAsync(payload),
+      accessToken: await this.jwt.signAsync({ sub: user.id, role: user.role }),
       user: {
         id: user.id,
         email: user.email,

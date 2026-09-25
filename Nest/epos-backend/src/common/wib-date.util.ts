@@ -57,7 +57,7 @@ export function wibDayRange(referenceDate: Date = new Date()): {
  * "tanggal"-nya konsisten sama seluruh logic penjadwalan lain di sini yang
  * berbasis kalender WIB, bukan UTC. Nilai baliknya aman dibaca balik pakai
  * `getUTCFullYear()/getUTCMonth()/getUTCDate()` (lihat formatTanggalId di
- * whatsapp/wa-format.util.ts).
+ * common/wa-format.util.ts).
  */
 export function wibDateOnly(date: Date): Date {
   return new Date(`${wibDateParts(date)}T00:00:00.000Z`);

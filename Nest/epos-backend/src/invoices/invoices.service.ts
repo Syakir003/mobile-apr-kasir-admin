@@ -1,19 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { WhatsappService } from '../whatsapp/whatsapp.service';
-import { RemindersService } from '../reminders/reminders.service';
-import { formatTanggalId } from '../whatsapp/wa-format.util';
+import { formatTanggalId, waPhone } from '../common/wa-format.util';
 import { wibDateOnly } from '../common/wib-date.util';
 import { InvoiceHistoryQueryDto } from './dto/invoice-history-query.dto';
 
 @Injectable()
 export class InvoicesService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly whatsapp: WhatsappService,
-    private readonly reminders: RemindersService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Halaman "Riwayat Transaksi" — semua invoice (bukan cuma punya 1 member
@@ -77,14 +71,13 @@ export class InvoicesService {
   }
 
   /**
-   * `role` dipakai buat strip `buyPriceSnapshot` (harga beli/margin toko)
-   * dari tiap invoice item kalau bukan admin. Fix dari audit: sejak
-   * `buyPriceSnapshot` ditambahkan ke InvoiceItem (Siklus 8 revisi, buat
-   * akurasi laporan laba-rugi), field itu otomatis ikut ke-serialize di sini
-   * juga — endpoint invoice biasa (dibuka buat admin+kasir) jadi bocorin
-   * harga beli/margin ke kasir, padahal laporan laba-rugi sengaja
-   * admin-only. Kasir tetap liat semua data lain (harga jual, subtotal,
-   * pembayaran, dst) — cuma buyPriceSnapshot yang di-strip.
+   * `role` sebelumnya juga dipakai strip `buyPriceSnapshot` (harga beli/
+   * margin toko) dari invoice item buat non-admin — kolom itu TIDAK ADA di
+   * schema Supabase (re-baseline), jadi gak ada apa-apa buat di-strip
+   * (invoice_items di sini gak nyimpen cost, laporan laba-rugi baca modal
+   * dari item_costs langsung). Parameter `role` dipertahankan biar caller
+   * (controller) gak perlu berubah kalau fitur snapshot itu diporting balik
+   * nanti sebagai migration terpisah.
    */
   async findOne(id: string, role: 'admin' | 'kasir' | 'teknisi') {
     const invoice = await this.prisma.invoice.findUnique({
@@ -106,30 +99,31 @@ export class InvoicesService {
       },
     });
     if (!invoice) throw new NotFoundException('Invoice tidak ditemukan');
-    if (role !== 'admin') {
-      return {
-        ...invoice,
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- idiom "destructure buat dibuang", bukan variabel yang kelupaan
-        items: invoice.items.map(({ buyPriceSnapshot, ...item }) => item),
-      };
-    }
     return invoice;
   }
 
   /**
    * Tombol "Kirim WA" manual di halaman detail invoice — keputusan user
    * (bukan otomatis pas checkout) biar kasir yang mutusin kapan pelanggan
-   * dikirimi. Boleh diklik berkali-kali (resend) — WhatsappLog utk
-   * kind='invoice' sengaja gak pakai dedupeKey, beda dari reminder otomatis.
+   * dikirimi. Boleh diklik berkali-kali (resend), tidak butuh dedupe.
+   *
+   * Ini BUKAN baris wa_outbox: kolom `kind` tabel itu dibatasi CHECK
+   * constraint ke pesan pengingat servis + voucher/undian (migrasi
+   * 20260815000023 & 20260817000027) — 'invoice' bukan salah satu nilai yang
+   * diizinkan, dan migrasi tidak boleh disentuh dari sini. Invoice memang
+   * selalu murni fitur Nest tanpa RPC Supabase, jadi pesannya disusun
+   * langsung di sini dan hasilnya (nomor + teks) dikembalikan ke FE supaya FE
+   * yang membuka wa.me — sejalan dengan desain "Nest tidak mengirim WA
+   * sendiri" (lihat wa-outbox.service.ts).
    */
-  async sendWhatsapp(invoiceId: string, actorId: string) {
+  async sendWhatsapp(invoiceId: string) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
       include: { items: true, member: true },
     });
     if (!invoice) throw new NotFoundException('Invoice tidak ditemukan');
 
-    const phone = invoice.customerPhone || invoice.member?.phone;
+    const phone = waPhone(invoice.customerPhone || invoice.member?.phone);
     if (!phone) {
       throw new BadRequestException(
         'Invoice ini tidak punya nomor HP pelanggan — isi dulu data pelanggan sebelum kirim WA',
@@ -140,24 +134,12 @@ export class InvoicesService {
     const itemLines = invoice.items
       .map((item) => `- ${item.name} x${trimZero(item.qty)} = ${formatRupiah(item.lineTotal)}`)
       .join('\n');
-    // Redaksi udah bisa diedit admin lewat halaman "Pengingat WA" -> tab
-    // "Template Pesan" (kind='invoice') — lihat RemindersService.renderTemplate().
-    const message = await this.reminders.renderTemplate('invoice', {
-      nama,
-      nomor: invoice.number,
-      tanggal: formatTanggalId(wibDateOnly(invoice.createdAt)),
-      item: itemLines,
-      total: formatRupiah(invoice.grandTotal),
-      status: invoiceStatusLabel(invoice.status),
-    });
+    const message =
+      `Halo ${nama}, invoice ${invoice.number} (${invoiceStatusLabel(invoice.status)}) ` +
+      `tanggal ${formatTanggalId(wibDateOnly(invoice.createdAt))}:\n${itemLines}\n\n` +
+      `Total: ${formatRupiah(invoice.grandTotal)}\n\n— Ayub Podo Rukun`;
 
-    return this.whatsapp.sendInvoiceMessage({
-      invoiceId: invoice.id,
-      memberId: invoice.memberId,
-      phone,
-      message,
-      actorId,
-    });
+    return { phone, message };
   }
 }
 

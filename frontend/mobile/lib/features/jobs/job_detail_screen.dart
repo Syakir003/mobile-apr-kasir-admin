@@ -930,18 +930,16 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
       final bytes = await file.readAsBytes();
       final ext = file.name.contains('.') ? file.name.split('.').last : 'jpg';
       final repo = ref.read(jobRepositoryProvider);
-      final path = await repo.uploadPhoto(
+      // Nest: satu panggilan multipart sudah menyimpan file DAN mencatat
+      // barisnya sekaligus (lihat NestJobRepository.uploadPhoto) — tidak ada
+      // lagi langkah pencatatan metadata terpisah setelah ini.
+      await repo.uploadPhoto(
         jobId: widget.job.id,
         kind: kind,
         bytes: bytes,
         ext: ext,
         contentType: file.mimeType ?? 'image/jpeg',
       );
-      await ref.read(addJobPhotoCallerProvider)({
-        'jobId': widget.job.id,
-        'kind': kind.value,
-        'path': path,
-      });
       ref.invalidate(jobPhotosProvider(widget.job.id));
       if (!mounted) return;
       messenger.showSnackBar(

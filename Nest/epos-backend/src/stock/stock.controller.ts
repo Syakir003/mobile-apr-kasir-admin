@@ -7,6 +7,7 @@ import type { CurrentUserPayload } from '../auth/decorators/current-user.decorat
 import { StockService } from './stock.service';
 import { StockInDto } from './dto/stock-in.dto';
 import { StockOpnameDto } from './dto/stock-opname.dto';
+import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { StockMovementsQueryDto } from './dto/stock-movements-query.dto';
 
 // Semua endpoint di sini admin-only — beda dari checkout (Siklus 1) yang admin+kasir boleh.
@@ -24,6 +25,13 @@ export class StockController {
   @Post('opname')
   opname(@Body() dto: StockOpnameDto, @CurrentUser() user: CurrentUserPayload) {
     return this.stockService.opname(dto, user.sub);
+  }
+
+  // Padanan RPC `adjust_stock` — penyesuaian manual bertanda bebas (mobile),
+  // beda semantik dari 'in'/'opname' di atas, lihat komentar `AdjustStockDto`.
+  @Post('adjust')
+  adjust(@Body() dto: AdjustStockDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.stockService.adjust(user, dto);
   }
 
   @Get('movements')

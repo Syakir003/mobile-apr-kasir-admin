@@ -28,7 +28,6 @@ import { ReportsModule } from './reports/reports.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { NotificationsModule } from './notifications/notifications.module';
-import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { RemindersModule } from './reminders/reminders.module';
 
 @Module({
@@ -62,7 +61,6 @@ import { RemindersModule } from './reminders/reminders.module';
     DashboardModule,
     AuditLogsModule,
     NotificationsModule,
-    WhatsappModule,
     RemindersModule,
   ],
   controllers: [AppController],

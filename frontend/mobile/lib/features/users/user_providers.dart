@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/supabase/session_gate.dart';
 import '../../core/supabase/supabase_providers.dart';
-import '../../core/utils/error_message.dart';
 import '../../data/models/managed_user.dart';
 
 /// Seluruh akun (admin saja — RLS `users` mengizinkan admin/kasir membaca
@@ -19,52 +19,45 @@ final managedUsersProvider = StreamProvider<List<ManagedUser>>((ref) {
           .toList(growable: false)));
 });
 
-/// RPC `update_user_account` — ubah peran / status aktif / nama tampilan.
-/// Penjaga "minimal satu Admin aktif" & "tak bisa menurunkan diri sendiri"
-/// ada di backend; UI hanya meneruskan pesan errornya.
+/// `PATCH /users/:id` + `PATCH /users/:id/toggle-active` — pengganti RPC
+/// `update_user_account` pada migrasi Flutter -> Nest. Backend SENGAJA
+/// membelah RPC lama jadi dua endpoint terpisah (lihat komentar
+/// `UpdateUserDto`/`UsersService.toggleActive`): pengaman "gak bisa
+/// menonaktifkan diri sendiri" & "admin aktif terakhir" cuma berlaku di
+/// toggle-active, biar gak bisa dilewatin lewat endpoint update biasa. Dua
+/// panggilan berurutan ini TIDAK atomik seperti RPC lama — kalau panggilan
+/// kedua gagal (mis. kena pengaman admin-terakhir), role/nama sudah
+/// tersimpan tapi status aktif belum; error dari panggilan yang gagal
+/// diteruskan apa adanya ke pemanggil.
 final updateUserAccountCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
   return (payload) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('update_user_account', params: {'payload': payload});
+    final id = payload['userId'] as String;
+    const api = ApiClient();
+    await api.patch('/users/$id', body: {
+      'role': payload['role'],
+      'displayName': payload['displayName'],
+    });
+    await api.patch('/users/$id/toggle-active', body: {'active': payload['active']});
   };
 });
 
-/// Edge Function `admin-users` aksi `create` — membuat akun baru.
-/// Tidak bisa lewat RPC: menulis ke skema `auth` butuh service_role yang
-/// sengaja tidak pernah ada di dalam aplikasi.
+/// `POST /users` (admin) — pengganti Edge Function `admin-users` aksi
+/// `create` pada migrasi Flutter -> Nest. Nest membuat akun lewat Admin API
+/// GoTrue (service_role di server, bukan di aplikasi) lalu menimpa profil
+/// `public.users` — port 1:1 dari Edge Function lama, lihat `UsersService.create`.
 final createUserAccountCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> body)>((ref) {
   return (body) async {
-    final client = ref.read(supabaseProvider);
-    try {
-      await client.functions.invoke(
-        'admin-users',
-        body: {'action': 'create', ...body},
-      );
-    } catch (e) {
-      throw Exception(errorMessage(e));
-    }
+    await const ApiClient().post('/users', body: body);
   };
 });
 
-/// Edge Function `admin-users` aksi `resetPassword`.
+/// `PATCH /users/:id/password` (admin) — pengganti aksi `resetPassword` Edge
+/// Function `admin-users`.
 final resetPasswordCallerProvider =
     Provider<Future<void> Function(String userId, String password)>((ref) {
   return (userId, password) async {
-    final client = ref.read(supabaseProvider);
-    try {
-      await client.functions.invoke(
-        'admin-users',
-        body: {
-          'action': 'resetPassword',
-          'userId': userId,
-          'password': password,
-        },
-      );
-    } catch (e) {
-      throw Exception(errorMessage(e));
-    }
+    await const ApiClient().patch('/users/$userId/password', body: {'newPassword': password});
   };
 });

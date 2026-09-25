@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/router/app_router.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/app_notification.dart';
@@ -35,17 +36,14 @@ final unreadCountProvider = Provider.autoDispose<int>((ref) {
   return list.where((n) => !n.read).length;
 });
 
-/// RPC `mark_notifications_read`. Tanpa [notificationId] menandai semua terbaca.
+/// `PATCH /notifications/read` — pengganti RPC `mark_notifications_read` pada
+/// migrasi Flutter -> Nest (endpoint yang sama sudah dipakai web, lihat
+/// `notification-bell.tsx`). Tanpa [notificationId] menandai semua terbaca.
 final markNotificationsReadCallerProvider =
     Provider<Future<void> Function({String? notificationId})>((ref) {
   return ({String? notificationId}) async {
-    await ref.read(supabaseProvider).rpc(
-      'mark_notifications_read',
-      params: {
-        'payload': {
-          if (notificationId != null) 'notificationId': notificationId,
-        },
-      },
-    );
+    await const ApiClient().patch('/notifications/read', body: {
+      if (notificationId != null) 'notificationId': notificationId,
+    });
   };
 });

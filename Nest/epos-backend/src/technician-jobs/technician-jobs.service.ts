@@ -2,20 +2,18 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
   InvoiceStatus,
   Prisma,
   ProblemCategory,
-  TechnicianJobStatus,
 } from '@prisma/client';
+import { TechnicianJobStatus } from '../common/technician-job-status';
 import { PrismaService } from '../prisma/prisma.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
 import { wibDayRange } from '../common/wib-date.util';
-import { RemindersService } from '../reminders/reminders.service';
-import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { SupabaseRpcService, RpcActor } from '../prisma/supabase-rpc.service';
 
 type Role = 'admin' | 'kasir' | 'teknisi';
 
@@ -36,12 +34,9 @@ type Role = 'admin' | 'kasir' | 'teknisi';
  */
 @Injectable()
 export class TechnicianJobsService {
-  private readonly logger = new Logger(TechnicianJobsService.name);
-
   constructor(
     private readonly prisma: PrismaService,
-    private readonly reminders: RemindersService,
-    private readonly whatsapp: WhatsappService,
+    private readonly rpc: SupabaseRpcService,
   ) {}
 
   private assertOwnerOrAdmin(
@@ -273,9 +268,31 @@ export class TechnicianJobsService {
    * lihat semua job — RPC asli juga tak pernah butuh ini karena Flutter admin
    * langsung query Supabase). Tidak ada di RPC manapun, murni CRUD read.
    */
-  async findAll(status?: TechnicianJobStatus) {
+  /**
+   * `unitId` = riwayat servis satu unit AC (dipakai mobile, semua peran).
+   * Tanpa `unitId`, listing semua job cuma buat admin/kasir (dijaga
+   * controller) — teknisi WAJIB isi `unitId`, dan hanya kebagian hasil kalau
+   * dia sendiri punya minimal 1 job di unit itu. Port dari RLS
+   * `my_visible_job_ids()` (migrasi 20260806000020): teknisi boleh lihat
+   * job MILIKNYA + job teknisi lain pada UNIT yang sama, all-or-nothing per
+   * unit (bukan per baris job).
+   */
+  async findAll(status?: TechnicianJobStatus, unitId?: string, actor?: { sub: string; role: Role }) {
+    if (actor?.role === 'teknisi') {
+      if (!unitId) {
+        throw new ForbiddenException('Teknisi wajib menyertakan unitId');
+      }
+      const ownJobOnUnit = await this.prisma.technicianJob.count({
+        where: { unitId, technicianId: actor.sub },
+      });
+      if (ownJobOnUnit === 0) return [];
+    }
+
     return this.prisma.technicianJob.findMany({
-      where: status ? { status } : undefined,
+      where: {
+        ...(status ? { status } : {}),
+        ...(unitId ? { unitId } : {}),
+      },
       include: {
         member: true,
         unit: true,
@@ -284,6 +301,96 @@ export class TechnicianJobsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /**
+   * Ringkasan foto & material untuk BANYAK job sekaligus (layar riwayat servis
+   * per unit di mobile) — dua `groupBy`, bukan N query per job.
+   *
+   * RBAC di-port PERSIS dari RLS (migrasi 20260806000020), BUKAN dipercaya
+   * dari `jobIds` kiriman client (endpoint ini berdiri sendiri, bukan cuma
+   * dipanggil sesudah findAll):
+   *  - job_photos: teknisi cuma lihat job VISIBLE (miliknya + job lain pada
+   *    unit yang sama) — `my_visible_job_ids()`.
+   *  - material_requests: teknisi cuma lihat job MILIKNYA — lebih ketat
+   *    karena isinya nilai rupiah — `my_job_scope()`.
+   * admin/kasir: tanpa batasan, sama seperti RLS mereka.
+   */
+  async historyExtras(jobIds: string[], actor: { sub: string; role: Role }) {
+    const ids = [...new Set(jobIds)].slice(0, 300);
+    const empty = () => ({
+      photosBefore: 0,
+      photosAfter: 0,
+      materialItems: 0,
+      materialTotal: 0,
+      materialPending: 0,
+    });
+    const result: Record<string, ReturnType<typeof empty>> = {};
+    for (const id of ids) result[id] = empty();
+    if (ids.length === 0) return result;
+
+    let photoIds = ids;
+    let materialIds = ids;
+    if (actor.role === 'teknisi') {
+      const own = await this.prisma.technicianJob.findMany({
+        where: { technicianId: actor.sub },
+        select: { id: true, unitId: true },
+      });
+      const ownIds = new Set(own.map((j) => j.id));
+      const ownUnitIds = new Set(own.map((j) => j.unitId).filter((u): u is string => !!u));
+      materialIds = ids.filter((id) => ownIds.has(id));
+      if (ownUnitIds.size === 0) {
+        photoIds = ids.filter((id) => ownIds.has(id));
+      } else {
+        const candidates = ids.filter((id) => !ownIds.has(id));
+        const jobs = candidates.length
+          ? await this.prisma.technicianJob.findMany({
+              where: { id: { in: candidates } },
+              select: { id: true, unitId: true },
+            })
+          : [];
+        const visibleOthers = new Set(
+          jobs.filter((j) => j.unitId && ownUnitIds.has(j.unitId)).map((j) => j.id),
+        );
+        photoIds = ids.filter((id) => ownIds.has(id) || visibleOthers.has(id));
+      }
+    }
+
+    const [photoRows, materialRows] = await Promise.all([
+      photoIds.length
+        ? this.prisma.jobPhoto.groupBy({
+            by: ['jobId', 'kind'],
+            where: { jobId: { in: photoIds } },
+            _count: { _all: true },
+          })
+        : [],
+      materialIds.length
+        ? this.prisma.materialRequest.groupBy({
+            by: ['jobId', 'status'],
+            where: { jobId: { in: materialIds } },
+            _count: { _all: true },
+            _sum: { total: true },
+          })
+        : [],
+    ]);
+
+    for (const r of photoRows) {
+      const entry = result[r.jobId];
+      if (!entry) continue;
+      if (r.kind === 'sesudah') entry.photosAfter += r._count._all;
+      else entry.photosBefore += r._count._all;
+    }
+    for (const r of materialRows) {
+      const entry = result[r.jobId];
+      if (!entry) continue;
+      if (r.status === 'approved') {
+        entry.materialItems += r._count._all;
+        entry.materialTotal += r._sum.total ?? 0;
+      } else if (r.status === 'pending') {
+        entry.materialPending += r._count._all;
+      }
+    }
+    return result;
   }
 
   /**
@@ -303,7 +410,14 @@ export class TechnicianJobsService {
         member: true,
         unit: true,
         technician: { select: { id: true, displayName: true, email: true } },
-        order: true,
+        // invoice di-nest di sini (bukan order:true polos) biar teknisi di
+        // lapangan bisa liat status bayar customer tanpa call endpoint
+        // terpisah — "job payment information".
+        order: {
+          include: {
+            invoice: { select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true } },
+          },
+        },
         photos: { orderBy: { createdAt: 'asc' } }, // model lama, cuma keisi utk job pra-migrasi
         findings: {
           include: {
@@ -431,7 +545,7 @@ export class TechnicianJobsService {
     // dia turun ke lapangan).
     if (
       !(
-        [TechnicianJobStatus.menunggu_penugasan, TechnicianJobStatus.assigned] as TechnicianJobStatus[]
+        [TechnicianJobStatus.menunggu_penugasan, TechnicianJobStatus.assigned] as string[]
       ).includes(job.status)
     ) {
       throw new BadRequestException(
@@ -543,7 +657,7 @@ export class TechnicianJobsService {
     this.assertOwnerOrAdmin(job, actorId, role);
     if (
       !(
-        [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]
+        [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as string[]
       ).includes(job.status)
     ) {
       throw new BadRequestException(
@@ -587,7 +701,7 @@ export class TechnicianJobsService {
     this.assertOwnerOrAdmin(job, actorId, role);
     if (
       !(
-        [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]
+        [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as string[]
       ).includes(job.status)
     ) {
       throw new BadRequestException(
@@ -606,6 +720,41 @@ export class TechnicianJobsService {
     });
   }
 
+  /** Model LAMA level-job (tabel `job_photos`, tanpa temuan) — port dari RPC
+   * Postgres `add_job_photo`. Ditambahkan (bukan dihapus) untuk kompatibilitas
+   * app mobile Flutter yang belum migrasi ke checklist temuan; guard SAMA
+   * persis dengan addFindingPhoto()/RPC lama: pemilik atau admin, status job
+   * aktif (assigned/sedang_dikerjakan), kind sebelum/sesudah. */
+  async addJobPhoto(
+    jobId: string,
+    kind: 'sebelum' | 'sesudah',
+    path: string,
+    actorId: string,
+    role: Role,
+  ) {
+    if (kind !== 'sebelum' && kind !== 'sesudah') {
+      throw new BadRequestException("kind harus 'sebelum' atau 'sesudah'");
+    }
+    const job = await this.prisma.technicianJob.findUnique({
+      where: { id: jobId },
+    });
+    if (!job) throw new NotFoundException('Job tidak ditemukan');
+    this.assertOwnerOrAdmin(job, actorId, role);
+    if (
+      !(
+        [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as string[]
+      ).includes(job.status)
+    ) {
+      throw new BadRequestException(
+        'Foto hanya bisa ditambahkan saat job aktif',
+      );
+    }
+
+    return this.prisma.jobPhoto.create({
+      data: { jobId, kind, path, uploadedById: actorId },
+    });
+  }
+
   async updateNotes(jobId: string, notes: string, actorId: string, role: Role) {
     const job = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
@@ -618,7 +767,7 @@ export class TechnicianJobsService {
     // seharusnya final. Konsisten sama gate di addFinding/addFindingPhoto.
     if (
       !(
-        [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]
+        [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as string[]
       ).includes(job.status)
     ) {
       throw new BadRequestException(
@@ -718,121 +867,25 @@ export class TechnicianJobsService {
    * Aksi "Setujui" (Admin only) — job harus 'menunggu_review'. Tidak ada
    * gate otomatis tambahan di sini: review visual Admin (liat foto tiap
    * temuan + data tambahan seperti sparepart) ITU SENDIRI yang jadi gate,
-   * sesuai keputusan user. Efek samping identik dengan complete() lama.
+   * sesuai keputusan user.
+   *
+   * Dulu ini raw Prisma (update job + unit + insert log WA lewat
+   * RemindersService, lalu kirim Fonnte manual). Sekarang delegasi penuh ke
+   * RPC `update_technician_job_status` action='approve' (redefinisi final
+   * di migrasi 20260918000034_checklist_servis_review.sql) — RPC itu SUDAH
+   * melakukan semuanya dalam satu transaksi atomik: cek role/status,
+   * tandai job selesai, tutup service_order_units/service_orders, resolusi
+   * siklus servis berikutnya, dan mengantre baris wa_outbox 'selesai_servis'
+   * (dedupe_key `job:<id>`) — Nest tidak pernah mengirim WA sendiri, baris
+   * itu menunggu admin/kasir kirim manual lewat layar Pengingat. Satu
+   * implementasi, tidak ada logika ganda (lihat header SupabaseRpcService).
    */
-  async approveComplete(jobId: string, role: Role) {
-    if (role !== 'admin') {
-      throw new ForbiddenException(
-        'Hanya Admin yang boleh menyetujui penyelesaian job',
-      );
-    }
-    const job = await this.prisma.technicianJob.findUnique({
-      where: { id: jobId },
-    });
-    if (!job) throw new NotFoundException('Job tidak ditemukan');
-    if (job.status !== TechnicianJobStatus.menunggu_review) {
-      throw new BadRequestException(
-        'Job harus berstatus Menunggu Review untuk disetujui',
-      );
-    }
-
-    let pendingWaLogId: string | null = null;
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const updated = await tx.technicianJob.update({
-        where: { id: jobId },
-        data: { status: TechnicianJobStatus.selesai, completedAt: now, updatedAt: now },
-      });
-
-      if (job.orderId && job.unitId) {
-        await tx.serviceOrderUnit.updateMany({
-          where: { orderId: job.orderId, unitId: job.unitId },
-          data: { status: 'selesai' },
-        });
-      }
-      if (job.unitId) {
-        // Siklus WA/Fonnte — siklus servis berikutnya gak lagi di-hardcode
-        // "+3 bulan", tapi diresolusi per unit/jenis job (override unit ->
-        // default ReminderSetting -> 0 = gak dijadwalkan). Port dari
-        // resolve_service_interval_days() SQL, lihat RemindersService.
-        const intervalDays = await this.reminders.resolveIntervalDaysTx(
-          tx,
-          job.unitId,
-          job.type,
-        );
-        const nextService =
-          intervalDays > 0 ? new Date(now.getTime() + intervalDays * 86400000) : null;
-
-        const updatedUnit = await tx.memberAcUnit.update({
-          where: { id: job.unitId },
-          data: {
-            status: job.type === 'pemasangan' ? 'aktif' : undefined,
-            installationDate: job.type === 'pemasangan' ? now : undefined,
-            lastServiceDate: now,
-            nextServiceDate: nextService,
-          },
-        });
-
-        // Pesan "pekerjaan selesai" — cuma diantre kalau unit ini memang
-        // dapat siklus berikutnya (intervalDays>0). Cuma dibuat baris
-        // 'pending' DI SINI (dalam transaksi); Fonnte beneran dipanggil
-        // SETELAH transaksi ini commit (lihat blok di bawah) biar gak nahan
-        // lock Postgres sambil nunggu network I/O.
-        if (intervalDays > 0 && nextService) {
-          const log = await this.reminders.enqueueJobCompleteMessageTx(tx, {
-            jobId,
-            memberId: updatedUnit.memberId,
-            unitId: job.unitId,
-            dueDate: nextService,
-          });
-          pendingWaLogId = log?.id ?? null;
-        }
-      }
-      if (job.orderId) {
-        // Lock row service_orders DULU — kalau 2 job dalam 1 ServiceOrder
-        // yang sama diselesaikan admin nyaris bersamaan, tanpa lock ini
-        // masing-masing transaction bisa baca stillOpen>0 (nganggep job yang
-        // LAIN masih "buka" dari snapshot sebelum transaksi lain commit),
-        // jadi DUA-duanya gak ada yang nge-set status 'selesai' walau
-        // sebenarnya kedua job udah beres.
-        await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${job.orderId} FOR UPDATE`;
-        const stillOpen = await tx.technicianJob.count({
-          where: {
-            orderId: job.orderId,
-            status: {
-              notIn: [TechnicianJobStatus.selesai, TechnicianJobStatus.dibatalkan],
-            },
-          },
-        });
-        if (stillOpen === 0) {
-          await tx.serviceOrder.update({
-            where: { id: job.orderId },
-            data: { status: 'selesai' },
-          });
-        }
-      }
-      return updated;
-    });
-
-    if (pendingWaLogId) {
-      // SETELAH transaksi commit — kirim WA beneran lewat Fonnte. Dibungkus
-      // try/catch di sini juga (WhatsappService.sendPendingLog sendiri
-      // udah gak pernah throw utk kegagalan Fonnte, catch ini cuma jaring
-      // pengaman ekstra utk error tak terduga lain) supaya gagal kirim WA
-      // TIDAK PERNAH bikin approveComplete() ini gagal — job udah telanjur
-      // 'selesai', itu yang penting buat teknisi/admin, notifikasi WA cuma
-      // bonus.
-      try {
-        await this.whatsapp.sendPendingLog(pendingWaLogId);
-      } catch (e) {
-        this.logger.warn(
-          `Gagal kirim WA konfirmasi selesai servis (log ${pendingWaLogId}): ${e}`,
-        );
-      }
-    }
-
-    return result;
+  approveComplete(jobId: string, actor: RpcActor) {
+    return this.rpc.call<{ ok: boolean; status: string }>(
+      actor,
+      'update_technician_job_status',
+      { jobId, action: 'approve' },
+    );
   }
 
   /**

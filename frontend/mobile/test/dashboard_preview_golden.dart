@@ -87,13 +87,10 @@ void main() {
       txToday: 12,
       txMonth: 142,
       unpaidCount: 7,
-      piutang: 3400000,
-      paymentsByMethod: const {},
       lowStock: const [
         LowStockItem(name: 'Kompresor 1PK', stock: 2, min: 5),
         LowStockItem(name: 'Freon R32', stock: 1, min: 4),
       ],
-      inventoryValue: 0,
       jobsByStatus: const {},
       dailySales: [
         for (var i = 6; i >= 0; i--)

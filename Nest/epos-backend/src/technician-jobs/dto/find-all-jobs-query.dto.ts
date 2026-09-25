@@ -1,5 +1,5 @@
-import { IsEnum, IsOptional } from 'class-validator';
-import { TechnicianJobStatus } from '@prisma/client';
+import { IsEnum, IsOptional, IsUUID } from 'class-validator';
+import { TechnicianJobStatus } from '../../common/technician-job-status';
 
 // Query param `status` di GET /technician-jobs (admin/kasir) — sejak `status`
 // jadi enum Postgres beneran (bukan String polos lagi), nilai sembarangan di
@@ -10,4 +10,11 @@ export class FindAllJobsQueryDto {
   @IsOptional()
   @IsEnum(TechnicianJobStatus)
   status?: TechnicianJobStatus;
+
+  // Riwayat servis per unit AC (dipakai mobile) — teknisi cuma boleh isi ini
+  // kalau punya job sendiri di unit tsb, lihat TechnicianJobsService.findAll,
+  // port dari RLS `my_visible_job_ids()` (migrasi 0020).
+  @IsOptional()
+  @IsUUID()
+  unitId?: string;
 }

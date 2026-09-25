@@ -1,15 +1,16 @@
 /**
  * Helper format WA — port 1:1 dari `wa_phone()` dan `tgl_id()` di migrasi
- * Supabase 20260815000023_service_reminders.sql, biar nomor & tanggal yang
- * dikirim ke Fonnte identik perilakunya dengan app mobile lama.
+ * Supabase 20260815000023_service_reminders.sql. Nest tidak mengirim WA
+ * sendiri (lihat src/wa-outbox/wa-outbox.service.ts); helper ini cuma
+ * dipakai supaya nomor & tanggal yang ditampilkan/disiapkan untuk link
+ * wa.me manual identik perilakunya dengan yang dibentuk di SQL.
  */
 
 /**
- * Normalisasi nomor HP ke format internasional tanpa '+', dipakai sebagai
- * `target` Fonnte. '0812…' -> '62812…', '+62 812-345' -> '62812345'.
- * String kosong/tanpa digit dikembalikan '' apa adanya supaya pemanggil bisa
- * menyaring member tanpa nomor yang valid (jangan sampai nge-hit Fonnte
- * dengan target kosong).
+ * Normalisasi nomor HP ke format internasional tanpa '+'. '0812…' ->
+ * '62812…', '+62 812-345' -> '62812345'. String kosong/tanpa digit
+ * dikembalikan '' apa adanya supaya pemanggil bisa menyaring nomor yang
+ * tidak valid.
  */
 export function waPhone(phone: string | null | undefined): string {
   const digits = (phone ?? '').replace(/\D/g, '');

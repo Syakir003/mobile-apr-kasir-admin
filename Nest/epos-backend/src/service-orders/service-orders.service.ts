@@ -46,7 +46,7 @@ export class ServiceOrdersService {
           ).member;
       if (!member) throw new NotFoundException('Member yang dipilih tidak ditemukan');
 
-      let unit: { id: string; barcodeValue: string; memberId: string };
+      let unit: { id: string; barcodeValue: string | null; memberId: string };
       if (dto.existingUnitId) {
         const existing = await tx.memberAcUnit.findUnique({ where: { id: dto.existingUnitId } });
         if (!existing) throw new NotFoundException('Unit AC tidak ditemukan');
@@ -143,7 +143,12 @@ export class ServiceOrdersService {
     return order;
   }
 
-  /** Kasir cek status servis pelanggan — cari lewat nomor HP atau memberId langsung. */
+  /**
+   * Kasir cek status servis pelanggan (`?phone=`/`?memberId=`), ATAU — tanpa
+   * filter sama sekali — admin/kasir lihat SEMUA order terbaru (dipakai
+   * mobile, port dari query Supabase lama `.order('created_at').limit(100)`,
+   * lihat `SupabaseJobRepository.fetchOrders`).
+   */
   async findByCustomer(params: { phone?: string; memberId?: string }) {
     let memberId = params.memberId;
     if (!memberId && params.phone) {
@@ -152,12 +157,13 @@ export class ServiceOrdersService {
       if (!member) return [];
       memberId = member.id;
     }
-    if (!memberId) throw new BadRequestException('Wajib isi query ?phone= atau ?memberId=');
 
     return this.prisma.serviceOrder.findMany({
-      where: { memberId },
+      where: memberId ? { memberId } : undefined,
       orderBy: { createdAt: 'desc' },
+      take: memberId ? undefined : 100,
       include: {
+        member: { select: { name: true } },
         serviceOrderUnits: { include: { unit: true } },
         units: { include: { technician: { select: { id: true, displayName: true } } } },
       },

@@ -165,13 +165,31 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
   }
 
   /// Buka dialog revisi qty tiap item lalu setujui dengan nilai revisi.
+  ///
+  /// `_ReviseDialog` mengembalikan patch per item lama (`{itemId, qty}`,
+  /// qty 0 = hapus) — tapi `PATCH /material-requests/:id/decide` Nest
+  /// mengganti SELURUH daftar item dengan bentuk `{kind, refId, qty}`
+  /// (lihat `MaterialRequestsService.decide`, cabang `revise`: hapus semua
+  /// item lama, buat ulang dari daftar yang dikirim). Transformasi bentuk
+  /// dilakukan di sini (bukan di provider) karena hanya di sini `kind`/
+  /// `refId` item ASLI tersedia (`widget.request.items`).
   Future<void> _reviseThenApprove() async {
     final result = await showDialog<List<Map<String, dynamic>>>(
       context: context,
       builder: (_) => _ReviseDialog(request: widget.request),
     );
     if (result == null) return; // dibatalkan
-    await _decide('revise', items: result);
+
+    final items = <Map<String, dynamic>>[];
+    for (final e in result) {
+      final qty = e['qty'] as num;
+      if (qty <= 0) continue; // dihapus lewat dialog -> tidak ikut dikirim
+      final original =
+          widget.request.items.firstWhere((it) => it.id == e['itemId']);
+      items.add({'kind': original.kind, 'refId': original.refId, 'qty': qty});
+    }
+    if (items.isEmpty) return; // semua item dihapus — Nest menolak revisi kosong
+    await _decide('revise', items: items);
   }
 
   Future<void> _markUsed() async {

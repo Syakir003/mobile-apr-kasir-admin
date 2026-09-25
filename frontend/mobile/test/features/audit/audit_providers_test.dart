@@ -53,4 +53,25 @@ void main() {
       expect(e.at, isNull);
     });
   });
+
+  group('auditLogRowFromNest', () {
+    test('actor.displayName/email Nest -> display_name/email PostgREST', () {
+      final row = auditLogRowFromNest({
+        'id': '1',
+        'action': 'stock.adjust',
+        'target': 'p1',
+        'detail': {'reason': 'pembelian'},
+        'at': '2026-07-19T03:04:05Z',
+        'actor': {'displayName': 'Adm', 'email': 'a@x.id'},
+      });
+      final e = AuditEntry.fromMap(row);
+      expect(e.actorName, 'Adm');
+      expect(e.target, 'p1');
+    });
+
+    test('tanpa actor -> key actor tidak ikut (bukan null eksplisit)', () {
+      final row = auditLogRowFromNest({'id': '2', 'action': 'pos.checkout'});
+      expect(row.containsKey('actor'), isFalse);
+    });
+  });
 }

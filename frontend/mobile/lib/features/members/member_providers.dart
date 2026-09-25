@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/supabase/session_gate.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/ac_unit.dart';
@@ -21,8 +22,13 @@ final membersStreamProvider = StreamProvider<List<Member>>(
       ref, () => ref.watch(memberRepositoryProvider).watchAll()),
 );
 
+/// Sudah dipindah ke backend NestJS ([NestAcUnitRepository]) untuk
+/// findByBarcode/findById/update — [watchByMember] (Realtime) dan [create]
+/// tetap lewat Supabase langsung, lihat komentar di kelasnya untuk alasan
+/// masing-masing. [SupabaseAcUnitRepository] dibiarkan ada di file sumbernya
+/// untuk rollback cepat bila diperlukan.
 final acUnitRepositoryProvider = Provider<AcUnitRepository>(
-  (ref) => SupabaseAcUnitRepository(ref.watch(supabaseProvider)),
+  (ref) => NestAcUnitRepository(const ApiClient(), ref.watch(supabaseProvider)),
 );
 
 /// Unit AC milik satu member (family by memberId).

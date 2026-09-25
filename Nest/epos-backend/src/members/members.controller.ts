@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -6,6 +6,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { MembersService } from './members.service';
 import { SetWaOptOutDto } from './dto/set-wa-opt-out.dto';
+import { CreateMemberDto } from './dto/create-member.dto';
+import { UpdateMemberDto } from './dto/update-member.dto';
 
 /** Baru ditambah Siklus 6 — sebelumnya MembersService murni internal
  * (findOrCreate dipanggil dari POS/ServiceOrders), gak ada endpoint REST
@@ -23,6 +25,14 @@ export class MembersController {
   @Get('search')
   search(@Query('q') q?: string) {
     return this.members.search(q ?? '');
+  }
+
+  /** Tambah member manual dari halaman "Member" — beda dari findOrCreate
+   * (dipanggil internal oleh POS/ServiceOrders saat checkout/intake). */
+  @Roles('admin', 'kasir')
+  @Post()
+  create(@Body() dto: CreateMemberDto) {
+    return this.members.create(dto);
   }
 
   /** Halaman "Member" — tabel semua member. */
@@ -47,6 +57,18 @@ export class MembersController {
     @Body() dto: SetWaOptOutDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.members.setWaOptOut(id, dto.optOut, user.sub);
+    return this.members.setWaOptOut(id, dto.optOut, user);
+  }
+
+  /** Edit data member (nama, HP, alamat, dst) — bukan wa-opt-out, itu
+   * endpoint terpisah di atas (punya efek samping batalin reminder pending). */
+  @Roles('admin', 'kasir')
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateMemberDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.members.update(id, dto, user.sub);
   }
 }
