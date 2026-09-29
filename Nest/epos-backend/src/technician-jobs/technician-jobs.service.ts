@@ -303,7 +303,13 @@ export class TechnicianJobsService {
         member: true,
         unit: true,
         technician: { select: { id: true, displayName: true, email: true } },
-        order: true,
+        // order.invoice = pengganti RPC job_payment_info (app mobile): cuma
+        // field yang sama dengan RPC-nya, teknisi cuma bisa buka job miliknya.
+        order: {
+          include: {
+            invoice: { select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true } },
+          },
+        },
         photos: { orderBy: { createdAt: 'asc' } }, // model lama, cuma keisi utk job pra-migrasi
         findings: {
           include: {
