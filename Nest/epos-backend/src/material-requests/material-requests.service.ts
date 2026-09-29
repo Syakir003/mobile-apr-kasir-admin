@@ -4,8 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InvoiceStatus, ItemKind, Prisma } from '@prisma/client';
-import { TechnicianJobStatus } from '../common/technician-job-status';
+import { InvoiceStatus, Prisma, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockLockingService } from '../common/services/stock-locking.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
@@ -44,7 +43,7 @@ export class MaterialRequestsService {
    */
   private async priceItems(items: MaterialRequestItemDto[]) {
     const priced: {
-      kind: ItemKind;
+      kind: string;
       refId: string;
       name: string;
       unit: string;
@@ -148,11 +147,9 @@ export class MaterialRequestsService {
       if (role !== 'admin' && job.technicianId !== actorId) {
         throw new ForbiddenException('Job ini bukan milik Anda');
       }
-      // job.status kolomnya TEXT biasa (bukan enum Postgres), Prisma nge-tipein
-      // `string` — cast pembanding ke string[], bukan job.status ke enum semu.
       if (
         !(
-          [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as string[]
+          [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]
         ).includes(job.status)
       ) {
         throw new BadRequestException(

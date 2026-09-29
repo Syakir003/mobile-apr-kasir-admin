@@ -1,19 +1,17 @@
 // ============================================================================
 // Prisma Schema — E-POS AC
-// SUMBER KEBENARAN: database Supabase (backend/supabase/migrations). File ini
-// hasil `prisma db pull` dari Supabase local lalu dirapikan (nama model/field
-// camelCase + @map). Perubahan skema dibuat sebagai migrasi SQL di
-// backend/supabase/migrations — JANGAN `prisma migrate` ke database ini, dan
-// 16 migrasi lama di prisma/migrations adalah riwayat DB Nest lama (arsip).
+// Direkonstruksi dari struktur data dump Supabase (epos_data_public.sql +
+// epos_data_auth.sql) yang dibuat teman satu tim, lalu disesuaikan untuk
+// dipakai dengan PostgreSQL mandiri (VPS) + NestJS, TANPA Supabase.
 //
-// Re-introspeksi: tambah sementara `schemas = ["public", "auth"]` (public.users
-// ber-FK ke auth.users), pull, lalu buang lagi model auth.* — Nest tidak
-// membaca skema internal Supabase lewat Prisma.
-//
-// Tidak dimodelkan di sini (tetap berlaku di DB):
-// - unique index parsial cashier_shifts_one_open_per_kasir (kasir_id WHERE
-//   closed_at IS NULL) — Prisma akan menganggapnya unik penuh (relasi 1:1).
-// - RLS, trigger, function PL/pgSQL, FK public.users.id -> auth.users.id.
+// Perubahan dari versi Supabase asli:
+// - `auth.users` (Supabase Auth) DIGABUNG ke `public.users` jadi satu tabel
+//   `User` dengan tambahan kolom `password` (hash bcrypt — hash lama dari
+//   dump auth kompatibel, karena NestJS juga umum pakai bcrypt).
+// - RLS (Row Level Security) DIHILANGKAN — otorisasi per-role nanti
+//   diimplementasikan di level NestJS (guard/decorator), bukan di database.
+// - Semua kolom `*_id`/`*_by` yang tadinya menunjuk ke `auth.users` sekarang
+//   menunjuk ke `User` (tabel gabungan).
 // ============================================================================
 
 generator client {
@@ -24,43 +22,62 @@ datasource db {
   provider = "postgresql"
 }
 
+// ----------------------------------------------------------------------------
+// AUTH & USER
+// ----------------------------------------------------------------------------
+
+enum UserRole {
+  admin
+  kasir
+  teknisi
+}
+
 model User {
-  id                      String               @id @default(uuid()) @db.Uuid
-  email                   String
-  displayName             String               @default("") @map("display_name")
-  role                    UserRole             @default(kasir)
-  active                  Boolean              @default(true)
-  createdAt               DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  auditLogs               AuditLog[]
-  cashierShifts           CashierShift[]
-  deviceTokens            DeviceToken[]
-  invoiceAdjustments      InvoiceAdjustment[]  @relation("AdjustmentCreatedBy")
-  invoicesMade            Invoice[]            @relation("InvoiceCreatedBy")
-  findingPhotosUploaded   JobFindingPhoto[]    @relation("FindingPhotoUploadedBy")
-  findingsCreated         JobFinding[]         @relation("FindingCreatedBy")
-  jobPhotosUploaded       JobPhoto[]           @relation("PhotoUploadedBy")
-  manualPaymentsMade      ManualPayment[]      @relation("PaymentCreatedBy")
-  materialRequestsBy      MaterialRequest[]    @relation("RequestCreatedBy")
-  materialDecidedBy       MaterialRequest[]    @relation("RequestDecidedBy")
-  materialUsedBy          MaterialRequest[]    @relation("RequestUsedBy")
-  notifications           Notification[]
-  reminderSettingsUpdated ReminderSetting[]    @relation("ReminderSettingUpdatedBy")
-  serviceOrdersMade       ServiceOrder[]       @relation("ServiceOrderCreatedBy")
-  stockMovementsMade      StockMovement[]      @relation("StockCreatedBy")
-  jobsCreated             TechnicianJob[]      @relation("JobCreatedBy")
-  technicianJobs          TechnicianJob[]      @relation("JobTechnician")
-  transactionsMade        Transaction[]        @relation("TransactionCreatedBy")
-  undianCreated           Undian[]
-  vouchersCreated         Voucher[]            @relation("VoucherCreatedBy")
-  waMessagesSent          WaOutbox[]
-  waTemplatesUpdated      WaReminderTemplate[] @relation("WaTemplateUpdatedBy")
+  id          String   @id @default(uuid())
+  email       String   @unique
+  password    String // hash bcrypt — gantinya auth.users.encrypted_password
+  displayName String   @map("display_name")
+  role        UserRole
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Kapan password terakhir diganti (self-service ATAU di-reset admin).
+  // JwtStrategy nolak token yang `iat`-nya SEBELUM waktu ini — biar ganti
+  // password beneran nendang sesi lama, bukan cuma ganti hash sementara
+  // token penyusup tetap jalan sampai expired. NULL = belum pernah ganti,
+  // semua token lama tetap sah.
+  passwordChangedAt DateTime? @map("password_changed_at")
+
+  // Relasi balik (dipakai untuk audit trail & penugasan)
+  auditLogs          AuditLog[]
+  deviceTokens       DeviceToken[]
+  transactionsMade   Transaction[]        @relation("TransactionCreatedBy")
+  invoicesMade       Invoice[]            @relation("InvoiceCreatedBy")
+  serviceOrdersMade  ServiceOrder[]       @relation("ServiceOrderCreatedBy")
+  technicianJobs     TechnicianJob[]      @relation("JobTechnician")
+  jobsCreated        TechnicianJob[]      @relation("JobCreatedBy")
+  materialRequestsBy MaterialRequest[]    @relation("RequestCreatedBy")
+  materialDecidedBy  MaterialRequest[]    @relation("RequestDecidedBy")
+  materialUsedBy     MaterialRequest[]    @relation("RequestUsedBy")
+  invoiceAdjustments InvoiceAdjustment[]  @relation("AdjustmentCreatedBy")
+  vouchersCreated    Voucher[]            @relation("VoucherCreatedBy")
+  jobPhotosUploaded  JobPhoto[]           @relation("PhotoUploadedBy")
+  findingsCreated    JobFinding[]         @relation("FindingCreatedBy")
+  findingPhotosUploaded JobFindingPhoto[] @relation("FindingPhotoUploadedBy")
+  manualPaymentsMade ManualPayment[]      @relation("PaymentCreatedBy")
+  notifications      Notification[]
+  stockMovementsMade StockMovement[]      @relation("StockCreatedBy")
+  cashierShifts      CashierShift[] // Siklus 4 — shift kasir yang pernah dia buka
+  whatsappLogsSent        WhatsappLog[]         @relation("WhatsappLogSentBy")
+  reminderSettingsUpdated ReminderSetting[]     @relation("ReminderSettingUpdatedBy")
+  waTemplatesUpdated      WaReminderTemplate[]  @relation("WaTemplateUpdatedBy")
 
   @@map("users")
 }
 
 model AppConfig {
   key   String @id
-  value String
+  value String?
 
   @@map("app_config")
 }
@@ -73,700 +90,279 @@ model Counter {
 }
 
 model AuditLog {
-  id       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  actorUid String?  @map("actor_uid") @db.Uuid
+  id       String   @id @default(uuid())
+  actorUid String   @map("actor_uid")
+  actor    User     @relation(fields: [actorUid], references: [id])
   action   String
   target   String?
   detail   Json?
-  at       DateTime @default(now()) @db.Timestamptz(6)
-  actor    User?    @relation(fields: [actorUid], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  at       DateTime @default(now())
 
-  @@index([at(sort: Desc)])
   @@map("audit_logs")
 }
 
 model DeviceToken {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id])
+  // @unique (Siklus Notifikasi Push, 2026-09) — 1 token FCM cuma boleh
+  // nempel ke 1 user. Sebelum ini gak ada constraint sama sekali, jadi kalau
+  // HP yang sama dipakai gonta-ganti akun (login user A lalu logout lalu
+  // login user B tanpa unregister bersih), token lama numpuk jadi banyak
+  // baris duplikat milik user berbeda-beda — push bisa nyasar ke akun yang
+  // udah gak dipakai di HP itu. Dengan unique, registrasi token baru
+  // (NotificationsService.registerDeviceToken) selalu UPSERT by token —
+  // otomatis mindahin kepemilikan token ke user yang paling akhir login.
   token     String   @unique
-  platform  String   @default("unknown")
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  platform  String // 'android' | 'ios' | 'web'
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  @@index([userId], map: "device_tokens_user_idx")
   @@map("device_tokens")
 }
 
 model Notification {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id])
   title     String
-  body      String   @default("")
-  type      String   @default("info")
-  target    String?
+  body      String?
+  type      String // 'job_assigned' | 'request_submitted' | 'request_decided' | dst
+  target    String? // biasanya id record terkait (job/request/dll)
   read      Boolean  @default(false)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  createdAt DateTime @default(now()) @map("created_at")
 
-  @@index([userId, createdAt(sort: Desc)], map: "notifications_user_idx")
   @@map("notifications")
 }
 
+// ----------------------------------------------------------------------------
+// MASTER DATA: PRODUK, SPAREPART, JASA, PAKET PEMASANGAN
+// ----------------------------------------------------------------------------
+
 model Product {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String   @id @default(uuid())
+  // Kode pendek buat ditampilkan/dicari manusia (id UUID tetep jadi primary
+  // key internal, gak diubah — banyak sekali yang udah gantung ke situ).
+  // Nullable karena produk LAMA (sebelum kolom ini ada) gak otomatis punya
+  // nilai — lihat catatan backfill di plan; produk BARU selalu diisi
+  // ProductsService.create() lewat CountersService (format PRD-0001, dst).
+  sku         String?  @unique
   name        String
-  brand       String
-  type        String
-  pk          Decimal  @default(0) @db.Decimal
+  brand       String?
+  type        String? // 'split', dll
+  pk          Decimal? @db.Decimal(4, 2)
   inverter    Boolean  @default(false)
   btu         Int?
   watt        Int?
   warranty    String?
-  sellPrice   Int      @default(0) @map("sell_price")
-  stock       Int      @default(0)
+  // sellPrice & stock DIHAPUS dari sini (Siklus batch-cost 2026-09) —
+  // pindah ke ItemCost, 1 produk sekarang bisa punya banyak "batch" harga
+  // (beda supplier/kedatangan barang, harga modal & jual beda-beda).
   photoUrl    String?  @map("photo_url")
   description String?
-  category    String   @default("")
+  category    String?
   active      Boolean  @default(true)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  sku         String?  @unique
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  @@index([active])
   @@map("products")
 }
 
 model Sparepart {
-  id           String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name         String
-  sku          String                    @default("")
-  category     String
-  unit         String
-  sellPrice    Int                       @default(0) @map("sell_price")
-  stock        Decimal                   @default(0) @db.Decimal
-  minStock     Decimal                   @default(0) @map("min_stock") @db.Decimal
-  active       Boolean                   @default(true)
-  createdAt    DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id        String   @id @default(uuid())
+  name      String
+  sku       String?  @unique
+  category  String?
+  unit      String // 'kg', 'meter', 'pcs', 'set', dll
+  sellPrice Decimal  @map("sell_price") @db.Decimal(14, 2)
+  stock     Decimal  @db.Decimal(10, 2)
+  minStock  Decimal  @default(0) @map("min_stock") @db.Decimal(10, 2)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
   packageItems InstallationPackageItem[]
 
-  @@index([active])
   @@map("spareparts")
 }
 
 model Service {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id              String   @id @default(uuid())
   name            String
-  category        String
-  basePrice       Int      @default(0) @map("base_price")
+  category        String?
+  basePrice       Decimal  @map("base_price") @db.Decimal(14, 2)
   durationMinutes Int?     @map("duration_minutes")
   description     String?
   active          Boolean  @default(true)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdAt       DateTime @default(now()) @map("created_at")
 
-  @@index([active])
   @@map("services")
 }
 
 model InstallationPackage {
-  id          String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String   @id @default(uuid())
   name        String
   description String?
-  active      Boolean                   @default(true)
-  createdAt   DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  items       InstallationPackageItem[]
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  items InstallationPackageItem[]
 
   @@map("installation_packages")
 }
 
 model InstallationPackageItem {
-  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  packageId         String              @map("package_id") @db.Uuid
-  sparepartId       String?             @map("sparepart_id") @db.Uuid
-  name              String
-  qty               Decimal             @default(0) @db.Decimal
-  unit              String              @default("")
-  extraPricePerUnit Int                 @default(0) @map("extra_price_per_unit")
-  package           InstallationPackage @relation(fields: [packageId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  sparepart         Sparepart?          @relation(fields: [sparepartId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                 String    @id @default(uuid())
+  packageId          String    @map("package_id")
+  package            InstallationPackage @relation(fields: [packageId], references: [id])
+  sparepartId        String?   @map("sparepart_id")
+  sparepart          Sparepart? @relation(fields: [sparepartId], references: [id])
+  name               String
+  qty                Decimal   @db.Decimal(10, 2)
+  unit               String
+  extraPricePerUnit  Decimal   @default(0) @map("extra_price_per_unit") @db.Decimal(14, 2)
 
-  @@index([packageId], map: "installation_package_items_package_idx")
   @@map("installation_package_items")
 }
 
+// Siklus batch-cost (2026-09) — 1 baris = 1 "batch" (kedatangan barang),
+// PUNYA harga modal & jual sendiri. `kind='product'` boleh banyak baris
+// per `refId` (banyak batch sekaligus). `kind='sparepart'` TETAP dijaga di
+// kode (StockService) cuma 1 baris per `refId` (upsert) — sparepart gak
+// ikut sistem batch, `sellPrice`/`stock` sparepart tetap di tabel
+// `spareparts` sendiri, kolom `sellPrice`/`stock` di sini buat baris
+// sparepart diisi 0 (gak dipakai/gak dibaca).
 model ItemCost {
-  kind      ItemKind
-  refId     String   @map("ref_id") @db.Uuid
-  buyPrice  Int      @default(0) @map("buy_price")
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id           String   @id @default(uuid())
+  kind         String // 'product' | 'sparepart'
+  refId        String   @map("ref_id")
+  supplierName String?  @map("supplier_name")
+  buyPrice     Decimal  @map("buy_price") @db.Decimal(14, 2)
+  sellPrice    Decimal  @map("sell_price") @db.Decimal(14, 2)
+  stock        Int // sisa stok BATCH ini (product) — 0/gak dipakai (sparepart)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  @@id([kind, refId])
+  @@index([kind, refId])
   @@map("item_costs")
 }
 
+// ----------------------------------------------------------------------------
+// CUSTOMER (MEMBER) & UNIT AC
+// ----------------------------------------------------------------------------
+
 model Member {
-  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name           String
-  phone          String              @unique
-  address        String              @default("")
-  customerType   String              @default("lainnya") @map("customer_type")
-  memberSince    DateTime?           @map("member_since") @db.Timestamptz(6)
-  totalAcUnits   Int                 @default(0) @map("total_ac_units")
-  notes          String?
-  active         Boolean             @default(true)
-  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  waOptOut       Boolean             @default(false) @map("wa_opt_out")
-  invoices       Invoice[]
-  acUnits        MemberAcUnit[]
-  serviceOrders  ServiceOrder[]
+  id            String   @id @default(uuid())
+  name          String
+  phone         String?
+  address       String?
+  customerType  String?  @map("customer_type") // 'rumah' | 'perusahaan' | 'toko'
+  memberSince   DateTime? @map("member_since")
+  totalAcUnits  Int      @default(0) @map("total_ac_units")
+  notes         String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  // Siklus WA/Fonnte — pelanggan minta berhenti dikirimi pesan WhatsApp
+  // (invoice TETAP bisa dikirim manual oleh kasir/admin; yang di-skip cuma
+  // pengingat servis otomatis). Sama makna & efek sama kayak wa_opt_out di
+  // Supabase (migrasi 0023): begitu di-set true, semua WhatsappLog 'pending'
+  // milik member ini otomatis dibatalkan (lihat MembersService.setWaOptOut).
+  waOptOut      Boolean  @default(false) @map("wa_opt_out")
+
+  acUnits       MemberAcUnit[]
+  transactions  Transaction[]
+  invoices      Invoice[]
+  serviceOrders ServiceOrder[]
   technicianJobs TechnicianJob[]
-  transactions   Transaction[]
-  undianEntries  UndianParticipant[]
-  vouchers       Voucher[]
-  waMessages     WaOutbox[]
+  vouchers      Voucher[]
+  whatsappLogs  WhatsappLog[]
 
   @@map("members")
 }
 
+// Unit AC milik customer — di sinilah QR/barcode servis on-site terhubung
 model MemberAcUnit {
-  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  memberId            String             @map("member_id") @db.Uuid
-  brand               String
-  model               String
-  pk                  Decimal            @default(0) @db.Decimal
-  roomLocation        String             @default("") @map("room_location")
-  barcodeValue        String?            @unique @map("barcode_value")
-  serialNumber        String?            @map("serial_number")
-  installationDate    DateTime?          @map("installation_date") @db.Timestamptz(6)
-  lastServiceDate     DateTime?          @map("last_service_date") @db.Timestamptz(6)
-  nextServiceDate     DateTime?          @map("next_service_date") @db.Timestamptz(6)
-  status              AcUnitStatus       @default(menunggu_pemasangan)
-  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  serviceIntervalDays Int?               @map("service_interval_days")
-  member              Member             @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  serviceOrderUnits   ServiceOrderUnit[]
-  technicianJobs      TechnicianJob[]
+  id               String    @id @default(uuid())
+  memberId         String    @map("member_id")
+  member           Member    @relation(fields: [memberId], references: [id])
+  brand            String?
+  model            String?
+  pk               Decimal?  @db.Decimal(4, 2)
+  roomLocation     String?   @map("room_location")
+  barcodeValue     String    @unique @map("barcode_value") // ID referensi yang di-encode ke QR/barcode
+  serialNumber     String?   @map("serial_number")
+  installationDate DateTime? @map("installation_date")
+  lastServiceDate  DateTime? @map("last_service_date")
+  nextServiceDate  DateTime? @map("next_service_date") // dipakai untuk cron job reminder WA
+  status           String // 'aktif' | 'menunggu_pemasangan' | dst
+  createdAt        DateTime  @default(now()) @map("created_at")
+  // Override siklus servis KHUSUS unit ini, dalam hari. NULL = ikut default
+  // ReminderSetting.intervalDays per jobType. Urutan resolusi lengkap ada di
+  // RemindersService.resolveIntervalDays (port dari resolve_service_interval_days
+  // SQL, migrasi Supabase 0023).
+  serviceIntervalDays Int?    @map("service_interval_days")
 
-  @@index([memberId])
-  @@index([memberId], map: "member_ac_units_member_idx")
+  serviceOrderUnits ServiceOrderUnit[]
+  technicianJobs    TechnicianJob[]
+
   @@map("member_ac_units")
 }
 
-model Transaction {
-  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  memberId       String?           @map("member_id") @db.Uuid
-  customerName   String            @map("customer_name")
-  customerPhone  String            @map("customer_phone")
-  subtotal       Int               @default(0)
-  discount       Int               @default(0)
-  taxPercent     Decimal           @default(0) @map("tax_percent") @db.Decimal
-  taxAmount      Int               @default(0) @map("tax_amount")
-  transportFee   Int               @default(0) @map("transport_fee")
-  grandTotal     Int               @default(0) @map("grand_total")
-  notes          String?
-  createdById    String?           @map("created_by") @db.Uuid
-  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  invoices       Invoice[]
-  serviceOrders  ServiceOrder[]
-  stockMovements StockMovement[]
-  items          TransactionItem[]
-  createdBy      User?             @relation("TransactionCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  member         Member?           @relation(fields: [memberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  vouchersUsed   Voucher[]
+// ----------------------------------------------------------------------------
+// TRANSAKSI RETAIL (POS)
+// ----------------------------------------------------------------------------
 
-  @@index([createdAt(sort: Desc)])
-  @@index([memberId], map: "transactions_member_idx")
+model Transaction {
+  id            String   @id @default(uuid())
+  memberId      String?  @map("member_id")
+  member        Member?  @relation(fields: [memberId], references: [id])
+  customerName  String?  @map("customer_name")
+  customerPhone String?  @map("customer_phone")
+  subtotal      Decimal  @db.Decimal(14, 2)
+  discount      Decimal  @default(0) @db.Decimal(14, 2)
+  taxPercent    Decimal  @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  taxAmount     Decimal  @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  transportFee  Decimal  @default(0) @map("transport_fee") @db.Decimal(14, 2)
+  grandTotal    Decimal  @map("grand_total") @db.Decimal(14, 2)
+  notes         String?
+  createdById   String   @map("created_by")
+  createdBy     User     @relation("TransactionCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  items         TransactionItem[]
+  invoices      Invoice[]
+  serviceOrders ServiceOrder[]
+
   @@map("transactions")
 }
 
 model TransactionItem {
-  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  transactionId String      @map("transaction_id") @db.Uuid
-  kind          ItemKind
-  refId         String      @map("ref_id") @db.Uuid
+  id            String      @id @default(uuid())
+  transactionId String      @map("transaction_id")
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+  kind          String // 'product' | 'service' | 'sparepart'
+  refId         String?     @map("ref_id")
   name          String
-  unit          String
-  qty           Decimal     @db.Decimal
-  unitPrice     Int         @map("unit_price")
-  lineTotal     Int         @map("line_total")
-  discount      Int         @default(0)
-  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  unit          String?
+  qty           Decimal     @db.Decimal(10, 2)
+  unitPrice     Decimal     @map("unit_price") @db.Decimal(14, 2)
+  lineTotal     Decimal     @map("line_total") @db.Decimal(14, 2)
+  // BARU (Siklus batch-cost 2026-09) — diskon nominal khusus baris ini,
+  // numpuk (bukan gantiin) diskon level-transaksi (Transaction.discount).
+  discount      Decimal     @default(0) @db.Decimal(14, 2)
 
-  @@index([transactionId], map: "transaction_items_transaction_idx")
   @@map("transaction_items")
 }
 
-model Invoice {
-  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  number           String              @unique
-  transactionId    String?             @map("transaction_id") @db.Uuid
-  memberId         String?             @map("member_id") @db.Uuid
-  customerName     String              @map("customer_name")
-  customerPhone    String              @map("customer_phone")
-  subtotal         Int                 @default(0)
-  discount         Int                 @default(0)
-  taxPercent       Decimal             @default(0) @map("tax_percent") @db.Decimal
-  taxAmount        Int                 @default(0) @map("tax_amount")
-  transportFee     Int                 @default(0) @map("transport_fee")
-  grandTotal       Int                 @default(0) @map("grand_total")
-  totalPaid        Int                 @default(0) @map("total_paid")
-  status           InvoiceStatus       @default(belum_dibayar)
-  notes            String?
-  createdById      String?             @map("created_by") @db.Uuid
-  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  adjustments      InvoiceAdjustment[]
-  items            InvoiceItem[]
-  createdBy        User?               @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  member           Member?             @relation(fields: [memberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  transaction      Transaction?        @relation(fields: [transactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  manualPayments   ManualPayment[]
-  materialRequests MaterialRequest[]
-  serviceOrders    ServiceOrder[]
+// ----------------------------------------------------------------------------
+// INVOICE & PEMBAYARAN MANUAL
+// ----------------------------------------------------------------------------
 
-  @@index([createdAt(sort: Desc)])
-  @@index([memberId], map: "invoices_member_idx")
-  @@map("invoices")
-}
-
-model InvoiceItem {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  invoiceId String   @map("invoice_id") @db.Uuid
-  kind      ItemKind
-  refId     String?  @map("ref_id") @db.Uuid
-  name      String
-  unit      String
-  qty       Decimal  @db.Decimal
-  unitPrice Int      @map("unit_price")
-  lineTotal Int      @map("line_total")
-  discount  Int      @default(0)
-  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([invoiceId], map: "invoice_items_invoice_idx")
-  @@map("invoice_items")
-}
-
-model InvoiceAdjustment {
-  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  invoiceId   String           @map("invoice_id") @db.Uuid
-  requestId   String?          @map("request_id") @db.Uuid
-  amount      Int
-  reason      String           @default("pengajuan_tambahan")
-  createdById String?          @map("created_by") @db.Uuid
-  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  createdBy   User?            @relation("AdjustmentCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  invoice     Invoice          @relation(fields: [invoiceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  request     MaterialRequest? @relation(fields: [requestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([invoiceId], map: "invoice_adjustments_invoice_idx")
-  @@map("invoice_adjustments")
-}
-
-model ManualPayment {
-  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  invoiceId    String        @map("invoice_id") @db.Uuid
-  method       PaymentMethod
-  amount       Int
-  note         String?
-  proofUrl     String?       @map("proof_url")
-  createdById  String?       @map("created_by") @db.Uuid
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  cashReceived Int?          @map("cash_received")
-  shiftId      String?       @map("shift_id") @db.Uuid
-  createdBy    User?         @relation("PaymentCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  invoice      Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  shift        CashierShift? @relation(fields: [shiftId], references: [id], onUpdate: NoAction)
-
-  @@index([invoiceId], map: "manual_payments_invoice_idx")
-  @@index([shiftId], map: "manual_payments_shift_idx")
-  @@map("manual_payments")
-}
-
-model CashierShift {
-  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  kasirId        String          @map("kasir_id") @db.Uuid
-  openingBalance Int             @map("opening_balance")
-  closingBalance Int?            @map("closing_balance")
-  openedAt       DateTime        @default(now()) @map("opened_at") @db.Timestamptz(6)
-  closedAt       DateTime?       @map("closed_at") @db.Timestamptz(6)
-  notes          String?
-  kasir          User            @relation(fields: [kasirId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  payments       ManualPayment[]
-
-  @@index([kasirId, openedAt(sort: Desc)], map: "cashier_shifts_kasir_idx")
-  @@map("cashier_shifts")
-}
-
-model ServiceOrder {
-  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  memberId          String?            @map("member_id") @db.Uuid
-  transactionId     String?            @map("transaction_id") @db.Uuid
-  invoiceId         String?            @map("invoice_id") @db.Uuid
-  type              String             @default("pemasangan")
-  status            String             @default("terjadwal")
-  createdById       String?            @map("created_by") @db.Uuid
-  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  note              String?
-  scheduledDate     DateTime?          @map("scheduled_date") @db.Timestamptz(6)
-  serviceOrderUnits ServiceOrderUnit[]
-  createdBy         User?              @relation("ServiceOrderCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  invoice           Invoice?           @relation(fields: [invoiceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  member            Member?            @relation(fields: [memberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  transaction       Transaction?       @relation(fields: [transactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  units             TechnicianJob[]
-
-  @@map("service_orders")
-}
-
-model ServiceOrderUnit {
-  id      String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orderId String        @map("order_id") @db.Uuid
-  unitId  String?       @map("unit_id") @db.Uuid
-  status  String        @default("menunggu_pemasangan")
-  order   ServiceOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  unit    MemberAcUnit? @relation(fields: [unitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([orderId], map: "service_order_units_order_idx")
-  @@map("service_order_units")
-}
-
-model TechnicianJob {
-  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orderId          String            @map("order_id") @db.Uuid
-  memberId         String?           @map("member_id") @db.Uuid
-  unitId           String?           @map("unit_id") @db.Uuid
-  technicianId     String?           @map("technician_id") @db.Uuid
-  type             String            @default("pemasangan")
-  status           String            @default("menunggu_penugasan")
-  scheduledDate    DateTime?         @map("scheduled_date") @db.Timestamptz(6)
-  createdById      String?           @map("created_by") @db.Uuid
-  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  notes            String?
-  startedAt        DateTime?         @map("started_at") @db.Timestamptz(6)
-  completedAt      DateTime?         @map("completed_at") @db.Timestamptz(6)
-  updatedAt        DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  reviewNote       String?           @map("review_note")
-  findings         JobFinding[]
-  photos           JobPhoto[]
-  materialRequests MaterialRequest[]
-  syncActions      SyncActionLog[]
-  createdBy        User?             @relation("JobCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  member           Member?           @relation(fields: [memberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  order            ServiceOrder      @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  technician       User?             @relation("JobTechnician", fields: [technicianId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  unit             MemberAcUnit?     @relation(fields: [unitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([memberId], map: "technician_jobs_member_idx")
-  @@index([orderId], map: "technician_jobs_order_idx")
-  @@index([technicianId], map: "technician_jobs_technician_idx")
-  @@index([unitId], map: "technician_jobs_unit_idx")
-  @@map("technician_jobs")
-}
-
-model JobPhoto {
-  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  jobId        String        @map("job_id") @db.Uuid
-  kind         String
-  path         String
-  uploadedById String?       @map("uploaded_by") @db.Uuid
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  job          TechnicianJob @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  uploadedBy   User?         @relation("PhotoUploadedBy", fields: [uploadedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([jobId], map: "job_photos_job_idx")
-  @@index([jobId, kind], map: "job_photos_job_kind_idx")
-  @@map("job_photos")
-}
-
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-model ProblemCategory {
-  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String
-  source    String       @default("seed")
-  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  findings  JobFinding[]
-
-  @@map("problem_categories")
-}
-
-model JobFinding {
-  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  jobId       String            @map("job_id") @db.Uuid
-  categoryId  String            @map("category_id") @db.Uuid
-  title       String
-  note        String?
-  origin      String            @default("ditambah_teknisi")
-  createdById String?           @map("created_by") @db.Uuid
-  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  photos      JobFindingPhoto[]
-  category    ProblemCategory   @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy   User?             @relation("FindingCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  job         TechnicianJob     @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([jobId], map: "job_findings_job_idx")
-  @@map("job_findings")
-}
-
-model JobFindingPhoto {
-  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  findingId    String     @map("finding_id") @db.Uuid
-  kind         String
-  path         String
-  uploadedById String?    @map("uploaded_by") @db.Uuid
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  finding      JobFinding @relation(fields: [findingId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  uploadedBy   User?      @relation("FindingPhotoUploadedBy", fields: [uploadedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([findingId, kind], map: "job_finding_photos_finding_kind_idx")
-  @@map("job_finding_photos")
-}
-
-model MaterialRequest {
-  id           String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  jobId        String                @map("job_id") @db.Uuid
-  invoiceId    String?               @map("invoice_id") @db.Uuid
-  status       String                @default("pending")
-  total        Int                   @default(0)
-  note         String?
-  decisionNote String?               @map("decision_note")
-  createdById  String?               @map("created_by") @db.Uuid
-  createdAt    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  decidedById  String?               @map("decided_by") @db.Uuid
-  decidedAt    DateTime?             @map("decided_at") @db.Timestamptz(6)
-  usedAt       DateTime?             @map("used_at") @db.Timestamptz(6)
-  usedById     String?               @map("used_by") @db.Uuid
-  updatedAt    DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  adjustments  InvoiceAdjustment[]
-  items        MaterialRequestItem[]
-  createdBy    User?                 @relation("RequestCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  decidedBy    User?                 @relation("RequestDecidedBy", fields: [decidedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  invoice      Invoice?              @relation(fields: [invoiceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  job          TechnicianJob         @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  usedBy       User?                 @relation("RequestUsedBy", fields: [usedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([jobId], map: "material_requests_job_idx")
-  @@index([status])
-  @@map("material_requests")
-}
-
-model MaterialRequestItem {
-  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  requestId String          @map("request_id") @db.Uuid
-  kind      ItemKind
-  refId     String          @map("ref_id") @db.Uuid
-  name      String
-  unit      String          @default("")
-  qty       Decimal         @db.Decimal
-  unitPrice Int             @map("unit_price")
-  lineTotal Int             @map("line_total")
-  request   MaterialRequest @relation(fields: [requestId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([requestId], map: "material_request_items_req_idx")
-  @@map("material_request_items")
-}
-
-model SyncActionLog {
-  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  clientActionId String        @unique @map("client_action_id")
-  jobId          String        @map("job_id") @db.Uuid
-  actionType     String        @map("action_type")
-  processedAt    DateTime      @default(now()) @map("processed_at") @db.Timestamptz(6)
-  result         Json
-  job            TechnicianJob @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([jobId], map: "sync_action_log_job_idx")
-  @@map("sync_action_log")
-}
-
-model StockMovement {
-  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  itemKind      ItemKind     @map("item_kind")
-  refId         String       @map("ref_id") @db.Uuid
-  name          String
-  qtyChange     Decimal      @map("qty_change") @db.Decimal
-  reason        String
-  transactionId String?      @map("transaction_id") @db.Uuid
-  createdById   String?      @map("created_by") @db.Uuid
-  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  createdBy     User?        @relation("StockCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([transactionId], map: "stock_movements_transaction_idx")
-  @@map("stock_movements")
-}
-
-model Voucher {
-  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code                String       @unique
-  memberId            String       @map("member_id") @db.Uuid
-  discountType        String       @map("discount_type")
-  discountValue       Int          @map("discount_value")
-  maxDiscountCap      Int?         @map("max_discount_cap")
-  minPurchase         Int?         @map("min_purchase")
-  expiresAt           DateTime     @map("expires_at") @db.Timestamptz(6)
-  status              String       @default("aktif")
-  source              String
-  undianId            String?      @map("undian_id") @db.Uuid
-  note                String?
-  usedAt              DateTime?    @map("used_at") @db.Timestamptz(6)
-  usedInTransactionId String?      @map("used_in_transaction_id") @db.Uuid
-  createdById         String?      @map("created_by") @db.Uuid
-  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  createdBy           User?        @relation("VoucherCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  member              Member       @relation(fields: [memberId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  undian              Undian?      @relation(fields: [undianId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  usedInTransaction   Transaction? @relation(fields: [usedInTransactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([status])
-  @@index([memberId], map: "vouchers_member_idx")
-  @@map("vouchers")
-}
-
-model ReminderSetting {
-  jobType      String   @id @map("job_type")
-  intervalDays Int      @map("interval_days")
-  active       Boolean  @default(true)
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  updatedById  String?  @map("updated_by") @db.Uuid
-  updatedBy    User?    @relation("ReminderSettingUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@map("reminder_settings")
-}
-
-model WaReminderTemplate {
-  kind        String   @id
-  body        String
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  updatedById String?  @map("updated_by") @db.Uuid
-  updatedBy   User?    @relation("WaTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@map("wa_reminder_templates")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model Undian {
-  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  title            String
-  description      String?
-  criteria         Json                @default("{}")
-  winnerCount      Int                 @map("winner_count")
-  discountType     String              @map("discount_type")
-  discountValue    Int                 @map("discount_value")
-  maxDiscountCap   Int?                @map("max_discount_cap")
-  minPurchase      Int?                @map("min_purchase")
-  voucherValidDays Int                 @map("voucher_valid_days")
-  status           String              @default("berjalan")
-  drawnAt          DateTime?           @map("drawn_at") @db.Timestamptz(6)
-  createdById      String?             @map("created_by") @db.Uuid
-  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  createdBy        User?               @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  participants     UndianParticipant[]
-  vouchers         Voucher[]
-
-  @@map("undian")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model UndianParticipant {
-  id       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  undianId String   @map("undian_id") @db.Uuid
-  memberId String   @map("member_id") @db.Uuid
-  source   String
-  addedAt  DateTime @default(now()) @map("added_at") @db.Timestamptz(6)
-  member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  undian   Undian   @relation(fields: [undianId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([undianId, memberId])
-  @@index([undianId], map: "undian_participants_undian_idx")
-  @@map("undian_participants")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model WaOutbox {
-  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  memberId          String    @map("member_id") @db.Uuid
-  memberName        String    @default("") @map("member_name")
-  phone             String
-  kind              String
-  unitIds           String[]  @default([]) @map("unit_ids") @db.Uuid
-  dueDate           DateTime? @map("due_date") @db.Date
-  body              String
-  status            String    @default("pending")
-  dedupeKey         String    @unique @map("dedupe_key")
-  sentAt            DateTime? @map("sent_at") @db.Timestamptz(6)
-  sentById          String?   @map("sent_by") @db.Uuid
-  provider          String?
-  providerMessageId String?   @map("provider_message_id")
-  error             String?
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  member            Member    @relation(fields: [memberId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  sentBy            User?     @relation(fields: [sentById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([memberId], map: "wa_outbox_member_idx")
-  @@index([status, createdAt(sort: Desc)], map: "wa_outbox_status_idx")
-  @@map("wa_outbox")
-}
-
-enum AcUnitStatus {
-  menunggu_pemasangan
-  aktif
-  dalam_maintenance
-  rusak
-  nonaktif
-
-  @@map("ac_unit_status")
-}
-
+// NOTE (koreksi 2026-08-21): versi awal skema ini cuma punya 3 nilai
+// (belum_dibayar/dp/lunas), direkonstruksi dari dump lama yang ketinggalan
+// zaman. Sistem asli (backend/supabase/migrations) punya 6 nilai, dan
+// `kurang_bayar` itu STICKY — begitu invoice lunas lalu tagihannya nambah lagi
+// (pengajuan sparepart di-approve setelah lunas), status jadi `kurang_bayar`
+// dan BERTAHAN di situ sampai lunas lagi (bukan balik ke `dp`). Lihat
+// PaymentsService.computeInvoiceStatus — port 1:1 dari compute_invoice_status().
 enum InvoiceStatus {
   belum_dibayar
   dp
@@ -774,33 +370,546 @@ enum InvoiceStatus {
   lunas
   refund
   batal
-
-  @@map("invoice_status")
 }
 
-enum ItemKind {
-  product
-  sparepart
-  service
-  manual
+model Invoice {
+  id            String        @id @default(uuid())
+  number        String        @unique
+  transactionId String?       @map("transaction_id")
+  transaction   Transaction?  @relation(fields: [transactionId], references: [id])
+  memberId      String?       @map("member_id")
+  member        Member?       @relation(fields: [memberId], references: [id])
+  customerName  String?       @map("customer_name")
+  customerPhone String?       @map("customer_phone")
+  subtotal      Decimal       @db.Decimal(14, 2)
+  discount      Decimal       @default(0) @db.Decimal(14, 2)
+  taxPercent    Decimal       @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  taxAmount     Decimal       @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  transportFee  Decimal       @default(0) @map("transport_fee") @db.Decimal(14, 2)
+  grandTotal    Decimal       @map("grand_total") @db.Decimal(14, 2)
+  totalPaid     Decimal       @default(0) @map("total_paid") @db.Decimal(14, 2)
+  status        InvoiceStatus @default(belum_dibayar)
+  notes         String?
+  createdById   String        @map("created_by")
+  createdBy     User          @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime      @default(now()) @map("created_at")
 
-  @@map("item_kind")
+  items             InvoiceItem[]
+  adjustments        InvoiceAdjustment[] // diskon manual / biaya tambahan dari pengajuan sparepart
+  serviceOrders       ServiceOrder[]
+  materialRequests    MaterialRequest[]
+  manualPayments      ManualPayment[] // bukti transfer & verifikasi kasir
+  vouchersUsed        Voucher[] // voucher yang benar-benar dipakai di invoice ini
+  whatsappLogs        WhatsappLog[] // riwayat kirim invoice ini lewat WhatsApp (kind='invoice')
+
+  @@map("invoices")
 }
 
-enum PaymentMethod {
-  tunai
-  transfer
-  qris
-  ewallet
-  debit
+model InvoiceItem {
+  id        String  @id @default(uuid())
+  invoiceId String  @map("invoice_id")
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+  kind      String // 'product' | 'service' | 'sparepart'
+  refId     String? @map("ref_id")
+  name      String
+  unit      String?
+  qty       Decimal @db.Decimal(10, 2)
+  unitPrice Decimal @map("unit_price") @db.Decimal(14, 2)
+  lineTotal Decimal @map("line_total") @db.Decimal(14, 2)
+  // BARU (Siklus batch-cost 2026-09) — sama kayak TransactionItem.discount.
+  discount  Decimal @default(0) @db.Decimal(14, 2)
+  // Harga beli (item_costs.buy_price) DIREKAM di sini pas checkout, bukan
+  // dibaca ulang dari item_costs waktu laporan dibuka — biar laporan
+  // laba-rugi transaksi lama TETAP akurat walau harga beli barang berubah
+  // belakangan. Nullable karena baris lama (sebelum kolom ini ada) gak
+  // punya nilai ini; ReportsService.profitLoss() fallback ke item_costs
+  // TERKINI cuma buat baris yang null. Null juga buat kind='service' (gak
+  // ada HPP).
+  buyPriceSnapshot Decimal? @map("buy_price_snapshot") @db.Decimal(14, 2)
 
-  @@map("payment_method")
+  @@map("invoice_items")
 }
 
-enum UserRole {
-  admin
-  kasir
-  teknisi
+// Penyesuaian invoice — dipakai untuk diskon manual ("kemahalan") ATAU biaya
+// tambahan dari pengajuan sparepart teknisi yang disetujui. `reason` membedakan.
+model InvoiceAdjustment {
+  id          String            @id @default(uuid())
+  invoiceId   String            @map("invoice_id")
+  invoice     Invoice           @relation(fields: [invoiceId], references: [id])
+  requestId   String?           @map("request_id")
+  request     MaterialRequest?  @relation(fields: [requestId], references: [id])
+  amount      Decimal           @db.Decimal(14, 2) // boleh negatif untuk diskon
+  reason      String // 'diskon_manual' | 'pengajuan_tambahan' | dst
+  createdById String            @map("created_by")
+  createdBy   User              @relation("AdjustmentCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime          @default(now()) @map("created_at")
 
-  @@map("user_role")
+  @@map("invoice_adjustments")
+}
+
+// Verifikasi pembayaran manual — TIDAK ada integrasi payment gateway.
+// Customer transfer manual, Kasir input bukti & jumlah di sini untuk acc.
+model ManualPayment {
+  id          String        @id @default(uuid())
+  invoiceId   String        @map("invoice_id")
+  invoice     Invoice       @relation(fields: [invoiceId], references: [id])
+  method      String // 'tunai' | 'transfer'
+  amount      Decimal       @db.Decimal(14, 2)
+  note        String?
+  proofUrl    String?       @map("proof_url") // path/link bukti transfer yang diupload
+  createdById String        @map("created_by")
+  createdBy   User          @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime      @default(now()) @map("created_at")
+  shiftId     String?       @map("shift_id") // Siklus 4 — null kalau kasir gak punya shift aktif saat bayar dicatat
+  shift       CashierShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@map("manual_payments")
+}
+
+// ----------------------------------------------------------------------------
+// SIKLUS 4: KAS & SHIFT KASIR
+// ----------------------------------------------------------------------------
+
+model CashierShift {
+  id             String    @id @default(uuid())
+  kasirId        String    @map("kasir_id")
+  kasir          User      @relation(fields: [kasirId], references: [id])
+  openingBalance Decimal   @map("opening_balance") @db.Decimal(14, 2)
+  closingBalance Decimal?  @map("closing_balance") @db.Decimal(14, 2)
+  openedAt       DateTime  @default(now()) @map("opened_at")
+  closedAt       DateTime? @map("closed_at")
+  notes          String?
+
+  payments ManualPayment[]
+
+  @@map("cashier_shifts")
+}
+
+// ----------------------------------------------------------------------------
+// SERVIS: ORDER, PENUGASAN TEKNISI, FOTO, PENGAJUAN SPAREPART
+// ----------------------------------------------------------------------------
+
+model ServiceOrder {
+  id            String    @id @default(uuid())
+  memberId      String?   @map("member_id")
+  member        Member?   @relation(fields: [memberId], references: [id])
+  transactionId String?   @map("transaction_id")
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  invoiceId     String?   @map("invoice_id")
+  invoice       Invoice?  @relation(fields: [invoiceId], references: [id])
+  type          String // 'pemasangan' | 'cuci' | 'perbaikan' | dst
+  status        String // 'terjadwal' | 'menunggu_pemasangan' | 'selesai' | 'dibatalkan'
+  createdById   String    @map("created_by")
+  createdBy     User      @relation("ServiceOrderCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime  @default(now()) @map("created_at")
+  note          String?
+  scheduledDate DateTime? @map("scheduled_date")
+
+  units TechnicianJob[]
+  serviceOrderUnits ServiceOrderUnit[]
+
+  @@map("service_orders")
+}
+
+// Unit AC mana saja yang termasuk dalam satu service order (bisa lebih dari satu unit)
+model ServiceOrderUnit {
+  id       String       @id @default(uuid())
+  orderId  String       @map("order_id")
+  order    ServiceOrder @relation(fields: [orderId], references: [id])
+  unitId   String       @map("unit_id")
+  unit     MemberAcUnit @relation(fields: [unitId], references: [id])
+  status   String
+
+  @@map("service_order_units")
+}
+
+// Vokabuler status TechnicianJob — dulu kolom `status` cuma String polos
+// (lihat riwayat komentar di bawah), diubah jadi enum Postgres beneran biar
+// typo/nilai liar ketolak di level DB, bukan cuma dijaga endpoint aksi
+// (assign/start/submit-for-review/approve-complete/send-back/cancel) doang.
+enum TechnicianJobStatus {
+  menunggu_penugasan
+  assigned
+  sedang_dikerjakan
+  menunggu_review
+  selesai
+  dibatalkan
+}
+
+// Job/tugas teknisi — inilah yang dibuka saat teknisi scan QR/barcode di lokasi
+model TechnicianJob {
+  id            String    @id @default(uuid())
+  orderId       String    @map("order_id")
+  order         ServiceOrder @relation(fields: [orderId], references: [id])
+  memberId      String?   @map("member_id")
+  member        Member?   @relation(fields: [memberId], references: [id])
+  unitId        String?   @map("unit_id")
+  unit          MemberAcUnit? @relation(fields: [unitId], references: [id])
+  // NOTE (koreksi 2026-08-22): di skema Supabase asli technician_id NOT NULL
+  // (job selalu dibuat sudah ada teknisinya). Tapi alur checkout kita (POS
+  // -> auto-buat job pemasangan) butuh bisa buat job TANPA teknisi dulu
+  // (status 'menunggu_penugasan'), baru admin assign belakangan lewat
+  // PATCH /technician-jobs/:id/assign. Karena ini skema independen (bukan
+  // clone 1:1 Supabase), kolom ini sengaja dibikin nullable.
+  technicianId  String?   @map("technician_id")
+  technician    User?     @relation("JobTechnician", fields: [technicianId], references: [id])
+  type          String
+  // NOTE (koreksi 2026-08-21): vokabuler status asli (dari
+  // update_technician_job_status RPC di backend/supabase) adalah
+  // 'menunggu_penugasan' | 'assigned' | 'sedang_dikerjakan' | 'selesai' | 'dibatalkan'
+  // — BUKAN 'in_progress'. Transisi assigned->sedang_dikerjakan (aksi "start")
+  // digerbang oleh 2 syarat yang gak ada representasinya sebagai kolom
+  // terpisah: (1) scan barcode harus cocok `unit.barcodeValue`, (2) foto
+  // kind='sebelum' harus sudah ada di JobPhoto. Transisi ke 'selesai' butuh
+  // foto 'sebelum' DAN 'sesudah', tidak ada material_requests berstatus
+  // pending, dan semua yang approved sudah ditandai used. Lihat
+  // TechnicianJobsService — TIDAK ada tabel checklist terpisah di sistem asli.
+  status        TechnicianJobStatus @default(menunggu_penugasan)
+  scheduledDate DateTime? @map("scheduled_date")
+  createdById   String    @map("created_by")
+  createdBy     User      @relation("JobCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at") // dipakai backend utk deteksi konflik saat batch sync dari mode offline
+  notes         String?
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  // Diisi Admin saat sendBack() (job dikembalikan dari menunggu_review ke
+  // sedang_dikerjakan) — dikosongkan lagi tiap kali teknisi submitForReview()
+  // ulang, biar gak nyangkut catatan lama. Lihat plan
+  // 2026-08-22-siklus-checklist-servis-review.md.
+  reviewNote    String?   @map("review_note")
+
+  photos           JobPhoto[]
+  findings         JobFinding[]
+  materialRequests MaterialRequest[]
+
+  @@map("technician_jobs")
+}
+
+// Foto level-job (model LAMA). Dibiarkan ada di schema untuk data historis
+// job yang dibuat sebelum migrasi checklist — TIDAK dipakai lagi untuk alur
+// baru (lihat JobFindingPhoto). Endpoint POST /technician-jobs/:id/photos
+// yang menulis ke sini sudah dihapus dari controller.
+model JobPhoto {
+  id           String        @id @default(uuid())
+  jobId        String        @map("job_id")
+  job          TechnicianJob @relation(fields: [jobId], references: [id])
+  kind         String // 'sebelum' | 'sesudah'
+  path         String // path file (disimpan di storage — S3-compatible/local disk di VPS)
+  uploadedById String        @map("uploaded_by")
+  uploadedBy   User          @relation("PhotoUploadedBy", fields: [uploadedById], references: [id])
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  @@map("job_photos")
+}
+
+// Daftar baku "kemungkinan kerusakan / jenis servis AC" buat autocomplete
+// input temuan. Tumbuh sendiri: kalau teknisi ketik judul yang belum ada di
+// daftar, otomatis kebentuk row baru di sini (pola sama seperti
+// MembersService.findOrCreate).
+model ProblemCategory {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  source    String   // 'seed' (diisi manual awal) | 'auto' (kebentuk dari input teknisi)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  findings JobFinding[]
+
+  @@map("problem_categories")
+}
+
+// Satu temuan masalah dalam satu job (siklus 5 revisi — checklist dinamis,
+// BUKAN template tetap). Job servis-masuk-mandiri biasanya punya 1 temuan
+// otomatis dari komplain saat intake + bisa nambah lagi manual; job
+// instalasi/servis-rutin mulai kosong, teknisi isi sendiri di lokasi.
+model JobFinding {
+  id           String          @id @default(uuid())
+  jobId        String          @map("job_id")
+  job          TechnicianJob   @relation(fields: [jobId], references: [id])
+  categoryId   String          @map("category_id")
+  category     ProblemCategory @relation(fields: [categoryId], references: [id])
+  // Judul final yang ditampilkan (bisa beda dikit dari category.name kalau
+  // diedit sebelum submit) — disimpan sendiri biar histori tetap utuh walau
+  // category.name diubah admin belakangan.
+  title        String
+  note         String?
+  // 'komplain_awal' -> otomatis dibuat dari ServiceOrder.note saat intake;
+  // 'ditambah_teknisi' -> teknisi nambah sendiri di lapangan.
+  origin       String
+  createdById  String          @map("created_by")
+  createdBy    User            @relation("FindingCreatedBy", fields: [createdById], references: [id])
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  photos JobFindingPhoto[]
+
+  @@map("job_findings")
+}
+
+// Foto sebelum/sesudah PER TEMUAN (bukan lagi per job). Boleh banyak per
+// kind — user eksplisit: "sebelum dan sesudah, namun bisa banyak foto,
+// jangan hanya 1".
+model JobFindingPhoto {
+  id           String     @id @default(uuid())
+  findingId    String     @map("finding_id")
+  finding      JobFinding @relation(fields: [findingId], references: [id])
+  kind         String     // 'sebelum' | 'sesudah'
+  path         String
+  uploadedById String     @map("uploaded_by")
+  uploadedBy   User       @relation("FindingPhotoUploadedBy", fields: [uploadedById], references: [id])
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@map("job_finding_photos")
+}
+
+// Pengajuan sparepart tambahan dari teknisi saat servis on-site — perlu approval Admin
+model MaterialRequest {
+  id             String    @id @default(uuid())
+  jobId          String    @map("job_id")
+  job            TechnicianJob @relation(fields: [jobId], references: [id])
+  invoiceId      String?   @map("invoice_id")
+  invoice        Invoice?  @relation(fields: [invoiceId], references: [id])
+  status         String // 'pending' | 'approved' | 'rejected'
+  total          Decimal   @db.Decimal(14, 2)
+  note           String?
+  decisionNote   String?   @map("decision_note")
+  createdById    String    @map("created_by")
+  createdBy      User      @relation("RequestCreatedBy", fields: [createdById], references: [id])
+  createdAt      DateTime  @default(now()) @map("created_at")
+  decidedById    String?   @map("decided_by")
+  decidedBy      User?     @relation("RequestDecidedBy", fields: [decidedById], references: [id])
+  decidedAt      DateTime? @map("decided_at")
+  usedAt         DateTime? @map("used_at")
+  usedById       String?   @map("used_by")
+  usedBy         User?     @relation("RequestUsedBy", fields: [usedById], references: [id])
+  updatedAt      DateTime  @updatedAt @map("updated_at") // dipakai backend utk deteksi konflik saat batch sync dari mode offline
+
+  items       MaterialRequestItem[]
+  adjustments InvoiceAdjustment[]
+
+  @@map("material_requests")
+}
+
+model MaterialRequestItem {
+  id        String          @id @default(uuid())
+  requestId String          @map("request_id")
+  request   MaterialRequest @relation(fields: [requestId], references: [id])
+  // Siklus batch-cost (2026-09): scope pengajuan material dipersempit ke
+  // 'sparepart' doang (dijaga di kode — MaterialRequestItemDto @IsIn — bukan
+  // constraint DB, kolom ini tetap String bebas). 'product' DICABUT: teknisi
+  // butuh AC unit itu fungsinya sama kayak checkout biasa (yang punya UI
+  // pemilihan batch), pengajuan material gak punya itu. Kolom TETAP String
+  // (bukan diganti enum Postgres) biar baris LAMA (kalau ada, dari sebelum
+  // pembatasan ini) gak perlu migrasi data.
+  kind      String // 'sparepart'
+  refId     String?         @map("ref_id")
+  name      String
+  unit      String?
+  qty       Decimal         @db.Decimal(10, 2)
+  unitPrice Decimal         @map("unit_price") @db.Decimal(14, 2)
+  lineTotal Decimal         @map("line_total") @db.Decimal(14, 2)
+
+  @@map("material_request_items")
+}
+
+// ----------------------------------------------------------------------------
+// SIKLUS 9: MODE OFFLINE TEKNISI — dedup log buat POST /technician-jobs/sync-batch
+// ----------------------------------------------------------------------------
+
+// Log dedup buat batch sync offline teknisi (Siklus 9). Tiap action offline
+// (dari Flutter) bawa clientActionId (UUID, di-generate SEKALI di klien saat
+// aksi itu pertama dibuat offline) — kalau id ini udah pernah ke-proses,
+// server skip eksekusi ulang & balikin hasil lama (lihat OfflineSyncService).
+// Cuma hasil DETERMINISTIK ('applied'/'conflict') yang dicatat di sini,
+// 'error' dari exception tak terduga SENGAJA tidak dicatat (biar retry
+// berikutnya beneran nyoba lagi, bukan ke-skip selamanya). Gak ada relasi FK
+// ke technician_jobs — jobId cuma buat keperluan audit/lookup.
+model SyncActionLog {
+  id             String   @id @default(uuid())
+  clientActionId String   @unique @map("client_action_id")
+  jobId          String   @map("job_id")
+  actionType     String   @map("action_type")
+  processedAt    DateTime @default(now()) @map("processed_at")
+  result         Json
+
+  @@index([jobId])
+  @@map("sync_action_log")
+}
+
+// ----------------------------------------------------------------------------
+// STOCK MOVEMENT — riwayat perubahan stock (masuk/keluar), untuk audit & laporan
+// ----------------------------------------------------------------------------
+
+model StockMovement {
+  id            String   @id @default(uuid())
+  itemKind      String   @map("item_kind") // 'product' | 'sparepart'
+  refId         String   @map("ref_id")
+  name          String
+  qtyChange     Decimal  @map("qty_change") @db.Decimal(10, 2) // boleh negatif (keluar) / positif (masuk)
+  reason        String // 'penjualan' | 'pembelian' | 'pengajuan' | dst
+  transactionId String?  @map("transaction_id")
+  // BARU (Siklus batch-cost 2026-09) — nunjuk batch (ItemCost) spesifik
+  // yang kena mutasi, kalau itemKind='product'. Nullable: baris LAMA
+  // (sebelum kolom ini ada) & baris itemKind='sparepart' tetap null
+  // (sparepart gak ikut sistem batch). BUKAN foreign key formal — polanya
+  // sama kayak `refId` di model ini (referensi polymorphic, gak strict FK).
+  itemCostId    String?  @map("item_cost_id")
+  createdById   String   @map("created_by")
+  createdBy     User     @relation("StockCreatedBy", fields: [createdById], references: [id])
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("stock_movements")
+}
+
+// ----------------------------------------------------------------------------
+// VOUCHER — port 1:1 dari konsep app mobile (bukan lagi VoucherCampaign +
+// VoucherClaim yang ditawarkan ke banyak member sekaligus lalu diklaim).
+// Satu baris = satu voucher ad-hoc, TERIKAT ke satu member sejak dibuat oleh
+// admin, berisi kode unik. Pemakaiannya di kasir cuma ketik/tempel kode itu
+// di field "Kode Voucher" saat checkout — TIDAK ada langkah "klaim" terpisah,
+// validasi (kode ada, masih aktif, belum kedaluwarsa, cocok member transaksi
+// ini, subtotal >= minPurchase) dan penandaan "terpakai" sepenuhnya terjadi
+// di server saat checkout (lihat PosService.checkout + VouchersService).
+// Beda dari InvoiceAdjustment (diskon manual bebas, gak butuh kode).
+// ----------------------------------------------------------------------------
+
+enum VoucherDiscountType {
+  persen
+  nominal
+}
+
+enum VoucherStatus {
+  aktif
+  terpakai
+  kadaluarsa
+  dibatalkan
+}
+
+enum VoucherSource {
+  undian // hasil undian (belum ada fitur undian di backend ini)
+  manual // dibuat langsung oleh admin lewat form "Buat Voucher"
+}
+
+model Voucher {
+  id              String              @id @default(uuid())
+  code            String              @unique
+  memberId        String              @map("member_id")
+  member          Member              @relation(fields: [memberId], references: [id])
+  discountType    VoucherDiscountType @map("discount_type")
+  discountValue   Decimal             @map("discount_value") @db.Decimal(14, 2)
+  maxDiscountCap  Decimal?            @map("max_discount_cap") @db.Decimal(14, 2)
+  minPurchase     Decimal?            @map("min_purchase") @db.Decimal(14, 2)
+  expiresAt       DateTime            @map("expires_at")
+  status          VoucherStatus       @default(aktif)
+  source          VoucherSource       @default(manual)
+  note            String?
+  usedAt          DateTime?           @map("used_at")
+  usedInInvoiceId String?             @map("used_in_invoice_id")
+  usedInInvoice   Invoice?            @relation(fields: [usedInInvoiceId], references: [id])
+  createdById     String?             @map("created_by")
+  createdBy       User?               @relation("VoucherCreatedBy", fields: [createdById], references: [id])
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  @@index([memberId])
+  @@index([status])
+  @@map("vouchers")
+}
+
+// ----------------------------------------------------------------------------
+// WHATSAPP (Fonnte) — kirim invoice manual + pengingat servis otomatis.
+//
+// Satu tabel log dipakai buat DUA jenis pesan sekaligus (dibedakan `kind`):
+//   - invoice          : tombol "Kirim WA" manual di halaman detail invoice
+//                         (InvoicesService.sendWhatsapp). Boleh berkali-kali
+//                         (resend) — TIDAK punya dedupeKey.
+//   - selesai_servis / reminder_h3 / reminder_h7 : diantre otomatis
+//                         (RemindersService), dikirim via Fonnte tanpa
+//                         campur tangan admin. SELALU punya dedupeKey biar
+//                         gak pernah dobel walau scheduler/approveComplete
+//                         dipanggil ulang.
+//
+// Port konsep dari `wa_outbox` (Supabase, migrasi 0023) — bedanya di sini
+// row LANGSUNG diproses sinkron sesaat setelah dibuat (bukan antrean yang
+// nunggu admin klik "kirim" manual di wa.me, itu pola app mobile lama yang
+// sengaja diganti sesuai keputusan user: full otomatis lewat Fonnte).
+// ----------------------------------------------------------------------------
+
+enum WhatsappMessageKind {
+  invoice
+  selesai_servis
+  reminder_h3
+  reminder_h7
+}
+
+enum WhatsappLogStatus {
+  pending
+  terkirim
+  gagal
+  dibatalkan // member opt-out membatalkan pesan reminder yg masih 'pending'
+}
+
+model WhatsappLog {
+  id       String              @id @default(uuid())
+  memberId String?             @map("member_id")
+  member   Member?             @relation(fields: [memberId], references: [id])
+  kind     WhatsappMessageKind
+  // Unit AC yang relevan (reminder bisa nyangkut lebih dari 1 unit sekaligus
+  // kalau member itu punya beberapa AC yang jatuh tempo bareng — lihat
+  // RemindersService.runDailyEnqueue). Array polos (bukan relasi Prisma)
+  // karena Postgres gak bisa FK ke array; unit yang kehapus TIDAK nge-block
+  // baris log lama, cukup jadi ID basi (sama seperti perilaku aslinya di
+  // Supabase wa_outbox.unit_ids).
+  unitIds   String[] @default([]) @map("unit_ids")
+  invoiceId String?  @map("invoice_id")
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+  phone     String
+  message   String
+  dueDate   DateTime? @map("due_date") @db.Date
+
+  status           WhatsappLogStatus @default(pending)
+  // Kunci anti-duplikat: 'job:<jobId>' (selesai_servis) atau
+  // '<memberId>:<kind>:<dueDate>' (reminder_h3/h7) — NULL utk kind='invoice'
+  // (resend manual memang boleh berkali-kali, gak perlu dedupe).
+  dedupeKey        String?   @unique @map("dedupe_key")
+  providerResponse Json?     @map("provider_response") // raw response Fonnte, utk debugging
+  error            String? // pesan error kalau status='gagal', ATAU alasan pembatalan kalau 'dibatalkan'
+  sentAt           DateTime? @map("sent_at")
+  sentById         String?   @map("sent_by") // hanya keisi utk kind='invoice' (siapa yang klik tombol)
+  sentBy           User?     @relation("WhatsappLogSentBy", fields: [sentById], references: [id])
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@index([memberId])
+  @@map("whatsapp_logs")
+}
+
+// Default siklus servis per jenis job, dalam hari — admin-editable lewat
+// RemindersController. Hanya jenis job yang BENERAN berulang yang punya
+// baris di sini ('cuci', 'maintenance'); 'pemasangan'/'bongkar'/dst sengaja
+// gak pernah didaftarkan, sama seperti reminder_settings di Supabase
+// (migrasi 0023) — sekali kerja, gak ada siklus berikutnya yang bisa
+// diprediksi.
+model ReminderSetting {
+  jobType      String   @id @map("job_type")
+  intervalDays Int      @map("interval_days")
+  active       Boolean  @default(true)
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  updatedById  String?  @map("updated_by")
+  updatedBy    User?    @relation("ReminderSettingUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("reminder_settings")
+}
+
+// Redaksi 3 pesan pengingat servis, admin-editable. Placeholder yang valid:
+// {nama}, {unit}, {tanggal} — disubstitusi RemindersService.buildBody() saat
+// pesan diantrekan (bukan disimpan mentah-mentah, port dari build_wa_body()
+// SQL migrasi 0032). Body yang SUDAH terkirim dibekukan di WhatsappLog.message
+// — ganti template di sini cuma berlaku utk pesan BERIKUTNYA.
+model WaReminderTemplate {
+  kind        String   @id // 'selesai_servis' | 'reminder_h3' | 'reminder_h7'
+  body        String
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedById String?  @map("updated_by")
+  updatedBy   User?    @relation("WaTemplateUpdatedBy", fields: [updatedById], references: [id])
+
+  @@map("wa_reminder_templates")
 }

@@ -26,31 +26,6 @@ const ALLOWED_PHOTO_MIME: Record<string, string> = {
   'image/png': '.png',
   'image/webp': '.webp',
 };
-
-// Dipakai FileInterceptor foto temuan (findings/photos) DAN foto job lama
-// (photos, lihat addJobPhoto di bawah) — satu tempat biar aturan validasi
-// (whitelist mimetype, nama file UUID server-side, limit ukuran) gak dobel.
-const jobPhotoMulterOptions = {
-  storage: diskStorage({
-    destination: './uploads/job-photos',
-    // Nama file di-generate SERVER (UUID + ekstensi dari mimetype
-    // ter-whitelist) — file.originalname TIDAK PERNAH dipakai buat path,
-    // biar gak bisa path-traversal ataupun nyelundup ekstensi berbahaya
-    // (mis. .html/.svg yang bisa stored-XSS lewat static /uploads).
-    filename: (_: unknown, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
-      const ext = ALLOWED_PHOTO_MIME[file.mimetype];
-      if (!ext) return cb(new BadRequestException('Tipe file harus JPG/PNG/WEBP'), '');
-      cb(null, `${randomUUID()}${ext}`);
-    },
-  }),
-  fileFilter: (_: unknown, file: Express.Multer.File, cb: (error: Error | null, acceptFile: boolean) => void) => {
-    if (!ALLOWED_PHOTO_MIME[file.mimetype]) {
-      return cb(new BadRequestException('Tipe file harus JPG/PNG/WEBP'), false);
-    }
-    cb(null, true);
-  },
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB — cukup buat foto HP, cegah upload segede-gedenya
-};
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -111,35 +86,12 @@ export class TechnicianJobsController {
     return this.offlineSync.processSyncBatch(dto.actions, user.sub);
   }
 
-  // Admin/kasir: list semua job (opsional filter status). Teknisi: WAJIB
-  // sertakan ?unitId= (riwayat servis per unit) — lihat guard di
-  // TechnicianJobsService.findAll, port RLS my_visible_job_ids().
-  @Roles('admin', 'kasir', 'teknisi')
+  // Ditambahkan buat frontend uji-coba: admin/kasir belum punya cara lihat
+  // semua job (RPC asli gak pernah butuh, Flutter admin query Supabase langsung).
+  @Roles('admin', 'kasir')
   @Get()
-  findAll(
-    @Query() query: FindAllJobsQueryDto,
-    @CurrentUser() user: CurrentUserPayload,
-  ) {
-    return this.jobs.findAll(query.status, query.unitId, user);
-  }
-
-  // Riwayat servis per unit — ringkasan foto & material utk BANYAK job
-  // sekaligus (dipakai mobile, layar riwayat unit AC). RBAC di-port persis
-  // dari RLS `job_photos`/`material_requests` teknisi (migrasi 0020): teknisi
-  // cuma dihitung foto job yang VISIBLE (miliknya + job lain di unit yang
-  // sama) dan material job MILIKNYA saja (lebih ketat, nilainya rupiah).
-  // Route statis WAJIB sebelum ':id', sama alasannya kayak 'history' di atas.
-  @Roles('admin', 'kasir', 'teknisi')
-  @Get('history-extras')
-  historyExtras(
-    @Query('jobIds') jobIds: string,
-    @CurrentUser() user: CurrentUserPayload,
-  ) {
-    const ids = (jobIds ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    return this.jobs.historyExtras(ids, user);
+  findAll(@Query() query: FindAllJobsQueryDto) {
+    return this.jobs.findAll(query.status);
   }
 
   // Siklus 2 (Servis Masuk Mandiri). Route statis 'history' WAJIB didaftarkan
@@ -230,14 +182,41 @@ export class TechnicianJobsController {
     return this.jobs.addFinding(id, dto, user.sub, user.role);
   }
 
-  // Model BARU (Siklus 5 revisi): foto melekat ke satu temuan (JobFinding),
-  // bisa dipanggil berkali-kali per kind (tidak dibatasi cuma 1 foto). Rute
-  // lama level-job (POST :id/photos, tanpa konsep temuan) TIDAK dihapus —
-  // lihat addJobPhoto() di bawah — karena app mobile Flutter masih di model
-  // lama itu 100% (belum ada UI temuan sama sekali).
+  // Ganti POST /technician-jobs/:id/photos (model lama, level-job) — foto
+  // sekarang melekat ke satu temuan (JobFinding), bisa dipanggil berkali-kali
+  // per kind (tidak dibatasi cuma 1 foto).
   @Roles('admin', 'teknisi')
   @Post(':id/findings/:findingId/photos')
-  @UseInterceptors(FileInterceptor('photo', jobPhotoMulterOptions))
+  @UseInterceptors(
+    FileInterceptor('photo', {
+      storage: diskStorage({
+        destination: './uploads/job-photos',
+        // Nama file di-generate SERVER (UUID + ekstensi dari mimetype
+        // ter-whitelist) — file.originalname TIDAK PERNAH dipakai buat path,
+        // biar gak bisa path-traversal ataupun nyelundup ekstensi berbahaya
+        // (mis. .html/.svg yang bisa stored-XSS lewat static /uploads).
+        filename: (_, file, cb) => {
+          const ext = ALLOWED_PHOTO_MIME[file.mimetype];
+          if (!ext)
+            return cb(
+              new BadRequestException('Tipe file harus JPG/PNG/WEBP'),
+              '',
+            );
+          cb(null, `${randomUUID()}${ext}`);
+        },
+      }),
+      fileFilter: (_, file, cb) => {
+        if (!ALLOWED_PHOTO_MIME[file.mimetype]) {
+          return cb(
+            new BadRequestException('Tipe file harus JPG/PNG/WEBP'),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB — cukup buat foto HP, cegah upload segede-gedenya
+    }),
+  )
   // Siklus 9 — nerima field opsional `clientActionId` di form-data (Flutter
   // isi ini kalau upload ini adalah "tahap 1" dari alur foto offline: foto
   // diambil offline, disimpan lokal, baru di-upload ke sini begitu online
@@ -297,31 +276,6 @@ export class TechnicianJobsController {
     }
   }
 
-  // Model LAMA level-job (tanpa temuan) — port dari RPC Postgres
-  // `add_job_photo` (backend/supabase/migrations/20260717000008_job_photos.sql)
-  // dibutuhkan karena app mobile Flutter (job_detail_screen.dart) belum
-  // punya UI temuan sama sekali, cuma flat "foto sebelum/sesudah" per job.
-  // Guard (role/ownership, status assigned|sedang_dikerjakan, kind
-  // sebelum|sesudah) sengaja disamakan dengan RPC lama itu — lihat
-  // TechnicianJobsService.addJobPhoto().
-  @Roles('admin', 'teknisi')
-  @Post(':id/photos')
-  @UseInterceptors(FileInterceptor('photo', jobPhotoMulterOptions))
-  addJobPhoto(
-    @Param('id') id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @Body('kind') kind: 'sebelum' | 'sesudah',
-    @CurrentUser() user: CurrentUserPayload,
-  ) {
-    return this.jobs.addJobPhoto(
-      id,
-      kind,
-      `/uploads/job-photos/${file.filename}`,
-      user.sub,
-      user.role,
-    );
-  }
-
   @Roles('admin', 'teknisi')
   @Patch(':id/notes')
   updateNotes(
@@ -355,7 +309,7 @@ export class TechnicianJobsController {
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    const result = await this.jobs.approveComplete(id, user);
+    const result = await this.jobs.approveComplete(id, user.role);
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,

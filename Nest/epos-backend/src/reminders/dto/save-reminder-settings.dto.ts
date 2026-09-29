@@ -1,26 +1,17 @@
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, ValidateIf, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsString, Max, Min, ValidateNested } from 'class-validator';
 
-/** Payload RPC `save_reminder_settings` (satu baris). Batas nilai dijaga RPC. */
-export class ReminderSettingDto {
-  @IsString() jobType: string;
-  @IsInt() intervalDays: number;
-  @IsOptional() @IsBoolean() active?: boolean;
+class ReminderSettingEntryDto {
+  @IsString() jobType!: string;
+  @IsInt() @Min(7) @Max(730) intervalDays!: number;
+  @IsBoolean() active!: boolean;
 }
 
-/**
- * Satu baris (bentuk payload RPC) ATAU `{ settings: [...] }` (bentuk yang
- * dikirim web) — array dijalankan per item berurutan, sama seperti Flutter.
- */
+/** Simpan sekaligus (biasanya 2 baris: cuci & maintenance) — form frontend
+ * nampilin keduanya di satu halaman, satu tombol "Simpan". */
 export class SaveReminderSettingsDto {
-  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => ReminderSettingDto)
-  settings?: ReminderSettingDto[];
-
-  @ValidateIf((o: SaveReminderSettingsDto) => !o.settings) @IsString() jobType?: string;
-  @ValidateIf((o: SaveReminderSettingsDto) => !o.settings) @IsInt() intervalDays?: number;
-  @IsOptional() @IsBoolean() active?: boolean;
+  @Type(() => ReminderSettingEntryDto)
+  settings!: ReminderSettingEntryDto[];
 }

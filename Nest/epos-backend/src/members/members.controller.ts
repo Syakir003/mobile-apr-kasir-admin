@@ -7,7 +7,6 @@ import type { CurrentUserPayload } from '../auth/decorators/current-user.decorat
 import { MembersService } from './members.service';
 import { SetWaOptOutDto } from './dto/set-wa-opt-out.dto';
 import { CreateMemberDto } from './dto/create-member.dto';
-import { UpdateMemberDto } from './dto/update-member.dto';
 
 /** Baru ditambah Siklus 6 — sebelumnya MembersService murni internal
  * (findOrCreate dipanggil dari POS/ServiceOrders), gak ada endpoint REST
@@ -57,18 +56,6 @@ export class MembersController {
     @Body() dto: SetWaOptOutDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.members.setWaOptOut(id, dto.optOut, user);
-  }
-
-  /** Edit data member (nama, HP, alamat, dst) — bukan wa-opt-out, itu
-   * endpoint terpisah di atas (punya efek samping batalin reminder pending). */
-  @Roles('admin', 'kasir')
-  @Patch(':id')
-  update(
-    @Param('id') id: string,
-    @Body() dto: UpdateMemberDto,
-    @CurrentUser() user: CurrentUserPayload,
-  ) {
-    return this.members.update(id, dto, user.sub);
+    return this.members.setWaOptOut(id, dto.optOut, user.sub);
   }
 }

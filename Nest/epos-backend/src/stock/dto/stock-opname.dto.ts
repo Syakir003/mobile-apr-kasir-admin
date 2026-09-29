@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -19,10 +20,14 @@ export class OpnameItemDto {
   @IsNotEmpty()
   refId: string;
 
-  // `itemCostId` (dulu wajib buat kind='product', desain opname "per-batch")
-  // DIHAPUS — schema Supabase aktual cuma punya 1 baris item_costs per
-  // (kind, refId), gak ada id/batch buat dirujuk. Opname produk & sparepart
-  // sekarang sama-sama per-refId, lihat StockService.opname.
+  // Wajib diisi kalau kind='product' — batch (item_costs) mana yang
+  // dikoreksi. Siklus batch-cost (2026-09): opname produk sekarang PER-
+  // BATCH, bukan per-produk lagi (produk bisa punya banyak batch aktif
+  // sekaligus, gak ada lagi 1 angka stok tunggal).
+  @ValidateIf((o: OpnameItemDto) => o.kind === 'product')
+  @IsString()
+  @IsNotEmpty()
+  itemCostId?: string;
 
   @IsNumber()
   @Min(0)

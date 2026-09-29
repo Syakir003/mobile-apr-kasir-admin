@@ -1,8 +1,11 @@
 import { IsObject } from 'class-validator';
 
-/** Payload RPC `save_wa_reminder_templates`: { templates: { <kind>: teks } }.
- * Kind, panjang, dan placeholder divalidasi RPC. */
+/** `templates` kuncinya opsional (selesai_servis/reminder_h3/reminder_h7) —
+ * yang dikirim di-upsert, yang gak dikirim gak disentuh. Validasi isi
+ * per-kind (kind dikenal, panjang, placeholder valid) dilakukan manual di
+ * RemindersService.saveTemplates, bukan di DTO — pesannya butuh nyebut kind
+ * mana yang salah, class-validator gak cocok buat itu di sini. */
 export class SaveWaTemplatesDto {
   @IsObject()
-  templates: Record<string, string>;
+  templates!: Record<string, string>;
 }

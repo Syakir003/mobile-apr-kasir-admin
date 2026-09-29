@@ -1,51 +1,86 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
-
-// Payload = payload RPC checkout_transaction (migrasi 0030) apa adanya.
-// Validasi di sini cuma tipe; nilai (qty > 0, pajak 0-100, duplikat,
-// stok, voucher, dst.) divalidasi RPC dengan pesan yang sama seperti di
-// aplikasi Flutter. Field lama (memberId, itemCostId, discount per baris,
-// discountReason, packageId, confirmOverride) dibuang oleh whitelist.
+import {
+  ArrayMinSize,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  ValidateIf,
+  ValidateNested,
+} from 'class-validator';
 
 export class CheckoutCustomerDto {
-  @IsString() name: string;
-  @IsString() phone: string;
+  @IsString() @IsNotEmpty() name: string;
+  @IsString() @IsNotEmpty() phone: string;
   @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() memberId?: string;
 }
 
 export class CheckoutItemDto {
   @IsIn(['product', 'sparepart', 'service']) kind: 'product' | 'sparepart' | 'service';
-  @IsString() refId: string;
-  @IsNumber() qty: number;
+  @IsString() @IsNotEmpty() refId: string;
+
+  // Wajib diisi kalau kind='product' — id batch (ItemCost) yang dipilih
+  // kasir di dialog pemilihan batch. Nentuin harga jual & modal mana yang
+  // dipakai buat baris ini (1 produk bisa punya banyak batch harga beda).
+  @ValidateIf((o: CheckoutItemDto) => o.kind === 'product')
+  @IsString()
+  @IsNotEmpty()
+  itemCostId?: string;
+
+  @IsNumber() @Min(0.01) qty: number;
+
+  // BARU — diskon nominal khusus baris ini, numpuk (bukan gantiin) diskon
+  // level-transaksi di bawah. Dibandingkan ke buyPrice batch (lewat
+  // checkBelowCost) buat warning "jual di bawah modal", cuma berlaku buat
+  // kind='product'.
+  @IsOptional() @IsNumber() @Min(0) discount?: number;
 }
 
 export class CheckoutInstallationDto {
-  @IsInt() itemIndex: number;
+  @IsInt() @Min(0) itemIndex: number;
   @IsOptional() @IsString() roomLocation?: string;
   @IsOptional() @IsString() technicianId?: string;
-}
 
-export class CheckoutServiceUnitDto {
-  @IsInt() itemIndex: number;
-  @IsString() unitId: string;
-  @IsOptional() @IsString() technicianId?: string;
+  // Paket instalasi (opsional) — item-item di paket ini (sparepart + biaya
+  // tambahan per unit, lihat InstallationPackagesModule) otomatis jadi
+  // baris transaksi/invoice tersendiri dan stok sparepart-nya ikut kepotong,
+  // kasir gak perlu nambahin manual satu-satu ke `items[]`.
+  @IsOptional() @IsString() packageId?: string;
 }
 
 export class CheckoutDto {
   @ValidateNested() @Type(() => CheckoutCustomerDto) customer: CheckoutCustomerDto;
 
-  @IsArray() @ValidateNested({ each: true }) @Type(() => CheckoutItemDto)
+  @ValidateNested({ each: true })
+  @Type(() => CheckoutItemDto)
+  @ArrayMinSize(1)
   items: CheckoutItemDto[];
 
-  @IsOptional() @IsNumber() discount?: number;
-  @IsOptional() @IsNumber() taxPercent?: number;
-  @IsOptional() @IsNumber() transportFee?: number;
+  @IsOptional() @IsNumber() @Min(0) discount?: number;
+  @IsOptional() @IsString() discountReason?: string;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) taxPercent?: number;
+  @IsOptional() @IsNumber() @Min(0) transportFee?: number;
   @IsOptional() @IsString() notes?: string;
-  @IsOptional() @IsString() voucherCode?: string;
 
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CheckoutInstallationDto)
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => CheckoutInstallationDto)
   installations?: CheckoutInstallationDto[];
 
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CheckoutServiceUnitDto)
-  serviceUnits?: CheckoutServiceUnitDto[];
+  // Kode voucher (opsional, ketik manual kasir) — port dari `voucherCode` di
+  // payload checkout mobile. Validasi lengkap (ada/aktif/belum expired/
+  // cocok member/min purchase) dilakukan server-side di PosService.checkout,
+  // lewat VouchersService.lockAndValidateCode.
+  @IsOptional() @IsString() voucherCode?: string;
+
+  // BARU — dikirim ulang (true) setelah kasir/admin confirm dialog warning
+  // "harga di bawah modal". Kalau ada baris yang kena warning dan flag ini
+  // BUKAN true, checkout batal commit & balikin daftar warning-nya.
+  @IsOptional() @IsBoolean() confirmOverride?: boolean;
 }

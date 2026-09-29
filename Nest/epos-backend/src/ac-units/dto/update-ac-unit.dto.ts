@@ -1,16 +1,12 @@
 import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
-// `MemberAcUnit.status` beneran enum Postgres (`ac_unit_status`, 5 nilai —
-// lihat schema.prisma). Daftar di bawah HARUS persis sama dengan enum DB itu
-// (fix: sebelumnya cuma 3 dari 5 nilai — admin yang set status 'rusak'/
-// 'nonaktif' lewat form edit ke-tolak 400 walau nilainya valid di DB).
-export const AC_UNIT_STATUSES = [
-  'menunggu_pemasangan',
-  'aktif',
-  'dalam_maintenance',
-  'rusak',
-  'nonaktif',
-] as const;
+// Status `MemberAcUnit` beneran cuma `String` polos di schema (komentarnya
+// sendiri bilang "'aktif' | 'menunggu_pemasangan' | dst") — 3 nilai di bawah
+// ini yang NYATA dipakai kode (lihat ac-units.service.ts registerExisting/
+// createForInstallation & technician-jobs.service.ts start/complete job).
+// Enum di DTO ini SENGAJA disamain manual ke situ buat validasi form edit
+// admin (cegah typo), bukan berarti kolomnya di-lock jadi enum beneran di DB.
+const AC_UNIT_STATUSES = ['menunggu_pemasangan', 'aktif', 'dalam_maintenance'] as const;
 
 // Semua field opsional (PATCH parsial, sama pola kayak UpdateSparepartDto) —
 // gak ada field yang di-exclude kayak `stock` di produk/sparepart, karena

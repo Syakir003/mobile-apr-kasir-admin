@@ -1,50 +1,48 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { SupabaseAuthAdminService } from '../auth/supabase-auth-admin.service';
+import { BCRYPT_ROUNDS, passwordChangeStamp } from '../common/password.util';
 
 @Injectable()
 export class UsersService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly authAdmin: SupabaseAuthAdminService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Port dari Edge Function `admin-users` (action "create") — akun & password
-   * sekarang murni milik Supabase Auth (schema.prisma User TIDAK punya kolom
-   * password lagi, lihat komentar AuthService/SupabaseAuthAdminService).
-   * Bikin lewat Admin API GoTrue dulu, lalu timpa profil `public.users` yang
-   * sudah otomatis dibuat trigger `handle_new_user` (role default 'kasir')
-   * dengan role & nama yang sebenarnya diminta admin — pola identik Edge
-   * Function lama, cuma dipindah ke NestJS.
-   */
+  /** Port dari manageUser.ts lama — bedanya password WAJIB di-hash sendiri
+   * (dulu Firebase Auth yang urus, sekarang kolom users.password kita yang pegang). */
   async create(dto: CreateUserDto, actorId: string) {
-    const newId = await this.authAdmin.createUser(dto.email, dto.password, dto.displayName);
-
+    const hashed = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     let user;
     try {
-      user = await this.prisma.user.update({
-        where: { id: newId },
-        data: { role: dto.role, displayName: dto.displayName, active: true },
+      user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          password: hashed,
+          displayName: dto.displayName,
+          role: dto.role,
+          active: true,
+        },
       });
     } catch (err) {
-      // Jangan tinggalkan akun auth yatim kalau timpa profilnya gagal
-      // (sama alasan Edge Function lama menghapus balik akun auth-nya).
-      await this.authAdmin.deleteUser(newId).catch(() => {});
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
-        throw new NotFoundException('Trigger handle_new_user belum membuat profil — coba lagi');
+      // email @unique di schema — sebelumnya P2002 gak ditangkep, jatuh ke
+      // HttpExceptionFilter (yang cuma @Catch(HttpException)) jadi 500
+      // generik alih-alih 409 yang jelas buat admin ("email sudah dipakai").
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('Email sudah dipakai user lain');
       }
       throw err;
     }
-
     await this.prisma.auditLog.create({
       data: {
         actorUid: actorId,
@@ -129,20 +127,23 @@ export class UsersService {
   /**
    * Admin nge-reset password staff lain (padanan action `resetPassword` di
    * edge function admin-users lama). Gak minta password lama — admin emang
-   * gak tau, itu justru alasan fitur ini ada: staff lupa password. Password
-   * ditulis lewat Admin API GoTrue (satu-satunya penyimpan password
-   * sekarang, sama pola AuthService.changePassword) — TIDAK ADA lagi kolom
-   * `password`/`passwordChangedAt` di public.users buat di-update.
+   * gak tau, itu justru alasan fitur ini ada: staff lupa password.
    *
-   * Batasan masa transisi (sama seperti AuthService.changePassword): JWT
-   * yang sudah terbit tetap berlaku sampai kedaluwarsa, gak ada stempel buat
-   * memaksa logout sesi lama.
+   * `passwordChangedAt` ikut di-set biar semua sesi lama user itu langsung
+   * mati (lihat JwtStrategy). Ini penting justru buat kasus paling umum
+   * dipakainya: HP staff yang keluar kerja masih pegang token valid.
    */
   async resetPassword(id: string, newPassword: string, actorId: string) {
     const existing = await this.prisma.user.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('User tidak ditemukan');
 
-    await this.authAdmin.updatePassword(id, newPassword);
+    await this.prisma.user.update({
+      where: { id },
+      data: {
+        password: await bcrypt.hash(newPassword, BCRYPT_ROUNDS),
+        passwordChangedAt: passwordChangeStamp(),
+      },
+    });
 
     await this.prisma.auditLog.create({
       data: {
@@ -157,7 +158,8 @@ export class UsersService {
 
     return {
       id,
-      message: 'Password berhasil di-reset',
+      message:
+        'Password berhasil di-reset — sesi lama user ini otomatis logout',
     };
   }
 
@@ -172,18 +174,6 @@ export class UsersService {
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  /** Daftar teknisi aktif — dipakai kasir/admin milih technicianId pas
-   * assign job (TechnicianJobsController.assign, role admin+kasir). Beda
-   * dari findAll() (admin-only, semua role, ada email): ini cuma role
-   * 'teknisi' + gak expose email ke kasir. */
-  findTechnicians() {
-    return this.prisma.user.findMany({
-      where: { role: 'teknisi', active: true },
-      select: { id: true, displayName: true },
-      orderBy: { displayName: 'asc' },
     });
   }
 

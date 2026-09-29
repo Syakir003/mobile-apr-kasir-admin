@@ -1,16 +1,11 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Member } from '@prisma/client';
-import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { SupabaseRpcService, RpcActor } from '../prisma/supabase-rpc.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 
 @Injectable()
 export class MembersService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly rpc: SupabaseRpcService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /** Port 1:1 dari normalize_phone() (pos_functions.sql) / phone.ts lama. */
   normalizePhone(raw: string): string {
@@ -22,28 +17,6 @@ export class MembersService {
     return cleaned;
   }
 
-  /**
-   * Sentinel unik buat member walk-in tanpa nomor HP valid — BUKAN string
-   * kosong. `members.phone` di DB ternyata NOT NULL + UNIQUE beneran
-   * (`members_phone_key`, dicek langsung ke Supabase, bukan partial index
-   * yang ngecualiin ''), beda dari komentar lama di bawah yang assume
-   * gak ada unique constraint. Walk-in KEDUA dengan HP kosong sebelumnya
-   * nabrak unique violation (P2002) pas checkout — root cause, bukan
-   * disimptomin per-caller, makanya fix-nya di sini (satu-satunya tempat
-   * yang nulis phone kosong).
-   *
-   * Digit 0-9 di UUID DIGANTI (bukan di-strip) ke huruf g-p yang gak
-   * dipakai di hex — keunikannya identik randomUUID(), TAPI hasilnya
-   * sengaja NOL digit sehingga waPhone() (`.replace(/\D/g,'')`, lihat
-   * wa-format.util.ts) balikin '' buat sentinel ini — member walk-in
-   * "notelp" otomatis ke-skip dari pengiriman WA otomatis, gak ada risiko
-   * nge-hit Fonnte dengan nomor ngarang.
-   */
-  private generateNoPhoneSentinel(): string {
-    const digitToLetter = 'ghijklmnop';
-    return randomUUID().replace(/[0-9]/g, (d) => digitToLetter[Number(d)]);
-  }
-
   async findOrCreate(
     tx: Prisma.TransactionClient,
     name: string,
@@ -52,19 +25,29 @@ export class MembersService {
   ): Promise<{ member: Member; isNew: boolean }> {
     const phone = this.normalizePhone(rawPhone);
 
-    // phone kosong (kasir ngetik placeholder kayak "-"/"()" yang ke-strip
-    // normalizePhone() jadi string kosong, tapi lolos validasi DTO checkout
-    // yang cuma @IsString()) SELALU bikin member baru dengan sentinel unik
-    // di atas — gak pernah di-treat sebagai kunci pencarian/reuse, biar 2
-    // customer walk-in BEDA yang sama-sama gak ngasih HP gak ketuker jadi
-    // 1 row Member (riwayat pembelian, totalAcUnits, unit AC servis, &
-    // eligibility voucher first-purchase mereka).
+    // `phone` gak punya @unique constraint di schema (ganti-nambah unique
+    // index di kolom yang mungkin udah ada data duplikat di produksi itu
+    // migration yang riskan — lihat insiden drift voucher_campaigns). Jadi
+    // race-nya ditutup pakai Postgres advisory lock yang di-scope ke
+    // transaction ini (pg_advisory_xact_lock, auto-release pas commit/
+    // rollback): 2 checkout bareng buat nomor HP yang sama bakal ANTRE di
+    // sini, bukan dua-duanya lolos findFirst dan bikin 2 row Member.
+    //
+    // Fix dari audit: `if (phone)` di atas SENGAJA skip lock+lookup kalau
+    // phone kosong — tapi sebelumnya kode di bawah (findFirst+reuse) tetap
+    // jalan buat phone==='' juga, jadi 2 customer WALK-IN BEDA yang
+    // sama-sama gak punya HP (kasir ngetik placeholder kayak "-"/"()" yang
+    // ke-strip normalizePhone() jadi string kosong, tapi lolos @IsNotEmpty
+    // di DTO) malah ke-REUSE jadi 1 row Member yang SAMA — riwayat
+    // pembelian, totalAcUnits, unit AC servis, & eligibility voucher
+    // first-purchase mereka ketuker/tercampur. phone kosong sekarang
+    // SELALU bikin member baru, gak pernah di-treat sebagai kunci pencarian.
     if (!phone) {
       const member = await tx.member.create({
         data: {
           name,
-          phone: this.generateNoPhoneSentinel(),
-          address: address ?? '',
+          phone,
+          address: address ?? null,
           memberSince: new Date(),
           totalAcUnits: 0,
           active: true,
@@ -82,7 +65,7 @@ export class MembersService {
       data: {
         name,
         phone,
-        address: address ?? '',
+        address: address ?? null,
         memberSince: new Date(),
         totalAcUnits: 0,
         active: true,
@@ -104,10 +87,6 @@ export class MembersService {
    * nomor". Advisory lock (pg_advisory_xact_lock) sama persis kayak
    * findOrCreate() — nyegah 2 submit bareng nomor HP yang sama lolos
    * dua-duanya jadi 2 row.
-   *
-   * members.phone di DB UNIQUE + NOT NULL: phone kosong dapet sentinel unik
-   * (sama kayak findOrCreate), dan "tetap lanjut" dengan nomor yang sama
-   * tetap ditolak 409 — DB gak bisa nyimpen 2 member bernomor sama.
    */
   async create(dto: CreateMemberDto, actorId: string) {
     const phone = dto.phone ? this.normalizePhone(dto.phone) : '';
@@ -130,10 +109,9 @@ export class MembersService {
       const member = await tx.member.create({
         data: {
           name: dto.name,
-          phone: phone || this.generateNoPhoneSentinel(),
-          address: dto.address ?? '',
-          customerType: dto.customerType ?? 'lainnya',
-          notes: dto.notes,
+          phone,
+          address: dto.address ?? null,
+          customerType: dto.customerType ?? null,
           memberSince: new Date(),
           totalAcUnits: 0,
           active: true,
@@ -150,11 +128,6 @@ export class MembersService {
       });
 
       return { status: 'ok' as const, member };
-    }).catch((err) => {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new ConflictException('Nomor HP sudah dipakai member lain');
-      }
-      throw err;
     });
   }
 
@@ -213,7 +186,8 @@ export class MembersService {
         acUnits: { orderBy: { createdAt: 'desc' } },
         invoices: {
           orderBy: { createdAt: 'desc' },
-          include: { items: true },
+          // buyPriceSnapshot = harga modal, jangan sampai kebaca kasir.
+          include: { items: { omit: { buyPriceSnapshot: true } } },
         },
       },
     });
@@ -221,51 +195,39 @@ export class MembersService {
     return member;
   }
 
-  /** Edit data member — dipakai halaman "Member" (bukan wa-opt-out, itu
-   * endpoint terpisah, lihat komentar setWaOptOut). */
-  async update(
-    id: string,
-    dto: { name?: string; phone?: string; address?: string; customerType?: string; notes?: string; active?: boolean },
-    actorId: string,
-  ) {
-    const existing = await this.prisma.member.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Member tidak ditemukan');
-
-    const phone = dto.phone !== undefined ? this.normalizePhone(dto.phone) || this.generateNoPhoneSentinel() : undefined;
-    try {
-      const member = await this.prisma.member.update({
-        where: { id },
-        data: { ...dto, phone },
-      });
-      await this.prisma.auditLog.create({
-        data: { actorUid: actorId, action: 'member.update', target: id, detail: { ...dto } },
-      });
-      return member;
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new ConflictException('Nomor HP sudah dipakai member lain');
-      }
-      throw err;
-    }
-  }
-
   /**
-   * Pelanggan minta berhenti dikirimi pengingat WhatsApp — langsung panggil
-   * RPC `set_member_wa_opt_out` (migrasi 20260815000026_reminder_rpc.sql).
-   * RPC itu sendiri SUDAH mengerjakan semuanya dalam 1 transaksi Postgres:
-   * update `members.wa_opt_out`, batalkan baris `wa_outbox` yang masih
-   * 'pending' buat member ini ("berhenti berarti berhenti" — biar gak ada
-   * pesan yang tetap terkirim setelah pelanggan minta stop), dan tulis
-   * audit_logs `reminder.opt_out` sendiri — jadi TIDAK perlu diulang di sisi
-   * Nest (satu implementasi, sama seperti RemindersService/WaOutboxService).
-   * Invoice manual (tombol "Kirim WA") TETAP bisa dikirim kasir/admin kapan
-   * pun — opt-out cuma nyetop pengingat OTOMATIS.
+   * Pelanggan minta berhenti dikirimi pengingat WhatsApp — port dari RPC
+   * set_member_wa_opt_out (migrasi Supabase 0026). "Berhenti berarti
+   * berhenti": pesan reminder yang masih 'pending' ikut dibatalkan biar
+   * gak ada yang tetap terkirim setelah pelanggan minta stop. Invoice
+   * manual (tombol "Kirim WA") TETAP bisa dikirim kasir/admin kapan pun —
+   * opt-out cuma nyetop pengingat OTOMATIS, sama persis semantik aslinya.
    */
-  async setWaOptOut(id: string, optOut: boolean, actor: RpcActor) {
+  async setWaOptOut(id: string, optOut: boolean, actorId: string) {
     const member = await this.prisma.member.findUnique({ where: { id } });
     if (!member) throw new NotFoundException('Member tidak ditemukan');
 
-    await this.rpc.call(actor, 'set_member_wa_opt_out', { memberId: id, optOut });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.member.update({ where: { id }, data: { waOptOut: optOut } });
+      if (optOut) {
+        await tx.whatsappLog.updateMany({
+          where: {
+            memberId: id,
+            status: 'pending',
+            kind: { in: ['selesai_servis', 'reminder_h3', 'reminder_h7'] },
+          },
+          data: { status: 'dibatalkan', error: 'Pelanggan opt-out' },
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'reminder.opt_out',
+          target: id,
+          detail: { optOut },
+        },
+      });
+    });
 
     return { ok: true, waOptOut: optOut };
   }

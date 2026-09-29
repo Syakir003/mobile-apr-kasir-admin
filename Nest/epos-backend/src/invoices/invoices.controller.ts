@@ -43,9 +43,9 @@ export class InvoicesController {
     return this.invoices.findOne(id, user.role);
   }
 
-  /** Tombol "Kirim WA" manual di halaman detail invoice. */
+  /** Tombol "Kirim WA" manual di halaman detail invoice — Siklus WA/Fonnte. */
   @Post(':id/send-whatsapp')
-  sendWhatsapp(@Param('id') id: string) {
-    return this.invoices.sendWhatsapp(id);
+  sendWhatsapp(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.invoices.sendWhatsapp(id, user.sub);
   }
 }

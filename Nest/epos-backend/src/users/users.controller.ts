@@ -34,16 +34,6 @@ export class UsersController {
     return this.users.findAll();
   }
 
-  // Override @Roles kelas (admin-only) — kasir butuh ini buat milih
-  // technicianId pas assign job (lihat UsersService.findTechnicians).
-  // Route statis, gak nabrak ':id' manapun (controller ini gak punya
-  // @Get(':id') sama sekali).
-  @Roles('admin', 'kasir')
-  @Get('technicians')
-  findTechnicians() {
-    return this.users.findTechnicians();
-  }
-
   // Sebelumnya @Body('active') active: boolean tanpa DTO — ValidationPipe
   // Nest SKIP validasi buat parameter primitif (Boolean/String/Number),
   // jadi kirim body {"active":"false"} (string, gampang kejadian kalau

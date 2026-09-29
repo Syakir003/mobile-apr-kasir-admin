@@ -19,8 +19,14 @@ export class PosController {
   @Roles('admin', 'kasir')
   @Post('checkout')
   async checkout(@Body() dto: CheckoutDto, @CurrentUser() user: CurrentUserPayload) {
-    const result = await this.posService.checkout(dto, user);
-    this.realtime.emitToAdmin('transaction.created', result);
+    const result = await this.posService.checkout(dto, user.sub);
+    // Siklus batch-cost (2026-09): checkout bisa balik status
+    // 'confirm_required' (belum ada transaksi/invoice yang kebuat, lihat
+    // PosService.checkout) — jangan broadcast event 'transaction.created'
+    // kalau belum ada transaksi beneran.
+    if (result.status === 'ok') {
+      this.realtime.emitToAdmin('transaction.created', result);
+    }
     return result;
   }
 }
