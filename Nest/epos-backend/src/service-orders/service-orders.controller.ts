@@ -6,6 +6,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { ServiceOrdersService } from './service-orders.service';
 import { ServiceIntakeDto } from './dto/service-intake.dto';
+import { CreateServiceOrderDto } from './dto/create-service-order.dto';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -16,6 +17,14 @@ export class ServiceOrdersController {
     private readonly serviceOrders: ServiceOrdersService,
     private readonly realtime: RealtimeGateway,
   ) {}
+
+  /** Order servis manual multi-unit (app mobile) — pengganti RPC create_service_order. */
+  @Post()
+  async create(@Body() dto: CreateServiceOrderDto, @CurrentUser() user: CurrentUserPayload) {
+    const result = await this.serviceOrders.createManual(dto, user.sub);
+    this.realtime.emitToAdmin('service_order.created', result);
+    return result;
+  }
 
   @Post('intake')
   async intake(@Body() dto: ServiceIntakeDto, @CurrentUser() user: CurrentUserPayload) {

@@ -4,6 +4,7 @@ import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { TechnicianJobsService } from '../technician-jobs/technician-jobs.service';
 import { ServiceIntakeDto } from './dto/service-intake.dto';
+import { CreateServiceOrderDto } from './dto/create-service-order.dto';
 
 /**
  * Siklus 2 — Servis Masuk Mandiri: jalur masuk servis yang BUKAN dari
@@ -20,6 +21,63 @@ export class ServiceOrdersService {
     private readonly acUnits: AcUnitsService,
     private readonly technicianJobs: TechnicianJobsService,
   ) {}
+
+  /**
+   * POST /service-orders — port RPC create_service_order (migrasi Supabase
+   * 0013) untuk app mobile: 1 order, N unit milik member yang sama, 1 job per
+   * unit (lewat createForOrder, sama kayak intake). unitIds duplikat dibuang.
+   */
+  async createManual(dto: CreateServiceOrderDto, actorId: string) {
+    const member = await this.prisma.member.findUnique({ where: { id: dto.memberId } });
+    if (!member || !member.active) throw new BadRequestException('Member tidak ditemukan atau nonaktif');
+    if (dto.technicianId) {
+      const tech = await this.prisma.user.findUnique({ where: { id: dto.technicianId } });
+      if (!tech || tech.role !== 'teknisi' || !tech.active) {
+        throw new BadRequestException('Teknisi tidak valid atau nonaktif');
+      }
+    }
+    const unitIds = [...new Set(dto.unitIds)];
+    const units = await this.prisma.memberAcUnit.findMany({ where: { id: { in: unitIds } } });
+    if (units.length !== unitIds.length) throw new NotFoundException('Unit AC tidak ditemukan');
+    if (units.some((u) => u.memberId !== member.id)) {
+      throw new BadRequestException('Unit AC bukan milik member tersebut');
+    }
+
+    const scheduledDate = dto.scheduledDate ? new Date(dto.scheduledDate) : undefined;
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.serviceOrder.create({
+        data: {
+          memberId: member.id,
+          type: dto.type,
+          status: 'terjadwal',
+          note: dto.note?.trim() || null,
+          scheduledDate,
+          createdById: actorId,
+        },
+      });
+      for (const unitId of unitIds) {
+        await tx.serviceOrderUnit.create({ data: { orderId: order.id, unitId, status: 'terjadwal' } });
+        await this.technicianJobs.createForOrder(tx, {
+          orderId: order.id,
+          memberId: member.id,
+          unitId,
+          technicianId: dto.technicianId ?? null,
+          type: dto.type,
+          actorId,
+          scheduledDate,
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'order.create',
+          target: order.id,
+          detail: { type: dto.type, jobs: unitIds.length, technicianId: dto.technicianId ?? null },
+        },
+      });
+      return { ok: true, orderId: order.id, jobCount: unitIds.length };
+    });
+  }
 
   async intake(dto: ServiceIntakeDto, actorId: string) {
     if (!dto.existingUnitId && !dto.newUnit) {
