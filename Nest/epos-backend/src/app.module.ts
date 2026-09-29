@@ -30,6 +30,7 @@ import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { RemindersModule } from './reminders/reminders.module';
+import { UndianModule } from './undian/undian.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { RemindersModule } from './reminders/reminders.module';
     NotificationsModule,
     WhatsappModule,
     RemindersModule,
+    UndianModule,
   ],
   controllers: [AppController],
   providers: [AppService],
