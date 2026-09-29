@@ -7,11 +7,13 @@ import type { CurrentUserPayload } from '../auth/decorators/current-user.decorat
 import { PosService } from './pos.service';
 import { CheckoutDto } from './dto/checkout.dto';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('pos')
 export class PosController {
   constructor(
+    private readonly notifications: NotificationsService,
     private readonly posService: PosService,
     private readonly realtime: RealtimeGateway,
   ) {}
@@ -26,6 +28,8 @@ export class PosController {
     // kalau belum ada transaksi beneran.
     if (result.status === 'ok') {
       this.realtime.emitToAdmin('transaction.created', result);
+      // Teknisi yang dipilih di baris pemasangan langsung dikabari.
+      await this.notifications.notifyJobsAssigned(result.assignedJobs);
     }
     return result;
   }

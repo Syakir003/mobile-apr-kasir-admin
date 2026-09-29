@@ -152,4 +152,36 @@ export class NotificationsService {
       });
     }
   }
+
+  /** Padanan trigger Supabase notify_job_assigned: job LAHIR dengan teknisi
+   * (POS pemasangan, intake, order servis) — sebelumnya cuma PATCH assign
+   * yang ngabarin teknisi. Dipanggil controller SETELAH commit. */
+  async notifyJobsAssigned(jobs: { jobId: string; technicianId: string | null }[]) {
+    for (const j of jobs) {
+      if (!j.technicianId) continue;
+      await this.notify(j.technicianId, {
+        title: 'Job Baru Ditugaskan',
+        body: 'Kamu dapat penugasan job servis baru.',
+        type: 'job_assigned',
+        target: j.jobId,
+      }).catch(() => {});
+    }
+  }
+
+  /** Padanan trigger Supabase notify_request_submitted: pengajuan material
+   * baru -> semua admin & kasir aktif. */
+  async notifyRequestSubmitted(requestId: string) {
+    const staff = await this.prisma.user.findMany({
+      where: { role: { in: ['admin', 'kasir'] }, active: true },
+      select: { id: true },
+    });
+    for (const u of staff) {
+      await this.notify(u.id, {
+        title: 'Pengajuan Material Baru',
+        body: 'Ada pengajuan sparepart/material menunggu persetujuan.',
+        type: 'request_submitted',
+        target: requestId,
+      }).catch(() => {});
+    }
+  }
 }

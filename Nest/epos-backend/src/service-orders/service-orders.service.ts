@@ -55,9 +55,10 @@ export class ServiceOrdersService {
           createdById: actorId,
         },
       });
+      const assignedJobs: { jobId: string; technicianId: string | null }[] = [];
       for (const unitId of unitIds) {
         await tx.serviceOrderUnit.create({ data: { orderId: order.id, unitId, status: 'terjadwal' } });
-        await this.technicianJobs.createForOrder(tx, {
+        const job = await this.technicianJobs.createForOrder(tx, {
           orderId: order.id,
           memberId: member.id,
           unitId,
@@ -66,6 +67,7 @@ export class ServiceOrdersService {
           actorId,
           scheduledDate,
         });
+        assignedJobs.push({ jobId: job.id, technicianId: job.technicianId });
       }
       await tx.auditLog.create({
         data: {
@@ -75,7 +77,7 @@ export class ServiceOrdersService {
           detail: { type: dto.type, jobs: unitIds.length, technicianId: dto.technicianId ?? null },
         },
       });
-      return { ok: true, orderId: order.id, jobCount: unitIds.length };
+      return { ok: true, orderId: order.id, jobCount: unitIds.length, assignedJobs };
     });
   }
 
