@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockLockingService } from '../common/services/stock-locking.service';
 import { StockInDto } from './dto/stock-in.dto';
+import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { StockOpnameDto } from './dto/stock-opname.dto';
 import { StockMovementsQueryDto } from './dto/stock-movements-query.dto';
 import { checkBelowCost } from '../common/below-cost.util';
@@ -304,6 +305,117 @@ export class StockService {
       },
       orderBy: { createdAt: 'desc' },
       take: 200, // guard sederhana, cukup buat skala 1 toko — belum perlu pagination formal
+    });
+  }
+
+  /**
+   * POST /stock/adjust — port RPC adjust_stock (migrasi Supabase 0016) ke
+   * model batch: sparepart langsung di spareparts.stock; produk per batch
+   * item_costs (stok produk = SUM batch). Keluar tanpa itemCostId = FIFO
+   * (batch tertua), masuk tanpa itemCostId = batch terbaru (produk tanpa
+   * batch harus lewat Stok Masuk — batch baru butuh harga beli). Satu
+   * stock_movement per batch yang berubah.
+   */
+  async adjust(dto: AdjustStockDto, actorId: string) {
+    const qty = dto.qtyChange;
+    const note = dto.note?.trim() || null;
+
+    return this.prisma.$transaction(async (tx) => {
+      let name: string;
+      let before: number;
+      const changes: { itemCostId: string | null; qty: number }[] = [];
+
+      if (dto.itemKind === 'sparepart') {
+        const [row] = await tx.$queryRawUnsafe<{ name: string; active: boolean; stock: unknown }[]>(
+          `SELECT name, active, stock FROM spareparts WHERE id = $1 FOR UPDATE`,
+          dto.refId,
+        );
+        if (!row || !row.active) throw new BadRequestException('Sparepart tidak ditemukan atau nonaktif');
+        name = row.name;
+        before = Number(row.stock);
+        if (before + qty < 0) {
+          throw new BadRequestException(`Stok ${name} tidak cukup (tersedia ${before}, diminta ${Math.abs(qty)})`);
+        }
+        await tx.$executeRawUnsafe(`UPDATE spareparts SET stock = stock + $1 WHERE id = $2`, qty, dto.refId);
+        changes.push({ itemCostId: null, qty });
+      } else {
+        if (!Number.isInteger(qty)) throw new BadRequestException('Jumlah produk harus bilangan bulat');
+        const [product] = await tx.$queryRawUnsafe<{ name: string; active: boolean }[]>(
+          `SELECT name, active FROM products WHERE id = $1`,
+          dto.refId,
+        );
+        if (!product || !product.active) throw new BadRequestException('Produk tidak ditemukan atau nonaktif');
+        name = product.name;
+        const batches = await tx.$queryRawUnsafe<{ id: string; stock: number }[]>(
+          `SELECT id, stock FROM item_costs WHERE kind = 'product' AND ref_id = $1 ORDER BY created_at ASC FOR UPDATE`,
+          dto.refId,
+        );
+        before = batches.reduce((sum, b) => sum + Number(b.stock), 0);
+
+        if (dto.itemCostId) {
+          const batch = batches.find((b) => b.id === dto.itemCostId);
+          if (!batch) throw new BadRequestException('Batch produk tidak ditemukan');
+          if (Number(batch.stock) + qty < 0) {
+            throw new BadRequestException(
+              `Stok batch ${name} tidak cukup (tersedia ${batch.stock}, diminta ${Math.abs(qty)})`,
+            );
+          }
+          await tx.$executeRawUnsafe(`UPDATE item_costs SET stock = stock + $1 WHERE id = $2`, qty, batch.id);
+          changes.push({ itemCostId: batch.id, qty });
+        } else if (qty < 0) {
+          if (before + qty < 0) {
+            throw new BadRequestException(`Stok ${name} tidak cukup (tersedia ${before}, diminta ${Math.abs(qty)})`);
+          }
+          const { taken } = await this.stockLocking.lockAndDeduct(tx, 'product', dto.refId, -qty);
+          for (const t of taken ?? []) changes.push({ itemCostId: t.itemCostId, qty: -t.qty });
+        } else {
+          const newest = batches[batches.length - 1];
+          if (!newest) {
+            throw new BadRequestException(
+              `${name} belum punya batch stok — tambahkan lewat Stok Masuk (butuh harga beli)`,
+            );
+          }
+          await tx.$executeRawUnsafe(`UPDATE item_costs SET stock = stock + $1 WHERE id = $2`, qty, newest.id);
+          changes.push({ itemCostId: newest.id, qty });
+        }
+      }
+
+      let movementId: string | null = null;
+      for (const c of changes) {
+        const movement = await tx.stockMovement.create({
+          data: {
+            itemKind: dto.itemKind,
+            refId: dto.refId,
+            name,
+            qtyChange: c.qty,
+            reason: dto.reason,
+            itemCostId: c.itemCostId,
+            createdById: actorId,
+          },
+        });
+        movementId ??= movement.id;
+      }
+
+      const after = before + qty;
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'stock.adjust',
+          target: dto.refId,
+          detail: {
+            itemKind: dto.itemKind,
+            name,
+            qtyChange: qty,
+            reason: dto.reason,
+            stockBefore: before,
+            stockAfter: after,
+            batches: changes.filter((c) => c.itemCostId).map((c) => ({ itemCostId: c.itemCostId!, qty: c.qty })),
+            note,
+          },
+        },
+      });
+
+      return { ok: true, stock: after, movementId };
     });
   }
 }

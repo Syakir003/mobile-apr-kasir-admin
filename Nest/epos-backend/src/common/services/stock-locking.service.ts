@@ -8,6 +8,8 @@ export interface LockedItem {
   unit: string;
   unitPrice: number;
   buyPrice: number | null;
+  /** Produk: batch yang kepotong FIFO (buat jejak stock_movements per batch). */
+  taken?: { itemCostId: string; qty: number }[];
 }
 
 /**
@@ -74,6 +76,7 @@ export class StockLockingService {
     );
 
     let remaining = qty;
+    const taken: { itemCostId: string; qty: number }[] = [];
     let firstPrice: number | null = null;
     let firstBuyPrice: number | null = null;
     for (const batch of batches) {
@@ -81,6 +84,7 @@ export class StockLockingService {
       const take = Math.min(remaining, batch.stock);
       if (take <= 0) continue;
       await tx.$executeRawUnsafe(`UPDATE item_costs SET stock = stock - $1 WHERE id = $2`, take, batch.id);
+      taken.push({ itemCostId: batch.id, qty: take });
       if (firstPrice === null) {
         firstPrice = Number(batch.sell_price);
         firstBuyPrice = Number(batch.buy_price);
@@ -91,7 +95,7 @@ export class StockLockingService {
       throw new BadRequestException(`Stok ${product.name} tidak cukup`);
     }
 
-    return { name: product.name, unit: 'unit', unitPrice: firstPrice ?? 0, buyPrice: firstBuyPrice };
+    return { name: product.name, unit: 'unit', unitPrice: firstPrice ?? 0, buyPrice: firstBuyPrice, taken };
   }
 
   /**
