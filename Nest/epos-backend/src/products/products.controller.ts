@@ -9,8 +9,9 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
 // GET: semua user login (RLS "products: baca user login"); tulis: admin.
-// GET /products/:id/batches DIHAPUS — skema Supabase tak punya batch
-// (stok & harga jual ada di products, harga modal di GET /item-costs).
+// GET /products/:id/batches: skema Supabase tak punya batch — endpoint ini
+// balikin 1 "batch" per produk biar halaman web (POS, stok, opname, detail
+// produk) yang masih pakai dialog pilih-batch tetap jalan.
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('products')
 export class ProductsController {
@@ -25,6 +26,11 @@ export class ProductsController {
   @Get()
   findAll() {
     return this.products.findAll();
+  }
+
+  @Get(':id/batches')
+  batches(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.products.batches(id, user.role === 'admin');
   }
 
   @Get(':id')

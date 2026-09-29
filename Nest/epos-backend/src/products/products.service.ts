@@ -44,6 +44,26 @@ export class ProductsService {
     return toJson(product);
   }
 
+  /** 1 baris "batch" virtual (id = id produk). buyPrice cuma buat admin —
+   * kasir juga manggil ini dari POS, harga modal gak boleh bocor ke kasir. */
+  async batches(id: string, includeBuyPrice: boolean) {
+    const product = await this.prisma.product.findUnique({ where: { id } });
+    if (!product) throw new NotFoundException('Produk tidak ditemukan');
+    const cost = includeBuyPrice
+      ? await this.prisma.itemCost.findUnique({ where: { kind_refId: { kind: 'product', refId: id } } })
+      : null;
+    return [
+      {
+        id: product.id,
+        supplierName: null,
+        buyPrice: includeBuyPrice ? String(cost?.buyPrice ?? 0) : null,
+        sellPrice: String(product.sellPrice),
+        stock: product.stock,
+        createdAt: product.createdAt,
+      },
+    ];
+  }
+
   async update(id: string, dto: UpdateProductDto, actorId: string) {
     if (Object.keys(dto).length === 0) {
       throw new BadRequestException('Gak ada perubahan yang dikirim');

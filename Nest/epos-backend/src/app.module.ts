@@ -29,6 +29,9 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { RemindersModule } from './reminders/reminders.module';
+import { UndianModule } from './undian/undian.module';
+import { WaOutboxModule } from './wa-outbox/wa-outbox.module';
+import { ItemCostsModule } from './item-costs/item-costs.module';
 
 @Module({
   imports: [
@@ -62,6 +65,9 @@ import { RemindersModule } from './reminders/reminders.module';
     AuditLogsModule,
     NotificationsModule,
     RemindersModule,
+    UndianModule,
+    WaOutboxModule,
+    ItemCostsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

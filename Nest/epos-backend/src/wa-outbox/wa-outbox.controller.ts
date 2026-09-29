@@ -5,7 +5,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { WaOutboxService } from './wa-outbox.service';
-import { CancelWaMessageDto, WaOutboxQueryDto } from './dto/wa-outbox.dto';
+import { CancelWaMessageDto, WaOutboxQueryDto, WhatsappLogQueryDto } from './dto/wa-outbox.dto';
 
 // Role = policy RLS "wa_outbox: baca admin/kasir" + cek di mark_wa_sent/
 // cancel_wa_message. Teknisi ditolak 403 di sini (RPC-nya sendiri hanya
@@ -38,5 +38,25 @@ export class WaOutboxController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     return this.waOutbox.cancel(user, id, dto.reason);
+  }
+}
+
+/** Halaman web "Riwayat WA" — route lama modul whatsapp/ (sudah dihapus),
+ * sekarang dilayani dari wa_outbox. Role sama kayak modul lama. */
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('whatsapp-logs')
+export class WhatsappLogsController {
+  constructor(private readonly waOutbox: WaOutboxService) {}
+
+  @Roles('admin', 'kasir')
+  @Get()
+  findAll(@Query() query: WhatsappLogQueryDto) {
+    return this.waOutbox.logs(query);
+  }
+
+  @Roles('admin')
+  @Post(':id/retry')
+  retry(@Param('id', ParseUUIDPipe) id: string) {
+    return this.waOutbox.retry(id);
   }
 }

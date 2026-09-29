@@ -125,19 +125,11 @@ export class ReportsService {
   }
 
   /**
-   * Siklus 8 (revisi) — `invoice_items.buy_price_snapshot` DIREKAM saat
-   * checkout (lihat PosService.checkout) dan jadi sumber HPP UTAMA di sini.
-   * `item_costs.buy_price` (harga beli TERKINI) cuma jadi FALLBACK buat
-   * baris invoice_items LAMA (dibuat sebelum kolom snapshot ini ada), yang
-   * nilainya pasti NULL. Hasilnya: laporan buat transaksi BARU akurat 100%
-   * (harga beli yang beneran berlaku saat itu), transaksi LAMA tetap
-   * seakurat sebelumnya (fallback ke harga terkini, sama kayak sebelum
-   * revisi ini) — bukan mundur, cuma gak bisa "dipulihkan" mundur ke masa
-   * lalu karena datanya emang gak pernah direkam.
-   *
-   * (Siklus batch-cost 2026-09: `item_costs.buy_price` fallback ini
-   * sekarang RATA-RATA dari semua batch aktif per refId, bukan 1 nilai
-   * tunggal — karena item_costs bisa punya banyak baris per produk.)
+   * HPP = qty × `item_costs.buy_price` (harga beli TERAKHIR yang diinput di
+   * barang masuk; 1 baris per kind+ref_id). DB asli gak punya snapshot harga
+   * beli per transaksi (sengaja — invoice_items kebaca kasir, lihat migrasi
+   * 0036) dan gak punya batch, jadi HPP transaksi lama ikut harga beli
+   * terkini. Jasa & baris manual gak punya HPP.
    */
   async profitLoss(start: Date, end: Date) {
     const lines = await this.prisma.$queryRaw<
@@ -149,37 +141,21 @@ export class ReportsService {
         revenue: string;
         cogs: string;
         baris_barang: string;
-        baris_tanpa_snapshot: string;
         baris_tanpa_hpp_sama_sekali: string;
       }[]
     >`
       SELECT ii.kind, ii.ref_id, ii.name,
              SUM(ii.qty) AS qty_sold,
              SUM(ii.line_total) AS revenue,
-             SUM(ii.qty * COALESCE(ii.buy_price_snapshot, ic.buy_price, 0)) AS cogs,
-             COUNT(*) FILTER (WHERE ii.kind != 'service') AS baris_barang,
-             COUNT(*) FILTER (WHERE ii.kind != 'service' AND ii.buy_price_snapshot IS NULL) AS baris_tanpa_snapshot,
-             COUNT(*) FILTER (WHERE ii.kind != 'service' AND ii.buy_price_snapshot IS NULL AND ic.buy_price IS NULL) AS baris_tanpa_hpp_sama_sekali
+             SUM(ii.qty * COALESCE(ic.buy_price, 0)) AS cogs,
+             COUNT(*) FILTER (WHERE ii.kind IN ('product', 'sparepart')) AS baris_barang,
+             COUNT(*) FILTER (WHERE ii.kind IN ('product', 'sparepart') AND ic.buy_price IS NULL) AS baris_tanpa_hpp_sama_sekali
       FROM invoice_items ii
       JOIN invoices i ON i.id = ii.invoice_id
-      LEFT JOIN (
-        -- Siklus batch-cost (2026-09): item_costs sekarang bisa banyak
-        -- baris per (kind, ref_id) buat kind='product' (per-batch). Fallback
-        -- HPP transaksi LAMA (buy_price_snapshot null) pakai RATA-RATA harga
-        -- modal batch yang MASIH AKTIF (stock>0) buat refId itu — bukan join
-        -- mentah (bakal gandain baris SUM di atas kalau langsung join
-        -- item_costs tanpa di-agregat dulu di sini).
-        -- "stock > 0" cuma relevan buat kind='product' (banyak batch, mau
-        -- rata-rata yang MASIH ada barangnya). kind='sparepart' stock-nya
-        -- SELALU 0 di item_costs (placeholder, gak dipakai — lihat
-        -- StockService.stockIn) — kalau filter stock>0 dipaksa ke sparepart
-        -- juga, baris sparepart-nya ketendang semua dan buy_price fallback-nya
-        -- selalu NULL (ketemu review 2026-09-08, HPP sparepart lama jadi 0).
-        SELECT kind, ref_id, AVG(buy_price) AS buy_price
-        FROM item_costs
-        WHERE kind != 'product' OR stock > 0
-        GROUP BY kind, ref_id
-      ) ic ON ic.kind = ii.kind AND ic.ref_id = ii.ref_id
+      LEFT JOIN item_costs ic
+        ON ii.kind IN ('product', 'sparepart')
+       AND ic.kind::text = ii.kind::text
+       AND ic.ref_id = ii.ref_id
       WHERE i.created_at BETWEEN ${start} AND ${end}
       GROUP BY ii.kind, ii.ref_id, ii.name
       ORDER BY revenue DESC
@@ -203,34 +179,18 @@ export class ReportsService {
         const qtySold = Number(l.qty_sold);
         const cogs = Number(l.cogs);
         const barisBarang = Number(l.baris_barang);
-        const barisTanpaSnapshot = Number(l.baris_tanpa_snapshot);
         const barisTanpaHpp = Number(l.baris_tanpa_hpp_sama_sekali);
 
         let catatan: string;
-        if (l.kind === 'service') {
-          catatan = 'Jasa servis — tidak ada HPP';
+        if (l.kind !== 'product' && l.kind !== 'sparepart') {
+          catatan = l.kind === 'manual' ? 'Input transaksi manual — tidak ada HPP' : 'Jasa servis — tidak ada HPP';
         } else if (barisTanpaHpp > 0) {
           catatan =
             barisTanpaHpp === barisBarang
-              ? 'Belum ada data harga beli sama sekali (belum pernah diisi lewat Siklus 3 barang masuk) — HPP dihitung 0'
-              : `Sebagian transaksi (${barisTanpaHpp} baris) belum ada data harga beli sama sekali — HPP dihitung 0 buat bagian itu`;
-        } else if (barisTanpaSnapshot > 0) {
-          // Fix dari audit: sebelumnya label ini SELALU bilang "transaksi
-          // sebelum fitur snapshot ada" — padahal snapshot bisa null juga
-          // buat transaksi BARU (pasca-migrasi) kalau item_costs-nya emang
-          // belum diisi pas checkout (baru diisi belakangan). Dua penyebab
-          // beda itu, tapi efeknya ke angka HPP SAMA (fallback ke harga
-          // terkini) — makanya di sini gak coba nebak penyebabnya (butuh
-          // bandingin createdAt invoice vs tanggal migration, informasi yang
-          // gak ada di query ini), cukup jujur bilang APA yang kejadian ke
-          // angkanya, bukan KENAPA.
-          catatan =
-            barisTanpaSnapshot === barisBarang
-              ? 'HPP baris ini pakai harga beli TERKINI dari item_costs, bukan harga yang berlaku saat transaksi (transaksi lama sebelum fitur snapshot ada, atau item_costs belum keisi pas checkout)'
-              : `Sebagian transaksi (${barisTanpaSnapshot} baris) pakai harga beli TERKINI (bukan snapshot saat transaksi), sisanya sudah akurat pakai snapshot`;
+              ? 'Belum ada data harga beli sama sekali (belum pernah diisi lewat barang masuk) — HPP dihitung 0'
+              : `Sebagian transaksi (${barisTanpaHpp} baris) belum ada data harga beli — HPP dihitung 0 buat bagian itu`;
         } else {
-          catatan =
-            'HPP akurat — pakai harga beli yang berlaku saat transaksi (snapshot)';
+          catatan = 'HPP pakai harga beli terakhir yang diinput (bukan harga saat transaksi)';
         }
 
         return {
@@ -240,7 +200,7 @@ export class ReportsService {
           qtyTerjual: qtySold,
           revenue: Number(l.revenue),
           buyPriceDipakai:
-            l.kind === 'service' || qtySold === 0
+            (l.kind !== 'product' && l.kind !== 'sparepart') || qtySold === 0
               ? 0
               : Math.round(cogs / qtySold),
           hpp: cogs,
