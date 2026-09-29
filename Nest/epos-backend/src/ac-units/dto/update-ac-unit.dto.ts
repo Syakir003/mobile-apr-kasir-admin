@@ -6,7 +6,8 @@ import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Max, Min } from 'cl
 // createForInstallation & technician-jobs.service.ts start/complete job).
 // Enum di DTO ini SENGAJA disamain manual ke situ buat validasi form edit
 // admin (cegah typo), bukan berarti kolomnya di-lock jadi enum beneran di DB.
-const AC_UNIT_STATUSES = ['menunggu_pemasangan', 'aktif', 'dalam_maintenance'] as const;
+// rusak/nonaktif: dipakai form unit app mobile; reminder cuma proses 'aktif'.
+export const AC_UNIT_STATUSES = ['menunggu_pemasangan', 'aktif', 'dalam_maintenance', 'rusak', 'nonaktif'] as const;
 
 // Semua field opsional (PATCH parsial, sama pola kayak UpdateSparepartDto) —
 // gak ada field yang di-exclude kayak `stock` di produk/sparepart, karena

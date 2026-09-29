@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -6,6 +6,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { AcUnitsService } from './ac-units.service';
 import { UpdateAcUnitDto } from './dto/update-ac-unit.dto';
+import { CreateAcUnitDto } from './dto/create-ac-unit.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('ac-units')
@@ -27,6 +28,13 @@ export class AcUnitsController {
 
   // Admin-only — sama pembatasan kayak edit master data produk/sparepart/
   // jasa lain (lihat komentar AcUnitsService.update).
+  /** Tambah unit AC ke member existing (app mobile, layar member = admin). */
+  @Roles('admin')
+  @Post()
+  create(@Body() dto: CreateAcUnitDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.acUnits.create(dto, user.sub);
+  }
+
   @Roles('admin')
   @Patch(':id')
   update(

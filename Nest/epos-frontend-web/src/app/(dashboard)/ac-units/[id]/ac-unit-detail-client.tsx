@@ -42,6 +42,8 @@ const STATUS_OPTIONS = [
   { value: 'menunggu_pemasangan', label: 'Menunggu Pemasangan' },
   { value: 'aktif', label: 'Aktif' },
   { value: 'dalam_maintenance', label: 'Dalam Maintenance' },
+  { value: 'rusak', label: 'Rusak' },
+  { value: 'nonaktif', label: 'Nonaktif' },
 ];
 
 const editSchema = z.object({
@@ -50,7 +52,7 @@ const editSchema = z.object({
   pk: optionalNumberField,
   roomLocation: z.string().optional(),
   serialNumber: z.string().optional(),
-  status: z.enum(['menunggu_pemasangan', 'aktif', 'dalam_maintenance']),
+  status: z.enum(['menunggu_pemasangan', 'aktif', 'dalam_maintenance', 'rusak', 'nonaktif']),
   // <input type="date"> browser -> 'YYYY-MM-DD', dikirim apa adanya (backend
   // terima IsDateString). Field teks kosong = gak diubah (lihat
   // trimmedOrUndefined di mutationFn) — form ini BELUM bisa ngosongin
@@ -100,11 +102,9 @@ export function AcUnitDetailClient({ unitId, role }: { unitId: string; role: Rol
       pk: unit.pk ?? '',
       roomLocation: unit.roomLocation ?? '',
       serialNumber: unit.serialNumber ?? '',
-      status: (['menunggu_pemasangan', 'aktif', 'dalam_maintenance'] as const).includes(
-        unit.status as 'menunggu_pemasangan' | 'aktif' | 'dalam_maintenance',
-      )
-        ? (unit.status as 'menunggu_pemasangan' | 'aktif' | 'dalam_maintenance')
-        : 'aktif',
+      status: (STATUS_OPTIONS.some((o) => o.value === unit.status)
+        ? unit.status
+        : 'aktif') as z.infer<typeof editSchema>['status'],
       installationDate: toDateInputValue(unit.installationDate),
       lastServiceDate: toDateInputValue(unit.lastServiceDate),
       nextServiceDate: toDateInputValue(unit.nextServiceDate),
