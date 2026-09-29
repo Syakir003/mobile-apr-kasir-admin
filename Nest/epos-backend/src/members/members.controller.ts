@@ -27,14 +27,6 @@ export class MembersController {
     return this.members.search(q ?? '');
   }
 
-  /** Tambah member manual dari halaman "Member" — beda dari findOrCreate
-   * (dipanggil internal oleh POS/ServiceOrders saat checkout/intake). */
-  @Roles('admin', 'kasir')
-  @Post()
-  create(@Body() dto: CreateMemberDto) {
-    return this.members.create(dto);
-  }
-
   /** Halaman "Member" — tabel semua member. */
   @Roles('admin', 'kasir')
   @Get()
@@ -47,6 +39,14 @@ export class MembersController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.members.findOne(id);
+  }
+
+  /** Tambah member manual — daftarin pelanggan duluan sebelum ada transaksi
+   * apapun (sebelumnya member CUMA kebentuk otomatis dari checkout). */
+  @Roles('admin', 'kasir')
+  @Post()
+  create(@Body() dto: CreateMemberDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.members.create(dto, user.sub);
   }
 
   /** Pelanggan minta berhenti/lanjut dikirimi pengingat WA — Siklus WA/Fonnte. */

@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { RefreshCw, Wrench } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
-import { formatDate, statusLabel } from '@/lib/format';
+import { formatDate, formatDateTime, statusLabel } from '@/lib/format';
 import type { Role } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +49,12 @@ export interface TechnicianJob {
   status: string;
   scheduledDate: string | null;
   notes: string | null;
+  // Kapan job ini DIBUAT (bukan dijadwalkan) — ditambah biar admin bisa
+  // ngurutin/mbedain job yang keliatan mirip (unit sama, teknisi sama) tapi
+  // sebenernya beda urutan masuk. Field-nya udah lama ada di response
+  // backend (findAll/queue gak pakai `select`, jadi semua kolom scalar ikut
+  // kebawa) — sebelumnya cuma belum dipetakan & ditampilin di sini.
+  createdAt: string;
   member: JobMember | null;
   unit: JobUnit | null;
   technician: JobTechnician | null;
@@ -189,8 +195,11 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 </p>
                 <p className="truncate text-sm text-muted-foreground">
                   {job.type} • {job.member?.name || '-'}
-                  {job.scheduledDate && ` • ${formatDate(job.scheduledDate)}`}
+                  {job.scheduledDate && ` • Jadwal ${formatDate(job.scheduledDate)}`}
                   {isAdmin && ` • ${job.technician?.displayName || 'Belum ditugaskan'}`}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  Masuk {formatDateTime(job.createdAt)}
                 </p>
               </Link>
               <div className="flex shrink-0 items-center gap-2">

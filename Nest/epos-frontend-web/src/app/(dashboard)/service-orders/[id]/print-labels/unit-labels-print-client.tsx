@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Printer } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
-import { Barcode128 } from '@/components/barcode-128';
+import { BarcodeQr } from '@/components/barcode-qr';
 import { Button } from '@/components/ui/button';
 
 interface AcUnit {
@@ -17,6 +17,10 @@ interface AcUnit {
 }
 interface ServiceOrderDetail {
   id: string;
+  // Member pembeli/pemilik unit — dipakai nampilin nama pembeli di tiap
+  // label (di bawah barcode), biar label yang udah dicetak/tercecer bisa
+  // langsung ketauan punya siapa tanpa perlu scan dulu.
+  member: { id: string; name: string } | null;
   serviceOrderUnits: { id: string; unit: AcUnit }[];
 }
 
@@ -31,6 +35,7 @@ export function UnitLabelsPrintClient({ serviceOrderId }: { serviceOrderId: stri
   if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat label unit.</p>;
 
   const units = data.serviceOrderUnits.map((su) => su.unit);
+  const buyerName = data.member?.name;
   if (units.length === 0) {
     return (
       <div className="p-6">
@@ -75,8 +80,9 @@ export function UnitLabelsPrintClient({ serviceOrderId }: { serviceOrderId: stri
             style={i < units.length - 1 ? { breakAfter: 'page' } : undefined}
           >
             <p className="text-base font-bold">Ayub Podo Rukun</p>
-            <Barcode128 value={unit.barcodeValue} moduleWidth={1.6} height={64} />
+            <BarcodeQr value={unit.barcodeValue} size={104} />
             <p className="text-sm">{unit.barcodeValue}</p>
+            {buyerName && <p className="text-sm font-medium">{buyerName}</p>}
             <p className="text-sm">
               {[unit.brand, unit.model].filter(Boolean).join(' ') || '-'}
             </p>

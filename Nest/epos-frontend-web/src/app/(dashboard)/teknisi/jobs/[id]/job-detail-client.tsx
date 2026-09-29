@@ -4,13 +4,14 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, ScanLine, Search } from 'lucide-react';
+import { ArrowLeft, ScanLine, Search, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
-import { formatDateTime, statusLabel } from '@/lib/format';
+import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
 import type { Role } from '@/lib/session';
 import { statusBadgeVariant } from '../../queue/queue-client';
 import { BarcodeScanner } from '@/components/barcode-scanner';
+import { BarcodeQr } from '@/components/barcode-qr';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -43,6 +44,31 @@ interface JobFinding {
   photos: JobFindingPhoto[];
   createdAt: string;
 }
+interface MaterialRequestItemRow {
+  id: string;
+  name: string;
+  unit: string | null;
+  qty: string;
+  unitPrice: string;
+  lineTotal: string;
+}
+interface MaterialRequestRow {
+  id: string;
+  status: string;
+  total: string;
+  note: string | null;
+  decisionNote: string | null;
+  createdAt: string;
+  usedAt: string | null;
+  items: MaterialRequestItemRow[];
+}
+interface SparepartOption {
+  id: string;
+  name: string;
+  unit: string;
+  sellPrice: string;
+  stock: string;
+}
 interface JobDetail {
   id: string;
   type: string;
@@ -62,7 +88,12 @@ interface JobDetail {
   } | null;
   technician: { id: string; displayName: string; email: string } | null;
   findings: JobFinding[];
-  materialRequests: { id: string; status: string }[];
+  materialRequests: MaterialRequestRow[];
+  // ServiceOrder pembungkus job ini — SELALU ada (baik lewat instalasi POS
+  // maupun servis mandiri, lihat komentar TechnicianJobsService.createForOrder),
+  // dipakai buat link "Cetak Label" ke halaman print-labels yang sudah ada
+  // (per service order, bukan per job — 1 order bisa punya banyak unit).
+  order: { id: string } | null;
 }
 interface UserRow {
   id: string;
@@ -233,6 +264,30 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                 }
               />
               {job.unit && <DetailRow label="Barcode Unit" value={job.unit.barcodeValue} />}
+              {job.unit && (
+                // Preview QR unit ini — biar bisa dicek/dilihat lagi tanpa
+                // harus buka halaman detail unit terpisah. Berguna khususnya
+                // buat job dari customer yang BELUM member sebelumnya
+                // (servis mandiri, unit baru) — QR-nya baru digenerate pas
+                // job ini dibuat (AcUnitsService.registerExisting), jadi di
+                // sinilah tempat pertama admin/teknisi bisa lihat & cetak.
+                <div className="grid gap-2 rounded-md border bg-white p-3">
+                  <div className="flex justify-center">
+                    <BarcodeQr value={job.unit.barcodeValue} size={96} />
+                  </div>
+                  {/* GET /service-orders/:id (dipakai halaman print-labels)
+                      admin+kasir doang di backend — link cetak sengaja gak
+                      ditampilin buat teknisi (bakal 403 kalau diklik). */}
+                  {job.order && !isTeknisi && (
+                    <Link
+                      href={`/service-orders/${job.order.id}/print-labels`}
+                      className="text-center text-xs text-muted-foreground hover:text-foreground hover:underline"
+                    >
+                      Cetak Label Unit
+                    </Link>
+                  )}
+                </div>
+              )}
               <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />
               {/* Kalau lagi bisa diedit (lihat NotesEditor di bawah), jangan
                   dobel ditampilin di sini juga — biar gak ada 2 sumber
@@ -269,12 +324,35 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                 />
               ))}
               {canEditFindings && <AddFindingForm jobId={job.id} />}
-              {job.materialRequests.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {job.materialRequests.length} pengajuan material tercatat — pengajuan/approval
-                  material masih dilakukan lewat aplikasi mobile teknisi, belum diporting ke web.
-                </p>
+            </CardContent>
+          </Card>
+
+          {/* Pengajuan sparepart tambahan — backend (material-requests
+              module) udah lama ada & dipakai app mobile teknisi lama,
+              sebelumnya belum ada UI-nya sama sekali di web (cuma teks
+              placeholder). Admin approve/reject/revisi dari halaman
+              terpisah "Pengajuan Masuk" (/material-requests), di sini
+              teknisi cuma ajukan + lihat status + tandai terpakai. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Pengajuan Sparepart Tambahan</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {job.materialRequests.length === 0 && (
+                <p className="text-sm text-muted-foreground">Belum ada pengajuan.</p>
               )}
+              {job.materialRequests.length > 0 && (
+                <MaterialRequestsList
+                  jobId={job.id}
+                  requests={job.materialRequests}
+                  // GET /technician-jobs/:id sendiri udah nge-gate: teknisi
+                  // cuma bisa buka job MILIKNYA (403 kalau bukan) — jadi
+                  // kalau halaman ini kebuka buat isTeknisi, job ini pasti
+                  // memang job dia, gak perlu bandingin id lagi di sini.
+                  canMarkUsed={isAdmin || isTeknisi}
+                />
+              )}
+              {canEditFindings && <AddMaterialRequestForm jobId={job.id} />}
             </CardContent>
           </Card>
         </div>
@@ -769,6 +847,225 @@ function AddFindingForm({ jobId }: { jobId: string }) {
         onClick={submit}
       >
         {addFindingMutation.isPending ? 'Menyimpan...' : 'Tambah Temuan'}
+      </Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pengajuan Sparepart Tambahan — backend (material-requests module) udah
+// lama ada & dipakai app mobile teknisi lama, sebelumnya belum ada UI-nya
+// sama sekali di web. Approve/reject/revisi dari admin dilakukan di halaman
+// terpisah "Pengajuan Masuk" (/material-requests) — di sini teknisi cuma
+// ajukan baru + lihat status pengajuan job ini + tandai terpakai.
+
+function materialRequestStatusVariant(status: string): 'success' | 'warning' | 'secondary' {
+  if (status === 'approved') return 'success';
+  if (status === 'rejected') return 'secondary';
+  return 'warning';
+}
+function materialRequestStatusLabel(status: string): string {
+  if (status === 'approved') return 'Disetujui';
+  if (status === 'rejected') return 'Ditolak';
+  return 'Pending';
+}
+
+/** Daftar pengajuan sparepart buat job ini — read-only (approve/reject/
+ * revisi cuma dari halaman admin "Pengajuan Masuk"), kecuali tombol
+ * "Tandai Terpakai" yang emang tindakan teknisi/admin di lapangan. */
+function MaterialRequestsList({
+  jobId,
+  requests,
+  canMarkUsed,
+}: {
+  jobId: string;
+  requests: MaterialRequestRow[];
+  canMarkUsed: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const markUsedMutation = useMutation({
+    mutationFn: (requestId: string) => apiClient.patch(`/material-requests/${requestId}/mark-used`),
+    onSuccess: () => {
+      toast.success('Ditandai sudah dipakai — stok ikut terpotong.');
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal menandai dipakai.');
+    },
+  });
+
+  return (
+    <div className="grid gap-2">
+      {requests.map((r) => (
+        <div key={r.id} className="grid gap-1.5 rounded-md border p-3 text-sm">
+          <div className="flex items-start justify-between gap-2">
+            <p className="font-medium">{r.items.map((it) => it.name).join(', ')}</p>
+            <Badge variant={materialRequestStatusVariant(r.status)}>
+              {materialRequestStatusLabel(r.status)}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {formatDateTime(r.createdAt)} • {formatRupiah(r.total)}
+          </p>
+          {r.note && <p className="text-xs text-muted-foreground">Catatan: {r.note}</p>}
+          {r.decisionNote && (
+            <p className="text-xs text-muted-foreground">Catatan admin: {r.decisionNote}</p>
+          )}
+          {r.status === 'approved' && !r.usedAt && canMarkUsed && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="justify-self-start"
+              disabled={markUsedMutation.isPending}
+              onClick={() => markUsedMutation.mutate(r.id)}
+            >
+              {markUsedMutation.isPending ? 'Memproses...' : 'Tandai Terpakai'}
+            </Button>
+          )}
+          {r.status === 'approved' && r.usedAt && (
+            <p className="text-xs text-status-success">
+              Sudah dipakai — {formatDateTime(r.usedAt)}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface MaterialRequestFormRow {
+  sparepart: SparepartOption | null;
+  search: string;
+  qty: string;
+}
+
+/** Form ajuan sparepart tambahan — multi-baris (1 pengajuan bisa berisi
+ * beberapa sparepart sekaligus, sesuai CreateMaterialRequestDto.items),
+ * tiap baris cari sparepart lewat autocomplete client-side (pola sama
+ * kayak AddFindingForm di atas) + qty. Harga TIDAK diinput sama sekali —
+ * server yang motret harga jual sparepart saat ini (lihat priceItems() di
+ * material-requests.service.ts), form ini cuma kirim refId+qty. */
+function AddMaterialRequestForm({ jobId }: { jobId: string }) {
+  const queryClient = useQueryClient();
+  const sparepartsQuery = useQuery({
+    queryKey: ['spareparts'],
+    queryFn: () => apiClient.get<SparepartOption[]>('/spareparts'),
+  });
+  const [rows, setRows] = React.useState<MaterialRequestFormRow[]>([
+    { sparepart: null, search: '', qty: '1' },
+  ]);
+  const [note, setNote] = React.useState('');
+
+  const submitMutation = useMutation({
+    mutationFn: () =>
+      apiClient.post(`/technician-jobs/${jobId}/materials`, {
+        items: rows
+          .filter((r) => r.sparepart && Number(r.qty) > 0)
+          .map((r) => ({ kind: 'sparepart' as const, refId: r.sparepart!.id, qty: Number(r.qty) })),
+        note: note.trim() || undefined,
+      }),
+    onSuccess: () => {
+      toast.success('Pengajuan terkirim, menunggu persetujuan admin.');
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
+      setRows([{ sparepart: null, search: '', qty: '1' }]);
+      setNote('');
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal mengirim pengajuan.');
+    },
+  });
+
+  function updateRow(i: number, patch: Partial<MaterialRequestFormRow>) {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+  function addRow() {
+    setRows((prev) => [...prev, { sparepart: null, search: '', qty: '1' }]);
+  }
+  function removeRow(i: number) {
+    setRows((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev));
+  }
+
+  const canSubmit =
+    rows.some((r) => r.sparepart && Number(r.qty) > 0) && !submitMutation.isPending;
+
+  return (
+    <div className="grid gap-2 rounded-md border border-dashed p-3">
+      <label className="text-sm font-medium">Ajukan Sparepart Tambahan</label>
+      {rows.map((row, i) => {
+        const q = row.search.trim().toLowerCase();
+        const suggestions = row.sparepart
+          ? []
+          : (sparepartsQuery.data ?? []).filter((s) => s.name.toLowerCase().includes(q)).slice(0, 8);
+        return (
+          <div key={i} className="flex items-start gap-2">
+            <div className="relative flex-1">
+              <Input
+                placeholder="Cari sparepart..."
+                value={row.sparepart ? row.sparepart.name : row.search}
+                onChange={(e) => updateRow(i, { sparepart: null, search: e.target.value })}
+              />
+              {row.search.trim() && !row.sparepart && (
+                <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
+                  {suggestions.length === 0 && (
+                    <p className="p-2 text-xs text-muted-foreground">Gak ketemu.</p>
+                  )}
+                  {suggestions.map((s) => (
+                    <button
+                      type="button"
+                      key={s.id}
+                      onClick={() => updateRow(i, { sparepart: s, search: s.name })}
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
+                    >
+                      <p>{s.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Stok {s.stock} {s.unit} • {formatRupiah(s.sellPrice)}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Input
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              step="any"
+              placeholder="Qty"
+              className="w-20 shrink-0"
+              value={row.qty}
+              onChange={(e) => updateRow(i, { qty: e.target.value })}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              disabled={rows.length <= 1}
+              onClick={() => removeRow(i)}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+        );
+      })}
+      <Button type="button" variant="ghost" size="sm" className="justify-self-start" onClick={addRow}>
+        + Tambah Item
+      </Button>
+      <Textarea
+        rows={2}
+        placeholder="Catatan (opsional)"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+      />
+      <Button
+        type="button"
+        size="sm"
+        className="justify-self-start"
+        disabled={!canSubmit}
+        onClick={() => submitMutation.mutate()}
+      >
+        {submitMutation.isPending ? 'Mengirim...' : 'Ajukan'}
       </Button>
     </div>
   );

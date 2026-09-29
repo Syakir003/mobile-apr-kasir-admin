@@ -3,6 +3,7 @@ import { Prisma, Member } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { SupabaseRpcService, RpcActor } from '../prisma/supabase-rpc.service';
+import { CreateMemberDto } from './dto/create-member.dto';
 
 @Injectable()
 export class MembersService {
@@ -90,6 +91,73 @@ export class MembersService {
     return { member, isNew: true };
   }
 
+  /**
+   * Tambah member manual (halaman "Member", tombol "Tambah Member") — beda
+   * dari findOrCreate() yang dipanggil checkout POS/servis: di sini gak ada
+   * transaksi yang nyertain, admin/kasir emang niat daftarin pelanggan
+   * duluan (mis. member baru yang belum pernah beli apa-apa).
+   *
+   * Pola "soft-warn + confirm" sama kayak StockService.stockIn(): kalau
+   * nomor HP udah kepake member lain DAN `confirmOverride` belum true,
+   * balikin `{status:'confirm_required', existingMember}` (HTTP 200,
+   * BUKAN error) biar FE bisa nampilin dialog "tetap lanjut / ganti
+   * nomor". Advisory lock (pg_advisory_xact_lock) sama persis kayak
+   * findOrCreate() — nyegah 2 submit bareng nomor HP yang sama lolos
+   * dua-duanya jadi 2 row.
+   *
+   * members.phone di DB UNIQUE + NOT NULL: phone kosong dapet sentinel unik
+   * (sama kayak findOrCreate), dan "tetap lanjut" dengan nomor yang sama
+   * tetap ditolak 409 — DB gak bisa nyimpen 2 member bernomor sama.
+   */
+  async create(dto: CreateMemberDto, actorId: string) {
+    const phone = dto.phone ? this.normalizePhone(dto.phone) : '';
+
+    return this.prisma.$transaction(async (tx) => {
+      if (phone) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${phone}))`;
+
+        if (!dto.confirmOverride) {
+          const existing = await tx.member.findFirst({ where: { phone } });
+          if (existing) {
+            return {
+              status: 'confirm_required' as const,
+              existingMember: { id: existing.id, name: existing.name, phone: existing.phone },
+            };
+          }
+        }
+      }
+
+      const member = await tx.member.create({
+        data: {
+          name: dto.name,
+          phone: phone || this.generateNoPhoneSentinel(),
+          address: dto.address ?? '',
+          customerType: dto.customerType ?? 'lainnya',
+          notes: dto.notes,
+          memberSince: new Date(),
+          totalAcUnits: 0,
+          active: true,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'member.create_manual',
+          target: member.id,
+          detail: { name: member.name, phone: member.phone || null },
+        },
+      });
+
+      return { status: 'ok' as const, member };
+    }).catch((err) => {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException('Nomor HP sudah dipakai member lain');
+      }
+      throw err;
+    });
+  }
+
   /** Cari member by nama atau nomor HP (autocomplete) — dibutuhin Siklus 6
    * biar Admin bisa nyari memberId buat POST /vouchers/campaigns/:id/offer
    * tanpa harus tau ID mentahnya. Pola sama SparepartsController.search. */
@@ -151,35 +219,6 @@ export class MembersService {
     });
     if (!member) throw new NotFoundException('Member tidak ditemukan');
     return member;
-  }
-
-  /**
-   * Tambah member manual dari halaman "Member" (bukan lewat POS/service-
-   * order intake — itu tetap lewat findOrCreate di atas). Phone kosong
-   * dapet sentinel unik yang sama kayak findOrCreate; phone diisi tetap
-   * wajib unik (P2002 -> 409, pola sama UsersService.create buat email).
-   */
-  async create(dto: { name: string; phone?: string; address?: string; customerType?: string; notes?: string }) {
-    const phone = dto.phone ? this.normalizePhone(dto.phone) : '';
-    try {
-      return await this.prisma.member.create({
-        data: {
-          name: dto.name,
-          phone: phone || this.generateNoPhoneSentinel(),
-          address: dto.address ?? '',
-          customerType: dto.customerType ?? 'lainnya',
-          notes: dto.notes,
-          memberSince: new Date(),
-          totalAcUnits: 0,
-          active: true,
-        },
-      });
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new ConflictException('Nomor HP sudah dipakai member lain');
-      }
-      throw err;
-    }
   }
 
   /** Edit data member — dipakai halaman "Member" (bukan wa-opt-out, itu

@@ -331,7 +331,7 @@ model InvoiceItem {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   invoiceId String   @map("invoice_id") @db.Uuid
   kind      ItemKind
-  refId     String   @map("ref_id") @db.Uuid
+  refId     String?  @map("ref_id") @db.Uuid
   name      String
   unit      String
   qty       Decimal  @db.Decimal
@@ -782,6 +782,7 @@ enum ItemKind {
   product
   sparepart
   service
+  manual
 
   @@map("item_kind")
 }
@@ -791,6 +792,7 @@ enum PaymentMethod {
   transfer
   qris
   ewallet
+  debit
 
   @@map("payment_method")
 }

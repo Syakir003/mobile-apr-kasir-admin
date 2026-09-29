@@ -10,7 +10,12 @@ const nextConfig: NextConfig = {
   // browser (keliatan dari URL yang kebawa query string email/password).
   // IP LAN laptop ini bisa ganti-ganti (DHCP) — kalau abis restart
   // dev server IP-nya beda dari yang ada di daftar ini, tambahin lagi.
-  allowedDevOrigins: ['192.168.18.52', '192.168.18.99'],
+  //
+  // '*.trycloudflare.com' — buat testing lewat tunnel `cloudflared tunnel
+  // --url http://localhost:3001` (quick tunnel). Domainnya acak tiap kali
+  // tunnel dibuka ulang, makanya dipakai wildcard sekali taruh, bukan
+  // ditambahin manual satu-satu tiap buka tunnel baru.
+  allowedDevOrigins: ['192.168.18.52', '192.168.18.99', '*.trycloudflare.com'],
 };
 
 export default nextConfig;

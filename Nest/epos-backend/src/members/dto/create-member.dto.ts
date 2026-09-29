@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 
 const CUSTOMER_TYPES = ['rumah', 'kantor', 'toko', 'perusahaan', 'lainnya'] as const;
 
@@ -10,4 +10,9 @@ export class CreateMemberDto {
   @IsOptional() @IsString() address?: string;
   @IsOptional() @IsIn(CUSTOMER_TYPES) customerType?: (typeof CUSTOMER_TYPES)[number];
   @IsOptional() @IsString() notes?: string;
+
+  // Dikirim ulang (true) setelah admin/kasir confirm peringatan "nomor HP
+  // ini udah kepake member lain" — pola sama kayak confirmOverride di
+  // StockInDto (soft-warn + confirm, bukan blokir keras).
+  @IsOptional() @IsBoolean() confirmOverride?: boolean;
 }

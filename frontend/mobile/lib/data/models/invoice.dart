@@ -24,7 +24,8 @@ enum PaymentMethod {
   tunai('tunai', 'Tunai'),
   transfer('transfer', 'Transfer Bank'),
   qris('qris', 'QRIS Manual'),
-  ewallet('ewallet', 'E-Wallet Manual');
+  ewallet('ewallet', 'E-Wallet Manual'),
+  debit('debit', 'Debit');
 
   const PaymentMethod(this.value, this.label);
 
