@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/api/api_client.dart';
 import '../models/job_history_extra.dart';
@@ -7,22 +6,25 @@ import '../models/job_photo.dart';
 import '../models/material_request.dart';
 import '../models/service_order.dart';
 import '../models/technician_job.dart';
+import '../../core/utils/num_parse.dart';
 
-/// Akses baca job teknisi & order service (tabel `technician_jobs`,
-/// `service_orders`, `service_order_units`). Dibaca via `.select()` (bukan
-/// realtime `.stream()`) supaya tak bergantung pada keanggotaan publication
-/// realtime — baris diperkaya (join client-side) dengan member/unit/teknisi,
-/// pola sama seperti [SupabaseInvoiceRepository] menyusun `items`. Semua tulis
-/// lewat RPC (`assign_technician_job`, `update_technician_job_status`);
-/// pemanggil memanggil ulang (invalidate) untuk menyegarkan.
+/// Akses baca job teknisi & order service lewat backend Nest (GET).
+/// Semua tulis lewat endpoint Nest di job_providers.dart; pemanggil
+/// invalidate provider untuk menyegarkan.
+/// Riwayat satu unit AC: daftar job + ringkasan per job (kunci = id job).
+typedef UnitHistory = ({
+  List<TechnicianJob> jobs,
+  Map<String, JobHistoryExtra> extras,
+});
+
 abstract interface class JobRepository {
   /// Job teknisi; bila [technicianId] diisi hanya job milik teknisi tsb.
   Future<List<TechnicianJob>> fetchJobs({String? technicianId});
   Future<TechnicianJob?> fetchJobById(String id);
 
-  /// Riwayat job untuk satu unit AC (terbaru dulu) — pemasangan, cuci,
-  /// service, maintenance. Dipakai layar "Riwayat Service" per unit.
-  Future<List<TechnicianJob>> fetchJobsByUnit(String unitId);
+  /// SEMUA job di satu unit AC (terbaru dulu) + ringkasan foto & material
+  /// per job. Dipakai layar "Riwayat Service" per unit (semua role).
+  Future<UnitHistory> fetchUnitHistory(String unitId);
 
   Future<List<ServiceOrder>> fetchOrders();
 
@@ -45,262 +47,6 @@ abstract interface class JobRepository {
   /// Pengajuan tambahan untuk satu job (terbaru dulu), lengkap dengan itemnya.
   Future<List<MaterialRequest>> fetchRequests(String jobId);
 
-  /// Ringkasan foto & material untuk BANYAK job sekaligus (dua query, bukan
-  /// dua query per job). Dipakai layar riwayat service yang menampilkan
-  /// puluhan entri sekaligus. Job tanpa data balik memetakan ke
-  /// [JobHistoryExtra.empty].
-  Future<Map<String, JobHistoryExtra>> fetchHistoryExtras(List<String> jobIds);
-}
-
-/// Nama bucket Storage privat untuk foto bukti pengerjaan.
-const String kJobPhotosBucket = 'job-photos';
-
-class SupabaseJobRepository implements JobRepository {
-  SupabaseJobRepository(this._client);
-
-  final SupabaseClient _client;
-
-  @override
-  Future<List<TechnicianJob>> fetchJobs({String? technicianId}) async {
-    var query = _client.from('technician_jobs').select();
-    if (technicianId != null) {
-      query = query.eq('technician_id', technicianId);
-    }
-    final rows = await query.order('created_at', ascending: false).limit(200);
-    return _enrichJobs(_asMaps(rows));
-  }
-
-  @override
-  Future<TechnicianJob?> fetchJobById(String id) async {
-    final rows = await _client.from('technician_jobs').select().eq('id', id);
-    final list = await _enrichJobs(_asMaps(rows));
-    return list.isEmpty ? null : list.first;
-  }
-
-  @override
-  Future<List<TechnicianJob>> fetchJobsByUnit(String unitId) async {
-    final rows = await _client
-        .from('technician_jobs')
-        .select()
-        .eq('unit_id', unitId)
-        .order('created_at', ascending: false)
-        .limit(100);
-    return _enrichJobs(_asMaps(rows));
-  }
-
-  @override
-  Future<List<ServiceOrder>> fetchOrders() async {
-    final rows = await _client
-        .from('service_orders')
-        .select()
-        .order('created_at', ascending: false)
-        .limit(100);
-    return _enrichOrders(_asMaps(rows));
-  }
-
-  @override
-  Future<List<JobPhoto>> fetchPhotos(String jobId) async {
-    final rows = await _client
-        .from('job_photos')
-        .select()
-        .eq('job_id', jobId)
-        .order('created_at', ascending: true);
-    return [
-      for (final r in _asMaps(rows)) JobPhoto.fromMap(r['id'] as String, r),
-    ];
-  }
-
-  @override
-  Future<String> uploadPhoto({
-    required String jobId,
-    required PhotoKind kind,
-    required Uint8List bytes,
-    required String ext,
-    required String contentType,
-  }) async {
-    final path = buildJobPhotoPath(
-      jobId,
-      kind,
-      DateTime.now().millisecondsSinceEpoch,
-      ext,
-    );
-    await _client.storage.from(kJobPhotosBucket).uploadBinary(
-          path,
-          bytes,
-          fileOptions: FileOptions(contentType: contentType, upsert: false),
-        );
-    return path;
-  }
-
-  @override
-  Future<String> signedPhotoUrl(String path, {int expiresInSeconds = 3600}) {
-    return _client.storage
-        .from(kJobPhotosBucket)
-        .createSignedUrl(path, expiresInSeconds);
-  }
-
-  @override
-  Future<List<MaterialRequest>> fetchRequests(String jobId) async {
-    final rows = await _client
-        .from('material_requests')
-        .select()
-        .eq('job_id', jobId)
-        .order('created_at', ascending: false);
-    final reqs = _asMaps(rows);
-    if (reqs.isEmpty) return const [];
-
-    // Ambil semua item sekali jalan, lalu kelompokkan per request_id.
-    final ids = [for (final r in reqs) r['id'] as String];
-    final itemRows = await _client
-        .from('material_request_items')
-        .select()
-        .inFilter('request_id', ids);
-    final byReq = <String, List<Map<String, dynamic>>>{};
-    for (final it in _asMaps(itemRows)) {
-      (byReq[it['request_id'] as String] ??= []).add(it);
-    }
-
-    return [
-      for (final r in reqs)
-        MaterialRequest.fromMap(r['id'] as String, {
-          ...r,
-          'items': byReq[r['id']] ?? const [],
-        }),
-    ];
-  }
-
-  @override
-  Future<Map<String, JobHistoryExtra>> fetchHistoryExtras(
-      List<String> jobIds) async {
-    if (jobIds.isEmpty) return const {};
-
-    final photoRows = await _client
-        .from('job_photos')
-        .select('job_id,kind')
-        .inFilter('job_id', jobIds);
-    final reqRows = await _client
-        .from('material_requests')
-        .select('job_id,status,total')
-        .inFilter('job_id', jobIds);
-
-    final before = <String, int>{};
-    final after = <String, int>{};
-    for (final r in _asMaps(photoRows)) {
-      final jid = (r['job_id'] as String?) ?? '';
-      if (r['kind'] == PhotoKind.sesudah.value) {
-        after[jid] = (after[jid] ?? 0) + 1;
-      } else {
-        before[jid] = (before[jid] ?? 0) + 1;
-      }
-    }
-
-    final items = <String, int>{};
-    final totals = <String, int>{};
-    final pending = <String, int>{};
-    for (final r in _asMaps(reqRows)) {
-      final jid = (r['job_id'] as String?) ?? '';
-      final status = RequestStatus.fromValue(r['status']);
-      if (status == RequestStatus.approved) {
-        items[jid] = (items[jid] ?? 0) + 1;
-        totals[jid] = (totals[jid] ?? 0) + ((r['total'] as num?)?.toInt() ?? 0);
-      } else if (status == RequestStatus.pending) {
-        pending[jid] = (pending[jid] ?? 0) + 1;
-      }
-    }
-
-    // Nilai 0 sengaja tidak dibedakan antara "memang tak ada" dan "disaring
-    // RLS" — dari sisi client keduanya tak bisa dibedakan. UI menanganinya
-    // dengan tidak menampilkan baris material sama sekali saat nol, alih-alih
-    // menuliskan klaim "tanpa material" yang belum tentu benar.
-    return {
-      for (final id in jobIds)
-        id: JobHistoryExtra(
-          photosBefore: before[id] ?? 0,
-          photosAfter: after[id] ?? 0,
-          materialItems: items[id] ?? 0,
-          materialTotal: totals[id] ?? 0,
-          materialPending: pending[id] ?? 0,
-        ),
-    };
-  }
-
-  List<Map<String, dynamic>> _asMaps(dynamic rows) => [
-        for (final r in (rows as List)) Map<String, dynamic>.from(r as Map),
-      ];
-
-  Future<List<TechnicianJob>> _enrichJobs(
-      List<Map<String, dynamic>> rows) async {
-    if (rows.isEmpty) return const [];
-    final memberIds = <String>{};
-    final unitIds = <String>{};
-    final techIds = <String>{};
-    for (final r in rows) {
-      final m = r['member_id'] as String?;
-      final u = r['unit_id'] as String?;
-      final t = r['technician_id'] as String?;
-      if (m != null) memberIds.add(m);
-      if (u != null) unitIds.add(u);
-      if (t != null) techIds.add(t);
-    }
-    final members = await _fetchByIds('members', 'id,name,phone,address', memberIds);
-    final units = await _fetchByIds('member_ac_units',
-        'id,brand,model,pk,room_location,barcode_value,status', unitIds);
-    final techs = await _fetchByIds('users', 'id,display_name', techIds);
-
-    return rows.map((r) {
-      final data = Map<String, dynamic>.from(r);
-      data['member'] = members[r['member_id']];
-      data['unit'] = units[r['unit_id']];
-      data['technician_name'] = techs[r['technician_id']]?['display_name'];
-      return TechnicianJob.fromMap(r['id'] as String, data);
-    }).toList(growable: false);
-  }
-
-  Future<List<ServiceOrder>> _enrichOrders(
-      List<Map<String, dynamic>> rows) async {
-    if (rows.isEmpty) return const [];
-    final memberIds = <String>{};
-    final orderIds = <String>[];
-    for (final r in rows) {
-      final m = r['member_id'] as String?;
-      if (m != null) memberIds.add(m);
-      orderIds.add(r['id'] as String);
-    }
-    final members = await _fetchByIds('members', 'id,name', memberIds);
-
-    // Hitung jumlah unit & unit selesai per order dalam satu query.
-    final unitRows = await _client
-        .from('service_order_units')
-        .select('order_id,status')
-        .inFilter('order_id', orderIds);
-    final total = <String, int>{};
-    final done = <String, int>{};
-    for (final u in (unitRows as List)) {
-      final oid = u['order_id'] as String;
-      total[oid] = (total[oid] ?? 0) + 1;
-      if (u['status'] == 'selesai') done[oid] = (done[oid] ?? 0) + 1;
-    }
-
-    return rows.map((r) {
-      final id = r['id'] as String;
-      final data = Map<String, dynamic>.from(r);
-      data['member'] = members[r['member_id']];
-      data['unit_count'] = total[id] ?? 0;
-      data['done_count'] = done[id] ?? 0;
-      return ServiceOrder.fromMap(id, data);
-    }).toList(growable: false);
-  }
-
-  Future<Map<String, Map<String, dynamic>>> _fetchByIds(
-      String table, String columns, Set<String> ids) async {
-    if (ids.isEmpty) return const {};
-    final rows =
-        await _client.from(table).select(columns).inFilter('id', ids.toList());
-    return {
-      for (final row in (rows as List))
-        (row['id'] as String): Map<String, dynamic>.from(row as Map),
-    };
-  }
 }
 
 // =============================================================================
@@ -312,15 +58,6 @@ class SupabaseJobRepository implements JobRepository {
 // (bukan method privat) supaya bisa diuji langsung tanpa mock HTTP, pola sama
 // seperti `acUnitRowFromNest` di ac_unit_repository.dart.
 // =============================================================================
-
-/// Field `Decimal` Prisma (mis. `pk`, `qty`) di-serialize `JSON.stringify`
-/// sebagai STRING (decimal.js `toJSON()`), bukan number — parser di bawah
-/// menerima keduanya.
-num? numFromNest(Object? v) => switch (v) {
-      num n => n,
-      String s => num.tryParse(s),
-      _ => null,
-    };
 
 /// Baris `technician_jobs` dari Nest (relasi `member`/`unit`/`technician`
 /// bersarang) -> bentuk yang dibaca [TechnicianJob.fromMap].
@@ -420,11 +157,11 @@ Map<String, dynamic> serviceOrderRowFromNest(Map<String, dynamic> o) {
 /// Satu entri `GET /technician-jobs/history-extras` (sudah camelCase persis
 /// sama dengan field [JobHistoryExtra]) -> instance model.
 JobHistoryExtra jobHistoryExtraFromNest(Map<String, dynamic> j) => JobHistoryExtra(
-      photosBefore: (j['photosBefore'] as num?)?.toInt() ?? 0,
-      photosAfter: (j['photosAfter'] as num?)?.toInt() ?? 0,
-      materialItems: (j['materialItems'] as num?)?.toInt() ?? 0,
-      materialTotal: (j['materialTotal'] as num?)?.toInt() ?? 0,
-      materialPending: (j['materialPending'] as num?)?.toInt() ?? 0,
+      photosBefore: numFromNest(j['photosBefore'])?.toInt() ?? 0,
+      photosAfter: numFromNest(j['photosAfter'])?.toInt() ?? 0,
+      materialItems: numFromNest(j['materialItems'])?.toInt() ?? 0,
+      materialTotal: numFromNest(j['materialTotal'])?.toInt() ?? 0,
+      materialPending: numFromNest(j['materialPending'])?.toInt() ?? 0,
     );
 
 /// Implementasi [JobRepository] lewat backend NestJS — pengganti
@@ -486,23 +223,11 @@ class NestJobRepository implements JobRepository {
           ),
       ];
     }
-    // Teknisi: TIDAK ADA satu endpoint yang balikin "semua job milik saya
-    // apa pun statusnya" seperti query Supabase lama. Gabungan terdekat:
-    // queue (aktif: assigned/sedang_dikerjakan) + history (selesai saja,
-    // dipaginasi). CATATAN GAP: job berstatus 'dibatalkan' milik teknisi
-    // tidak muncul di mana pun (queue maupun history tidak menyertakannya)
-    // — lihat laporan migrasi. pageSize 200 menyamai `limit(200)` versi
-    // Supabase lama.
-    final queueJson = await _get('$_path/queue') as List;
-    final historyJson = await _get('$_path/history?page=1&pageSize=200') as Map;
-    final historyItems = (historyJson['items'] as List?) ?? const [];
+    // Teknisi: GET /technician-jobs/mine = semua job miliknya, status apa
+    // pun (queue + history native gak memuat menunggu_review/dibatalkan).
+    final json = await _get('$_path/mine') as List;
     return [
-      for (final r in queueJson)
-        TechnicianJob.fromMap(
-          r['id'] as String,
-          technicianJobRowFromNest(Map<String, dynamic>.from(r as Map)),
-        ),
-      for (final r in historyItems)
+      for (final r in json)
         TechnicianJob.fromMap(
           r['id'] as String,
           technicianJobRowFromNest(Map<String, dynamic>.from(r as Map)),
@@ -517,16 +242,25 @@ class NestJobRepository implements JobRepository {
     return TechnicianJob.fromMap(id, technicianJobRowFromNest(json));
   }
 
+  /// GET /ac-units/:id/jobs — native mengabaikan ?unitId= di
+  /// /technician-jobs, dan history-extras sudah tidak ada.
   @override
-  Future<List<TechnicianJob>> fetchJobsByUnit(String unitId) async {
-    final json = await _get('$_path?unitId=${Uri.encodeComponent(unitId)}') as List;
-    return [
-      for (final r in json)
-        TechnicianJob.fromMap(
-          r['id'] as String,
-          technicianJobRowFromNest(Map<String, dynamic>.from(r as Map)),
-        ),
-    ];
+  Future<UnitHistory> fetchUnitHistory(String unitId) async {
+    final json = await _get('/ac-units/${Uri.encodeComponent(unitId)}/jobs') as Map;
+    final extras = (json['extras'] as Map?) ?? const {};
+    return (
+      jobs: [
+        for (final r in (json['jobs'] as List? ?? const []))
+          TechnicianJob.fromMap(
+            (r as Map)['id'] as String,
+            technicianJobRowFromNest(Map<String, dynamic>.from(r)),
+          ),
+      ],
+      extras: {
+        for (final e in extras.entries)
+          e.key as String: jobHistoryExtraFromNest(Map<String, dynamic>.from(e.value as Map)),
+      },
+    );
   }
 
   @override
@@ -603,18 +337,6 @@ class NestJobRepository implements JobRepository {
           materialRequestRowFromNest(Map<String, dynamic>.from(r)),
         ),
     ];
-  }
-
-  @override
-  Future<Map<String, JobHistoryExtra>> fetchHistoryExtras(List<String> jobIds) async {
-    if (jobIds.isEmpty) return const {};
-    final json = await _get('$_path/history-extras?jobIds=${jobIds.join(',')}') as Map;
-    return {
-      for (final entry in json.entries)
-        entry.key as String: jobHistoryExtraFromNest(
-          Map<String, dynamic>.from(entry.value as Map),
-        ),
-    };
   }
 
   Future<Map<String, dynamic>?> _jobDetailOrNull(String jobId) async {

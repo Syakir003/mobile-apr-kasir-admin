@@ -1,19 +1,22 @@
-// Test integrasi ke backend Nest SUNGGUHAN (bukan fake). Tidak ikut
-// `flutter test` biasa — jalankan manual dengan backend lokal hidup:
-//
-//   flutter test test_nest --dart-define=NEST_API_URL=http://localhost:3100 \
-//     --dart-define=TEST_EMAIL=... --dart-define=TEST_PASSWORD=...
-//
-// Pakai DB lokal/salinan, JANGAN produksi (test ini ganti password lalu
-// mengembalikannya).
+// Test integrasi login ke backend Nest SUNGGUHAN. Jalankan (DB lokal/salinan,
+// JANGAN produksi — test ini ganti password lalu mengembalikannya):
+//   flutter test test_nest --concurrency=1
+//     --dart-define=NEST_API_URL=http://localhost:3100
+//     --dart-define=ADMIN_EMAIL=.. --dart-define=KASIR_EMAIL=.. --dart-define=TEKNISI_EMAIL=..
+// --concurrency=1 WAJIB: file ini ganti password teknisi, file lain login
+// sebagai teknisi di saat yang sama kalau dijalankan paralel.
 import 'package:epos_ac/core/api/api_client.dart';
 import 'package:epos_ac/core/auth/session_store.dart';
 import 'package:epos_ac/data/models/app_user.dart';
 import 'package:epos_ac/data/repositories/auth_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const _email = String.fromEnvironment('TEST_EMAIL');
-const _password = String.fromEnvironment('TEST_PASSWORD');
+import '_support.dart';
+
+// Akun kasir: kuota login per email (10/menit) terpisah dari teknisi yang
+// dipakai file test lain.
+final _email = emailFor('kasir');
+const _password = testPassword;
 
 void main() {
   late SessionStore session;
@@ -57,14 +60,18 @@ void main() {
 
   test('ganti password -> token baru tersimpan & tetap login, lalu dikembalikan', () async {
     await auth.signIn(email: _email, password: _password);
-    final oldToken = session.token;
     const temp = 'sementara123';
     await auth.changePassword(currentPassword: _password, newPassword: temp);
-    expect(session.token, isNot(oldToken));
-    // token baru harus diterima server (bukan kelempar ke login)
-    await auth.refresh();
-    expect(session.token, isNotNull);
-    await auth.changePassword(currentPassword: temp, newPassword: _password);
+    try {
+      // Token dari respons ganti password harus DITERIMA server. (Bisa sama
+      // persis dengan token lama kalau terbit di detik yang sama — iat detik.)
+      await const ApiClient().get('/auth/me');
+      expect(session.token, isNotNull);
+    } finally {
+      // Selalu kembalikan password, walau asersi di atas gagal — kalau gak,
+      // test lain yang login sebagai teknisi ikut gagal.
+      await auth.changePassword(currentPassword: temp, newPassword: _password);
+    }
     await auth.signIn(email: _email, password: _password);
     expect(session.token, isNotNull);
   });

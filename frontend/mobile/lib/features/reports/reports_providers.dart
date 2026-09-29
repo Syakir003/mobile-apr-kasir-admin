@@ -5,6 +5,7 @@ import '../../core/router/app_router.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/technician_job.dart';
 import '../stock/stock_providers.dart';
+import '../../core/utils/num_parse.dart';
 
 /// Ringkasan angka operasional untuk Dashboard & Laporan — pengganti agregasi
 /// client-side langsung dari Supabase pada migrasi Flutter -> Nest. Dirakit
@@ -92,8 +93,8 @@ String dateOnly(DateTime d) {
 Map<String, DayBucket> dailyBucketsFromNest(List<dynamic> grafikHarian) => {
       for (final d in grafikHarian)
         '${(d as Map)['date']}'.substring(0, 10): (
-          total: ((d['total'] as num?) ?? 0).toInt(),
-          count: ((d['count'] as num?) ?? 0).toInt(),
+          total: (numFromNest(d['total']) ?? 0).toInt(),
+          count: (numFromNest(d['count']) ?? 0).toInt(),
         ),
     };
 
@@ -150,7 +151,7 @@ int unpaidCountFromNest(List<dynamic> invoiceBelumLunas) => invoiceBelumLunas
 Map<JobStatus, int> jobsByStatusFromNest(List<dynamic> jobAktifPerStatus) => {
       for (final j in jobAktifPerStatus)
         JobStatus.fromValue((j as Map)['status']):
-            ((j['count'] as num?)?.toInt() ?? 0),
+            (numFromNest(j['count'])?.toInt() ?? 0),
     };
 
 /// `detailPerItem` dari `GET /reports/profit-loss`, urut omzet menurun.
@@ -161,8 +162,8 @@ List<TopProduct> topProductsFromNest(List<dynamic> detailPerItem,
     for (final r in detailPerItem)
       TopProduct(
         name: '${(r as Map)['name']}',
-        qty: (r['qtyTerjual'] as num?) ?? 0,
-        revenue: (r['revenue'] as num?)?.toInt() ?? 0,
+        qty: numFromNest(r['qtyTerjual']) ?? 0,
+        revenue: numFromNest(r['revenue'])?.toInt() ?? 0,
       ),
   ]..sort((a, b) => b.revenue.compareTo(a.revenue));
   return list.take(limit).toList();

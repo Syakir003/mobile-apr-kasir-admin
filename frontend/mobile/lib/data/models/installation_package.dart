@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 /// Item di dalam paket instalasi: referensi ke sparepart + kuantitas + harga
 /// ekstra per unit (default dari sellPrice sparepart, bisa diedit).
 class PackageItem {
@@ -19,9 +20,9 @@ class PackageItem {
     return PackageItem(
       sparepartId: (data['sparepart_id'] as String?) ?? '',
       name: (data['name'] as String?) ?? '',
-      qty: (data['qty'] as num?) ?? 0,
+      qty: numFromNest(data['qty']) ?? 0,
       unit: (data['unit'] as String?) ?? '',
-      extraPricePerUnit: (data['extra_price_per_unit'] as num?)?.toInt() ?? 0,
+      extraPricePerUnit: numFromNest(data['extra_price_per_unit'])?.toInt() ?? 0,
     );
   }
 
