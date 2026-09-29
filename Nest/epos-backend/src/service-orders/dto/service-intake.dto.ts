@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsDateString,
+  IsDefined,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -37,7 +38,8 @@ export class IntakeNewUnitDto {
 }
 
 export class ServiceIntakeDto {
-  @ValidateNested() @Type(() => IntakeCustomerDto) customer: IntakeCustomerDto;
+  // IsDefined: tanpa ini `customer` yang gak dikirim lolos validasi lalu crash 500.
+  @IsDefined() @ValidateNested() @Type(() => IntakeCustomerDto) customer: IntakeCustomerDto;
 
   /** Keluhan customer + kondisi barang awal -> disimpan ke service_orders.note */
   @IsString() @IsNotEmpty() complaint: string;

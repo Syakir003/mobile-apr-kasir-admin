@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsBoolean,
+  IsDefined,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -55,7 +56,8 @@ export class CheckoutInstallationDto {
 }
 
 export class CheckoutDto {
-  @ValidateNested() @Type(() => CheckoutCustomerDto) customer: CheckoutCustomerDto;
+  // IsDefined: tanpa ini `customer` yang gak dikirim lolos validasi lalu crash 500.
+  @IsDefined() @ValidateNested() @Type(() => CheckoutCustomerDto) customer: CheckoutCustomerDto;
 
   @ValidateNested({ each: true })
   @Type(() => CheckoutItemDto)
