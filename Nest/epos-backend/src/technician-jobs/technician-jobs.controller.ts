@@ -57,6 +57,14 @@ export class TechnicianJobsController {
 
   // technicianId diambil dari JWT `sub`, BUKAN dari query param — biar
   // teknisi A gak bisa liat antrian teknisi B.
+  /** Semua job milik teknisi, status apa pun (app mobile). Static route —
+   * WAJIB sebelum ':id'. */
+  @Roles('teknisi')
+  @Get('mine')
+  mine(@CurrentUser() user: CurrentUserPayload) {
+    return this.jobs.mine(user.sub);
+  }
+
   @Roles('teknisi')
   @Get('queue')
   myQueue(@CurrentUser() user: CurrentUserPayload) {

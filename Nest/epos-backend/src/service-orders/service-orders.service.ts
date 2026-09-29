@@ -206,6 +206,19 @@ export class ServiceOrdersService {
 
   /** Kasir cek status servis pelanggan — cari lewat nomor HP atau memberId langsung. */
   async findByCustomer(params: { phone?: string; memberId?: string }) {
+    // Tanpa filter = daftar order terbaru (layar Order app mobile). Dulu 400;
+    // web gak pernah manggil tanpa filter, jadi perilaku web gak berubah.
+    if (!params.memberId && !params.phone) {
+      return this.prisma.serviceOrder.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        include: {
+          member: true,
+          serviceOrderUnits: { include: { unit: true } },
+          units: { include: { technician: { select: { id: true, displayName: true } } } },
+        },
+      });
+    }
     let memberId = params.memberId;
     if (!memberId && params.phone) {
       const phone = this.members.normalizePhone(params.phone);
