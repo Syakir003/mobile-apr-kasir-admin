@@ -187,7 +187,8 @@ export class MembersService {
         acUnits: { orderBy: { createdAt: "desc" }, include: UNIT_PRODUCTS_SELECT },
         invoices: {
           orderBy: { createdAt: 'desc' },
-          include: { items: true },
+          // buyPriceSnapshot = harga modal, jangan sampai kebaca kasir.
+          include: { items: { omit: { buyPriceSnapshot: true } } },
         },
       },
     });

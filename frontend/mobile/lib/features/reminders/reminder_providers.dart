@@ -1,9 +1,26 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/wa_message.dart';
 import '../members/member_providers.dart';
+
+/// Baris `wa_outbox` dari Nest (camelCase Prisma) -> bentuk yang dibaca
+/// [WaMessage.fromMap].
+Map<String, dynamic> waOutboxRowFromNest(Map<String, dynamic> row) => {
+      'member_id': row['memberId'],
+      'member_name': row['memberName'],
+      'phone': row['phone'],
+      'kind': row['kind'],
+      'body': row['body'],
+      'status': row['status'],
+      'unit_ids': row['unitIds'],
+      'due_date': row['dueDate'],
+      'created_at': row['createdAt'],
+      'sent_at': row['sentAt'],
+      'error': row['error'],
+    };
 
 /// Antrean pesan WhatsApp yang belum dikirim (`wa_outbox`, status `pending`).
 ///
@@ -54,29 +71,22 @@ final waPendingCountProvider = Provider.autoDispose<int>((ref) {
   return (ref.watch(waOutboxStreamProvider).value ?? const []).length;
 });
 
-/// RPC `mark_wa_sent` — dipanggil SETELAH WhatsApp benar-benar terbuka.
+/// `POST /wa-outbox/:id/mark-sent` — pengganti RPC `mark_wa_sent` pada migrasi
+/// Flutter -> Nest, dipanggil SETELAH WhatsApp benar-benar terbuka.
 final markWaSentCallerProvider =
     Provider<Future<void> Function(String id)>((ref) {
   return (id) async {
-    await ref.read(supabaseProvider).rpc(
-      'mark_wa_sent',
-      params: {
-        'payload': {'id': id},
-      },
-    );
+    await const ApiClient().post('/wa-outbox/$id/mark-sent');
   };
 });
 
-/// RPC `cancel_wa_message`.
+/// `POST /wa-outbox/:id/cancel` — pengganti RPC `cancel_wa_message`.
 final cancelWaMessageCallerProvider =
     Provider<Future<void> Function(String id, {String? reason})>((ref) {
   return (id, {reason}) async {
-    await ref.read(supabaseProvider).rpc(
-      'cancel_wa_message',
-      params: {
-        'payload': {'id': id, if (reason != null) 'reason': reason},
-      },
-    );
+    await const ApiClient().post('/wa-outbox/$id/cancel', body: {
+      if (reason != null) 'reason': reason,
+    });
   };
 });
 
@@ -109,45 +119,51 @@ class ReminderSetting {
       );
 }
 
-/// Pengaturan default siklus servis per jenis job.
+/// Baris `reminder_settings` dari Nest (camelCase Prisma) -> bentuk yang
+/// dibaca [ReminderSetting.fromMap].
+Map<String, dynamic> reminderSettingRowFromNest(Map<String, dynamic> row) => {
+      'job_type': row['jobType'],
+      'interval_days': row['intervalDays'],
+      'active': row['active'],
+    };
+
+/// Pengaturan default siklus servis per jenis job — pengganti query Supabase
+/// langsung pada migrasi Flutter -> Nest (`GET /reminders/settings`, sudah
+/// diurut `jobType asc` di server).
 final reminderSettingsProvider =
     FutureProvider.autoDispose<List<ReminderSetting>>((ref) async {
-  final rows = await ref
-      .read(supabaseProvider)
-      .from('reminder_settings')
-      .select()
-      .order('job_type');
-  return [for (final r in rows) ReminderSetting.fromMap(Map.from(r))];
+  final rows = await const ApiClient().get('/reminders/settings') as List;
+  return [
+    for (final r in rows)
+      ReminderSetting.fromMap(reminderSettingRowFromNest(Map<String, dynamic>.from(r as Map))),
+  ];
 });
 
-/// RPC `save_reminder_settings` (admin). [intervalDays] dalam HARI.
+/// `PUT /reminders/settings` (admin) — pengganti RPC `save_reminder_settings`.
+/// [intervalDays] dalam HARI. Body bentuk satu-baris ini didukung eksplisit
+/// oleh `SaveReminderSettingsDto` Nest (alternatif dari bentuk `{settings:
+/// [...]}` yang dipakai web), jadi payloadnya tidak berubah dari sebelumnya.
 final saveReminderSettingsCallerProvider = Provider<
     Future<void> Function(String jobType, int intervalDays, bool active)>((ref) {
   return (jobType, intervalDays, active) async {
-    await ref.read(supabaseProvider).rpc(
-      'save_reminder_settings',
-      params: {
-        'payload': {
-          'jobType': jobType,
-          'intervalDays': intervalDays,
-          'active': active,
-        },
-      },
-    );
+    await const ApiClient().put('/reminders/settings', body: {
+      'jobType': jobType,
+      'intervalDays': intervalDays,
+      'active': active,
+    });
   };
 });
 
-/// RPC `set_unit_service_interval` (admin). [intervalDays] null = hapus override.
+/// `PUT /reminders/unit-interval` (admin) — pengganti RPC
+/// `set_unit_service_interval`. [intervalDays] null = hapus override.
 final setUnitServiceIntervalCallerProvider =
     Provider<Future<void> Function(String unitId, int? intervalDays)>((ref) {
   return (unitId, intervalDays) async {
-    await ref.read(supabaseProvider).rpc(
-      'set_unit_service_interval',
-      params: {
-        'payload': {
-          'unitId': unitId,
-          if (intervalDays != null) 'intervalDays': intervalDays,
-        },
+    await const ApiClient().put(
+      '/reminders/unit-interval',
+      body: {
+        'unitId': unitId,
+        if (intervalDays != null) 'intervalDays': intervalDays,
       },
     );
   };
@@ -176,54 +192,49 @@ class WaTemplate {
       );
 }
 
-/// Redaksi 3 pesan pengingat untuk layar editor. RPC `list_wa_reminder_templates`
-/// mengembalikan teks sekarang + teks bawaan sekaligus (admin/kasir).
+/// Redaksi 3 pesan pengingat untuk layar editor — pengganti RPC
+/// `list_wa_reminder_templates` langsung pada migrasi Flutter -> Nest
+/// (`GET /reminders/templates`, admin/kasir). `RemindersService.listTemplates`
+/// memanggil RPC Postgres yang SAMA lewat `SupabaseRpcService` (masa
+/// transisi) — bentuk respons identik, parsing di bawah tidak berubah.
 final waTemplatesProvider =
     FutureProvider.autoDispose<List<WaTemplate>>((ref) async {
-  final rows = await ref
-      .read(supabaseProvider)
-      .rpc('list_wa_reminder_templates') as List<dynamic>;
+  final rows = await const ApiClient().get('/reminders/templates') as List;
   return [
     for (final r in rows)
       WaTemplate.fromMap(Map<String, dynamic>.from(r as Map)),
   ];
 });
 
-/// RPC `save_wa_reminder_templates` (admin). Map kind → teks; kunci yang tak
-/// dikirim tidak diubah.
+/// `PUT /reminders/templates` (admin) — pengganti RPC
+/// `save_wa_reminder_templates`. Map kind → teks; kunci yang tak dikirim
+/// tidak diubah.
 final saveWaTemplatesCallerProvider =
     Provider<Future<void> Function(Map<WaKind, String>)>((ref) {
   return (templates) async {
-    await ref.read(supabaseProvider).rpc(
-      'save_wa_reminder_templates',
-      params: {
-        'payload': {
-          'templates': {
-            for (final e in templates.entries) e.key.value: e.value,
-          },
-        },
+    await const ApiClient().put('/reminders/templates', body: {
+      'templates': {
+        for (final e in templates.entries) e.key.value: e.value,
       },
-    );
+    });
   };
 });
 
-/// Pesan pengingat yang sudah selesai diproses (`wa_outbox` selain `pending`) —
-/// terkirim, gagal, atau dibatalkan. Untuk layar Riwayat.
+/// Pesan pengingat yang sudah selesai diproses (`wa_outbox` selain `pending`)
+/// — terkirim, gagal, atau dibatalkan. Untuk layar Riwayat. Pengganti query
+/// Supabase langsung pada migrasi Flutter -> Nest (`GET /wa-outbox/history`,
+/// endpoint yang sama juga sudah dipakai internal — lihat `WaOutboxService.history`).
 ///
-/// Query biasa, bukan Realtime: baris riwayat tidak berubah lagi. Dibatasi 100
-/// terbaru — volume pengingat kecil; kalau perlu lebih, tambah paginasi seperti
-/// [auditLogsProvider].
+/// Query biasa, bukan Realtime: baris riwayat tidak berubah lagi. Nest
+/// membatasi 100 terbaru di server (sama seperti `.limit(100)` sebelumnya).
 final waHistoryProvider =
     FutureProvider.autoDispose<List<WaMessage>>((ref) async {
-  final rows = await ref
-      .read(supabaseProvider)
-      .from('wa_outbox')
-      .select()
-      .neq('status', 'pending')
-      .order('created_at', ascending: false)
-      .limit(100);
+  final rows = await const ApiClient().get('/wa-outbox/history') as List;
   return [
     for (final r in rows)
-      WaMessage.fromMap(r['id'] as String, Map<String, dynamic>.from(r)),
+      WaMessage.fromMap(
+        (r as Map)['id'] as String,
+        waOutboxRowFromNest(Map<String, dynamic>.from(r)),
+      ),
   ];
 });

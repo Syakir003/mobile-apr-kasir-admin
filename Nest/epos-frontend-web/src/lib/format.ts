@@ -66,6 +66,8 @@ const STATUS_LABELS: Record<string, string> = {
   menunggu_pemasangan: 'Menunggu Pemasangan',
   menunggu_data: 'Menunggu Data',
   dalam_maintenance: 'Dalam Maintenance',
+  rusak: 'Rusak',
+  nonaktif: 'Nonaktif',
   // Sisa InvoiceStatus yang belum ke-cover di atas — dipakai halaman
   // Riwayat Transaksi.
   refund: 'Refund',

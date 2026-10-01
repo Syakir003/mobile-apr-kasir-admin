@@ -9,6 +9,7 @@ import { SaveReminderSettingsDto } from './dto/save-reminder-settings.dto';
 import { SaveWaTemplatesDto } from './dto/save-wa-templates.dto';
 import { ScheduleQueryDto } from './dto/schedule-query.dto';
 import { ServiceScheduleService } from './service-schedule.service';
+import { SetUnitIntervalDto } from './dto/set-unit-interval.dto';
 
 /** Halaman "Pengingat WA" (admin) — padanan reminder_settings_screen.dart +
  * reminder_template_screen.dart mobile, digabung jadi 1 halaman 2 tab di web. */
@@ -60,6 +61,13 @@ export class RemindersController {
 
   // Trigger manual — dipakai admin buat testing (gak perlu nunggu jam 9 pagi)
   // ATAU nyusul jalanin siklus kalau server sempat mati pas jadwal cron-nya.
+  /** Override siklus servis 1 unit AC (app mobile, detail unit). */
+  @Roles('admin')
+  @Put('unit-interval')
+  setUnitInterval(@Body() dto: SetUnitIntervalDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.reminders.setUnitInterval(dto, user.sub);
+  }
+
   @Roles('admin')
   @Post('run-now')
   runNow() {

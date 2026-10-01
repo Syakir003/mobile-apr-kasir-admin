@@ -6,6 +6,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { StockService } from './stock.service';
 import { StockInDto } from './dto/stock-in.dto';
+import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { StockOpnameDto } from './dto/stock-opname.dto';
 import { StockMovementsQueryDto } from './dto/stock-movements-query.dto';
 
@@ -24,6 +25,12 @@ export class StockController {
   @Post('opname')
   opname(@Body() dto: StockOpnameDto, @CurrentUser() user: CurrentUserPayload) {
     return this.stockService.opname(dto, user.sub);
+  }
+
+  /** Koreksi stok manual (rusak/retur/koreksi/pembelian) — app mobile. */
+  @Post('adjust')
+  adjust(@Body() dto: AdjustStockDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.stockService.adjust(dto, user.sub);
   }
 
   @Get('movements')

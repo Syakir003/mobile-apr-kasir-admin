@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   const res = NextResponse.json({ user: session.user });
   res.cookies.set(SESSION_COOKIE_NAME, encodeSession(session), {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.COOKIE_SECURE === 'true',
     sameSite: 'lax',
     path: '/',
     // Samain sama JWT_EXPIRES_IN backend (default 8h) — kalau beda, cookie

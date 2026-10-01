@@ -6,6 +6,7 @@ import { StockLockingService } from '../common/services/stock-locking.service';
 import { CountersService } from '../counters/counters.service';
 import { StockInDto } from './dto/stock-in.dto';
 import { StockOpnameDto, OpnameItemDto } from './dto/stock-opname.dto';
+import { AdjustStockDto } from './dto/adjust-stock.dto';
 import { StockMovementsQueryDto } from './dto/stock-movements-query.dto';
 import { checkBelowCost } from '../common/below-cost.util';
 import { ConfirmationRequiredException } from '../common/exceptions/confirmation-required.exception';
@@ -642,6 +643,93 @@ export class StockService {
       },
       orderBy: { createdAt: 'desc' },
       take: 200, // guard sederhana, cukup buat skala 1 toko — belum perlu pagination formal
+    });
+  }
+
+  /**
+   * POST /stock/adjust — port RPC adjust_stock (migrasi Supabase 0016) ke
+   * model batch: sparepart langsung di spareparts.stock; produk per batch
+   * item_costs (stok produk = SUM batch). Keluar tanpa itemCostId = FIFO
+   * (batch tertua), masuk tanpa itemCostId = batch terbaru (produk tanpa
+   * batch harus lewat Stok Masuk — batch baru butuh harga beli). Satu
+   * stock_movement per batch yang berubah.
+   */
+  async adjust(dto: AdjustStockDto, actorId: string) {
+    const qty = dto.qtyChange;
+    const note = dto.note?.trim() || null;
+
+    return this.prisma.$transaction(async (tx) => {
+      let name: string;
+      let before: number;
+      const changes: { itemCostId: string | null; qty: number }[] = [];
+
+      if (dto.itemKind === 'sparepart') {
+        const [row] = await tx.$queryRawUnsafe<{ name: string; active: boolean; stock: unknown; batch_tracked: boolean }[]>(
+          `SELECT name, active, stock, batch_tracked FROM spareparts WHERE id = $1 FOR UPDATE`,
+          dto.refId,
+        );
+        if (!row || !row.active) throw new BadRequestException('Sparepart tidak ditemukan atau nonaktif');
+        // Sparepart per-gulungan: stok sebenarnya ada di batch (item_costs) — sama
+        // seperti opname, jangan diam-diam ubah spareparts.stock saja.
+        if (row.batch_tracked) {
+          throw new BadRequestException(
+            `${row.name} dilacak per-gulungan — koreksi stok per-gulungan belum didukung lewat adjust (pakai Opname + itemCostId)`,
+          );
+        }
+        name = row.name;
+        before = Number(row.stock);
+        if (before + qty < 0) {
+          throw new BadRequestException(`Stok ${name} tidak cukup (tersedia ${before}, diminta ${Math.abs(qty)})`);
+        }
+        await tx.$executeRawUnsafe(`UPDATE spareparts SET stock = stock + $1 WHERE id = $2`, qty, dto.refId);
+        changes.push({ itemCostId: null, qty });
+      } else {
+        // Stok produk SEKARANG dihitung dari StockUnit (status='di_gudang'), bukan
+        // item_costs.stock (kolom itu dipensiunkan buat produk, selalu 0 buat batch
+        // baru — lihat opname() & StockLockingService). Mengubah item_costs.stock di
+        // sini bikin stok tampilan & stok fisik per-unit/QR gak sinkron, jadi ditolak
+        // eksplisit (sama seperti opname produk) sampai koreksi per-unit didesain.
+        throw new BadRequestException(
+          'Koreksi stok produk per-unit belum didukung — stok produk dihitung dari unit QR, bukan dari batch',
+        );
+      }
+
+      let movementId: string | null = null;
+      for (const c of changes) {
+        const movement = await tx.stockMovement.create({
+          data: {
+            itemKind: dto.itemKind,
+            refId: dto.refId,
+            name,
+            qtyChange: c.qty,
+            reason: dto.reason,
+            itemCostId: c.itemCostId,
+            createdById: actorId,
+          },
+        });
+        movementId ??= movement.id;
+      }
+
+      const after = before + qty;
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'stock.adjust',
+          target: dto.refId,
+          detail: {
+            itemKind: dto.itemKind,
+            name,
+            qtyChange: qty,
+            reason: dto.reason,
+            stockBefore: before,
+            stockAfter: after,
+            batches: changes.filter((c) => c.itemCostId).map((c) => ({ itemCostId: c.itemCostId!, qty: c.qty })),
+            note,
+          },
+        },
+      });
+
+      return { ok: true, stock: after, movementId };
     });
   }
 }

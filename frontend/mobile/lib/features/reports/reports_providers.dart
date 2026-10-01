@@ -1,11 +1,23 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/supabase/supabase_providers.dart';
-import '../../data/models/invoice.dart';
+import '../../core/api/api_client.dart';
+import '../../core/router/app_router.dart';
+import '../../data/models/app_user.dart';
 import '../../data/models/technician_job.dart';
+import '../stock/stock_providers.dart';
 
-/// Ringkasan angka operasional untuk Dashboard & Laporan. Dihitung dari query
-/// `select` (agregasi client-side) — tabel finansial read-only bagi client.
+/// Ringkasan angka operasional untuk Dashboard & Laporan — pengganti agregasi
+/// client-side langsung dari Supabase pada migrasi Flutter -> Nest. Dirakit
+/// dari endpoint yang SUDAH ADA dan sudah dipakai web (`GET /dashboard/summary`,
+/// `GET /reports/sales`, `GET /reports/profit-loss`) — TIDAK ada endpoint baru
+/// ditambah khusus buat ini.
+///
+/// Konsekuensinya, 3 metrik yang dulu dihitung langsung dari tabel finansial
+/// mentah TIDAK TERSEDIA lagi (endpoint web memang tak menyediakannya) dan
+/// sengaja DIHAPUS dari model ini, bukan cuma disembunyikan di UI:
+/// `piutang` (nominal Rupiah tertunggak), `paymentsByMethod` (breakdown kas
+/// per metode bayar), `inventoryValue` (nilai persediaan). Layar yang
+/// menampilkannya disesuaikan (lihat `laporan_screen.dart`).
 class Analytics {
   const Analytics({
     required this.salesToday,
@@ -14,10 +26,7 @@ class Analytics {
     required this.txToday,
     required this.txMonth,
     required this.unpaidCount,
-    required this.piutang,
-    required this.paymentsByMethod,
     required this.lowStock,
-    required this.inventoryValue,
     required this.jobsByStatus,
     required this.dailySales,
     required this.topProducts,
@@ -29,22 +38,20 @@ class Analytics {
   final int txToday;
   final int txMonth;
   final int unpaidCount;
-  final int piutang;
-  final Map<String, int> paymentsByMethod;
   final List<LowStockItem> lowStock;
-  final int inventoryValue;
+
+  /// Job AKTIF per status (`GET /dashboard/summary` tidak menyertakan
+  /// 'selesai'/'dibatalkan' — itu snapshot "yang lagi jalan sekarang", bukan
+  /// rekap historis semua status).
   final Map<JobStatus, int> jobsByStatus;
 
   /// Penjualan per hari (bruto, exclude batal/refund) untuk grafik tren.
   final List<DaySales> dailySales;
 
-  /// Produk/jasa dengan omzet terbesar bulan ini.
+  /// Produk/jasa dengan omzet terbesar bulan ini — dari `detailPerItem`
+  /// laporan laba-rugi (per item individual), BUKAN `breakdownKategori`
+  /// laporan penjualan (itu per kategori, granularitas beda).
   final List<TopProduct> topProducts;
-
-  int get activeJobs =>
-      jobsByStatus.entries
-          .where((e) => e.key.isActive)
-          .fold(0, (a, e) => a + e.value);
 }
 
 class LowStockItem {
@@ -71,199 +78,154 @@ class TopProduct {
   final int revenue;
 }
 
-const _paymentMethods = ['tunai', 'transfer', 'qris', 'ewallet'];
-
 const _kChartDays = 14;
 
-bool _isVoid(dynamic status) {
-  final s = InvoiceStatus.fromValue(status);
-  return s == InvoiceStatus.batal || s == InvoiceStatus.refund;
+typedef DayBucket = ({int total, int count});
+
+String dateOnly(DateTime d) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${d.year}-${two(d.month)}-${two(d.day)}';
 }
 
-/// Kelompokkan baris invoice ke [days] ember harian berurutan yang berakhir
-/// pada [today]. Baris batal/refund diabaikan. Fungsi murni — mudah dites.
-List<DaySales> bucketDailySales(
-  List<Map<String, dynamic>> rows,
-  DateTime today, {
+/// `grafikHarian` dari `GET /reports/sales` -> map tanggal (YYYY-MM-DD) ->
+/// bucket. Fungsi murni — mudah dites.
+Map<String, DayBucket> dailyBucketsFromNest(List<dynamic> grafikHarian) => {
+      for (final d in grafikHarian)
+        '${(d as Map)['date']}'.substring(0, 10): (
+          total: ((d['total'] as num?) ?? 0).toInt(),
+          count: ((d['count'] as num?) ?? 0).toInt(),
+        ),
+    };
+
+/// Total bucket dari tanggal [since] (inklusif) sampai tanggal terbaru di
+/// [buckets]. Fungsi murni — mudah dites.
+int sumTotalSince(Map<String, DayBucket> buckets, DateTime since) {
+  var total = 0;
+  for (final e in buckets.entries) {
+    final d = DateTime.tryParse(e.key);
+    if (d != null && !d.isBefore(since)) total += e.value.total;
+  }
+  return total;
+}
+
+/// Sama seperti [sumTotalSince], tapi jumlah transaksi (`count`).
+int sumCountSince(Map<String, DayBucket> buckets, DateTime since) {
+  var total = 0;
+  for (final e in buckets.entries) {
+    final d = DateTime.tryParse(e.key);
+    if (d != null && !d.isBefore(since)) total += e.value.count;
+  }
+  return total;
+}
+
+/// [days] ember berurutan berakhir pada [lastDay] (inklusif) — hari tanpa
+/// bucket di [buckets] diisi nol. Fungsi murni — mudah dites.
+List<DaySales> buildDailySales(
+  Map<String, DayBucket> buckets,
+  DateTime lastDay, {
   int days = _kChartDays,
 }) {
-  final start = DateTime(today.year, today.month, today.day)
+  final start = DateTime(lastDay.year, lastDay.month, lastDay.day)
       .subtract(Duration(days: days - 1));
-  final totals = List<int>.filled(days, 0);
-  final counts = List<int>.filled(days, 0);
-  for (final r in rows) {
-    if (_isVoid(r['status'])) continue;
-    final created = DateTime.tryParse('${r['created_at']}')?.toLocal();
-    if (created == null) continue;
-    final day = DateTime(created.year, created.month, created.day);
-    final idx = day.difference(start).inDays;
-    if (idx < 0 || idx >= days) continue;
-    totals[idx] += (r['grand_total'] as num?)?.toInt() ?? 0;
-    counts[idx] += 1;
-  }
   return [
     for (var i = 0; i < days; i++)
-      DaySales(
-          date: start.add(Duration(days: i)),
-          total: totals[i],
-          count: counts[i]),
+      () {
+        final date = start.add(Duration(days: i));
+        final bucket = buckets[dateOnly(date)];
+        return DaySales(
+          date: date,
+          total: bucket?.total ?? 0,
+          count: bucket?.count ?? 0,
+        );
+      }(),
   ];
 }
 
-/// Agregasi item invoice per nama, urut omzet (line_total) menurun, ambil
-/// [limit] teratas. Item milik invoice batal/refund diabaikan
-/// (`r['invoices']['status']`). Fungsi murni — mudah dites.
-List<TopProduct> aggregateTopProducts(
-  List<Map<String, dynamic>> itemRows, {
-  int limit = 5,
-}) {
-  final qtyByName = <String, num>{};
-  final revByName = <String, int>{};
-  for (final r in itemRows) {
-    final inv = r['invoices'];
-    if (_isVoid(inv is Map ? inv['status'] : null)) continue;
-    final name = '${r['name']}';
-    qtyByName[name] = (qtyByName[name] ?? 0) + ((r['qty'] as num?) ?? 0);
-    revByName[name] =
-        (revByName[name] ?? 0) + ((r['line_total'] as num?)?.toInt() ?? 0);
-  }
+/// `invoiceBelumLunas` dari `GET /dashboard/summary` -> total baris di semua
+/// status. Fungsi murni — mudah dites.
+int unpaidCountFromNest(List<dynamic> invoiceBelumLunas) => invoiceBelumLunas
+    .fold<int>(0, (a, b) => a + (((b as Map)['count'] as num?)?.toInt() ?? 0));
+
+/// `jobAktifPerStatus` dari `GET /dashboard/summary`. Fungsi murni — mudah dites.
+Map<JobStatus, int> jobsByStatusFromNest(List<dynamic> jobAktifPerStatus) => {
+      for (final j in jobAktifPerStatus)
+        JobStatus.fromValue((j as Map)['status']):
+            ((j['count'] as num?)?.toInt() ?? 0),
+    };
+
+/// `detailPerItem` dari `GET /reports/profit-loss`, urut omzet menurun.
+/// Fungsi murni — mudah dites.
+List<TopProduct> topProductsFromNest(List<dynamic> detailPerItem,
+    {int limit = 5}) {
   final list = [
-    for (final name in qtyByName.keys)
-      TopProduct(name: name, qty: qtyByName[name]!, revenue: revByName[name]!),
-  ];
-  list.sort((a, b) => b.revenue.compareTo(a.revenue));
+    for (final r in detailPerItem)
+      TopProduct(
+        name: '${(r as Map)['name']}',
+        qty: (r['qtyTerjual'] as num?) ?? 0,
+        revenue: (r['revenue'] as num?)?.toInt() ?? 0,
+      ),
+  ]..sort((a, b) => b.revenue.compareTo(a.revenue));
   return list.take(limit).toList();
 }
 
+/// [StockOverview] (sudah dari Nest, lihat `stockOverviewProvider`) -> item
+/// yang stoknya di bawah/sama minimum. Fungsi murni — mudah dites.
+List<LowStockItem> lowStockFromOverview(StockOverview stock) => [
+      for (final p in stock.products)
+        if (p.low) LowStockItem(name: p.name, stock: p.stock, min: p.min ?? 3),
+      for (final s in stock.spareparts)
+        if (s.low) LowStockItem(name: s.name, stock: s.stock, min: s.min ?? 0),
+    ];
+
 /// Satu provider untuk semua angka; di-refresh dengan invalidate.
+///
+/// `GET /reports/profit-loss` admin-only di Nest (beda dari
+/// `/dashboard/summary` yang admin+kasir) — sengaja gak ikut dipanggil
+/// kalau user login bukan admin, biar kasir (yang juga menampilkan dashboard
+/// ini di mobile) gak kena 403 yang menggagalkan SELURUH `Future.wait`.
+/// Efeknya cuma [Analytics.topProducts] kosong buat kasir — kartu dashboard
+/// yang kasir lihat memang tidak menampilkannya (cuma dipakai
+/// `laporan_screen.dart`, rute admin-only).
 final analyticsProvider = FutureProvider.autoDispose<Analytics>((ref) async {
-  final client = ref.watch(supabaseProvider);
+  const api = ApiClient();
+  final isAdmin = ref.watch(currentUserProvider).value?.role == UserRole.admin;
   final now = DateTime.now();
   final startToday = DateTime(now.year, now.month, now.day);
   final startWeek = startToday.subtract(const Duration(days: 6));
   final startChart = startToday.subtract(const Duration(days: _kChartDays - 1));
   final startMonth = DateTime(now.year, now.month, 1);
-  final from = [startMonth, startWeek, startChart]
-      .reduce((a, b) => a.isBefore(b) ? a : b);
+  // Rentang `/reports/sales` cukup lebar buat nutupin chart 14-hari & bulan
+  // berjalan sekaligus — grafikHarian per-hari-nya lalu dipakai ulang buat
+  // menghitung salesToday/Week/Month tanpa query terpisah per rentang.
+  final salesFrom =
+      startMonth.isBefore(startChart) ? startMonth : startChart;
 
-  // --- Invoices (penjualan, transaksi, piutang) ---
-  final invRows = await client
-      .from('invoices')
-      .select('grand_total,total_paid,status,created_at')
-      .gte('created_at', from.toUtc().toIso8601String())
-      .limit(2000);
-  final invList = (invRows as List).cast<Map<String, dynamic>>();
+  final results = await Future.wait<dynamic>([
+    api.get('/dashboard/summary'),
+    api.get('/reports/sales?from=${dateOnly(salesFrom)}&to=${dateOnly(now)}'),
+    isAdmin
+        ? api.get('/reports/profit-loss?from=${dateOnly(startMonth)}&to=${dateOnly(now)}')
+        : Future.value(const {'detailPerItem': <dynamic>[]}),
+    ref.watch(stockOverviewProvider.future),
+  ]);
+  final summary = results[0] as Map;
+  final sales = results[1] as Map;
+  final profitLoss = results[2] as Map;
+  final stock = results[3] as StockOverview;
 
-  var salesToday = 0, salesWeek = 0, salesMonth = 0;
-  var txToday = 0, txMonth = 0, unpaidCount = 0, piutang = 0;
-  for (final r in invList) {
-    final status = InvoiceStatus.fromValue(r['status']);
-    if (status == InvoiceStatus.batal || status == InvoiceStatus.refund) {
-      continue;
-    }
-    final total = (r['grand_total'] as num?)?.toInt() ?? 0;
-    final paid = (r['total_paid'] as num?)?.toInt() ?? 0;
-    final created = DateTime.tryParse('${r['created_at']}')?.toLocal();
-    if (created == null) continue;
-
-    if (!created.isBefore(startMonth)) {
-      salesMonth += total;
-      txMonth += 1;
-    }
-    if (!created.isBefore(startWeek)) salesWeek += total;
-    if (!created.isBefore(startToday)) {
-      salesToday += total;
-      txToday += 1;
-    }
-    if (status == InvoiceStatus.belumDibayar ||
-        status == InvoiceStatus.dp ||
-        status == InvoiceStatus.kurangBayar) {
-      unpaidCount += 1;
-      piutang += (total - paid).clamp(0, total);
-    }
-  }
-
-  // --- Pembayaran per metode (bulan ini) ---
-  final payRows = await client
-      .from('manual_payments')
-      .select('method,amount,created_at')
-      .gte('created_at', startMonth.toUtc().toIso8601String())
-      .limit(5000);
-  final paymentsByMethod = {for (final m in _paymentMethods) m: 0};
-  for (final r in (payRows as List)) {
-    final m = '${r['method']}';
-    final amt = (r['amount'] as num?)?.toInt() ?? 0;
-    if (paymentsByMethod.containsKey(m)) paymentsByMethod[m] = paymentsByMethod[m]! + amt;
-  }
-
-  // --- Stok: nilai persediaan + item menipis ---
-  // Harga modal tidak lagi menempel pada baris barang: sejak migrasi 0021 ia
-  // tinggal di `item_costs` yang hanya terbaca admin. Laporan memang layar
-  // admin, jadi cukup ambil tabel itu sekali lalu dipetakan per id.
-  final products = await client
-      .from('products')
-      .select('id,name,stock,active')
-      .eq('active', true);
-  final spareparts = await client
-      .from('spareparts')
-      .select('id,name,stock,min_stock,active')
-      .eq('active', true);
-  final costRows = await client.from('item_costs').select('kind,ref_id,buy_price');
-  final costs = <String, int>{
-    for (final r in (costRows as List))
-      '${(r as Map)['kind']}:${r['ref_id']}':
-          ((r['buy_price'] as num?) ?? 0).toInt(),
-  };
-
-  var inventoryValue = 0;
-  final lowStock = <LowStockItem>[];
-  for (final r in (products as List)) {
-    final stock = (r['stock'] as num?) ?? 0;
-    inventoryValue += (stock * (costs['product:${r['id']}'] ?? 0)).toInt();
-    if (stock <= 3) {
-      lowStock.add(LowStockItem(name: '${r['name']}', stock: stock, min: 3));
-    }
-  }
-  for (final r in (spareparts as List)) {
-    final stock = (r['stock'] as num?) ?? 0;
-    final min = (r['min_stock'] as num?) ?? 0;
-    inventoryValue += (stock * (costs['sparepart:${r['id']}'] ?? 0)).toInt();
-    if (stock <= min) {
-      lowStock.add(LowStockItem(name: '${r['name']}', stock: stock, min: min));
-    }
-  }
-
-  // --- Produk terlaris (bulan ini) — join invoice_items → invoices ---
-  final itemRows = await client
-      .from('invoice_items')
-      .select('name,qty,line_total,invoices!inner(status,created_at)')
-      .gte('invoices.created_at', startMonth.toUtc().toIso8601String())
-      .limit(5000);
-  final topProducts =
-      aggregateTopProducts((itemRows as List).cast<Map<String, dynamic>>());
-
-  // --- Job per status ---
-  final jobRows =
-      await client.from('technician_jobs').select('status').limit(5000);
-  final jobsByStatus = <JobStatus, int>{};
-  for (final r in (jobRows as List)) {
-    final s = JobStatus.fromValue(r['status']);
-    jobsByStatus[s] = (jobsByStatus[s] ?? 0) + 1;
-  }
+  final daily = dailyBucketsFromNest((sales['grafikHarian'] as List?) ?? const []);
+  final todayBucket = daily[dateOnly(startToday)];
 
   return Analytics(
-    salesToday: salesToday,
-    salesWeek: salesWeek,
-    salesMonth: salesMonth,
-    txToday: txToday,
-    txMonth: txMonth,
-    unpaidCount: unpaidCount,
-    piutang: piutang,
-    paymentsByMethod: paymentsByMethod,
-    lowStock: lowStock,
-    inventoryValue: inventoryValue,
-    jobsByStatus: jobsByStatus,
-    dailySales: bucketDailySales(invList, now),
-    topProducts: topProducts,
+    salesToday: todayBucket?.total ?? 0,
+    salesWeek: sumTotalSince(daily, startWeek),
+    salesMonth: sumTotalSince(daily, startMonth),
+    txToday: todayBucket?.count ?? 0,
+    txMonth: sumCountSince(daily, startMonth),
+    unpaidCount: unpaidCountFromNest((summary['invoiceBelumLunas'] as List?) ?? const []),
+    lowStock: lowStockFromOverview(stock),
+    jobsByStatus: jobsByStatusFromNest((summary['jobAktifPerStatus'] as List?) ?? const []),
+    dailySales: buildDailySales(daily, now),
+    topProducts: topProductsFromNest((profitLoss['detailPerItem'] as List?) ?? const []),
   );
 });

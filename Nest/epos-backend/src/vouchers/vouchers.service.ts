@@ -19,7 +19,7 @@ function endOfDayWIB(dateStr: string): Date {
 // dari generate_voucher_code() di Supabase (backend/supabase/migrations/
 // 20260817000027_voucher_undian_schema.sql).
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-function randomVoucherCode(): string {
+export function randomVoucherCode(): string {
   let code = 'VCR-';
   for (let i = 0; i < 6; i++) {
     code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];

@@ -33,8 +33,14 @@ export class ProductsController {
   // `?includePair=1` (Paket AC Split, 2026-09-30) — ikut nyertain batch
   // produk pasangannya (Indoor <-> Outdoor), lihat ProductsService.findBatches.
   @Get(':id/batches')
-  findBatches(@Param('id') id: string, @Query('includePair') includePair?: string) {
-    return this.products.findBatches(id, includePair === '1' || includePair === 'true');
+  findBatches(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('includePair') includePair?: string,
+  ) {
+    // buyPrice (harga modal) cuma buat admin — kasir juga manggil ini dari
+    // dialog pilih batch di POS, margin gak boleh bocor ke kasir/teknisi.
+    return this.products.findBatches(id, includePair === '1' || includePair === 'true', user.role === 'admin');
   }
 
   @Roles('admin')

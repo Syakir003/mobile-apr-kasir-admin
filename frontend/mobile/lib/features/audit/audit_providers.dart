@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/supabase/supabase_providers.dart';
+import '../../core/api/api_client.dart';
 import '../../core/utils/currency.dart';
 
 /// Label Indonesia untuk `audit_logs.action`. Nilai tak dikenal ditampilkan
@@ -145,6 +145,21 @@ class AuditEntry {
   }
 }
 
+/// Baris `audit_logs` dari Nest (`GET /audit-logs`, relasi `actor` bersarang
+/// camelCase) -> bentuk yang dibaca [AuditEntry.fromMap].
+Map<String, dynamic> auditLogRowFromNest(Map<String, dynamic> row) {
+  final actor = row['actor'] as Map?;
+  return {
+    'id': row['id'],
+    'action': row['action'],
+    'target': row['target'],
+    'detail': row['detail'],
+    'at': row['at'],
+    if (actor != null)
+      'actor': {'display_name': actor['displayName'], 'email': actor['email']},
+  };
+}
+
 /// Rentang waktu yang bisa dipilih di layar riwayat aktivitas.
 enum AuditRange {
   today('Hari ini', 1),
@@ -233,52 +248,51 @@ final auditFilterProvider =
 /// Hasil satu kali muat: entri + apakah masih ada halaman berikutnya.
 typedef AuditPage = ({List<AuditEntry> entries, bool hasMore});
 
-/// Riwayat audit (admin). `audit_logs` dibuka BACA untuk admin di migrasi 0018
-/// — sebelumnya tabel ini tertutup total untuk client.
+/// Riwayat audit (admin) — pengganti query Supabase langsung pada migrasi
+/// Flutter -> Nest (`GET /audit-logs`, endpoint yang sama juga dipakai web).
 ///
-/// Penyaringan dilakukan di SERVER (rentang waktu, grup aksi, pencarian) supaya
-/// tabel yang terus bertambah tidak ditarik utuh ke perangkat hanya untuk
-/// dibuang di sisi klien.
+/// Penyaringan tetap di SERVER (rentang waktu, grup aksi, pencarian) supaya
+/// tabel yang terus bertambah tidak ditarik utuh ke perangkat.
+///
+/// Adaptasi paginasi: Nest berbasis `page`/`pageSize` (bukan trik "minta N+1"
+/// PostgREST) — [filter.limit] yang bertambah tiap "Muat lebih banyak"
+/// dikirim langsung sebagai `pageSize` dengan `page` SELALU 1, jadi tiap
+/// panggilan tetap "N baris pertama total" seperti perilaku lama; `hasMore`
+/// dihitung dari `total` yang dibalikin Nest.
+///
+/// Adaptasi rentang: [AuditRange.since] presisi ke detik ("7 hari dari
+/// sekarang"), tapi `from`/`to` Nest cuma presisi tanggal (dipakai bareng
+/// web, lihat `AuditLogsService.findAll`) — dibulatkan ke tanggal, geser
+/// beberapa jam lebih lebar, tidak masalah untuk filter riwayat aktivitas.
 final auditLogsProvider =
     FutureProvider.autoDispose<AuditPage>((ref) async {
   final filter = ref.watch(auditFilterProvider);
 
-  var query = ref
-      .watch(supabaseProvider)
-      .from('audit_logs')
-      .select('id,action,target,detail,at,actor:users(display_name,email)');
+  String two(int n) => n.toString().padLeft(2, '0');
+  String dateOnly(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
 
   final since = filter.range.since(DateTime.now());
-  if (since != null) {
-    query = query.gte('at', since.toUtc().toIso8601String());
-  }
-  if (filter.group != null) {
-    query = query.like('action', '${filter.group}.%');
-  }
-  final search = filter.search.trim();
-  if (search.isNotEmpty) {
-    // Koma & tanda kurung memisahkan cabang di sintaks `or` PostgREST, jadi
-    // harus dibuang dari input pengguna sebelum ditempel ke pola.
-    final safe = search.replaceAll(RegExp(r'[,()*]'), '');
-    if (safe.isNotEmpty) {
-      query = query.or('action.ilike.%$safe%,target.ilike.%$safe%');
-    }
-  }
+  final search = filter.search.trim().replaceAll(RegExp(r'[,()*]'), '');
 
-  // Minta satu baris lebih banyak dari yang ditampilkan: kalau kelebihannya
-  // ada, berarti masih ada halaman berikutnya — tanpa perlu query COUNT kedua.
-  final rows = await query
-      .order('at', ascending: false)
-      .limit(filter.limit + 1);
+  final query = {
+    'page': '1',
+    'pageSize': '${filter.limit}',
+    if (filter.group != null) 'group': filter.group!,
+    if (since != null) 'from': dateOnly(since),
+    if (search.isNotEmpty) 'q': search,
+  };
 
-  final list = (rows as List);
-  final hasMore = list.length > filter.limit;
+  final uri = Uri(path: '/audit-logs', queryParameters: query);
+  final json = await const ApiClient().get('$uri') as Map;
+  final items = (json['items'] as List?) ?? const [];
+  final total = (json['total'] as num?)?.toInt() ?? items.length;
+
   return (
     entries: [
-      for (final r in list.take(filter.limit))
-        AuditEntry.fromMap((r as Map).cast<String, dynamic>()),
+      for (final r in items)
+        AuditEntry.fromMap(auditLogRowFromNest(Map<String, dynamic>.from(r as Map))),
     ],
-    hasMore: hasMore,
+    hasMore: total > filter.limit,
   );
 });
 

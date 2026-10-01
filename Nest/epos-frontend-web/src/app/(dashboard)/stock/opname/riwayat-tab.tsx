@@ -37,6 +37,10 @@ const REASON_OPTIONS = [
   { value: 'pembatalan_job', label: 'Pembatalan Job' },
   { value: 'pengajuan_tambahan', label: 'Pengajuan Material' },
   { value: 'pemakaian_servis', label: 'Pemakaian Servis' },
+  { value: 'koreksi', label: 'Koreksi' },
+  { value: 'retur', label: 'Retur' },
+  { value: 'rusak', label: 'Rusak' },
+  { value: 'pembelian', label: 'Pembelian' },
 ];
 
 const REASON_LABELS: Record<string, string> = {
@@ -47,6 +51,11 @@ const REASON_LABELS: Record<string, string> = {
   pembatalan_job: 'Pembatalan Job',
   pengajuan_tambahan: 'Pengajuan Material',
   pemakaian_servis: 'Pemakaian Servis',
+  // POST /stock/adjust (koreksi stok manual dari app mobile)
+  koreksi: 'Koreksi',
+  retur: 'Retur',
+  rusak: 'Rusak',
+  pembelian: 'Pembelian',
 };
 
 function reasonLabel(reason: string): string {

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Prisma, TechnicianJobStatus, WhatsappMessageKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,6 +7,7 @@ import { waPhone, formatTanggalId } from '../whatsapp/wa-format.util';
 import { wibDayRange, wibDateKey, wibDateOnly } from '../common/wib-date.util';
 import { SaveReminderSettingsDto } from './dto/save-reminder-settings.dto';
 import { SaveWaTemplatesDto } from './dto/save-wa-templates.dto';
+import { SetUnitIntervalDto } from './dto/set-unit-interval.dto';
 
 /** Jenis job yang MEMANG bisa dijadwalkan ulang — port dari constraint
  * `job_type in ('cuci','maintenance')` di RPC save_reminder_settings SQL.
@@ -477,5 +478,24 @@ export class RemindersService {
     }
 
     return { enqueued, sent, failed };
+  }
+
+  /** PUT /reminders/unit-interval — port 1:1 RPC set_unit_service_interval
+   * (migrasi Supabase 0026): override siklus servis 1 unit (admin). */
+  async setUnitInterval(dto: SetUnitIntervalDto, actorId: string) {
+    const days = dto.intervalDays ?? null;
+    const unit = await this.prisma.memberAcUnit.findUnique({ where: { id: dto.unitId } });
+    if (!unit) throw new NotFoundException('Unit AC tidak ditemukan');
+
+    await this.prisma.memberAcUnit.update({ where: { id: dto.unitId }, data: { serviceIntervalDays: days } });
+    await this.prisma.auditLog.create({
+      data: {
+        actorUid: actorId,
+        action: 'reminder.unit_interval',
+        target: dto.unitId,
+        detail: { intervalDays: days },
+      },
+    });
+    return { ok: true };
   }
 }

@@ -23,6 +23,7 @@ export interface LegacyUnitInput {
   serviceIntervalDays?: number;
   reminderEnabled?: boolean;
 }
+import { CreateAcUnitDto } from './dto/create-ac-unit.dto';
 
 /**
  * Port dari generate_ac_unit_barcode RPC. Format `ACUNIT-YYYYMMDD-NNNN`
@@ -275,6 +276,31 @@ export class AcUnitsService {
    * bukan sesuatu yang wajar diedit lewat form biasa (pindah kepemilikan
    * unit ke member lain, kalau memang perlu, harus lewat alur terpisah).
    */
+  /** POST /ac-units — unit baru di member existing (app mobile). Barcode
+   * dibikin di transaksi yang sama (registerExisting), status default 'aktif'. */
+  async create(dto: CreateAcUnitDto, actorId: string) {
+    const member = await this.prisma.member.findUnique({ where: { id: dto.memberId } });
+    if (!member) throw new NotFoundException('Member tidak ditemukan');
+
+    const { memberId, status, ...data } = dto;
+    const unit = await this.prisma.$transaction(async (tx) => {
+      const created = await this.registerExisting(tx, memberId, data);
+      if (!status || status === created.status) return created;
+      return tx.memberAcUnit.update({ where: { id: created.id }, data: { status } });
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorUid: actorId,
+        action: 'ac_unit.create',
+        target: unit.id,
+        detail: { memberId, barcodeValue: unit.barcodeValue, status: unit.status },
+      },
+    });
+
+    return unit;
+  }
+
   async update(id: string, dto: UpdateAcUnitDto, actorId: string) {
     if (Object.keys(dto).length === 0) {
       throw new BadRequestException('Gak ada perubahan yang dikirim');

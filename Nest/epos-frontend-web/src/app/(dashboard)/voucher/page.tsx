@@ -38,6 +38,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -320,7 +321,8 @@ function CreateVoucherDialog({
         </DialogHeader>
 
         <div className="grid gap-1.5">
-          <FormLabel>Pelanggan</FormLabel>
+          {/* Label biasa: di luar <Form>, FormLabel butuh context form. */}
+          <Label>Pelanggan</Label>
           {selectedMember ? (
             <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
               <span>

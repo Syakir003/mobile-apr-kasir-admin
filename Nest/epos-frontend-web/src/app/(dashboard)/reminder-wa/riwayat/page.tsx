@@ -35,6 +35,7 @@ const KIND_LABEL: Record<string, string> = {
   selesai_servis: 'Selesai Servis',
   reminder_h3: 'Pengingat H-3',
   reminder_h7: 'Pengingat H+7',
+  menang_undian: 'Menang Undian',
 };
 
 const STATUS_LABEL: Record<string, string> = {

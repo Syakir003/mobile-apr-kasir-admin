@@ -9,6 +9,7 @@ import { UpdateAcUnitDto } from './dto/update-ac-unit.dto';
 import { CompleteAcUnitDataDto } from './dto/complete-ac-unit-data.dto';
 import { SubmitCorrectionDto } from './dto/submit-correction.dto';
 import { AcUnitCorrectionsService } from './ac-unit-corrections.service';
+import { CreateAcUnitDto } from './dto/create-ac-unit.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('ac-units')
@@ -33,6 +34,13 @@ export class AcUnitsController {
 
   // Admin-only — sama pembatasan kayak edit master data produk/sparepart/
   // jasa lain (lihat komentar AcUnitsService.update).
+  /** Tambah unit AC ke member existing (app mobile, layar member = admin). */
+  @Roles('admin')
+  @Post()
+  create(@Body() dto: CreateAcUnitDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.acUnits.create(dto, user.sub);
+  }
+
   @Roles('admin')
   @Patch(':id')
   update(

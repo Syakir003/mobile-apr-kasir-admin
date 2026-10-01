@@ -155,7 +155,7 @@ class _Metrics extends ConsumerWidget {
             label: 'Belum Lunas',
             value: '${a.unpaidCount}',
             icon: Icons.receipt_long_outlined,
-            sub: 'Piutang ${formatRupiah(a.piutang)}',
+            sub: 'Invoice perlu ditindaklanjuti',
             badge: a.unpaidCount > 0 ? const MetricAlertBadge() : null,
             onTap: () => context.go('/transactions'),
           ),

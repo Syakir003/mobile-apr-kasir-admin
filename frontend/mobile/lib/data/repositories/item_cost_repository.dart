@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/api/api_client.dart';
+
 /// Jenis barang yang punya harga modal. Nilai `value` harus sama persis dengan
 /// enum `item_kind` di Postgres.
 enum CostKind {
@@ -67,5 +69,50 @@ class SupabaseItemCostRepository implements ItemCostRepository {
       for (final r in (rows as List))
         '${(r as Map)['ref_id']}': ((r['buy_price'] as num?) ?? 0).toInt(),
     };
+  }
+}
+
+/// Implementasi lewat backend NestJS (`GET/PUT /item-costs/...`) — pengganti
+/// [SupabaseItemCostRepository] pada migrasi Flutter -> Nest.
+///
+/// Endpoint di-guard admin-only sama seperti RLS tabel `item_costs` (migrasi
+/// 0021): dipanggil dari peran lain akan dibalas 403. [fetch]/[fetchAll]
+/// sengaja meredam 403 itu jadi 0/kosong supaya perilakunya sama seperti versi
+/// Supabase (RLS memfilter baris secara senyap, bukan melempar error) — lihat
+/// dokumentasi [ItemCostRepository] di atas. [save] tidak meredam apa pun:
+/// upaya menulis dari peran yang salah tetap wajar dilaporkan sebagai error.
+class NestItemCostRepository implements ItemCostRepository {
+  NestItemCostRepository(this._api);
+
+  final ApiClient _api;
+  static const _path = '/item-costs';
+
+  @override
+  Future<int> fetch(CostKind kind, String refId) async {
+    if (refId.isEmpty) return 0;
+    try {
+      final json = await _api.get('$_path/${kind.value}/$refId') as Map;
+      return (json['buyPrice'] as num?)?.toInt() ?? 0;
+    } on NestApiException catch (e) {
+      if (e.statusCode == 403) return 0;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> save(CostKind kind, String refId, int buyPrice) async {
+    if (refId.isEmpty) return;
+    await _api.put('$_path/${kind.value}/$refId', body: {'buyPrice': buyPrice});
+  }
+
+  @override
+  Future<Map<String, int>> fetchAll(CostKind kind) async {
+    try {
+      final json = await _api.get('$_path?kind=${kind.value}') as Map;
+      return json.map((refId, buyPrice) => MapEntry('$refId', (buyPrice as num).toInt()));
+    } on NestApiException catch (e) {
+      if (e.statusCode == 403) return {};
+      rethrow;
+    }
   }
 }

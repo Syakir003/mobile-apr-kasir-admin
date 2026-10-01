@@ -33,6 +33,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { SystemResetModule } from './system-reset/system-reset.module';
 import { KasirScanModule } from './kasir-scan/kasir-scan.module';
+import { UndianModule } from './undian/undian.module';
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { KasirScanModule } from './kasir-scan/kasir-scan.module';
     RemindersModule,
     SystemResetModule,
     KasirScanModule,
+    UndianModule,
   ],
   controllers: [AppController],
   providers: [AppService],

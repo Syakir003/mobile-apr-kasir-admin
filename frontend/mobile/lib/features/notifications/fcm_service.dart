@@ -3,9 +3,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../core/supabase/supabase_providers.dart';
+import '../../core/api/api_client.dart';
 import '../../firebase_options.dart';
 
 /// Channel Android untuk notifikasi foreground — HARUS sama dengan yang
@@ -15,15 +14,17 @@ const _androidChannelId = 'epos_push_high';
 const _androidChannelName = 'Notifikasi APR-POS';
 
 /// Integrasi FCM: inisialisasi Firebase, minta izin, ambil token, dan daftarkan
-/// ke Supabase (`register_device_token`). Semua langkah di-guard — bila Firebase
+/// ke backend Nest (`POST /device-tokens`, pengganti RPC `register_device_token`
+/// pada migrasi Flutter -> Nest — endpoint ini mobile-only, web sengaja tidak
+/// mendaftarkan device token FCM). Semua langkah di-guard — bila Firebase
 /// belum dikonfigurasi (`flutterfire configure` belum dijalankan) atau izin
 /// ditolak, push nonaktif diam-diam dan notifikasi in-app tetap berjalan.
 ///
 /// Web: `getToken` butuh VAPID key — set lewat --dart-define=FCM_VAPID_KEY=...
 class FcmService {
-  FcmService(this._client);
+  FcmService(this._api);
 
-  final SupabaseClient _client;
+  final ApiClient _api;
   bool _initialized = false;
   String? _token;
   final _localNotifs = FlutterLocalNotificationsPlugin();
@@ -104,9 +105,7 @@ class FcmService {
 
   Future<void> _register(String token) async {
     try {
-      await _client.rpc('register_device_token', params: {
-        'payload': {'token': token, 'platform': _platform},
-      });
+      await _api.post('/device-tokens', body: {'token': token, 'platform': _platform});
     } catch (e) {
       debugPrint('FCM: register_device_token gagal ($e)');
     }
@@ -117,9 +116,7 @@ class FcmService {
     final token = _token;
     if (token == null) return;
     try {
-      await _client.rpc('unregister_device_token', params: {
-        'payload': {'token': token},
-      });
+      await _api.delete('/device-tokens', body: {'token': token});
     } catch (e) {
       debugPrint('FCM: unregister gagal ($e)');
     }
@@ -127,5 +124,5 @@ class FcmService {
 }
 
 final fcmServiceProvider = Provider<FcmService>(
-  (ref) => FcmService(ref.watch(supabaseProvider)),
+  (ref) => FcmService(const ApiClient()),
 );

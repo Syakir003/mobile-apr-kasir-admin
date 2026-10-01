@@ -2,18 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../data/models/technician_job.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import 'reports_providers.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
-
-const _methodLabel = {
-  'tunai': 'Tunai',
-  'transfer': 'Transfer',
-  'qris': 'QRIS',
-  'ewallet': 'E-wallet',
-};
 
 class LaporanScreen extends ConsumerWidget {
   const LaporanScreen({super.key});
@@ -109,16 +101,11 @@ class LaporanScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 20),
-            const _SectionLabel('Pembayaran (bulan ini)'),
+            const _SectionLabel('Invoice Belum Lunas'),
             _Card(
               child: Column(
                 children: [
-                  for (final e in a.paymentsByMethod.entries)
-                    _row(_methodLabel[e.key] ?? e.key, formatRupiah(e.value)),
-                  const Divider(height: 18),
-                  _row('Piutang (belum lunas)', formatRupiah(a.piutang),
-                      danger: true),
-                  _row('Invoice belum lunas', '${a.unpaidCount}'),
+                  _row('Jumlah invoice', '${a.unpaidCount}', danger: a.unpaidCount > 0),
                 ],
               ),
             ),
@@ -127,7 +114,6 @@ class LaporanScreen extends ConsumerWidget {
             _Card(
               child: Column(
                 children: [
-                  _row('Nilai persediaan', formatRupiah(a.inventoryValue)),
                   _row('Item menipis', '${a.lowStock.length}'),
                   if (a.lowStock.isNotEmpty) ...[
                     const Divider(height: 18),
@@ -158,12 +144,22 @@ class LaporanScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 20),
-            const _SectionLabel('Job Teknisi'),
+            // Cuma status AKTIF (snapshot "lagi jalan sekarang" dari
+            // `GET /dashboard/summary`) — total historis 'selesai'/
+            // 'dibatalkan' tidak tersedia dari endpoint ini.
+            const _SectionLabel('Job Aktif per Status'),
             _Card(
               child: Column(
                 children: [
-                  for (final s in JobStatus.values)
-                    _row(s.label, '${a.jobsByStatus[s] ?? 0}'),
+                  if (a.jobsByStatus.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Text('Tidak ada job aktif',
+                          style: TextStyle(color: AppColors.slate400)),
+                    )
+                  else
+                    for (final e in a.jobsByStatus.entries)
+                      _row(e.key.label, '${e.value}'),
                 ],
               ),
             ),

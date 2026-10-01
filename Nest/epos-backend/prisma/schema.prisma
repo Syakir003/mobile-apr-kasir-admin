@@ -63,6 +63,7 @@ model User {
   materialUsedBy     MaterialRequest[]    @relation("RequestUsedBy")
   invoiceAdjustments InvoiceAdjustment[]  @relation("AdjustmentCreatedBy")
   vouchersCreated    Voucher[]            @relation("VoucherCreatedBy")
+  undianCreated      Undian[]             @relation("UndianCreatedBy")
   jobPhotosUploaded  JobPhoto[]           @relation("PhotoUploadedBy")
   findingsCreated    JobFinding[]         @relation("FindingCreatedBy")
   findingPhotosUploaded JobFindingPhoto[] @relation("FindingPhotoUploadedBy")
@@ -420,6 +421,7 @@ model Member {
   serviceOrders ServiceOrder[]
   technicianJobs TechnicianJob[]
   vouchers      Voucher[]
+  undianParticipants UndianParticipant[]
   whatsappLogs  WhatsappLog[]
 
   @@map("members")
@@ -1028,6 +1030,8 @@ model Voucher {
   expiresAt       DateTime            @map("expires_at")
   status          VoucherStatus       @default(aktif)
   source          VoucherSource       @default(manual)
+  undianId        String?             @map("undian_id")
+  undian          Undian?             @relation(fields: [undianId], references: [id])
   note            String?
   usedAt          DateTime?           @map("used_at")
   usedInInvoiceId String?             @map("used_in_invoice_id")
@@ -1065,6 +1069,7 @@ enum WhatsappMessageKind {
   selesai_servis
   reminder_h3
   reminder_h7
+  menang_undian
 }
 
 enum WhatsappLogStatus {
@@ -1139,4 +1144,48 @@ model WaReminderTemplate {
   updatedBy   User?    @relation("WaTemplateUpdatedBy", fields: [updatedById], references: [id])
 
   @@map("wa_reminder_templates")
+}
+
+// ----------------------------------------------------------------------------
+// UNDIAN — port tabel undian/undian_participants (migrasi Supabase 0027).
+// Hadiah SATU macam untuk semua pemenang; pemenang dapet voucher source
+// 'undian' (vouchers.undian_id) + WA menang_undian.
+// ----------------------------------------------------------------------------
+
+model Undian {
+  id               String              @id @default(uuid())
+  title            String
+  description      String?
+  // { dateFrom?: 'YYYY-MM-DD', dateTo?: 'YYYY-MM-DD', mustHaveAcPurchase?: boolean }
+  criteria         Json                @default("{}")
+  winnerCount      Int                 @map("winner_count")
+  discountType     VoucherDiscountType @map("discount_type")
+  discountValue    Int                 @map("discount_value")
+  maxDiscountCap   Int?                @map("max_discount_cap")
+  minPurchase      Int?                @map("min_purchase")
+  voucherValidDays Int                 @map("voucher_valid_days")
+  status           String              @default("berjalan") // 'berjalan' | 'selesai' | 'dibatalkan'
+  drawnAt          DateTime?           @map("drawn_at")
+  createdById      String?             @map("created_by")
+  createdBy        User?               @relation("UndianCreatedBy", fields: [createdById], references: [id])
+  createdAt        DateTime            @default(now()) @map("created_at")
+
+  participants UndianParticipant[]
+  vouchers     Voucher[]
+
+  @@map("undian")
+}
+
+model UndianParticipant {
+  id       String   @id @default(uuid())
+  undianId String   @map("undian_id")
+  undian   Undian   @relation(fields: [undianId], references: [id], onDelete: Cascade)
+  memberId String   @map("member_id")
+  member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  source   String // 'otomatis' | 'manual'
+  addedAt  DateTime @default(now()) @map("added_at")
+
+  @@unique([undianId, memberId])
+  @@index([undianId])
+  @@map("undian_participants")
 }

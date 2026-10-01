@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/api/api_client.dart';
 import '../models/installation_package.dart';
 import 'crud_repository.dart';
 
@@ -51,4 +52,58 @@ class SupabasePackageRepository implements CrudRepository<InstallationPackage> {
     });
     return result as String;
   }
+}
+
+/// Body camelCase untuk `POST/PATCH /installation-packages` — Nest.
+/// `PackageItem` sudah camelCase persis sama dengan
+/// `InstallationPackageItemDto` (`sparepartId`, `extraPricePerUnit`, dst),
+/// beda dengan `PackageItem.toMap()` yang snake_case (khusus RPC Supabase).
+Map<String, dynamic> installationPackageToNestBody(InstallationPackage p) => {
+      'name': p.name,
+      'description': p.description,
+      'active': p.active,
+      'items': p.items
+          .map((e) => {
+                'sparepartId': e.sparepartId,
+                'name': e.name,
+                'qty': e.qty,
+                'unit': e.unit,
+                'extraPricePerUnit': e.extraPricePerUnit,
+              })
+          .toList(growable: false),
+    };
+
+/// Implementasi [CrudRepository] paket instalasi lewat backend NestJS —
+/// pengganti [SupabasePackageRepository] pada migrasi Flutter -> Nest.
+/// `POST /installation-packages` (create) & `PATCH /installation-packages/:id`
+/// (update) sama-sama full-replace item dalam SATU transaksi Prisma, port 1:1
+/// dari RPC `save_installation_package` (lihat
+/// `installation-packages.service.ts`) — jadi semantiknya tetap sama.
+///
+/// [watchAll] TETAP lewat Supabase Realtime (delegasi ke
+/// [SupabasePackageRepository] internal) — realtime belum dipindah ke Nest.
+class NestPackageRepository implements CrudRepository<InstallationPackage> {
+  NestPackageRepository(SupabaseClient client, this._api)
+      : _watcher = SupabasePackageRepository(client);
+
+  final ApiClient _api;
+  final SupabasePackageRepository _watcher;
+
+  @override
+  Stream<List<InstallationPackage>> watchAll() => _watcher.watchAll();
+
+  @override
+  Future<String> create(InstallationPackage item) async {
+    final json = await _api.post(
+      '/installation-packages',
+      body: installationPackageToNestBody(item),
+    ) as Map;
+    return json['id'] as String;
+  }
+
+  @override
+  Future<void> update(String id, InstallationPackage item) => _api.patch(
+        '/installation-packages/$id',
+        body: installationPackageToNestBody(item),
+      );
 }

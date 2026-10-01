@@ -22,6 +22,14 @@ const ROLE_PREFIXES: Array<{ prefix: string; roles: Role[] }> = [
   // pembatasan kayak GET /material-requests di backend (teknisi lihat
   // pengajuan miliknya lewat halaman job, bukan lewat rute ini).
   { prefix: '/material-requests', roles: ['admin'] },
+  // Halaman yang cuma ada di menu admin (API-nya juga admin-only) — tanpa
+  // ini kasir/teknisi yang ngetik URL langsung dapet error 500, bukan redirect.
+  { prefix: '/dashboard', roles: ['admin'] },
+  { prefix: '/voucher', roles: ['admin'] },
+  { prefix: '/pengguna', roles: ['admin'] },
+  { prefix: '/audit', roles: ['admin'] },
+  { prefix: '/reminder-wa', roles: ['admin'] },
+  { prefix: '/stock', roles: ['admin'] },
 ];
 
 const PUBLIC_PATHS = ['/login'];

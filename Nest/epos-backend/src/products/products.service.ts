@@ -168,7 +168,7 @@ export class ProductsService {
    * 1 barang masuk paket) biar halaman detail bisa nampilin stok per unit
    * dalam 1 kelompok. Default (false) = perilaku lama persis, cuma batch
    * produk ini sendiri (dipakai halaman /stock lama). */
-  async findBatches(productId: string, includePair = false) {
+  async findBatches(productId: string, includePair = false, includeBuyPrice = false) {
     const product = await this.prisma.product.findUnique({ where: { id: productId } });
     if (!product) throw new NotFoundException('Produk tidak ditemukan');
 
@@ -217,7 +217,7 @@ export class ProductsService {
       unitRole: r.ac_role,
       pairGroupId: r.pair_group_id,
       supplierName: r.supplier_name,
-      buyPrice: r.buy_price,
+      buyPrice: includeBuyPrice ? r.buy_price : null,
       sellPrice: r.sell_price,
       createdAt: r.created_at,
       stock: Number(r.stock),
