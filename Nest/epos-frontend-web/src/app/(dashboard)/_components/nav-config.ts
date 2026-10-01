@@ -3,20 +3,23 @@ import {
   Bell,
   ClipboardCheck,
   ClipboardList,
+  Cog,
   CreditCard,
   Database,
   FileBarChart2,
   FilePlus2,
+  Hammer,
   History,
   Inbox,
   LayoutDashboard,
   MessageCircle,
-  Package,
+  PackageOpen,
   Receipt,
   ScanLine,
   ScrollText,
   Settings,
   ShoppingCart,
+  Snowflake,
   Ticket,
   UserCircle,
   UserCog,
@@ -96,7 +99,13 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
       label: 'Data Master',
       icon: Database,
       children: [
-        { href: '/master', label: 'Master Data', icon: Package },
+        // Master Data dipecah jadi 4 menu sendiri-sendiri (bukan 1 halaman
+        // kartu /master) — admin langsung loncat ke yang dicari tanpa klik
+        // dua kali. Halaman /master tetap ada (dipakai shortcut dashboard).
+        { href: '/master/produk', label: 'Produk AC', icon: Snowflake },
+        { href: '/master/sparepart', label: 'Sparepart', icon: Cog },
+        { href: '/master/jasa', label: 'Jasa', icon: Hammer },
+        { href: '/master/paket', label: 'Paket Instalasi', icon: PackageOpen },
         // Barang Masuk (stock-in per-batch) DIHAPUS dari nav per 2026-09-15
         // — form-nya sekarang nempel langsung di dialog "Lihat Batch"/"Stok"
         // pada Master > Produk & Master > Sparepart, gak perlu halaman/menu
