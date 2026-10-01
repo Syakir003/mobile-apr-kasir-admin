@@ -171,10 +171,17 @@ export class NotificationsService {
   /** Padanan trigger Supabase notify_request_submitted: pengajuan material
    * baru -> semua admin & kasir aktif. */
   async notifyRequestSubmitted(requestId: string) {
-    const staff = await this.prisma.user.findMany({
-      where: { role: { in: ['admin', 'kasir'] }, active: true },
-      select: { id: true },
-    });
+    // Dipanggil SETELAH commit: gagal cari staf jangan jadi 500 buat teknisi
+    // (request sudah tersimpan, kirim ulang = duplikat) — cukup dicatat.
+    const staff = await this.prisma.user
+      .findMany({
+        where: { role: { in: ['admin', 'kasir'] }, active: true },
+        select: { id: true },
+      })
+      .catch((e) => {
+        this.logger.warn(`Cari staf notif pengajuan ${requestId} gagal: ${e}`);
+        return [];
+      });
     for (const u of staff) {
       await this.notify(u.id, {
         title: 'Pengajuan Material Baru',
