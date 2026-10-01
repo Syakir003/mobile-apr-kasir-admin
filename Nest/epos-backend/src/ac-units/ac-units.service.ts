@@ -400,4 +400,87 @@ export class AcUnitsService {
 
     return { unit, member: unit.member, activeJob, serviceHistory };
   }
+
+  /**
+   * GET /ac-units/:id/jobs — SEMUA job di 1 unit + ringkasan per job
+   * (foto sebelum/sesudah & pengajuan material), dipakai layar riwayat unit
+   * app mobile (semua role, sama kayak GET /ac-units/:id). Ganti
+   * GET /technician-jobs?unitId= (native ngabaikan filter itu) + endpoint
+   * history-extras versi lama. Foto = model lama (job_photos) + checklist
+   * temuan (job_finding_photos).
+   *
+   * Teknisi: jumlah foto cuma kelihatan kalau dia pernah pegang job di unit
+   * ini; nilai rupiah material cuma dari job MILIKNYA (aturan sama dengan
+   * history-extras lama). Admin/kasir lihat semua.
+   */
+  async unitJobs(unitId: string, actor: { sub: string; role: string }) {
+    const unit = await this.prisma.memberAcUnit.findUnique({ where: { id: unitId }, select: { id: true } });
+    if (!unit) throw new NotFoundException('Unit AC tidak ditemukan');
+
+    const jobs = await this.prisma.technicianJob.findMany({
+      where: { unitId },
+      include: {
+        member: true,
+        unit: true,
+        technician: { select: { id: true, displayName: true, email: true } },
+        order: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const ids = jobs.map((j) => j.id);
+    const isTech = actor.role === 'teknisi';
+    const ownIds = new Set(jobs.filter((j) => j.technicianId === actor.sub).map((j) => j.id));
+    const photoIds = isTech && ownIds.size === 0 ? [] : ids;
+    const materialIds = isTech ? ids.filter((id) => ownIds.has(id)) : ids;
+
+    const extras: Record<
+      string,
+      { photosBefore: number; photosAfter: number; materialItems: number; materialTotal: number; materialPending: number }
+    > = {};
+    for (const id of ids) {
+      extras[id] = { photosBefore: 0, photosAfter: 0, materialItems: 0, materialTotal: 0, materialPending: 0 };
+    }
+    if (ids.length === 0) return { jobs, extras };
+
+    const [legacyPhotos, findingPhotos, materials] = await Promise.all([
+      photoIds.length
+        ? this.prisma.jobPhoto.findMany({ where: { jobId: { in: photoIds } }, select: { jobId: true, kind: true } })
+        : [],
+      photoIds.length
+        ? this.prisma.jobFindingPhoto.findMany({
+            where: { finding: { jobId: { in: photoIds } } },
+            select: { kind: true, finding: { select: { jobId: true } } },
+          })
+        : [],
+      materialIds.length
+        ? this.prisma.materialRequest.groupBy({
+            by: ['jobId', 'status'],
+            where: { jobId: { in: materialIds } },
+            _count: { _all: true },
+            _sum: { total: true },
+          })
+        : [],
+    ]);
+    const photos = [
+      ...legacyPhotos,
+      ...findingPhotos.map((p) => ({ jobId: p.finding.jobId, kind: p.kind })),
+    ];
+    for (const p of photos) {
+      const e = extras[p.jobId];
+      if (!e) continue;
+      if (p.kind === 'sesudah') e.photosAfter += 1;
+      else e.photosBefore += 1;
+    }
+    for (const m of materials) {
+      const e = extras[m.jobId];
+      if (!e) continue;
+      if (m.status === 'approved') {
+        e.materialItems += m._count._all;
+        e.materialTotal += Number(m._sum.total ?? 0);
+      } else if (m.status === 'pending') {
+        e.materialPending += m._count._all;
+      }
+    }
+    return { jobs, extras };
+  }
 }

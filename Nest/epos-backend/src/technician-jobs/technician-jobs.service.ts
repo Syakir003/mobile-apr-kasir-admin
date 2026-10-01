@@ -156,6 +156,23 @@ export class TechnicianJobsService {
    * tetap ringan — cukup tau ADA/ENGGAK, detail lengkapnya tetap di
    * halaman detail job.
    */
+  /** GET /technician-jobs/mine — SEMUA job milik teknisi, status apa pun
+   * (app mobile). queue cuma assigned/sedang_dikerjakan & history cuma
+   * selesai, jadi job menunggu_review/dibatalkan gak kelihatan di mana pun. */
+  async mine(technicianId: string) {
+    return this.prisma.technicianJob.findMany({
+      where: { technicianId },
+      include: {
+        member: true,
+        unit: true,
+        technician: { select: { id: true, displayName: true, email: true } },
+        order: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
   async myQueue(technicianId: string) {
     const jobs = await this.prisma.technicianJob.findMany({
       where: {

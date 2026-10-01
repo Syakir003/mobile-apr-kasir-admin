@@ -38,6 +38,7 @@ export class MaterialRequestsController {
   ) {
     const result = await this.requests.create(jobId, dto, user.sub, user.role);
     this.realtime.emitToAdmin('material_request.created', { jobId, requestId: result.id });
+    await this.notifications.notifyRequestSubmitted(result.id);
     return result;
   }
 

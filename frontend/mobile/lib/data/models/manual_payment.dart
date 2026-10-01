@@ -1,4 +1,5 @@
 import 'invoice.dart' show PaymentMethod;
+import '../../core/utils/num_parse.dart';
 
 // Kolom timestamptz Postgres tiba sebagai string ISO-8601 lewat PostgREST.
 DateTime? _toDate(Object? v) => switch (v) {
@@ -48,8 +49,8 @@ class ManualPayment {
       id: id,
       invoiceId: (data['invoice_id'] as String?) ?? '',
       method: PaymentMethod.fromValue(data['method']),
-      amount: (data['amount'] as num?)?.toInt() ?? 0,
-      cashReceived: (data['cash_received'] as num?)?.toInt(),
+      amount: numFromNest(data['amount'])?.toInt() ?? 0,
+      cashReceived: numFromNest(data['cash_received'])?.toInt(),
       note: data['note'] as String?,
       proofUrl: data['proof_url'] as String?,
       createdBy: (data['created_by'] as String?) ?? '',

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../data/repositories/auth_repository.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
@@ -232,21 +232,23 @@ void _showChangePasswordSheet(BuildContext context) {
   );
 }
 
-class _ChangePasswordSheet extends StatefulWidget {
+class _ChangePasswordSheet extends ConsumerStatefulWidget {
   const _ChangePasswordSheet();
 
   @override
-  State<_ChangePasswordSheet> createState() => _ChangePasswordSheetState();
+  ConsumerState<_ChangePasswordSheet> createState() => _ChangePasswordSheetState();
 }
 
-class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
+class _ChangePasswordSheetState extends ConsumerState<_ChangePasswordSheet> {
   final _formKey = GlobalKey<FormState>();
+  final _current = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   bool _busy = false;
 
   @override
   void dispose() {
+    _current.dispose();
     _password.dispose();
     _confirm.dispose();
     super.dispose();
@@ -258,9 +260,12 @@ class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
-      await Supabase.instance.client.auth.updateUser(
-        UserAttributes(password: _password.text),
-      );
+      // PATCH /auth/me/password — wajib password lama; token baru dari
+      // server disimpan repository (token lama langsung gak berlaku).
+      await ref.read(authRepositoryProvider).changePassword(
+            currentPassword: _current.text,
+            newPassword: _password.text,
+          );
       if (!mounted) return;
       navigator.pop();
       messenger.showSnackBar(
@@ -301,19 +306,28 @@ class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
               ),
             ),
             const SizedBox(height: 4),
-            const Text('Minimal 6 karakter.',
+            const Text('Minimal 8 karakter, kombinasi huruf & angka.',
                 style: TextStyle(color: AppColors.slate500)),
             const SizedBox(height: 20),
             AppPasswordField(
+              label: 'Password Lama',
+              required: true,
+              hint: 'Password yang dipakai sekarang',
+              controller: _current,
+              enabled: !_busy,
+              autofillHints: const [AutofillHints.password],
+              validator: (v) =>
+                  (v == null || v.isEmpty) ? 'Password lama wajib diisi' : null,
+            ),
+            const SizedBox(height: kFieldGap),
+            AppPasswordField(
               label: 'Password Baru',
               required: true,
-              hint: 'Minimal 6 karakter',
+              hint: 'Minimal 8 karakter, huruf & angka',
               controller: _password,
               enabled: !_busy,
               autofillHints: const [AutofillHints.newPassword],
-              validator: (v) => (v == null || v.length < 6)
-                  ? 'Minimal 6 karakter'
-                  : null,
+              validator: validateStrongPassword,
             ),
             const SizedBox(height: kFieldGap),
             AppPasswordField(

@@ -1,4 +1,5 @@
 import 'voucher.dart' show VoucherDiscountType;
+import '../../core/utils/num_parse.dart';
 
 DateTime? _toDate(Object? v) => switch (v) {
       String s => DateTime.tryParse(s)?.toLocal(),
@@ -60,12 +61,12 @@ class Undian {
         id: id,
         title: (data['title'] as String?) ?? '',
         description: data['description'] as String?,
-        winnerCount: (data['winner_count'] as num?)?.toInt() ?? 0,
+        winnerCount: numFromNest(data['winner_count'])?.toInt() ?? 0,
         discountType: VoucherDiscountType.fromValue(data['discount_type']),
-        discountValue: (data['discount_value'] as num?)?.toInt() ?? 0,
-        maxDiscountCap: (data['max_discount_cap'] as num?)?.toInt(),
-        minPurchase: (data['min_purchase'] as num?)?.toInt(),
-        voucherValidDays: (data['voucher_valid_days'] as num?)?.toInt() ?? 0,
+        discountValue: numFromNest(data['discount_value'])?.toInt() ?? 0,
+        maxDiscountCap: numFromNest(data['max_discount_cap'])?.toInt(),
+        minPurchase: numFromNest(data['min_purchase'])?.toInt(),
+        voucherValidDays: numFromNest(data['voucher_valid_days'])?.toInt() ?? 0,
         status: UndianStatus.fromValue(data['status']),
         drawnAt: _toDate(data['drawn_at']),
         createdAt: _toDate(data['created_at']),

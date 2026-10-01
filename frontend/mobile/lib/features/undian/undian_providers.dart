@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/undian.dart';
+import '../../core/utils/num_parse.dart';
 
 /// Semua undian, terbaru dulu. RLS admin saja.
 final undianListProvider = StreamProvider.autoDispose<List<Undian>>((ref) {
@@ -48,7 +49,7 @@ final createUndianCallerProvider = Provider<
     final data = await const ApiClient().post('/undian', body: payload) as Map;
     return (
       undianId: (data['undianId'] as String?) ?? '',
-      participantCount: (data['participantCount'] as num?)?.toInt() ?? 0,
+      participantCount: numFromNest(data['participantCount'])?.toInt() ?? 0,
     );
   };
 });
@@ -73,7 +74,7 @@ final drawUndianCallerProvider =
     Provider<Future<int> Function(String undianId)>((ref) {
   return (undianId) async {
     final data = await const ApiClient().post('/undian/$undianId/draw') as Map;
-    return (data['winnerCount'] as num?)?.toInt() ?? 0;
+    return numFromNest(data['winnerCount'])?.toInt() ?? 0;
   };
 });
 

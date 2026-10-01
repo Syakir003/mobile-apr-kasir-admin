@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../auth/session_store.dart';
 
 // =============================================================================
 // Base URL backend NestJS (Nest/epos-backend). Belum ada deployment produksi
@@ -56,11 +56,10 @@ NestApiException mapErrorResponse(int statusCode, Object? body) {
 
 /// Client HTTP tipis ke backend NestJS.
 ///
-/// TIDAK menyimpan/refresh token sendiri — setiap request membaca sesi
-/// Supabase yang SEDANG aktif (`supabase_flutter` sudah menangani refresh di
-/// belakang layar), karena `JwtStrategy` Nest menerima access token Supabase
-/// itu langsung. Kalau belum ada sesi, lempar error jelas alih-alih mengirim
-/// request tanpa auth.
+/// Token login dibaca dari [SessionStore] (hasil POST /auth/login Nest).
+/// Respons 401 = token kedaluwarsa (8 jam) / akun dinonaktifkan -> sesi
+/// dihapus, router otomatis balik ke layar login. Belum ada sesi = error
+/// jelas, bukan request tanpa auth.
 class ApiClient {
   const ApiClient([this._baseUrl = _defaultBaseUrl]);
 
@@ -90,7 +89,7 @@ class ApiClient {
     required String contentType,
     Map<String, String> fields = const {},
   }) async {
-    final token = Supabase.instance.client.auth.currentSession?.accessToken;
+    final token = SessionStore.instance.token;
     if (token == null) {
       throw NestApiException(401, 'Belum login.');
     }
@@ -113,15 +112,41 @@ class ApiClient {
       throw NestApiConnectionException();
     }
 
+    return _handle(response);
+  }
+
+  /// Request TANPA token — cuma buat POST /auth/login.
+  Future<dynamic> postPublic(String path, {Object? body}) async {
+    http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse('$_baseUrl$path'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 15));
+    } catch (e) {
+      throw NestApiConnectionException();
+    }
+    final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+    if (response.statusCode >= 200 && response.statusCode < 300) return decoded;
+    throw mapErrorResponse(response.statusCode, decoded);
+  }
+
+  Future<dynamic> _handle(http.Response response) async {
     final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return decoded;
+    }
+    if (response.statusCode == 401) {
+      await SessionStore.instance.clear();
     }
     throw mapErrorResponse(response.statusCode, decoded);
   }
 
   Future<dynamic> _send(String method, String path, {Object? body}) async {
-    final token = Supabase.instance.client.auth.currentSession?.accessToken;
+    final token = SessionStore.instance.token;
     if (token == null) {
       throw NestApiException(401, 'Belum login.');
     }
@@ -151,10 +176,6 @@ class ApiClient {
       throw NestApiConnectionException();
     }
 
-    final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return decoded;
-    }
-    throw mapErrorResponse(response.statusCode, decoded);
+    return _handle(response);
   }
 }

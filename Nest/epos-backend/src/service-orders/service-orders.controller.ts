@@ -8,6 +8,7 @@ import { ServiceOrdersService } from './service-orders.service';
 import { ServiceIntakeDto } from './dto/service-intake.dto';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin', 'kasir')
@@ -16,6 +17,7 @@ export class ServiceOrdersController {
   constructor(
     private readonly serviceOrders: ServiceOrdersService,
     private readonly realtime: RealtimeGateway,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Order servis manual multi-unit (app mobile) — pengganti RPC create_service_order. */
@@ -23,6 +25,7 @@ export class ServiceOrdersController {
   async create(@Body() dto: CreateServiceOrderDto, @CurrentUser() user: CurrentUserPayload) {
     const result = await this.serviceOrders.createManual(dto, user.sub);
     this.realtime.emitToAdmin('service_order.created', result);
+    await this.notifications.notifyJobsAssigned(result.assignedJobs);
     return result;
   }
 
@@ -30,6 +33,7 @@ export class ServiceOrdersController {
   async intake(@Body() dto: ServiceIntakeDto, @CurrentUser() user: CurrentUserPayload) {
     const result = await this.serviceOrders.intake(dto, user.sub);
     this.realtime.emitToAdmin('service_order.created', result);
+    await this.notifications.notifyJobsAssigned([{ jobId: result.jobId, technicianId: dto.technicianId ?? null }]);
     return result;
   }
 

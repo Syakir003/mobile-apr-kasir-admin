@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 DateTime? _toDate(Object? v) => switch (v) {
       String s => DateTime.tryParse(s)?.toLocal(),
       DateTime d => d,
@@ -88,9 +89,9 @@ class Voucher {
         code: (data['code'] as String?) ?? '',
         memberId: (data['member_id'] as String?) ?? '',
         discountType: VoucherDiscountType.fromValue(data['discount_type']),
-        discountValue: (data['discount_value'] as num?)?.toInt() ?? 0,
-        maxDiscountCap: (data['max_discount_cap'] as num?)?.toInt(),
-        minPurchase: (data['min_purchase'] as num?)?.toInt(),
+        discountValue: numFromNest(data['discount_value'])?.toInt() ?? 0,
+        maxDiscountCap: numFromNest(data['max_discount_cap'])?.toInt(),
+        minPurchase: numFromNest(data['min_purchase'])?.toInt(),
         expiresAt: _toDate(data['expires_at']) ?? DateTime(2000),
         status: VoucherStatus.fromValue(data['status']),
         source: VoucherSource.fromValue(data['source']),

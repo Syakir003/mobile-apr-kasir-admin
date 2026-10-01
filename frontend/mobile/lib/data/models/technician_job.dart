@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 /// Status job teknisi (disimpan sebagai text snake_case di Postgres).
 enum JobStatus {
   menungguPenugasan('menunggu_penugasan', 'Menunggu Penugasan'),
@@ -119,7 +120,7 @@ class TechnicianJob {
       memberAddress: (member?['address'] as String?) ?? '',
       unitBrand: (unit?['brand'] as String?) ?? '',
       unitModel: (unit?['model'] as String?) ?? '',
-      unitPk: (unit?['pk'] as num?)?.toDouble() ?? 0,
+      unitPk: numFromNest(unit?['pk'])?.toDouble() ?? 0,
       unitRoom: (unit?['room_location'] as String?) ?? '',
       unitBarcode: (unit?['barcode_value'] as String?) ?? '',
       technicianName: (data['technician_name'] as String?) ?? '',
