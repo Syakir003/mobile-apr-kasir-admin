@@ -90,6 +90,7 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
       } else {
         await repo.create(member);
       }
+      ref.invalidate(membersStreamProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Member tersimpan.')),

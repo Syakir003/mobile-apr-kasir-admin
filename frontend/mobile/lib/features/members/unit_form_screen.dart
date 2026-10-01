@@ -134,6 +134,8 @@ class _UnitFormScreenState extends ConsumerState<UnitFormScreen> {
     try {
       if (_isEdit) {
         await repo.update(widget.initial!.id, unit);
+        ref.invalidate(memberUnitsProvider(widget.memberId));
+        ref.invalidate(acUnitProvider(widget.initial!.id));
         final intervalWarn = await _simpanSiklusServis(widget.initial!.id);
         if (!mounted) return;
         messenger.showSnackBar(
@@ -144,6 +146,7 @@ class _UnitFormScreenState extends ConsumerState<UnitFormScreen> {
         );
       } else {
         final id = await repo.create(unit);
+        ref.invalidate(memberUnitsProvider(widget.memberId));
         final intervalWarn = await _simpanSiklusServis(id);
         String barcode = '';
         Object? genError;

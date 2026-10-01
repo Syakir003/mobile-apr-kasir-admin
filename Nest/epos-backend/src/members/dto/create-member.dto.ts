@@ -26,6 +26,10 @@ export class CreateMemberDto {
   // ini udah kepake member lain" — pola sama kayak confirmOverride di
   // StockInDto (soft-warn + confirm, bukan blokir keras).
   @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
   @IsBoolean()
   confirmOverride?: boolean;
 }

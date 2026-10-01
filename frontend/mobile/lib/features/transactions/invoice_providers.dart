@@ -2,29 +2,29 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/supabase/session_gate.dart';
-import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/invoice.dart';
 import '../../data/models/manual_payment.dart';
 import '../../data/repositories/invoice_repository.dart';
 
 final invoiceRepositoryProvider = Provider<InvoiceRepository>(
-  (ref) => SupabaseInvoiceRepository(ref.watch(supabaseProvider)),
+  (ref) => const NestInvoiceRepository(ApiClient()),
 );
 
 /// Daftar invoice terbaru (100 terakhir, urut created_at desc).
-final invoicesStreamProvider = StreamProvider<List<Invoice>>(
+final invoicesStreamProvider = StreamProvider.autoDispose<List<Invoice>>(
   (ref) => streamWhenSignedIn(
       ref, () => ref.watch(invoiceRepositoryProvider).watchAll()),
 );
 
 /// Satu invoice by id (family). Null bila dokumen tidak ada.
-final invoiceProvider = StreamProvider.family<Invoice?, String>(
+final invoiceProvider = StreamProvider.autoDispose.family<Invoice?, String>(
   (ref, id) => streamWhenSignedIn(
       ref, () => ref.watch(invoiceRepositoryProvider).watchById(id)),
 );
 
 /// Daftar pembayaran manual milik satu invoice (family by invoiceId).
-final invoicePaymentsProvider = StreamProvider.family<List<ManualPayment>, String>(
+final invoicePaymentsProvider =
+    StreamProvider.autoDispose.family<List<ManualPayment>, String>(
   (ref, invoiceId) => streamWhenSignedIn(
       ref, () => ref.watch(invoiceRepositoryProvider).watchPayments(invoiceId)),
 );
@@ -36,11 +36,16 @@ final invoicePaymentsProvider = StreamProvider.family<List<ManualPayment>, Strin
 final recordPaymentCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
   const api = ApiClient();
-  return (payload) => sendRecordPayment(api.post, payload);
+  return (payload) async {
+    await sendRecordPayment(api.post, payload);
+    final id = payload['invoiceId'] as String;
+    ref.invalidate(invoiceProvider(id));
+    ref.invalidate(invoicePaymentsProvider(id));
+    ref.invalidate(invoicesStreamProvider);
+  };
 });
 
-/// Dipisah dari [recordPaymentCallerProvider] agar testable tanpa sesi
-/// Supabase nyata — [post] adalah `ApiClient.post` sungguhan atau fake pada
+/// Dipisah dari [recordPaymentCallerProvider] agar testable tanpa jaringan — [post] adalah `ApiClient.post` sungguhan atau fake pada
 /// test. [payload] masih memakai bentuk lama yang dibuat
 /// `payment_form_sheet.dart` (`invoiceId` di dalamnya); [buildRecordPaymentBody]
 /// yang memetakannya ke body Nest.

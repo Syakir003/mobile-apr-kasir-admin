@@ -7,6 +7,7 @@ import type { CurrentUserPayload } from '../auth/decorators/current-user.decorat
 import { MembersService } from './members.service';
 import { SetWaOptOutDto } from './dto/set-wa-opt-out.dto';
 import { CreateMemberDto } from './dto/create-member.dto';
+import { UpdateMemberDto } from './dto/update-member.dto';
 
 /** Baru ditambah Siklus 6 — sebelumnya MembersService murni internal
  * (findOrCreate dipanggil dari POS/ServiceOrders), gak ada endpoint REST
@@ -49,6 +50,16 @@ export class MembersController {
   }
 
   /** Pelanggan minta berhenti/lanjut dikirimi pengingat WA — Siklus WA/Fonnte. */
+  @Roles('admin', 'kasir')
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateMemberDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.members.update(id, dto, user.sub);
+  }
+
   @Roles('admin', 'kasir')
   @Patch(':id/wa-opt-out')
   setWaOptOut(
