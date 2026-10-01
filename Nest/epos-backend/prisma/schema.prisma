@@ -33,6 +33,8 @@ enum UserRole {
 }
 
 model User {
+  acUnitCorrectionsRequested AcUnitCorrection[] @relation("AcUnitCorrectionRequester")
+  acUnitCorrectionsReviewed  AcUnitCorrection[] @relation("AcUnitCorrectionReviewer")
   id          String   @id @default(uuid())
   email       String   @unique
   password    String // hash bcrypt — gantinya auth.users.encrypted_password
@@ -155,29 +157,98 @@ model Product {
   btu         Int?
   watt        Int?
   warranty    String?
-  // sellPrice & stock DIHAPUS dari sini (Siklus batch-cost 2026-09) —
-  // pindah ke ItemCost, 1 produk sekarang bisa punya banyak "batch" harga
-  // (beda supplier/kedatangan barang, harga modal & jual beda-beda).
+  // stock TETAP agregat dari ItemCost (banyak batch, beda modal per
+  // supplier/kedatangan — lihat ProductsService.stockFor). sellPrice di
+  // bawah ini BALIK LAGI jadi kolom langsung di sini (Siklus harga-seragam
+  // 2026-09-22) — toko cuma mau SATU harga jual per produk, gak peduli
+  // stoknya campuran dari berapa banyak batch/supplier. `ItemCost.sellPrice`
+  // TETAP ada di skema (gak di-drop) tapi UDAH GAK DIPAKAI lagi buat
+  // `kind='product'` — batch baru nulis 0 placeholder ke situ, sama pola
+  // kayak `kind='sparepart'` yang emang dari awal gak pernah pakai kolom
+  // itu (lihat komentar di model ItemCost).
+  sellPrice   Decimal  @map("sell_price") @db.Decimal(14, 2)
   photoUrl    String?  @map("photo_url")
   description String?
   category    String?
   active      Boolean  @default(true)
   createdAt   DateTime @default(now()) @map("created_at")
 
+  // BARU (Point 2, 2026-09-23) — AC Indoor/Outdoor Berpasangan. Diisi HANYA
+  // di sisi Indoor, nunjuk ke Product Outdoor pasangannya. One-directional
+  // (Outdoor gak punya pairedProductId balik) — dipakai buat auto-suggest
+  // toggle "Sekalian Outdoor-nya" pas Barang Masuk/POS, SELALU bisa
+  // di-override manual pas transaksi (bukan validasi keras).
+  pairedProductId String?   @map("paired_product_id")
+  pairedProduct   Product?  @relation("ProductPairing", fields: [pairedProductId], references: [id])
+  pairedWithMe    Product[] @relation("ProductPairing")
+
+  // BARU (Paket AC Split, 2026-09-30) — peran unit AC: 'indoor' | 'outdoor'
+  // | null (belum ditentukan / produk lama yang gak berpasangan). Dipakai
+  // POS buat ngelompokin tab Indoor/Outdoor, termasuk produk "Indoor saja"/
+  // "Outdoor saja" yang GAK punya pasangan (yang berpasangan otomatis
+  // kebaca juga dari pairedProductId, tapi yang standalone cuma bisa
+  // ketauan dari kolom ini). Dijaga konsisten sama pairing di
+  // ProductsService: sisi yang punya pairedProductId SELALU 'indoor',
+  // targetnya SELALU 'outdoor'. Lihat spec 2026-09-30-paket-ac-split.
+  acRole          String?   @map("ac_role")
+
+  indoorForUnits  MemberAcUnit[] @relation("AcUnitIndoorProduct")
+  outdoorForUnits MemberAcUnit[] @relation("AcUnitOutdoorProduct")
+
+  // BARU (Siklus QR per-unit, 2026-09-30) — unit fisik (StockUnit) produk
+  // ini yang pernah masuk gudang, lihat model StockUnit.
+  stockUnits StockUnit[]
+
   @@map("products")
 }
 
 model Sparepart {
-  id        String   @id @default(uuid())
-  name      String
-  sku       String?  @unique
-  category  String?
-  unit      String // 'kg', 'meter', 'pcs', 'set', dll
-  sellPrice Decimal  @map("sell_price") @db.Decimal(14, 2)
-  stock     Decimal  @db.Decimal(10, 2)
-  minStock  Decimal  @default(0) @map("min_stock") @db.Decimal(10, 2)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid())
+  name         String
+  sku          String?  @unique
+  category     String?
+  unit         String // 'kg', 'meter', 'pcs', 'set', dll
+  sellPrice    Decimal  @map("sell_price") @db.Decimal(14, 2)
+  // Siklus sparepart-per-gulungan (2026-09-23) — kolom ini TETAP satu-
+  // satunya sumber stok yang dibaca langsung (SparepartsService, halaman
+  // Master Data & Barang Masuk, MaterialRequestsService.priceItems) —
+  // BEDA dari Product.stock yang computed-aggregate dari item_costs.
+  // Buat sparepart batchTracked=true, kolom ini jadi MIRROR yang disinkron
+  // manual di StockService.stockIn/opname, StockLockingService.lockAndDeduct,
+  // dan MaterialRequestsService.markUsed — TIAP tempat yang nge-decrement/
+  // increment item_costs.stock buat kind='sparepart' WAJIB nge-decrement/
+  // increment kolom ini juga di baris yang sama (row sparepart udah kekunci
+  // FOR UPDATE di semua tempat itu, jadi aman dari race).
+  stock        Decimal  @db.Decimal(10, 2)
+  minStock     Decimal  @default(0) @map("min_stock") @db.Decimal(10, 2)
+  // BARU — admin toggle per sparepart (create ATAU edit). true = sparepart
+  // ini dilacak per-gulungan/batch (banyak baris item_costs sekaligus, FIFO
+  // kayak Produk) — biasanya buat barang yang dijual per-meter/panjang
+  // (pipa, kabel) yang tiap kedatangan panjangnya beda-beda. false (default)
+  // = sparepart flat biasa, gak berubah dari sebelum siklus ini.
+  //
+  // Nge-toggle field ini TIDAK migrasi data item_costs yang udah ada — kalau
+  // di-flip true->false pas masih ada batch aktif, batch2 itu jadi orphan
+  // (gak kepakai lagi FIFO, tapi `stock` mirror di atas tetap akurat karena
+  // udah disinkron dari awal). Keputusan sadar, bukan bug.
+  batchTracked Boolean  @default(false) @map("batch_tracked")
+  // BARU (Sparepart utuh/eceran, 2026-09-30) — mode pelacakan & penjualan:
+  //   'biasa'    = stok angka flat (batchTracked=false)
+  //   'gulungan' = per roll/tabung dilacak, cuma eceran (batchTracked=true)
+  //   'konversi' = stok angka flat di satuan kecil (`unit`), bisa dijual
+  //                utuh (1 `packUnit` = `packSize` `unit`) atau eceran
+  //   'gabungan' = per roll/tabung dilacak (batchTracked=true) + bisa utuh
+  //                (roll yang masih penuh = stok `packSize`) atau eceran
+  // `batchTracked` tetap jadi sumber kebenaran buat jalur stok; service
+  // nurunin nilainya dari trackingMode (gulungan/gabungan => true).
+  // Stok SELALU disimpan di `unit` (satuan kecil, mis. m/kg/pcs).
+  trackingMode  String   @default("biasa") @map("tracking_mode")
+  packUnit      String?  @map("pack_unit")
+  packSize      Decimal? @map("pack_size") @db.Decimal(10, 2)
+  // Harga jual UTUH per `packUnit`. `sellPrice` = harga ECERAN per `unit`.
+  sellPricePack Decimal? @map("sell_price_pack") @db.Decimal(14, 2)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
 
   packageItems InstallationPackageItem[]
 
@@ -224,12 +295,16 @@ model InstallationPackageItem {
 }
 
 // Siklus batch-cost (2026-09) — 1 baris = 1 "batch" (kedatangan barang),
-// PUNYA harga modal & jual sendiri. `kind='product'` boleh banyak baris
-// per `refId` (banyak batch sekaligus). `kind='sparepart'` TETAP dijaga di
-// kode (StockService) cuma 1 baris per `refId` (upsert) — sparepart gak
-// ikut sistem batch, `sellPrice`/`stock` sparepart tetap di tabel
-// `spareparts` sendiri, kolom `sellPrice`/`stock` di sini buat baris
-// sparepart diisi 0 (gak dipakai/gak dibaca).
+// PUNYA harga modal sendiri (`buyPrice`, beda-beda per supplier/kedatangan).
+// `kind='product'` boleh banyak baris per `refId` (banyak batch sekaligus).
+// `kind='sparepart'` TETAP dijaga di kode (StockService) cuma 1 baris per
+// `refId` (upsert) — sparepart gak ikut sistem batch.
+//
+// `sellPrice` DI SINI GAK DIPAKAI LAGI SAMA SEKALI (Siklus harga-seragam
+// 2026-09-22) — kolom dibiarin ada (gak di-drop, hindari migrasi
+// destruktif) tapi baris BARU (product maupun sparepart) selalu nulis 0 ke
+// situ. Harga jual produk sekarang SATU angka seragam di `Product.sellPrice`,
+// harga jual sparepart tetap di `Sparepart.sellPrice`.
 model ItemCost {
   id           String   @id @default(uuid())
   kind         String // 'product' | 'sparepart'
@@ -237,12 +312,84 @@ model ItemCost {
   supplierName String?  @map("supplier_name")
   buyPrice     Decimal  @map("buy_price") @db.Decimal(14, 2)
   sellPrice    Decimal  @map("sell_price") @db.Decimal(14, 2)
-  stock        Int // sisa stok BATCH ini (product) — 0/gak dipakai (sparepart)
+  // Siklus sparepart-per-gulungan (2026-09-23) — Int -> Decimal. Kolom ini
+  // sisa stok BATCH ini: buat kind='product' tetap bilangan bulat (cuma
+  // ganti tipe kolom DB, nilai efektifnya selalu utuh — validasi qty produk
+  // masih @IsQtyValidForKind maksa integer). Buat kind='sparepart' YANG
+  // batchTracked=true, kolom ini nyimpen SISA PANJANG (meter) gulungan itu,
+  // bisa pecahan. Buat kind='sparepart' yang batchTracked=false, kolom ini
+  // tetap 0/gak dipakai (placeholder lama, gak berubah).
+  //
+  // GOTCHA node-pg: kolom NUMERIC/DECIMAL balik sebagai STRING lewat
+  // $queryRawUnsafe (beda dari INTEGER yang auto-parse ke `number`). Semua
+  // kode yang baca `stock` mentah dari raw query WAJIB eksplisit `Number()`
+  // sekarang — lihat StockLockingService & StockService.opname (Task 2 & 6).
+  stock        Decimal  @db.Decimal(10, 2)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  // BARU (Siklus QR per-unit, 2026-09-30) — unit fisik (StockUnit) yang
+  // lahir dari batch ini, cuma keisi buat kind='product'.
+  stockUnits StockUnit[]
+
+  // BARU (Paket AC Split, 2026-09-30) — disamain di 2 batch (Indoor &
+  // Outdoor) yang lahir dari SATU barang masuk paket (StockService.stockIn
+  // pairMode='lengkap'). Dipakai halaman detail produk buat nampilin 1
+  // barang masuk paket sebagai 1 kelompok (stok per unit + QR per unit).
+  // Null buat batch tunggal & semua batch sparepart. Nilainya SAMA dengan
+  // stock_movements.pair_group_id baris barang_masuk batch ini.
+  pairGroupId String? @map("pair_group_id")
+
   @@index([kind, refId])
+  @@index([pairGroupId])
   @@map("item_costs")
+}
+
+// BARU (Siklus QR per-unit, 2026-09-30) — 1 baris = 1 unit fisik Produk
+// (termasuk masing-masing sisi Indoor & Outdoor AC) yang masuk gudang.
+// SATU-SATUNYA sumber kebenaran stok Produk sekarang (gantiin
+// `ItemCost.stock` yang dipensiunkan buat kind='product', lihat komentar di
+// model ItemCost). Cuma buat `kind='product'` — Sparepart (termasuk yang
+// batchTracked) TETAP kuantitas/meteran biasa, gak ikut sistem ini (beda
+// karakteristik, bisa pecahan).
+//
+// Lifecycle status: 'di_gudang' (tersedia) -> 'reserved' (dikunci ke 1
+// invoice pas checkout, StockLockingService.lockAndDeduct) -> 'keluar'
+// (dikonfirmasi fisik keluar gudang lewat scan/ceklist manual di halaman
+// Kasir Scan, KasirScanService.fulfillUnit — INI baru titik stok resmi
+// abis, BUKAN pas checkout). Gak ada auto-release 'reserved' balik ke
+// 'di_gudang' — checkout udah berarti invoice terbit/dibayar, lihat spec
+// buat alasan lengkap (fitur void invoice belum ada di sistem).
+model StockUnit {
+  id         String   @id @default(uuid())
+  itemCostId String   @map("item_cost_id")
+  itemCost   ItemCost @relation(fields: [itemCostId], references: [id])
+  // Didenormalisasi dari ItemCost.refId — query "stok tersedia per produk"
+  // (ProductsService.stockFor) jadi gak perlu join ke item_costs tiap saat.
+  refId   String  @map("ref_id")
+  product Product @relation(fields: [refId], references: [id])
+
+  // Kode manusiawi buat ditampilin di label (misal "PRD-0001-U0007"),
+  // dinomori PER PRODUK (bukan global) lewat CountersService.nextSeq
+  // key=`stock_unit_${refId}` — lihat StockService.generateStockUnits.
+  unitCode String @unique @map("unit_code")
+  // Token opaque yang BENERAN di-encode ke QR (bukan unitCode) — sengaja
+  // random/gak bisa ditebak, beda dari unitCode yang predictable/sequential.
+  qrToken String @unique @map("qr_token")
+
+  // 'di_gudang' | 'reserved' | 'keluar' — lihat komentar lifecycle di atas.
+  status String @default("di_gudang")
+
+  reservedForInvoiceId String?   @map("reserved_for_invoice_id")
+  reservedForInvoice   Invoice?  @relation(fields: [reservedForInvoiceId], references: [id], onDelete: SetNull)
+  reservedAt           DateTime? @map("reserved_at")
+  soldAt               DateTime? @map("sold_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  @@index([itemCostId])
+  @@index([refId, status])
+  @@index([reservedForInvoiceId])
+  @@map("stock_units")
 }
 
 // ----------------------------------------------------------------------------
@@ -300,10 +447,61 @@ model MemberAcUnit {
   // SQL, migrasi Supabase 0023).
   serviceIntervalDays Int?    @map("service_interval_days")
 
+  // Saklar pengingat servis per unit (1 baris = 1 set AC indoor+outdoor).
+  // OFF => cron melewati unit ini (mis. AC dibongkar/tidak dipakai lagi).
+  reminderEnabled     Boolean @default(true) @map("reminder_enabled")
+
+  // Tracking label QR (Input Data Lampau, 2026-10-01). labelPrintedAt = kapan
+  // label terakhir dicetak; labelAttachedAt = kapan label dianggap sudah
+  // menempel di unit (otomatis saat QR pertama kali discan, atau ditandai
+  // manual). NULL = belum.
+  labelPrintedAt   DateTime? @map("label_printed_at")
+  labelAttachedAt  DateTime? @map("label_attached_at")
+
+  // BARU (Point 2, 2026-09-23) — referensi Product asal Indoor/Outdoor unit
+  // ini (BUKAN snapshot string), diisi otomatis dari POS/Barang Masuk mode
+  // "Unit Lengkap". Nullable & independen: unit tunggal/Indoor-saja/
+  // Outdoor-saja cuma isi SATU (atau NOL) dari dua, mode Lengkap isi
+  // dua-duanya. Unit LAMA (sebelum kolom ini ada) tetap null dua-duanya —
+  // TIDAK di-backfill (di luar scope, lihat catatan desain plan ini).
+  indoorProductId  String?  @map("indoor_product_id")
+  indoorProduct    Product? @relation("AcUnitIndoorProduct", fields: [indoorProductId], references: [id])
+  outdoorProductId String?  @map("outdoor_product_id")
+  outdoorProduct   Product? @relation("AcUnitOutdoorProduct", fields: [outdoorProductId], references: [id])
+
   serviceOrderUnits ServiceOrderUnit[]
   technicianJobs    TechnicianJob[]
+  corrections       AcUnitCorrection[]
 
   @@map("member_ac_units")
+}
+
+// Usulan koreksi data unit AC dari teknisi (unit status 'aktif'). Admin
+// setujui -> nilai usulan menimpa data unit; tolak -> tidak ada perubahan.
+// Cuma kolom yang terisi (non-null) yang diubah saat disetujui.
+model AcUnitCorrection {
+  id               String    @id @default(uuid())
+  unitId           String    @map("unit_id")
+  unit             MemberAcUnit @relation(fields: [unitId], references: [id])
+  requestedById    String    @map("requested_by_id")
+  requestedBy      User      @relation("AcUnitCorrectionRequester", fields: [requestedById], references: [id])
+  brand            String?
+  model            String?
+  pk               Decimal?  @db.Decimal(4, 2)
+  roomLocation     String?   @map("room_location")
+  serialNumber     String?   @map("serial_number")
+  installationDate DateTime? @map("installation_date")
+  note             String?
+  status           String    @default("pending") // 'pending' | 'approved' | 'rejected'
+  reviewedById     String?   @map("reviewed_by_id")
+  reviewedBy       User?     @relation("AcUnitCorrectionReviewer", fields: [reviewedById], references: [id])
+  reviewedAt       DateTime? @map("reviewed_at")
+  reviewNote       String?   @map("review_note")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([unitId, status])
+  @@index([status, createdAt])
+  @@map("ac_unit_corrections")
 }
 
 // ----------------------------------------------------------------------------
@@ -348,6 +546,7 @@ model TransactionItem {
   // BARU (Siklus batch-cost 2026-09) — diskon nominal khusus baris ini,
   // numpuk (bukan gantiin) diskon level-transaksi (Transaction.discount).
   discount      Decimal     @default(0) @db.Decimal(14, 2)
+  saleKind      String?     @map("sale_kind")
 
   @@map("transaction_items")
 }
@@ -401,6 +600,10 @@ model Invoice {
   manualPayments      ManualPayment[] // bukti transfer & verifikasi kasir
   vouchersUsed        Voucher[] // voucher yang benar-benar dipakai di invoice ini
   whatsappLogs        WhatsappLog[] // riwayat kirim invoice ini lewat WhatsApp (kind='invoice')
+  // BARU (Siklus QR per-unit, 2026-09-30) — StockUnit yang direservasi buat
+  // invoice ini pas checkout (StockLockingService.lockAndDeduct + PosService.
+  // checkout), belum tentu semuanya udah 'keluar' (lihat KasirScanService).
+  reservedStockUnits  StockUnit[]
 
   @@map("invoices")
 }
@@ -426,6 +629,24 @@ model InvoiceItem {
   // TERKINI cuma buat baris yang null. Null juga buat kind='service' (gak
   // ada HPP).
   buyPriceSnapshot Decimal? @map("buy_price_snapshot") @db.Decimal(14, 2)
+  // BARU (Paket AC Split, 2026-09-30) — true kalau baris ini unit SATUAN
+  // (Indoor saja / Outdoor saja) dari produk AC berpasangan. Modal restock
+  // dicatat per PAKET (1 angka, lihat StockService.stockIn mode lengkap),
+  // gak dipecah per unit — jadi HPP baris ini SENGAJA 0 (buyPriceSnapshot=0)
+  // & ditandai di sini biar laporan bisa bilang "modal tidak dialokasikan",
+  // bukan keliatan untung 100%.
+  costUnallocated Boolean @default(false) @map("cost_unallocated")
+  // BARU (Paket AC Split, audit 2026-09-30) — modal 1 PAKET utuh (Indoor +
+  // Outdoor) saat baris satuan ini dijual, nilai yang sama yang ditampilin di
+  // dialog konfirmasi. CUMA buat laporan laba-rugi: dipakai ngitung batas
+  // bawah laba ("kalau tiap unit satuan nanggung modal paket penuh"), BUKAN
+  // HPP resmi (HPP baris tetap 0). Null selain baris costUnallocated.
+  packageCostRef Decimal? @map("package_cost_ref") @db.Decimal(14, 2)
+  // BARU (Sparepart utuh/eceran, 2026-09-30) — 'utuh' | 'eceran' | null.
+  // Cuma keisi buat kind='sparepart' mode konversi/gabungan. Baris 'utuh':
+  // qty = jumlah packUnit, unit = packUnit, unitPrice = harga utuh,
+  // buyPriceSnapshot = modal per packUnit (modal per satuan kecil x packSize).
+  saleKind String? @map("sale_kind")
 
   @@map("invoice_items")
 }
@@ -753,6 +974,12 @@ model StockMovement {
   // (sparepart gak ikut sistem batch). BUKAN foreign key formal — polanya
   // sama kayak `refId` di model ini (referensi polymorphic, gak strict FK).
   itemCostId    String?  @map("item_cost_id")
+  // BARU (Point 2, 2026-09-23) — disamain nilainya di 2 baris StockMovement
+  // (Indoor & Outdoor) yang lahir dari SATU aksi "Unit Lengkap" (barang
+  // masuk ATAU penjualan). Null di semua baris lain. Dipakai Point 4
+  // (laporan stok) buat gabung 2 baris ini jadi 1 baris "Unit [nama
+  // pasangan]" — TIDAK dipakai logic Point 2 sendiri selain nulis nilainya.
+  pairGroupId   String?  @map("pair_group_id")
   createdById   String   @map("created_by")
   createdBy     User     @relation("StockCreatedBy", fields: [createdById], references: [id])
   createdAt     DateTime @default(now()) @map("created_at")
