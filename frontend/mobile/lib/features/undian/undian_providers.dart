@@ -1,40 +1,34 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/supabase/supabase_providers.dart';
+import '../../core/utils/snake_keys.dart';
 import '../../data/models/undian.dart';
 import '../../core/utils/num_parse.dart';
 
-/// Semua undian, terbaru dulu. RLS admin saja.
-final undianListProvider = StreamProvider.autoDispose<List<Undian>>((ref) {
-  final client = ref.watch(supabaseProvider);
-  return client
-      .from('undian')
-      .stream(primaryKey: ['id'])
-      .order('created_at')
-      .map((rows) {
-        final list = [
-          for (final r in rows) Undian.fromMap(r['id'] as String, Map.from(r)),
-        ];
-        list.sort((a, b) =>
-            (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
-        return list;
-      });
+/// Semua undian, terbaru dulu (`GET /undian`, admin). Dimuat sekali per
+/// pembukaan layar; mutasi di bawah me-refetch lewat invalidate.
+final undianListProvider = StreamProvider.autoDispose<List<Undian>>((ref) async* {
+  final rows = await const ApiClient().get('/undian') as List;
+  yield [
+    for (final r in rows) Undian.fromMap((r as Map)['id'] as String, snakeKeys(r)),
+  ];
 });
 
-/// Peserta satu undian tertentu.
+/// Peserta satu undian tertentu (`GET /undian/:id`).
 final undianParticipantsProvider = StreamProvider.autoDispose
-    .family<List<UndianParticipant>, String>((ref, undianId) {
-  final client = ref.watch(supabaseProvider);
-  return client
-      .from('undian_participants')
-      .stream(primaryKey: ['id'])
-      .eq('undian_id', undianId)
-      .map((rows) => [
-            for (final r in rows)
-              UndianParticipant.fromMap(r['id'] as String, Map.from(r)),
-          ]);
+    .family<List<UndianParticipant>, String>((ref, undianId) async* {
+  final data = await const ApiClient().get('/undian/$undianId') as Map;
+  yield [
+    for (final p in data['participants'] as List)
+      UndianParticipant.fromMap((p as Map)['id'] as String, snakeKeys(p)),
+  ];
 });
+
+/// Muat ulang daftar & peserta setelah mutasi undian.
+void _refreshUndian(Ref ref, [String? undianId]) {
+  ref.invalidate(undianListProvider);
+  if (undianId != null) ref.invalidate(undianParticipantsProvider(undianId));
+}
 
 /// `POST /undian` (admin) — pengganti RPC `create_undian` pada migrasi
 /// Flutter -> Nest. Payload sudah camelCase persis sama dengan
@@ -47,6 +41,7 @@ final createUndianCallerProvider = Provider<
         Map<String, dynamic> payload)>((ref) {
   return (payload) async {
     final data = await const ApiClient().post('/undian', body: payload) as Map;
+    _refreshUndian(ref);
     return (
       undianId: (data['undianId'] as String?) ?? '',
       participantCount: numFromNest(data['participantCount'])?.toInt() ?? 0,
@@ -65,6 +60,7 @@ final updateUndianParticipantsCallerProvider = Provider<
       if (add.isNotEmpty) 'add': add,
       if (remove.isNotEmpty) 'remove': remove,
     });
+    _refreshUndian(ref, undianId);
   };
 });
 
@@ -74,6 +70,7 @@ final drawUndianCallerProvider =
     Provider<Future<int> Function(String undianId)>((ref) {
   return (undianId) async {
     final data = await const ApiClient().post('/undian/$undianId/draw') as Map;
+    _refreshUndian(ref, undianId);
     return numFromNest(data['winnerCount'])?.toInt() ?? 0;
   };
 });
@@ -83,5 +80,6 @@ final cancelUndianCallerProvider =
     Provider<Future<void> Function(String undianId)>((ref) {
   return (undianId) async {
     await const ApiClient().post('/undian/$undianId/cancel');
+    _refreshUndian(ref, undianId);
   };
 });

@@ -2,21 +2,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/supabase/session_gate.dart';
-import '../../core/supabase/supabase_providers.dart';
+import '../../core/utils/snake_keys.dart';
 import '../../data/models/managed_user.dart';
 
-/// Seluruh akun (admin saja — RLS `users` mengizinkan admin/kasir membaca
-/// semua baris, dan rute '/users' dikunci admin di redirect.dart).
-/// Realtime: tabel `users` sudah terdaftar di publication supabase_realtime.
+/// Seluruh akun (admin saja — rute '/users' dikunci admin di redirect.dart).
+/// `GET /users`, dimuat sekali per sesi; mutasi di bawah me-refetch lewat
+/// invalidate.
 final managedUsersProvider = StreamProvider<List<ManagedUser>>((ref) {
-  return streamWhenSignedIn(ref, () => ref
-      .watch(supabaseProvider)
-      .from('users')
-      .stream(primaryKey: ['id'])
-      .order('created_at')
-      .map((rows) => rows
-          .map((row) => ManagedUser.fromMap(row['id'] as String, row))
-          .toList(growable: false)));
+  return streamWhenSignedIn(ref, () async* {
+    final rows = await const ApiClient().get('/users') as List;
+    yield [
+      for (final r in rows)
+        ManagedUser.fromMap((r as Map)['id'] as String, snakeKeys(r)),
+    ];
+  });
 });
 
 /// `PATCH /users/:id` + `PATCH /users/:id/toggle-active` — pengganti RPC
@@ -39,6 +38,7 @@ final updateUserAccountCallerProvider =
       'displayName': payload['displayName'],
     });
     await api.patch('/users/$id/toggle-active', body: {'active': payload['active']});
+    ref.invalidate(managedUsersProvider);
   };
 });
 
@@ -50,6 +50,7 @@ final createUserAccountCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> body)>((ref) {
   return (body) async {
     await const ApiClient().post('/users', body: body);
+    ref.invalidate(managedUsersProvider);
   };
 });
 

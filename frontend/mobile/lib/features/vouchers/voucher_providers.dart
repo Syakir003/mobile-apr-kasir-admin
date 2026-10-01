@@ -1,24 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/supabase/supabase_providers.dart';
+import '../../core/utils/snake_keys.dart';
 import '../../data/models/voucher.dart';
 
-/// Semua voucher, terbaru dulu. RLS admin/kasir; teknisi dapat daftar kosong.
-final vouchersStreamProvider = StreamProvider.autoDispose<List<Voucher>>((ref) {
-  final client = ref.watch(supabaseProvider);
-  return client
-      .from('vouchers')
-      .stream(primaryKey: ['id'])
-      .order('created_at')
-      .map((rows) {
-        final list = [
-          for (final r in rows) Voucher.fromMap(r['id'] as String, Map.from(r)),
-        ];
-        list.sort((a, b) =>
-            (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
-        return list;
-      });
+/// Semua voucher, terbaru dulu (`GET /vouchers`, admin/kasir). Dimuat sekali
+/// per pembukaan layar; mutasi di bawah me-refetch lewat invalidate.
+final vouchersStreamProvider = StreamProvider.autoDispose<List<Voucher>>((ref) async* {
+  final rows = await const ApiClient().get('/vouchers') as List;
+  yield [
+    for (final r in rows)
+      Voucher.fromMap((r as Map)['id'] as String, snakeKeys(r)),
+  ];
 });
 
 /// `POST /vouchers` (admin) — pengganti RPC `create_voucher` pada migrasi
@@ -30,6 +23,7 @@ final createVoucherCallerProvider =
     Provider<Future<String> Function(Map<String, dynamic> payload)>((ref) {
   return (payload) async {
     final json = await const ApiClient().post('/vouchers', body: payload) as Map;
+    ref.invalidate(vouchersStreamProvider);
     return json['code'] as String? ?? '';
   };
 });
@@ -41,5 +35,6 @@ final cancelVoucherCallerProvider =
     await const ApiClient().post('/vouchers/$voucherId/cancel', body: {
       if (reason != null) 'reason': reason,
     });
+    ref.invalidate(vouchersStreamProvider);
   };
 });
