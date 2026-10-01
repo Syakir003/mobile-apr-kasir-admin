@@ -66,11 +66,10 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
       icon: ShoppingCart,
       children: [
         { href: '/pos', label: 'Kasir (POS)', icon: CreditCard },
+        // Tahap KEDUA checkout (Siklus QR per-unit, 2026-09-30) — konfirmasi
+        // fisik unit yang keluar dari gudang abis invoice terbit di POS.
+        { href: '/kasir-scan', label: 'Kasir Scan', icon: ScanLine },
         { href: '/invoices', label: 'Riwayat Transaksi', icon: Receipt },
-        // Migrasi data histori (transaksi + member dari sebelum sistem ini
-        // ada) — admin-only, lihat proxy.ts prefix '/invoices/manual' &
-        // backend InvoicesController.createManual.
-        { href: '/invoices/manual', label: 'Input Transaksi Manual', icon: FilePlus2 },
         // Voucher (campaign diskon buat member) digabung ke grup Transaksi
         // (bukan Data Master) — itu lebih ke alur campaign+klaim, bukan
         // data statis.
@@ -125,6 +124,9 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
       icon: Settings,
       children: [
         { href: '/pengguna', label: 'Pengguna', icon: UserCog },
+        // Input Data Lampau (2026-10-01) — menggantikan "Input Transaksi
+        // Manual": migrasi customer lama + unit AC + QR + transaksi opsional.
+        { href: '/administrasi/data-lampau', label: 'Input Data Lampau', icon: FilePlus2 },
         // Log Audit — GET /audit-logs (AuditLogsModule) baca tabel
         // audit_logs yang udah lama ke-tulis dari banyak service (checkout,
         // stock, master data, user mgmt, dst) tapi belum ada tempat buat
@@ -138,6 +140,7 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ],
   kasir: [
     { href: '/pos', label: 'Kasir (POS)', icon: CreditCard },
+    { href: '/kasir-scan', label: 'Kasir Scan', icon: ScanLine },
     { href: '/invoices', label: 'Riwayat Transaksi', icon: Receipt },
     { href: '/service-orders/intake', label: 'Servis Mandiri', icon: UserPlus },
     { href: '/members', label: 'Member', icon: Users },

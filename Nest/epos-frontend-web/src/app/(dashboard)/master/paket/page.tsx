@@ -6,7 +6,7 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
@@ -18,6 +18,8 @@ import {
 } from '@/lib/form-number';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
+import { DeactivateDialog } from '@/components/master-data/deactivate-dialog';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
 import { Textarea } from '@/components/ui/textarea';
@@ -60,6 +62,7 @@ interface Sparepart {
   id: string;
   name: string;
   unit: string;
+  active: boolean;
 }
 interface PackageItem {
   id?: string;
@@ -120,16 +123,26 @@ export default function PaketInstalasiPage() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<InstallationPackage | null>(null);
+  const [status, setStatus] = React.useState<MasterDataStatus>('active');
+  const [deactivating, setDeactivating] = React.useState<InstallationPackage | null>(null);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['installation-packages'],
-    queryFn: () => apiClient.get<InstallationPackage[]>('/installation-packages'),
+    queryKey: ['installation-packages', status],
+    queryFn: () => apiClient.get<InstallationPackage[]>(`/installation-packages?status=${status}`),
   });
   // Buat dropdown "nempel ke sparepart" per item — opsional, item paket
   // boleh juga custom (mis. "Jasa Bongkar Unit Lama") tanpa nempel sparepart.
+  // FIX (audit 2026-09-29) — sebelumnya cuma fetch yang aktif (`?status`
+  // gak dikirim = default active-only). Efeknya: buka Edit paket yang salah
+  // satu itemnya nempel ke sparepart yang UDAH dinonaktifkan bikin
+  // dropdown-nya keliatan KOSONG (value gak match opsi manapun) padahal
+  // `sparepartId` di form tetap kesimpen bener. Sekarang fetch `status=all`
+  // biar sparepart nonaktif TETAP muncul di opsi (ditandain "(Nonaktif)"),
+  // tapi di-disable buat DIPILIH BARU — cuma boleh kebaca/dipertahankan
+  // kalau emang udah kepilih dari sebelumnya (lihat `SelectItem` di bawah).
   const spareparts = useQuery({
-    queryKey: ['spareparts'],
-    queryFn: () => apiClient.get<Sparepart[]>('/spareparts'),
+    queryKey: ['spareparts', 'all'],
+    queryFn: () => apiClient.get<Sparepart[]>('/spareparts?status=all'),
   });
 
   const form = useForm<PackageFormValues>({
@@ -182,6 +195,21 @@ export default function PaketInstalasiPage() {
     },
   });
 
+  const toggleActiveMutation = useMutation({
+    mutationFn: (p: InstallationPackage) =>
+      apiClient.patch<InstallationPackage>(`/installation-packages/${p.id}`, {
+        active: !p.active,
+      }),
+    onSuccess: (_data, p) => {
+      toast.success(p.active ? 'Paket dinonaktifkan.' : 'Paket diaktifkan kembali.');
+      queryClient.invalidateQueries({ queryKey: ['installation-packages'] });
+      setDeactivating(null);
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal mengubah status paket.');
+    },
+  });
+
   function onPickSparepart(index: number, sparepartId: string) {
     form.setValue(`items.${index}.sparepartId`, sparepartId === 'none' ? '' : sparepartId);
     if (sparepartId === 'none') return;
@@ -194,7 +222,7 @@ export default function PaketInstalasiPage() {
 
   return (
     <div className="grid gap-6">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Paket Instalasi</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -202,10 +230,13 @@ export default function PaketInstalasiPage() {
             pemasangan biar gak input item satu-satu tiap kali.
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus />
-          Tambah Paket
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusFilterSelect value={status} onChange={setStatus} />
+          <Button onClick={openCreate}>
+            <Plus />
+            Tambah Paket
+          </Button>
+        </div>
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Memuat paket instalasi...</p>}
@@ -241,9 +272,23 @@ export default function PaketInstalasiPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(p)}>
-                      <Pencil className="size-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(p)}>
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title={p.active ? 'Nonaktifkan' : 'Aktifkan kembali'}
+                        onClick={() => setDeactivating(p)}
+                      >
+                        {p.active ? (
+                          <Trash2 className="size-4 text-destructive" />
+                        ) : (
+                          <RotateCcw className="size-4" />
+                        )}
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -318,7 +363,7 @@ export default function PaketInstalasiPage() {
                 <div className="grid gap-3">
                   {fields.map((field, index) => (
                     <div key={field.id} className="grid gap-2 rounded-md border p-3">
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs font-medium text-muted-foreground">
                           Item #{index + 1}
                         </span>
@@ -346,11 +391,24 @@ export default function PaketInstalasiPage() {
                           </FormControl>
                           <SelectContent>
                             <SelectItem value="none">— Item custom (gak nempel) —</SelectItem>
-                            {spareparts.data?.map((s) => (
-                              <SelectItem key={s.id} value={s.id}>
-                                {s.name}
-                              </SelectItem>
-                            ))}
+                            {spareparts.data?.map((s) => {
+                              // Sparepart nonaktif tetap ditampilin (biar
+                              // linkage lama yang udah kepilih keliatan
+                              // namanya, bukan blank) tapi gak boleh
+                              // DIPILIH BARU dari sini.
+                              const isCurrentValue =
+                                form.watch(`items.${index}.sparepartId`) === s.id;
+                              return (
+                                <SelectItem
+                                  key={s.id}
+                                  value={s.id}
+                                  disabled={!s.active && !isCurrentValue}
+                                >
+                                  {s.name}
+                                  {!s.active ? ' (Nonaktif)' : ''}
+                                </SelectItem>
+                              );
+                            })}
                           </SelectContent>
                         </Select>
                       </FormItem>
@@ -439,6 +497,17 @@ export default function PaketInstalasiPage() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {deactivating && (
+        <DeactivateDialog
+          open={!!deactivating}
+          onOpenChange={(open) => !open && setDeactivating(null)}
+          itemName={deactivating.name}
+          willActivate={!deactivating.active}
+          onConfirm={() => toggleActiveMutation.mutate(deactivating)}
+          isPending={toggleActiveMutation.isPending}
+        />
+      )}
     </div>
   );
 }

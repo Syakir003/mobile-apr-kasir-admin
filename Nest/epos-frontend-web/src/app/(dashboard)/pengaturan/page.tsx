@@ -22,6 +22,67 @@ import {
   FormDescription,
   FormMessage,
 } from '@/components/ui/form';
+import { ResetScopeDialog } from '@/components/pengaturan/reset-scope-dialog';
+
+// Padanan RESET_SCOPES/RESET_CONFIRM_TEXT backend
+// (src/system-reset/dto/reset-database.dto.ts) — sengaja di-hardcode
+// duplikat di sini, gak ada package shared antara backend & frontend.
+// Kalau frasa di salah satu sisi diubah, sisi lain WAJIB disamain manual.
+type ResetScope = 'transaksi' | 'transaksi_pelanggan' | 'total';
+
+interface ResetScopeConfig {
+  scope: ResetScope;
+  title: string;
+  buttonLabel: string;
+  description: string;
+  dataList: string[];
+  confirmPhrase: string;
+}
+
+const RESET_SCOPE_CONFIGS: ResetScopeConfig[] = [
+  {
+    scope: 'transaksi',
+    title: 'Reset Transaksi',
+    buttonLabel: 'Reset Transaksi',
+    description:
+      'Hapus semua riwayat transaksi & servis. Data pelanggan, unit AC, dan Master Data (Produk/Sparepart/Jasa/Paket) TETAP AMAN.',
+    dataList: [
+      'Transaksi POS, invoice, pembayaran manual, adjustment invoice',
+      'Servis: order, job teknisi, foto, temuan, pengajuan sparepart',
+      'Shift kasir, riwayat mutasi stok, notifikasi, log WhatsApp, voucher',
+      'Log audit lama (satu baris baru dicatat otomatis buat reset ini sendiri)',
+      'Nomor urut invoice (mulai dari 0001 lagi)',
+    ],
+    confirmPhrase: 'HAPUS TRANSAKSI',
+  },
+  {
+    scope: 'transaksi_pelanggan',
+    title: 'Reset Transaksi + Pelanggan',
+    buttonLabel: 'Reset Transaksi + Pelanggan',
+    description:
+      'Sama seperti Reset Transaksi, DITAMBAH semua data pelanggan (Member) & unit AC-nya. Master Data (Produk/Sparepart/Jasa/Paket) TETAP AMAN.',
+    dataList: [
+      'Semua yang dihapus di "Reset Transaksi"',
+      'Data pelanggan (Member) beserta unit AC yang terdaftar',
+      'Nomor urut barcode unit AC (mulai dari 0001 lagi)',
+    ],
+    confirmPhrase: 'HAPUS TRANSAKSI PELANGGAN',
+  },
+  {
+    scope: 'total',
+    title: 'Reset Total',
+    buttonLabel: 'Reset Total',
+    description:
+      'Hapus SEMUA data bisnis — transaksi, pelanggan, DAN seluruh Master Data (Produk/Sparepart/Jasa/Paket). Cuma akun pengguna & pengaturan sistem yang tersisa.',
+    dataList: [
+      'Semua yang dihapus di "Reset Transaksi + Pelanggan"',
+      'Master Data: Produk, Sparepart, Jasa, Paket Instalasi (+ isinya)',
+      'Kategori masalah servis, riwayat harga modal (batch)',
+      'Nomor urut SKU produk (mulai dari 0001 lagi)',
+    ],
+    confirmPhrase: 'HAPUS TOTAL',
+  },
+];
 
 // Padanan AppConfig backend (app-config.service.ts) — 4 key baku, GET
 // dibuka semua role (kasir/teknisi juga baca ini buat prefill), PUT
@@ -48,6 +109,30 @@ type SettingsValues = z.infer<typeof settingsSchema>;
 
 export default function PengaturanPage() {
   const queryClient = useQueryClient();
+
+  const [resetDialogScope, setResetDialogScope] = React.useState<ResetScope | null>(null);
+
+  const resetMutation = useMutation({
+    mutationFn: (payload: { scope: ResetScope; confirmText: string }) =>
+      apiClient.post<{ scope: ResetScope; deletedCounts: Record<string, number> }>(
+        '/system-reset',
+        payload,
+      ),
+    onSuccess: (result) => {
+      const total = Object.values(result.deletedCounts).reduce((sum, n) => sum + n, 0);
+      toast.success(`Reset berhasil — ${total} baris data terhapus.`);
+      setResetDialogScope(null);
+      // Data yang kehapus nyebar ke hampir semua query di aplikasi (invoice,
+      // member, produk, dst) — bukan cuma app-config. Clear semua cache biar
+      // halaman lain gak nampilin data basi yang udah gak ada di database.
+      queryClient.clear();
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal mereset database.');
+    },
+  });
+
+  const activeResetConfig = RESET_SCOPE_CONFIGS.find((c) => c.scope === resetDialogScope) ?? null;
 
   const configQuery = useQuery({
     queryKey: ['app-config'],
@@ -188,6 +273,55 @@ export default function PengaturanPage() {
             </Form>
           </CardContent>
         </Card>
+      )}
+
+      <Card className="border-destructive/50">
+        <CardHeader>
+          <CardTitle className="text-base text-destructive">Zona Bahaya — Reset Database</CardTitle>
+          <CardDescription>
+            Hapus data secara permanen. Cuma admin yang bisa akses bagian ini — pastikan kamu
+            paham betul cakupan tiap tombol sebelum lanjut, gak ada fitur backup otomatis.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          {RESET_SCOPE_CONFIGS.map((config) => (
+            <div
+              key={config.scope}
+              className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="grid gap-1">
+                <p className="text-sm font-medium">{config.title}</p>
+                <p className="text-sm text-muted-foreground">{config.description}</p>
+              </div>
+              <Button
+                variant="destructive"
+                className="w-fit shrink-0"
+                onClick={() => setResetDialogScope(config.scope)}
+              >
+                {config.buttonLabel}
+              </Button>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {activeResetConfig && (
+        <ResetScopeDialog
+          open={resetDialogScope !== null}
+          onOpenChange={(open) => {
+            if (!open) setResetDialogScope(null);
+          }}
+          title={activeResetConfig.title}
+          dataList={activeResetConfig.dataList}
+          confirmPhrase={activeResetConfig.confirmPhrase}
+          isPending={resetMutation.isPending}
+          onConfirm={() =>
+            resetMutation.mutate({
+              scope: activeResetConfig.scope,
+              confirmText: activeResetConfig.confirmPhrase,
+            })
+          }
+        />
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 'use client';
 
+import { unitPartsText, type UnitPartProduct } from '@/components/ac-unit-parts';
 import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -37,6 +38,8 @@ interface JobUnit {
   model: string | null;
   roomLocation: string | null;
   barcodeValue: string;
+  indoorProduct?: UnitPartProduct | null;
+  outdoorProduct?: UnitPartProduct | null;
 }
 interface JobTechnician {
   id: string;
@@ -129,7 +132,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
 
   return (
     <div className="grid gap-6">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
             {isTeknisi ? 'Job Saya' : 'Job Teknisi'}
@@ -193,6 +196,9 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                     ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'
                     : `Order ${job.type}`}
                 </p>
+                {job.unit && unitPartsText(job.unit) && (
+                  <p className="truncate text-xs text-muted-foreground">{unitPartsText(job.unit)}</p>
+                )}
                 <p className="truncate text-sm text-muted-foreground">
                   {job.type} • {job.member?.name || '-'}
                   {job.scheduledDate && ` • Jadwal ${formatDate(job.scheduledDate)}`}

@@ -1,5 +1,6 @@
 'use client';
 
+import { UnitPartsList, hasUnitParts, type UnitPartProduct } from '@/components/ac-unit-parts';
 import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -12,6 +13,7 @@ import type { Role } from '@/lib/session';
 import { statusBadgeVariant } from '../../queue/queue-client';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { BarcodeQr } from '@/components/barcode-qr';
+import { ReminderScheduleFields, intervalError } from '@/components/reminder-schedule-fields';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -85,6 +87,10 @@ interface JobDetail {
     model: string | null;
     roomLocation: string | null;
     barcodeValue: string;
+    indoorProduct?: UnitPartProduct | null;
+    outdoorProduct?: UnitPartProduct | null;
+    serviceIntervalDays?: number | null;
+    reminderEnabled?: boolean;
   } | null;
   technician: { id: string; displayName: string; email: string } | null;
   findings: JobFinding[];
@@ -161,7 +167,15 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
   });
   const startMutation = useJobAction<{ scannedBarcode: string }>(jobId, '/start', 'Job dimulai.');
   const submitForReviewMutation = useJobAction(jobId, '/submit-for-review', 'Diajukan untuk review.');
-  const approveMutation = useJobAction(jobId, '/approve-complete', 'Job disetujui selesai.');
+  const approveMutation = useJobAction<{ reminderEnabled: boolean; serviceIntervalDays?: number }>(
+    jobId,
+    '/approve-complete',
+    'Job disetujui selesai.',
+  );
+  // Pengingat servis per unit AC (2026-09-30) — diisi admin saat menyetujui
+  // job cuci/maintenance/pemasangan. Null = belum disentuh (pakai siklus unit).
+  const [remindOn, setRemindOn] = React.useState(true);
+  const [remindDays, setRemindDays] = React.useState<string | null>(null);
   const sendBackMutation = useJobAction<{ note: string }>(
     jobId,
     '/send-back',
@@ -194,6 +208,12 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
   // Sama kayak gate start() di backend — minimal 1 foto 'sebelum' di
   // salah satu temuan job ini. Dihitung dari data yang udah ke-fetch, jadi
   // gak perlu request tambahan.
+  // Hanya cuci/maintenance/pemasangan yang mengatur ulang jadwal servis
+  // berikutnya (sinkron sama SCHEDULING_JOB_TYPES di backend).
+  const needsSchedule =
+    !!job.unit && ['cuci', 'maintenance', 'pemasangan'].includes(job.type);
+  const remindDaysValue =
+    remindDays ?? (job.unit?.serviceIntervalDays != null ? String(job.unit.serviceIntervalDays) : '');
   const hasBeforePhoto = job.findings.some((f) => f.photos.some((p) => p.kind === 'sebelum'));
 
   // Niru gate submitForReview() di backend biar teknisi gak nunggu round-trip
@@ -263,6 +283,13 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                     : '-'
                 }
               />
+              {job.unit && hasUnitParts(job.unit) && (
+                <DetailRow
+                  label="Unit dalam paket"
+                  value=""
+                  valueNode={<UnitPartsList unit={job.unit} showSku />}
+                />
+              )}
               {job.unit && <DetailRow label="Barcode Unit" value={job.unit.barcodeValue} />}
               {job.unit && (
                 // Preview QR unit ini — biar bisa dicek/dilihat lagi tanpa
@@ -448,9 +475,26 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
 
             {isAdmin && job.status === 'menunggu_review' && (
               <div className="grid gap-3">
+                {needsSchedule && (
+                  <ReminderScheduleFields
+                    enabled={remindOn}
+                    onEnabledChange={setRemindOn}
+                    days={remindDaysValue}
+                    onDaysChange={setRemindDays}
+                  />
+                )}
                 <Button
-                  disabled={approveMutation.isPending}
-                  onClick={() => approveMutation.mutate()}
+                  disabled={approveMutation.isPending || (needsSchedule && remindOn && !!intervalError(remindDaysValue))}
+                  onClick={() =>
+                    approveMutation.mutate(
+                      needsSchedule
+                        ? {
+                            reminderEnabled: remindOn,
+                            ...(remindOn ? { serviceIntervalDays: Number(remindDaysValue) } : {}),
+                          }
+                        : undefined,
+                    )
+                  }
                 >
                   {approveMutation.isPending ? 'Memproses...' : 'Setujui Selesai'}
                 </Button>

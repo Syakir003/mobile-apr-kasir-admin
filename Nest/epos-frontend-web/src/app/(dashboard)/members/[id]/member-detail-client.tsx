@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { UnitPartsList, type UnitPartProduct } from '@/components/ac-unit-parts';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
@@ -43,6 +44,8 @@ interface MemberAcUnitRow {
   model: string | null;
   roomLocation: string | null;
   barcodeValue: string;
+  indoorProduct?: UnitPartProduct | null;
+  outdoorProduct?: UnitPartProduct | null;
   status: string;
   installationDate: string | null;
   lastServiceDate: string | null;
@@ -67,7 +70,7 @@ function invoiceStatusVariant(status: string): 'success' | 'warning' {
 
 function unitStatusVariant(status: string): 'success' | 'secondary' | 'warning' {
   if (status === 'aktif') return 'success';
-  if (status === 'menunggu_pemasangan') return 'warning';
+  if (status === 'menunggu_pemasangan' || status === 'menunggu_data') return 'warning';
   return 'secondary';
 }
 
@@ -184,7 +187,8 @@ export function MemberDetailClient({ memberId }: { memberId: string }) {
                           onClick={() => router.push(`/ac-units/${u.id}`)}
                         >
                           <TableCell className="font-medium">
-                            {[u.brand, u.model].filter(Boolean).join(' ') || '-'}
+                            {[u.brand, u.model].filter(Boolean).join(' ') || 'Unit AC'}
+                            <UnitPartsList unit={u} compact emptyText="" />
                           </TableCell>
                           <TableCell className="text-muted-foreground">
                             {u.roomLocation || '-'}
@@ -227,7 +231,7 @@ export function MemberDetailClient({ memberId }: { memberId: string }) {
                 <div className="grid gap-3">
                   {data.invoices.map((inv) => (
                     <div key={inv.id} className="rounded-md border p-3">
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="text-sm font-medium">{inv.number}</p>
                           <p className="text-xs text-muted-foreground">

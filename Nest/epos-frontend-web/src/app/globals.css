@@ -247,4 +247,74 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Responsive (2026-10-01): item grid defaultnya min-width:auto, jadi satu
+     tabel/kartu lebar bikin SELURUH kolom grid melebar melewati layar HP
+     (judul & kartu kepotong di kanan). min-width:0 membolehkan item menyusut
+     ke lebar kolom; tabel tetap bisa digeser horizontal lewat wrapper
+     overflow-x-auto di components/ui/table.tsx. */
+  .grid > * {
+    min-width: 0;
+  }
+}
+
+/* Tabel -> kartu di HP (2026-10-01). Label tiap sel diisi komponen Table
+   (components/ui/table.tsx) lewat atribut data-label dari teks header. */
+@media screen and (max-width: 767px) {
+  [data-slot="table-container"]:not([data-keep-table]) {
+    overflow-x: visible;
+  }
+  [data-slot="table-container"]:not([data-keep-table]) table,
+  [data-slot="table-container"]:not([data-keep-table]) tbody {
+    display: block;
+    width: 100%;
+  }
+  [data-slot="table-container"]:not([data-keep-table]) thead {
+    display: none;
+  }
+  [data-slot="table-container"]:not([data-keep-table]) tbody tr {
+    display: block;
+    margin: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    background: var(--card);
+  }
+  [data-slot="table-container"]:not([data-keep-table]) tbody tr:last-child {
+    border-bottom: 1px solid var(--border);
+  }
+  [data-slot="table-container"]:not([data-keep-table]) tbody td {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    width: auto !important;
+    padding: 0.3rem 0;
+    text-align: right;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  [data-slot="table-container"]:not([data-keep-table]) tbody td[data-label] {
+    justify-content: space-between;
+  }
+  [data-slot="table-container"]:not([data-keep-table]) tbody td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    max-width: 42%;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    text-align: left;
+    overflow-wrap: normal;
+  }
+  [data-slot="table-container"]:not([data-keep-table]) tbody td[colspan] {
+    display: block;
+    text-align: center;
+  }
+  [data-slot="table-container"]:not([data-keep-table]) tbody td * {
+    white-space: normal;
+    min-width: 0;
+  }
+  [data-slot="table-container"]:not([data-keep-table]) tbody td > div.flex {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }

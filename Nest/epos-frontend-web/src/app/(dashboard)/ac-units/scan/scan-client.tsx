@@ -7,6 +7,8 @@ import { apiClient, ApiError } from '@/lib/api-client';
 import { AcUnitDetailView, type AcUnitDetail } from '@/components/ac-unit-detail-view';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import type { Role } from '@/lib/session';
+import { CompleteDataPanel, CorrectionPanel } from './unit-data-panels';
 
 // Padanan scan_screen.dart di app mobile (kamera in-app -> findByBarcode ->
 // bottom sheet detail unit) — sekarang web JUGA punya akses kamera beneran
@@ -17,7 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 // Manggil GET /ac-units/lookup/:barcodeValue (AcUnitsService.lookupByBarcode)
 // — endpoint ini udah lama ada & udah dijamin JWT+role guard di backend,
 // cuma belum pernah dipanggil dari frontend web sampai sekarang.
-export function ScanUnitClient() {
+export function ScanUnitClient({ role }: { role: Role }) {
   const [barcode, setBarcode] = React.useState<string | null>(null);
   // Ikut nempel di queryKey biar submit ulang barcode YANG SAMA (mis. abis
   // status unit itu berubah gara-gara job kelar) tetap narik data baru,
@@ -25,7 +27,7 @@ export function ScanUnitClient() {
   // cuma karena state di-set ulang ke nilai yang identik.
   const [submitCount, setSubmitCount] = React.useState(0);
 
-  const { data, isFetching, isError, error } = useQuery({
+  const { data, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['ac-units', 'lookup', barcode, submitCount],
     queryFn: () =>
       apiClient.get<AcUnitDetail>(`/ac-units/lookup/${encodeURIComponent(barcode!)}`),
@@ -67,7 +69,21 @@ export function ScanUnitClient() {
         </p>
       )}
 
+      {!isFetching && !isError && data && data.unit.status === 'menunggu_data' && (
+        <CompleteDataPanel
+          data={data}
+          onDone={() => {
+            handleDetect(data.unit.barcodeValue);
+            refetch();
+          }}
+        />
+      )}
+
       {!isFetching && !isError && data && <AcUnitDetailView data={data} />}
+
+      {!isFetching && !isError && data && data.unit.status !== 'menunggu_data' && role === 'teknisi' && (
+        <CorrectionPanel key={data.unit.id} data={data} />
+      )}
     </div>
   );
 }

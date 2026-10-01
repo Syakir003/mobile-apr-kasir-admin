@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { statusBadgeVariant } from '@/app/(dashboard)/teknisi/queue/queue-client';
 import { BarcodeQr } from '@/components/barcode-qr';
+import { UnitPartsList, hasUnitParts, unitPartsTitle, type UnitPartProduct } from '@/components/ac-unit-parts';
 
 // Bentuk data ini SAMA PERSIS antara AcUnitsService.findOne (by id, dipakai
 // halaman Member -> detail unit) dan .lookupByBarcode (by barcodeValue,
@@ -42,9 +43,13 @@ export interface AcUnitDetail {
     roomLocation: string | null;
     barcodeValue: string;
     serialNumber: string | null;
+    indoorProduct?: UnitPartProduct | null;
+    outdoorProduct?: UnitPartProduct | null;
     installationDate: string | null;
     lastServiceDate: string | null;
     nextServiceDate: string | null;
+    serviceIntervalDays?: number | null;
+    reminderEnabled?: boolean;
     status: string;
   };
   member: { id: string; name: string; phone: string | null; address: string | null } | null;
@@ -78,7 +83,7 @@ export function AcUnitDetailView({
           </Link>
         )}
         <h1 className="text-2xl font-semibold tracking-tight">
-          {[unit.brand, unit.model].filter(Boolean).join(' ') || 'Unit AC'}
+          {[unit.brand, unit.model].filter(Boolean).join(' ') || unitPartsTitle(unit) || 'Unit AC'}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">{unit.roomLocation || 'Lokasi belum diisi'}</p>
       </div>
@@ -100,6 +105,12 @@ export function AcUnitDetailView({
             <div className="flex justify-center rounded-md border bg-white py-2">
               <BarcodeQr value={unit.barcodeValue} size={88} />
             </div>
+            {hasUnitParts(unit) && (
+              <div className="grid gap-1.5 border-b py-1.5">
+                <span className="text-muted-foreground">Unit dalam paket</span>
+                <UnitPartsList unit={unit} showSku />
+              </div>
+            )}
             <DetailRow label="PK" value={unit.pk ? `${unit.pk} PK` : '-'} />
             <DetailRow label="No. Seri" value={unit.serialNumber || '-'} />
             <DetailRow
@@ -120,6 +131,19 @@ export function AcUnitDetailView({
             <DetailRow
               label="Servis Berikutnya"
               value={unit.nextServiceDate ? formatDate(unit.nextServiceDate) : '-'}
+            />
+            <DetailRow
+              label="Pengingat WA"
+              value=""
+              valueNode={
+                unit.reminderEnabled === false ? (
+                  <Badge variant="secondary">Mati</Badge>
+                ) : unit.serviceIntervalDays ? (
+                  <span>Tiap {unit.serviceIntervalDays} hari</span>
+                ) : (
+                  <Badge variant="outline">Siklus belum diisi</Badge>
+                )
+              }
             />
           </CardContent>
         </Card>
@@ -163,7 +187,7 @@ export function AcUnitDetailView({
                 <div className="grid gap-3">
                   {serviceHistory.map((job) => (
                     <div key={job.id} className="rounded-md border p-3">
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-sm font-medium">{job.type}</span>
                         <span className="text-xs text-muted-foreground">
                           {job.completedAt ? formatDateTime(job.completedAt) : '-'}
@@ -201,7 +225,7 @@ export function AcUnitDetailView({
 
 export function unitStatusVariant(status: string): 'success' | 'secondary' | 'warning' {
   if (status === 'aktif') return 'success';
-  if (status === 'menunggu_pemasangan' || status === 'dalam_maintenance') return 'warning';
+  if (status === 'menunggu_pemasangan' || status === 'dalam_maintenance' || status === 'menunggu_data') return 'warning';
   return 'secondary';
 }
 

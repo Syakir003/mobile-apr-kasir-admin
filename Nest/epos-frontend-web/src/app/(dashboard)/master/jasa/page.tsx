@@ -6,13 +6,15 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Pencil, Plus } from 'lucide-react';
+import { Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
 import { requiredNumberField, optionalIntField, trimmedOrUndefined, numberOrUndefined } from '@/lib/form-number';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
+import { DeactivateDialog } from '@/components/master-data/deactivate-dialog';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
 import { Textarea } from '@/components/ui/textarea';
@@ -89,10 +91,12 @@ export default function JasaPage() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<ServiceItem | null>(null);
+  const [status, setStatus] = React.useState<MasterDataStatus>('active');
+  const [deactivating, setDeactivating] = React.useState<ServiceItem | null>(null);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['services'],
-    queryFn: () => apiClient.get<ServiceItem[]>('/services'),
+    queryKey: ['services', status],
+    queryFn: () => apiClient.get<ServiceItem[]>(`/services?status=${status}`),
   });
 
   const form = useForm<ServiceFormValues>({
@@ -139,19 +143,35 @@ export default function JasaPage() {
     },
   });
 
+  const toggleActiveMutation = useMutation({
+    mutationFn: (s: ServiceItem) =>
+      apiClient.patch<ServiceItem>(`/services/${s.id}`, { active: !s.active }),
+    onSuccess: (_data, s) => {
+      toast.success(s.active ? 'Jasa dinonaktifkan.' : 'Jasa diaktifkan kembali.');
+      queryClient.invalidateQueries({ queryKey: ['services'] });
+      setDeactivating(null);
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal mengubah status jasa.');
+    },
+  });
+
   return (
     <div className="grid gap-6">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Jasa</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Katalog jasa servis/instalasi beserta harga dasarnya.
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus />
-          Tambah Jasa
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusFilterSelect value={status} onChange={setStatus} />
+          <Button onClick={openCreate}>
+            <Plus />
+            Tambah Jasa
+          </Button>
+        </div>
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Memuat jasa...</p>}
@@ -189,9 +209,23 @@ export default function JasaPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(s)}>
-                      <Pencil className="size-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(s)}>
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title={s.active ? 'Nonaktifkan' : 'Aktifkan kembali'}
+                        onClick={() => setDeactivating(s)}
+                      >
+                        {s.active ? (
+                          <Trash2 className="size-4 text-destructive" />
+                        ) : (
+                          <RotateCcw className="size-4" />
+                        )}
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -305,6 +339,17 @@ export default function JasaPage() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {deactivating && (
+        <DeactivateDialog
+          open={!!deactivating}
+          onOpenChange={(open) => !open && setDeactivating(null)}
+          itemName={deactivating.name}
+          willActivate={!deactivating.active}
+          onConfirm={() => toggleActiveMutation.mutate(deactivating)}
+          isPending={toggleActiveMutation.isPending}
+        />
+      )}
     </div>
   );
 }

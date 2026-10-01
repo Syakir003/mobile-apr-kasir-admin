@@ -6,27 +6,13 @@ import { toast } from 'sonner';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { MonitoringTab } from './monitoring-tab';
 
-// Halaman "Pengingat WA" (admin) — Siklus WA/Fonnte. Gabungan padanan
-// reminder_settings_screen.dart (tab Pengaturan Siklus) + reminder_template_
-// screen.dart (tab Template Pesan) di app mobile, jadi 1 halaman 2 tab di web.
-
-const JOB_TYPE_LABEL: Record<string, string> = {
-  cuci: 'Cuci AC',
-  maintenance: 'Maintenance',
-};
-
-interface ReminderSettingRow {
-  jobType: string;
-  intervalDays: number;
-  active: boolean;
-  updatedAt: string | null;
-}
+// Halaman "Pengingat WA" (admin) — tab Monitoring Jadwal (semua set AC,
+// 2026-09-30) + tab Template Pesan (padanan reminder_template_screen.dart).
 
 interface WaTemplateRow {
   kind: string;
@@ -80,118 +66,23 @@ export default function ReminderWaPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Pengingat WA</h1>
         <p className="text-sm text-muted-foreground">
-          Siklus servis otomatis (H-3, H+7, konfirmasi selesai) dikirim lewat Fonnte tiap jam
-          09:00 WIB — halaman ini atur siklus dan redaksi pesannya.
+          Pantau jadwal servis semua AC. Pengingat otomatis (H-3, H+7) dikirim tiap jam 09:00 WIB;
+          siklus diatur per AC (1 set indoor + outdoor = 1 pengingat).
         </p>
       </div>
 
-      <Tabs defaultValue="pengaturan">
+      <Tabs defaultValue="monitoring">
         <TabsList>
-          <TabsTrigger value="pengaturan">Pengaturan Siklus</TabsTrigger>
+          <TabsTrigger value="monitoring">Monitoring Jadwal</TabsTrigger>
           <TabsTrigger value="template">Template Pesan</TabsTrigger>
         </TabsList>
-        <TabsContent value="pengaturan" className="mt-4">
-          <PengaturanSiklusTab />
+        <TabsContent value="monitoring" className="mt-4">
+          <MonitoringTab />
         </TabsContent>
         <TabsContent value="template" className="mt-4">
           <TemplatePesanTab />
         </TabsContent>
       </Tabs>
-    </div>
-  );
-}
-
-function PengaturanSiklusTab() {
-  const queryClient = useQueryClient();
-  const [drafts, setDrafts] = React.useState<Record<string, { intervalDays: string; active: boolean }>>({});
-
-  const query = useQuery({
-    queryKey: ['reminders', 'settings'],
-    queryFn: () => apiClient.get<ReminderSettingRow[]>('/reminders/settings'),
-  });
-
-  React.useEffect(() => {
-    if (!query.data) return;
-    setDrafts(
-      Object.fromEntries(
-        query.data.map((s) => [s.jobType, { intervalDays: String(s.intervalDays), active: s.active }]),
-      ),
-    );
-  }, [query.data]);
-
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      apiClient.put('/reminders/settings', {
-        settings: Object.entries(drafts).map(([jobType, v]) => ({
-          jobType,
-          intervalDays: Number(v.intervalDays),
-          active: v.active,
-        })),
-      }),
-    onSuccess: () => {
-      toast.success('Pengaturan siklus disimpan.');
-      queryClient.invalidateQueries({ queryKey: ['reminders', 'settings'] });
-    },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : 'Gagal menyimpan pengaturan.');
-    },
-  });
-
-  if (query.isLoading) return <p className="text-sm text-muted-foreground">Memuat pengaturan...</p>;
-  if (query.isError || !query.data) {
-    return <p className="text-sm text-destructive">Gagal memuat pengaturan siklus.</p>;
-  }
-
-  return (
-    <div className="grid max-w-xl gap-4">
-      {query.data.map((setting) => {
-        const draft = drafts[setting.jobType] ?? { intervalDays: '', active: true };
-        return (
-          <Card key={setting.jobType}>
-            <CardHeader>
-              <CardTitle className="text-base">{JOB_TYPE_LABEL[setting.jobType] ?? setting.jobType}</CardTitle>
-              <CardDescription>
-                Berapa hari setelah job jenis ini selesai, unit dijadwalkan servis berikutnya.
-                Ganti angka ini TIDAK menggeser jadwal unit yang sudah terlanjur ditentukan —
-                cuma berlaku untuk servis berikutnya.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min={7}
-                  max={730}
-                  className="w-28"
-                  value={draft.intervalDays}
-                  onChange={(e) =>
-                    setDrafts((prev) => ({
-                      ...prev,
-                      [setting.jobType]: { ...draft, intervalDays: e.target.value },
-                    }))
-                  }
-                />
-                <span className="text-sm text-muted-foreground">hari</span>
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={draft.active}
-                  onCheckedChange={(checked) =>
-                    setDrafts((prev) => ({
-                      ...prev,
-                      [setting.jobType]: { ...draft, active: checked === true },
-                    }))
-                  }
-                />
-                Aktif (kalau dimatikan, unit jenis ini tidak pernah dijadwalkan ulang otomatis)
-              </label>
-            </CardContent>
-          </Card>
-        );
-      })}
-      <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="w-fit">
-        {saveMutation.isPending ? 'Menyimpan...' : 'Simpan Pengaturan'}
-      </Button>
     </div>
   );
 }

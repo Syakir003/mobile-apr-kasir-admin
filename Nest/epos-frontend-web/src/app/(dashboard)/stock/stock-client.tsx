@@ -1,13 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Search } from 'lucide-react';
+import { Search, Plus, Trash2, QrCode } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah, formatDate } from '@/lib/format';
@@ -16,7 +16,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatStock, hasPackSale, type SparepartMode } from '@/lib/sparepart-mode';
+import {
+  BatchTrackedStockIn,
+  FlatStockIn,
+} from '../master/sparepart/[id]/sparepart-detail-client';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Dialog,
@@ -59,11 +65,11 @@ interface Product {
   id: string;
   name: string;
   brand: string | null;
-  // Agregat dari ProductsService.priceAggFor (SUM/MIN/MAX item_costs
-  // kind='product', stock>0) — BUKAN kolom langsung di tabel products lagi.
   stock: number;
-  sellPriceMin: number | null;
-  sellPriceMax: number | null;
+  sellPrice: string;
+  // BARU (Point 2, 2026-09-23) — AC Indoor/Outdoor Berpasangan.
+  pairedProductId: string | null;
+  pairedProduct: { id: string; name: string } | null;
 }
 
 interface ProductBatch {
@@ -81,6 +87,13 @@ interface Sparepart {
   unit: string;
   sellPrice: string;
   stock: string;
+  // Siklus sparepart-per-gulungan (2026-09-23).
+  batchTracked: boolean;
+  // Mode utuh/eceran (2026-09-30) — field kemasan dikirim backend apa adanya.
+  trackingMode: SparepartMode;
+  packUnit: string | null;
+  packSize: string | null;
+  sellPricePack: string | null;
 }
 
 interface StockInWarning {
@@ -93,12 +106,18 @@ interface StockInWarning {
   effectivePrice: number;
 }
 
-// Field lain di respons sukses (movementId/batchId/newStock/dst) gak
-// dibutuhin di UI — cuma status yang nentuin alur (langsung sukses vs perlu
-// konfirmasi below-cost dulu).
+// BARU (Siklus QR per-unit, 2026-09-30) — `batchId`/`outdoorBatchId`/`qty`/
+// `name`/`kind` sekarang DIPAKAI (tombol "Cetak Label" di toast sukses
+// barang masuk produk, lihat ProductStockInTab.stockInMutation.onSuccess di
+// bawah) — sebelumnya cuma `status` yang dipakai.
 interface StockInResult {
   status: 'ok' | 'confirm_required';
   warnings?: StockInWarning[];
+  kind?: 'product' | 'sparepart';
+  batchId?: string;
+  outdoorBatchId?: string;
+  qty?: number;
+  name?: string;
 }
 
 export function StockClient() {
@@ -148,7 +167,6 @@ const productStockInSchema = z.object({
     'Qty produk harus bilangan bulat',
   ),
   buyPrice: requiredNumberField('Harga modal wajib diisi'),
-  sellPrice: requiredNumberField('Harga jual wajib diisi'),
   supplierName: z.string().optional(),
   note: z.string().optional(),
 });
@@ -157,13 +175,13 @@ type ProductStockInValues = z.infer<typeof productStockInSchema>;
 const productStockInEmptyValues: ProductStockInValues = {
   qty: '',
   buyPrice: '',
-  sellPrice: '',
   supplierName: '',
   note: '',
 };
 
 function ProductStockInTab({ initialProductId }: { initialProductId?: string }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [search, setSearch] = React.useState('');
   const [selected, setSelected] = React.useState<Product | null>(null);
   // Ditaruh di state (bukan langsung dikirim ulang dari dalam onSuccess)
@@ -171,6 +189,10 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
   // udah di-submit tetap kepegang lewat form.getValues() pas admin klik
   // "Tetap Simpan".
   const [pendingWarning, setPendingWarning] = React.useState<StockInWarning | null>(null);
+  // BARU (Point 2, 2026-09-23) — toggle "Sekalian Outdoor-nya (Unit
+  // Lengkap)". Cuma dirender kalau produk yang dipilih punya
+  // `pairedProduct` (dia sisi Indoor sebuah pasangan).
+  const [pairLengkap, setPairLengkap] = React.useState(false);
 
   const productsQuery = useQuery({
     queryKey: ['products'],
@@ -191,6 +213,7 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
   function selectProduct(p: Product) {
     setSelected(p);
     setPendingWarning(null);
+    setPairLengkap(false);
     form.reset(productStockInEmptyValues);
   }
 
@@ -211,10 +234,15 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
         refId: selected!.id,
         qty: Number(values.qty),
         buyPrice: Number(values.buyPrice),
-        sellPrice: Number(values.sellPrice),
         supplierName: trimmedOrUndefined(values.supplierName),
         note: trimmedOrUndefined(values.note),
         confirmOverride: values.confirmOverride,
+        // BARU (Point 2, 2026-09-23) — mode Unit Lengkap, cuma dikirim
+        // kalau toggle dicentang DAN produk yang dipilih beneran punya
+        // pasangan (refId di atas SELALU jadi sisi Indoor-nya).
+        ...(pairLengkap && selected?.pairedProduct
+          ? { pairMode: 'lengkap' as const, outdoorRefId: selected.pairedProduct.id }
+          : {}),
       }),
     onSuccess: (result) => {
       if (result.status === 'confirm_required') {
@@ -223,7 +251,32 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
         setPendingWarning(result.warnings![0]);
         return;
       }
-      toast.success('Barang masuk produk tersimpan.');
+      toast.success(
+        pairLengkap && selected?.pairedProduct
+          ? `Stok masuk: ${selected.name} + ${selected.pairedProduct.name} (Unit Lengkap).`
+          : 'Barang masuk produk tersimpan.',
+      );
+      // BARU (Siklus QR per-unit, 2026-09-30) — abis barang masuk produk,
+      // tiap unit fisik udah punya QR (StockUnit) yang perlu ditempel ke
+      // dus/unitnya. Tombol ini nyambung ke halaman cetak label (Task 8),
+      // TANPA butuh perubahan response backend (batchId/outdoorBatchId udah
+      // ada dari dulu).
+      if (result.status === 'ok' && result.batchId) {
+        toast.success(`Barang masuk tercatat — ${result.qty} unit ${result.name}`, {
+          action: {
+            label: 'Cetak Label',
+            onClick: () => router.push(`/stock/batches/${result.batchId}/print-labels`),
+          },
+        });
+        if (result.outdoorBatchId) {
+          toast.success('Outdoor juga tercatat', {
+            action: {
+              label: 'Cetak Label Outdoor',
+              onClick: () => router.push(`/stock/batches/${result.outdoorBatchId}/print-labels`),
+            },
+          });
+        }
+      }
       setPendingWarning(null);
       form.reset(productStockInEmptyValues);
       // Produk yang dipilih TETAP kepilih (gak balik ke list kosong) — biar
@@ -262,11 +315,7 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
               emptyLabel="Tidak ada produk."
               renderSubtitle={(p) =>
                 p.stock > 0
-                  ? `Stok: ${p.stock} • ${formatRupiah(p.sellPriceMin ?? 0)}${
-                      p.sellPriceMax && p.sellPriceMax !== p.sellPriceMin
-                        ? ` - ${formatRupiah(p.sellPriceMax)}`
-                        : ''
-                    }`
+                  ? `Stok: ${p.stock} • ${formatRupiah(p.sellPrice)}`
                   : 'Belum ada batch (stok 0)'
               }
             />
@@ -285,6 +334,7 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">{selected.name}</CardTitle>
+                  <CardDescription>Harga Jual (seragam): {formatRupiah(selected.sellPrice)}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {batchesQuery.isLoading ? (
@@ -301,8 +351,8 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
                             <TableHead>Tanggal</TableHead>
                             <TableHead>Supplier</TableHead>
                             <TableHead>Modal</TableHead>
-                            <TableHead>Jual</TableHead>
                             <TableHead>Stok</TableHead>
+                            <TableHead className="text-right">Label QR</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -315,8 +365,20 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
                                 {b.supplierName || '-'}
                               </TableCell>
                               <TableCell>{formatRupiah(b.buyPrice)}</TableCell>
-                              <TableCell>{formatRupiah(b.sellPrice)}</TableCell>
                               <TableCell>{b.stock}</TableCell>
+                              <TableCell className="text-right">
+                                {/* BARU (Siklus QR per-unit, 2026-09-30) — link
+                                    permanen, sama kayak product-detail-client.tsx. */}
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => router.push(`/stock/batches/${b.id}/print-labels`)}
+                                >
+                                  <QrCode className="size-4" />
+                                  Lihat/Cetak
+                                </Button>
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -346,34 +408,28 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
                           </FormItem>
                         )}
                       />
-                      <div className="grid grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name="buyPrice"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Harga Modal</FormLabel>
-                              <FormControl>
-                                <CurrencyInput {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="sellPrice"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Harga Jual</FormLabel>
-                              <FormControl>
-                                <CurrencyInput {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                      {selected.pairedProduct && (
+                        <label className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={pairLengkap}
+                            onCheckedChange={(v) => setPairLengkap(v === true)}
+                          />
+                          Sekalian Outdoor-nya ({selected.pairedProduct.name}) — Unit Lengkap
+                        </label>
+                      )}
+                      <FormField
+                        control={form.control}
+                        name="buyPrice"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Harga Modal</FormLabel>
+                            <FormControl>
+                              <CurrencyInput {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                       <FormField
                         control={form.control}
                         name="supplierName"
@@ -478,37 +534,8 @@ function SparepartStockInTab() {
     queryFn: () => apiClient.get<Sparepart[]>('/spareparts'),
   });
 
-  const form = useForm<SparepartStockInValues>({
-    resolver: zodResolver(sparepartStockInSchema),
-    defaultValues: sparepartStockInEmptyValues,
-  });
-
   function selectSparepart(s: Sparepart) {
     setSelected(s);
-    form.reset(sparepartStockInEmptyValues);
-  }
-
-  const stockInMutation = useMutation({
-    mutationFn: (values: SparepartStockInValues) =>
-      apiClient.post<StockInResult>('/stock/in', {
-        kind: 'sparepart',
-        refId: selected!.id,
-        qty: Number(values.qty),
-        buyPrice: Number(values.buyPrice),
-        note: trimmedOrUndefined(values.note),
-      }),
-    onSuccess: () => {
-      toast.success('Barang masuk sparepart tersimpan.');
-      form.reset(sparepartStockInEmptyValues);
-      queryClient.invalidateQueries({ queryKey: ['spareparts'] });
-    },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : 'Gagal menyimpan barang masuk.');
-    },
-  });
-
-  function onSubmit(values: SparepartStockInValues) {
-    stockInMutation.mutate(values);
   }
 
   return (
@@ -526,71 +553,282 @@ function SparepartStockInTab() {
             search={search}
             onSearchChange={setSearch}
             emptyLabel="Tidak ada sparepart."
-            renderSubtitle={(s) => `Stok: ${s.stock} ${s.unit} • ${formatRupiah(s.sellPrice)}`}
+            renderSubtitle={(s) => `Stok: ${formatStock(s)} • ${formatRupiah(s.sellPrice)}`}
           />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{selected ? selected.name : 'Barang Masuk'}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {!selected ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              Pilih sparepart dulu di kiri buat input barang masuk.
-            </p>
-          ) : (
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
-                <FormField
-                  control={form.control}
-                  name="qty"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Qty Masuk ({selected.unit})</FormLabel>
-                      <FormControl>
-                        <Input inputMode="decimal" placeholder="0" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="buyPrice"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Harga Modal</FormLabel>
-                      <FormControl>
-                        <CurrencyInput {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="note"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Catatan</FormLabel>
-                      <FormControl>
-                        <Textarea rows={2} placeholder="Opsional" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" disabled={stockInMutation.isPending}>
-                  {stockInMutation.isPending ? 'Menyimpan...' : 'Simpan Barang Masuk'}
-                </Button>
-              </form>
-            </Form>
-          )}
-        </CardContent>
-      </Card>
+      {!selected ? (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Pilih sparepart dulu di kiri buat input barang masuk.
+          </CardContent>
+        </Card>
+      ) : hasPackSale(selected.trackingMode) ? (
+        // Mode utuh/eceran (2026-09-30) — pakai form yang sama kayak halaman
+        // detail sparepart (konversi satuan besar/kecil, modal per satuan
+        // besar), tanpa tabel roll biar muat di panel ini.
+        selected.batchTracked ? (
+          <BatchTrackedStockIn sparepart={selected} showBatches={false} />
+        ) : (
+          <FlatStockIn sparepart={selected} />
+        )
+      ) : selected.batchTracked ? (
+        <SparepartRollStockInForm
+          sparepart={selected}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ['spareparts'] })}
+        />
+      ) : (
+        <SparepartFlatStockInForm
+          sparepart={selected}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ['spareparts'] })}
+        />
+      )}
     </div>
+  );
+}
+
+function SparepartFlatStockInForm({
+  sparepart,
+  onSaved,
+}: {
+  sparepart: Sparepart;
+  onSaved: () => void;
+}) {
+  const form = useForm<SparepartStockInValues>({
+    resolver: zodResolver(sparepartStockInSchema),
+    defaultValues: sparepartStockInEmptyValues,
+  });
+
+  const stockInMutation = useMutation({
+    mutationFn: (values: SparepartStockInValues) =>
+      apiClient.post<StockInResult>('/stock/in', {
+        kind: 'sparepart',
+        refId: sparepart.id,
+        qty: Number(values.qty),
+        buyPrice: Number(values.buyPrice),
+        note: trimmedOrUndefined(values.note),
+      }),
+    onSuccess: () => {
+      toast.success('Barang masuk sparepart tersimpan.');
+      form.reset(sparepartStockInEmptyValues);
+      onSaved();
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal menyimpan barang masuk.');
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{sparepart.name}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit((values) => stockInMutation.mutate(values))}
+            className="grid gap-4"
+          >
+            <FormField
+              control={form.control}
+              name="qty"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Qty Masuk ({sparepart.unit})</FormLabel>
+                  <FormControl>
+                    <Input inputMode="decimal" placeholder="0" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="buyPrice"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Harga Modal</FormLabel>
+                  <FormControl>
+                    <CurrencyInput {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="note"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Catatan</FormLabel>
+                  <FormControl>
+                    <Textarea rows={2} placeholder="Opsional" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <Button type="submit" disabled={stockInMutation.isPending}>
+              {stockInMutation.isPending ? 'Menyimpan...' : 'Simpan Barang Masuk'}
+            </Button>
+          </form>
+        </Form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Siklus sparepart-per-gulungan (2026-09-23) — sama persis pola formnya
+// kayak BatchTrackedStockIn di sparepart-detail-client.tsx (form dipisah,
+// TANPA tabel "Gulungan Aktif" di sini — picker sisi kiri udah cukup buat
+// konteks halaman Barang Masuk ini, tabel detail per-gulungan ada di
+// halaman detail sparepart kalau admin butuh lihat).
+const rollStockInSchema = z.object({
+  rolls: z
+    .array(z.object({ length: requiredNumberField('Panjang wajib diisi') }))
+    .min(1, 'Minimal 1 gulungan'),
+  buyPrice: requiredNumberField('Harga modal wajib diisi'),
+  supplierName: z.string().optional(),
+  note: z.string().optional(),
+});
+type RollStockInValues = z.infer<typeof rollStockInSchema>;
+const rollStockInEmptyValues: RollStockInValues = {
+  rolls: [{ length: '' }],
+  buyPrice: '',
+  supplierName: '',
+  note: '',
+};
+
+function SparepartRollStockInForm({
+  sparepart,
+  onSaved,
+}: {
+  sparepart: Sparepart;
+  onSaved: () => void;
+}) {
+  const form = useForm<RollStockInValues>({
+    resolver: zodResolver(rollStockInSchema),
+    defaultValues: rollStockInEmptyValues,
+  });
+  const { fields, append, remove } = useFieldArray({ control: form.control, name: 'rolls' });
+
+  const stockInMutation = useMutation({
+    mutationFn: (values: RollStockInValues) =>
+      apiClient.post<StockInResult>('/stock/in', {
+        kind: 'sparepart',
+        refId: sparepart.id,
+        rolls: values.rolls.map((r) => ({ length: Number(r.length) })),
+        buyPrice: Number(values.buyPrice),
+        supplierName: trimmedOrUndefined(values.supplierName),
+        note: trimmedOrUndefined(values.note),
+      }),
+    onSuccess: () => {
+      toast.success('Barang masuk sparepart tersimpan.');
+      form.reset(rollStockInEmptyValues);
+      onSaved();
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal menyimpan barang masuk.');
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{sparepart.name}</CardTitle>
+        <CardDescription>Per gulungan — panjang boleh beda-beda tiap gulungan.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit((values) => stockInMutation.mutate(values))}
+            className="grid gap-4"
+          >
+            <div className="grid gap-2">
+              <FormLabel>Gulungan ({sparepart.unit})</FormLabel>
+              {fields.map((field, idx) => (
+                <div key={field.id} className="flex items-center gap-2">
+                  <FormField
+                    control={form.control}
+                    name={`rolls.${idx}.length`}
+                    render={({ field }) => (
+                      <FormItem className="flex-1">
+                        <FormControl>
+                          <Input inputMode="decimal" placeholder={`Panjang gulungan #${idx + 1}`} {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={fields.length === 1}
+                    onClick={() => remove(idx)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-self-start"
+                onClick={() => append({ length: '' })}
+              >
+                <Plus className="size-4" />
+                Tambah Gulungan
+              </Button>
+            </div>
+            <FormField
+              control={form.control}
+              name="buyPrice"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Harga Modal (berlaku semua gulungan)</FormLabel>
+                  <FormControl>
+                    <CurrencyInput {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="supplierName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Supplier</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Opsional" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="note"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Catatan</FormLabel>
+                  <FormControl>
+                    <Textarea rows={2} placeholder="Opsional" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <Button type="submit" disabled={stockInMutation.isPending}>
+              {stockInMutation.isPending ? 'Menyimpan...' : 'Simpan Barang Masuk'}
+            </Button>
+          </form>
+        </Form>
+      </CardContent>
+    </Card>
   );
 }
 

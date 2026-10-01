@@ -11,6 +11,7 @@ import { apiClient, ApiError } from '@/lib/api-client';
 import { optionalNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import type { Role } from '@/lib/session';
 import { AcUnitDetailView, type AcUnitDetail } from '@/components/ac-unit-detail-view';
+import { ReminderScheduleFields, intervalError } from '@/components/reminder-schedule-fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -42,6 +43,7 @@ const STATUS_OPTIONS = [
   { value: 'menunggu_pemasangan', label: 'Menunggu Pemasangan' },
   { value: 'aktif', label: 'Aktif' },
   { value: 'dalam_maintenance', label: 'Dalam Maintenance' },
+  { value: 'menunggu_data', label: 'Menunggu Data (QR dulu)' },
 ];
 
 const editSchema = z.object({
@@ -50,7 +52,7 @@ const editSchema = z.object({
   pk: optionalNumberField,
   roomLocation: z.string().optional(),
   serialNumber: z.string().optional(),
-  status: z.enum(['menunggu_pemasangan', 'aktif', 'dalam_maintenance']),
+  status: z.enum(['menunggu_pemasangan', 'aktif', 'dalam_maintenance', 'menunggu_data']),
   // <input type="date"> browser -> 'YYYY-MM-DD', dikirim apa adanya (backend
   // terima IsDateString). Field teks kosong = gak diubah (lihat
   // trimmedOrUndefined di mutationFn) — form ini BELUM bisa ngosongin
@@ -58,6 +60,9 @@ const editSchema = z.object({
   installationDate: z.string().optional(),
   lastServiceDate: z.string().optional(),
   nextServiceDate: z.string().optional(),
+  // Pengingat servis per unit AC (2026-09-30): 1 unit = 1 set indoor+outdoor.
+  reminderEnabled: z.boolean(),
+  serviceIntervalDays: z.string().optional(),
 });
 type EditFormValues = z.infer<typeof editSchema>;
 
@@ -88,6 +93,8 @@ export function AcUnitDetailClient({ unitId, role }: { unitId: string; role: Rol
       installationDate: '',
       lastServiceDate: '',
       nextServiceDate: '',
+      reminderEnabled: true,
+      serviceIntervalDays: '',
     },
   });
 
@@ -100,21 +107,38 @@ export function AcUnitDetailClient({ unitId, role }: { unitId: string; role: Rol
       pk: unit.pk ?? '',
       roomLocation: unit.roomLocation ?? '',
       serialNumber: unit.serialNumber ?? '',
-      status: (['menunggu_pemasangan', 'aktif', 'dalam_maintenance'] as const).includes(
-        unit.status as 'menunggu_pemasangan' | 'aktif' | 'dalam_maintenance',
+      status: (['menunggu_pemasangan', 'aktif', 'dalam_maintenance', 'menunggu_data'] as const).includes(
+        unit.status as 'menunggu_pemasangan' | 'aktif' | 'dalam_maintenance' | 'menunggu_data',
       )
-        ? (unit.status as 'menunggu_pemasangan' | 'aktif' | 'dalam_maintenance')
+        ? (unit.status as 'menunggu_pemasangan' | 'aktif' | 'dalam_maintenance' | 'menunggu_data')
         : 'aktif',
       installationDate: toDateInputValue(unit.installationDate),
       lastServiceDate: toDateInputValue(unit.lastServiceDate),
       nextServiceDate: toDateInputValue(unit.nextServiceDate),
+      reminderEnabled: unit.reminderEnabled !== false,
+      serviceIntervalDays: unit.serviceIntervalDays != null ? String(unit.serviceIntervalDays) : '',
     });
     setEditOpen(true);
   }
 
   const saveMutation = useMutation({
-    mutationFn: (values: EditFormValues) =>
-      apiClient.patch(`/ac-units/${unitId}`, {
+    mutationFn: (values: EditFormValues) => {
+      const unit = data!.unit;
+      const wasEnabled = unit.reminderEnabled !== false;
+      const prevDays = unit.serviceIntervalDays != null ? String(unit.serviceIntervalDays) : '';
+      const daysChanged = (values.serviceIntervalDays ?? '').trim() !== prevDays;
+      const toggled = values.reminderEnabled !== wasEnabled;
+      // Tanggal manual hanya dikirim kalau admin mengubahnya DAN pengingat/
+      // siklus tidak ikut berubah (kalau ikut berubah, backend menghitung
+      // ulang jadwalnya sendiri).
+      const nextChanged = (values.nextServiceDate ?? '') !== toDateInputValue(unit.nextServiceDate);
+      const sendNext = nextChanged && !toggled && !daysChanged && values.reminderEnabled;
+      return apiClient.patch(`/ac-units/${unitId}`, {
+        reminderEnabled: toggled ? values.reminderEnabled : undefined,
+        serviceIntervalDays:
+          values.reminderEnabled && (values.serviceIntervalDays ?? '').trim() && daysChanged
+            ? Number(values.serviceIntervalDays)
+            : undefined,
         brand: trimmedOrUndefined(values.brand),
         model: trimmedOrUndefined(values.model),
         pk: values.pk?.trim() ? Number(values.pk) : undefined,
@@ -123,8 +147,9 @@ export function AcUnitDetailClient({ unitId, role }: { unitId: string; role: Rol
         status: values.status,
         installationDate: trimmedOrUndefined(values.installationDate),
         lastServiceDate: trimmedOrUndefined(values.lastServiceDate),
-        nextServiceDate: trimmedOrUndefined(values.nextServiceDate),
-      }),
+        nextServiceDate: sendNext ? trimmedOrUndefined(values.nextServiceDate) : undefined,
+      });
+    },
     onSuccess: () => {
       toast.success('Data unit diperbarui.');
       queryClient.invalidateQueries({ queryKey: ['ac-units', unitId] });
@@ -155,7 +180,20 @@ export function AcUnitDetailClient({ unitId, role }: { unitId: string; role: Rol
           <Form {...form}>
             <form
               className="grid gap-4"
-              onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}
+              onSubmit={form.handleSubmit((values) => {
+                // Siklus wajib kalau pengingat DINYALAKAN (dari mati) atau
+                // diisi; unit lama yang masih kosong boleh tetap kosong.
+                const wasEnabled = data.unit.reminderEnabled !== false;
+                const d = (values.serviceIntervalDays ?? '').trim();
+                if (values.reminderEnabled && (d || !wasEnabled)) {
+                  const e = intervalError(d);
+                  if (e) {
+                    form.setError('serviceIntervalDays', { message: e });
+                    return;
+                  }
+                }
+                saveMutation.mutate(values);
+              })}
             >
               <div className="grid grid-cols-2 gap-4">
                 <FormField
@@ -291,6 +329,24 @@ export function AcUnitDetailClient({ unitId, role }: { unitId: string; role: Rol
                   )}
                 />
               </div>
+              <ReminderScheduleFields
+                title="Pengingat servis WA (1 set AC)"
+                enabled={form.watch('reminderEnabled')}
+                onEnabledChange={(v) => form.setValue('reminderEnabled', v, { shouldDirty: true })}
+                days={form.watch('serviceIntervalDays') ?? ''}
+                onDaysChange={(v) => {
+                  form.clearErrors('serviceIntervalDays');
+                  form.setValue('serviceIntervalDays', v, { shouldDirty: true });
+                }}
+                baseDate={
+                  form.watch('lastServiceDate') ? new Date(form.watch('lastServiceDate') as string) : undefined
+                }
+              />
+              {form.formState.errors.serviceIntervalDays && (
+                <p className="-mt-2 text-xs text-destructive">
+                  {form.formState.errors.serviceIntervalDays.message}
+                </p>
+              )}
               <DialogFooter>
                 <Button type="submit" disabled={saveMutation.isPending}>
                   {saveMutation.isPending ? 'Menyimpan...' : 'Simpan'}

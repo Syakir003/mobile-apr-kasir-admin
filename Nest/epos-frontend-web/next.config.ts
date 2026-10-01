@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
   // --url http://localhost:3001` (quick tunnel). Domainnya acak tiap kali
   // tunnel dibuka ulang, makanya dipakai wildcard sekali taruh, bukan
   // ditambahin manual satu-satu tiap buka tunnel baru.
-  allowedDevOrigins: ['192.168.18.52', '192.168.18.99', '*.trycloudflare.com'],
+  allowedDevOrigins: ['192.168.18.52', '192.168.18.99','192.168.1.26', '*.trycloudflare.com'],
 };
 
 export default nextConfig;

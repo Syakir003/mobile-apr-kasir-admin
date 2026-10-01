@@ -6,6 +6,7 @@ import { SESSION_COOKIE_NAME, decodeSession, ROLE_HOME, type Role } from '@/lib/
 // yang login boleh masuk" (mis. /dashboard/notifikasi kalau ada nanti).
 const ROLE_PREFIXES: Array<{ prefix: string; roles: Role[] }> = [
   { prefix: '/pos', roles: ['kasir', 'admin'] },
+  { prefix: '/kasir-scan', roles: ['kasir', 'admin'] },
   { prefix: '/teknisi', roles: ['teknisi', 'admin'] },
   { prefix: '/laporan', roles: ['admin'] },
   { prefix: '/pengaturan', roles: ['admin'] },
@@ -14,6 +15,9 @@ const ROLE_PREFIXES: Array<{ prefix: string; roles: Role[] }> = [
   // yang kebuka juga buat kasir), harus didaftar terpisah dari '/invoices'
   // karena prefix match di bawah pakai startsWith, bukan exact segment.
   { prefix: '/invoices/manual', roles: ['admin'] },
+  // Input Data Lampau (Administrasi) — admin-only, sama dengan endpoint
+  // POST /legacy-import di backend.
+  { prefix: '/administrasi', roles: ['admin'] },
   // Pengajuan Masuk (approval sparepart tambahan) — admin-only, sama
   // pembatasan kayak GET /material-requests di backend (teknisi lihat
   // pengajuan miliknya lewat halaman job, bukan lewat rute ini).

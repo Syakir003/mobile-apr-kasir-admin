@@ -1,5 +1,6 @@
 'use client';
 
+import { type UnitPartProduct } from '@/components/ac-unit-parts';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Printer } from 'lucide-react';
@@ -14,6 +15,8 @@ interface AcUnit {
   model: string | null;
   roomLocation: string | null;
   barcodeValue: string;
+  indoorProduct?: UnitPartProduct | null;
+  outdoorProduct?: UnitPartProduct | null;
 }
 interface ServiceOrderDetail {
   id: string;
@@ -86,6 +89,8 @@ export function UnitLabelsPrintClient({ serviceOrderId }: { serviceOrderId: stri
             <p className="text-sm">
               {[unit.brand, unit.model].filter(Boolean).join(' ') || '-'}
             </p>
+            {unit.indoorProduct && <p className="text-xs">Indoor: {unit.indoorProduct.name}</p>}
+            {unit.outdoorProduct && <p className="text-xs">Outdoor: {unit.outdoorProduct.name}</p>}
             {unit.roomLocation && <p className="text-sm">{unit.roomLocation}</p>}
           </div>
         ))}

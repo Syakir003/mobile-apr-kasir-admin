@@ -64,6 +64,7 @@ const STATUS_LABELS: Record<string, string> = {
   // Status MemberAcUnit — dipakai halaman Member & detail unit AC.
   aktif: 'Aktif',
   menunggu_pemasangan: 'Menunggu Pemasangan',
+  menunggu_data: 'Menunggu Data',
   dalam_maintenance: 'Dalam Maintenance',
   // Sisa InvoiceStatus yang belum ke-cover di atas — dipakai halaman
   // Riwayat Transaksi.

@@ -110,49 +110,49 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="flex items-start gap-3">
-            <span className="rounded-lg bg-secondary p-2 text-secondary-foreground">
-              <BarChart3 className="size-5" />
-            </span>
-            <div>
-              <p className="text-xs text-muted-foreground">Transaksi Hari Ini</p>
-              <p className="text-2xl font-bold">{summary.transaksiHariIni}</p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
+        <Card className="@container">
+          <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="shrink-0 rounded-lg bg-secondary p-1.5 text-secondary-foreground">
+                <BarChart3 className="size-4" />
+              </span>
+              <p className="min-w-0 text-xs leading-tight text-muted-foreground">Transaksi Hari Ini</p>
             </div>
+            <p className="whitespace-nowrap text-xl font-bold tabular-nums @[15rem]:text-2xl">{summary.transaksiHariIni}</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="flex items-start gap-3">
-            <span className="rounded-lg bg-secondary p-2 text-secondary-foreground">
-              <Wallet className="size-5" />
-            </span>
-            <div>
-              <p className="text-xs text-muted-foreground">Omzet Hari Ini</p>
-              <p className="text-2xl font-bold">{formatRupiah(summary.omzetHariIni)}</p>
+        <Card className="@container">
+          <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="shrink-0 rounded-lg bg-secondary p-1.5 text-secondary-foreground">
+                <Wallet className="size-4" />
+              </span>
+              <p className="min-w-0 text-xs leading-tight text-muted-foreground">Omzet Hari Ini</p>
             </div>
+            <p className="whitespace-nowrap text-xl font-bold tabular-nums @[15rem]:text-2xl">{formatRupiah(summary.omzetHariIni)}</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="flex items-start gap-3">
-            <span className="rounded-lg bg-status-warning/15 p-2 text-status-warning">
-              <Wrench className="size-5" />
-            </span>
-            <div>
-              <p className="text-xs text-muted-foreground">Job Servis Aktif</p>
-              <p className="text-2xl font-bold">{totalJobAktif}</p>
+        <Card className="@container">
+          <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="shrink-0 rounded-lg bg-status-warning/15 p-1.5 text-status-warning">
+                <Wrench className="size-4" />
+              </span>
+              <p className="min-w-0 text-xs leading-tight text-muted-foreground">Job Servis Aktif</p>
             </div>
+            <p className="whitespace-nowrap text-xl font-bold tabular-nums @[15rem]:text-2xl">{totalJobAktif}</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="flex items-start gap-3">
-            <span className="rounded-lg bg-destructive/10 p-2 text-destructive">
-              <AlertCircle className="size-5" />
-            </span>
-            <div>
-              <p className="text-xs text-muted-foreground">Invoice Belum Lunas</p>
-              <p className="text-2xl font-bold">{totalBelumLunas}</p>
+        <Card className="@container">
+          <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="shrink-0 rounded-lg bg-destructive/10 p-1.5 text-destructive">
+                <AlertCircle className="size-4" />
+              </span>
+              <p className="min-w-0 text-xs leading-tight text-muted-foreground">Invoice Belum Lunas</p>
             </div>
+            <p className="whitespace-nowrap text-xl font-bold tabular-nums @[15rem]:text-2xl">{totalBelumLunas}</p>
           </CardContent>
         </Card>
       </div>
@@ -178,7 +178,7 @@ export default async function DashboardPage() {
                   <Link
                     key={inv.id}
                     href={`/invoices/${inv.id}`}
-                    className="flex items-center justify-between gap-3 border-t px-6 py-3 text-sm hover:bg-accent"
+                    className="flex flex-col gap-2 border-t px-4 py-3 text-sm hover:bg-accent sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6"
                   >
                     <div className="min-w-0">
                       <p className="truncate font-medium">{inv.number}</p>
@@ -187,7 +187,7 @@ export default async function DashboardPage() {
                         {formatDateTime(inv.createdAt)}
                       </p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-3">
+                    <div className="flex shrink-0 items-center gap-3 max-sm:justify-between">
                       <Badge variant={invoiceStatusVariant(inv.status)}>
                         {statusLabel(inv.status)}
                       </Badge>

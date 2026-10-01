@@ -13,13 +13,13 @@ import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
 import { optionalNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { formatStock, hasPackSale, type SparepartMode } from '@/lib/sparepart-mode';
 import {
   Dialog,
   DialogContent,
@@ -48,10 +48,13 @@ import {
 // layar terpisah kayak Flutter (bottom sheet -> /pos/checkout) — layar lebar
 // punya ruang buat nampilin semuanya sekaligus, jadi kasir gak perlu
 // bolak-balik. Alur bisnis & payload checkout tetap sama persis SELAIN hal
-// baru dari Siklus batch-cost (2026-09): produk sekarang WAJIB nunjuk batch
-// (`itemCostId`, dipilih lewat dialog di bawah — 1 produk bisa punya banyak
-// batch harga beda). SERVER tetap yang resolve nama/harga final (lihat
-// CheckoutItemDto/PosService backend) — harga di sini cuma buat pratinjau.
+// baru dari Siklus harga-seragam (2026-09-22): produk sekarang FIFO otomatis
+// lintas batch (gak ada lagi dialog pilih batch) — harga jual default dari
+// Product.sellPrice, tapi kasir bisa EDIT manual per baris pas checkout
+// (CartLine.unitPrice langsung bisa diubah, dikirim sebagai
+// unitPriceOverride). SERVER tetap yang resolve nama/harga final, harga di
+// sini cuma pratinjau — kalau kasir gak ngedit apa-apa, harga yang kekirim
+// ya harga default itu.
 //
 // Diskon SENGAJA cuma 1 (level-transaksi, di form ringkasan bawah) — bukan
 // per-baris lagi. Backend (CheckoutItemDto.discount) masih nerima diskon
@@ -62,20 +65,14 @@ interface Product {
   id: string;
   name: string;
   brand: string | null;
-  // Agregat dari ProductsService.priceAggFor — BUKAN kolom langsung lagi
-  // (Siklus batch-cost 2026-09), lihat komentar sama di master/produk &
-  // stock/stock-client.
   stock: number;
-  sellPriceMin: number | null;
-  sellPriceMax: number | null;
-}
-interface ProductBatch {
-  id: string;
-  supplierName: string | null;
-  buyPrice: string;
   sellPrice: string;
-  stock: number;
-  createdAt: string;
+  // BARU (Point 2, 2026-09-23) — AC Indoor/Outdoor Berpasangan.
+  pairedProductId: string | null;
+  pairedProduct: { id: string; name: string } | null;
+  // BARU (Paket AC Split, 2026-09-30) — peran unit AC, nentuin tab Indoor/
+  // Outdoor. Null = belum ditentukan (produk lama), tampil di tab Semua.
+  acRole: 'indoor' | 'outdoor' | null;
 }
 interface Sparepart {
   id: string;
@@ -83,6 +80,12 @@ interface Sparepart {
   unit: string;
   sellPrice: string;
   stock: string;
+  // Mode utuh/eceran (2026-09-30) — `unit`/`sellPrice` = satuan kecil
+  // (eceran); utuh pakai packUnit/sellPricePack.
+  trackingMode: SparepartMode;
+  packUnit: string | null;
+  packSize: string | null;
+  sellPricePack: string | null;
 }
 interface ServiceItem {
   id: string;
@@ -122,22 +125,42 @@ type CartItemKind = 'product' | 'sparepart' | 'service';
 interface CartLine {
   kind: CartItemKind;
   refId: string;
-  // Wajib buat kind='product' — batch (ItemCost) yang dipilih lewat dialog
-  // BatchPicker. Nentuin harga jual & modal baris ini, jadi 2 baris produk
-  // yang sama TAPI beda batch dianggap baris terpisah (lihat lineMatchKey).
-  itemCostId?: string;
   name: string;
   unit: string;
+  // Harga jual baris ini — default dari Product.sellPrice (produk) /
+  // Sparepart.sellPrice / Service.basePrice pas ditambahin, tapi buat
+  // kind='product' BISA diedit manual di keranjang (lihat setUnitPrice) —
+  // dikirim ke server sebagai `unitPriceOverride`.
   unitPrice: number;
   qty: number;
-  // Diambil dari batch.stock pas baris ditambah — cuma buat cap tombol "+"
-  // di UI (soft guard), validasi beneran tetap di server (StockLockingService).
+  // Diambil dari product.stock/sparepart.stock pas baris ditambah — cuma
+  // buat cap tombol "+" di UI (soft guard), validasi beneran tetap di
+  // server (StockLockingService).
   availableStock?: number;
   withInstallation: boolean;
   roomLocation: string;
   // Paket instalasi (opsional) buat baris ini — dipakai buat SEMUA unit di
   // baris ini kalau qty > 1 (1 baris = 1 pilihan paket, bukan per-unit).
   packageId?: string;
+  // BARU (Point 2, 2026-09-23) — cuma keisi kalau baris ini bagian dari
+  // pasangan "Unit Lengkap" yang ditambahin BARENGAN (lihat
+  // addPairedProductLines). Dua baris (Indoor & Outdoor) yang sama
+  // pairGroupKey-nya SELALU punya qty sama & dihapus BARENGAN — disinkronin
+  // di setQty/removeAt/toggleInstallation.
+  pairGroupKey?: string;
+  pairRole?: 'indoor' | 'outdoor';
+  // BARU (POS — Split/Indoor/Outdoor v2, 2026-09-30) — true kalau baris ini
+  // butuh harga manual dari kasir (kasus "Indoor saja" dari produk
+  // berpasangan — gak ada harga baku buat kombinasi ini, lihat
+  // addIndoorOnlyLine). Dipakai buat indikator visual di baris keranjang
+  // selama unitPrice masih 0, dan buat validasi blokir submit checkout
+  // (lihat hasUnpricedLine).
+  priceNeedsInput?: boolean;
+  // BARU (Sparepart utuh/eceran, 2026-09-30) — cuma buat kind='sparepart'
+  // mode konversi/gabungan. 'utuh': qty dalam packUnit (bulat), harga
+  // sellPricePack. 'eceran': qty dalam satuan kecil, harga sellPrice.
+  // Sparepart yang sama boleh 2 baris (utuh & eceran).
+  saleKind?: 'utuh' | 'eceran';
 }
 
 interface CheckoutWarning {
@@ -159,9 +182,23 @@ interface CheckoutOkResult {
   invoiceId: string;
   invoiceNumber: string;
 }
+// BARU (Paket AC Split, 2026-09-30) — konfirmasi "jual 1 unit dari paket"
+// (Indoor saja / Outdoor saja dari produk berpasangan). Modal restock dicatat
+// per paket, jadi yang ditampilin = modal total 1 paket vs harga jual unit
+// yang diisi kasir.
+interface SingleUnitWarning {
+  refId: string;
+  name: string;
+  unitRole: 'indoor' | 'outdoor';
+  packageName: string;
+  packageBuyPrice: number;
+  sellPrice: number;
+  qty: number;
+}
 interface CheckoutConfirmResult {
   status: 'confirm_required';
   warnings: CheckoutWarning[];
+  singleUnitWarnings?: SingleUnitWarning[];
 }
 type CheckoutResult = CheckoutOkResult | CheckoutConfirmResult;
 
@@ -196,11 +233,34 @@ const checkoutSchema = z
   });
 type CheckoutFormValues = z.infer<typeof checkoutSchema>;
 
-// Kunci unik per BARIS cart. Produk dikunci pakai itemCostId (BUKAN refId)
-// — 2 baris produk sama tapi beda batch harus tetap 2 baris terpisah, sama
-// kayak `lineKey()` di PosService backend.
-function lineMatchKey(l: { kind: CartItemKind; refId: string; itemCostId?: string }): string {
-  return l.kind === 'product' ? `product:${l.itemCostId}` : `${l.kind}:${l.refId}`;
+// GOTCHA browser — `crypto.randomUUID()` cuma jalan di "secure context"
+// (HTTPS, atau `http://localhost`). Device kasir/gudang di sini biasanya
+// dibuka lewat IP LAN (`http://192.168.x.x:3000`), yang dianggap browser
+// TIDAK secure — `randomUUID` gak ada di situ (`crypto.randomUUID is not a
+// function`), padahal `crypto.getRandomValues` TETAP jalan di context
+// manapun (gak digating kayak randomUUID). Ini cuma dipakai buat kunci
+// korelasi pasangan Indoor/Outdoor di keranjang (bukan buat keamanan), jadi
+// gak perlu presisi RFC4122, asal cukup unik per baris.
+function randomGroupKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  // Fallback terakhir kalau `crypto` sama sekali gak ada (harusnya gak
+  // kejadian di browser modern manapun).
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
+// Kunci unik per BARIS cart — selalu `${kind}:${refId}` (Siklus
+// harga-seragam 2026-09-22: produk gak lagi punya konsep "batch" di
+// keranjang, sama kayak lineKey() di PosService backend).
+function lineMatchKey(l: { kind: CartItemKind; refId: string; saleKind?: 'utuh' | 'eceran' }): string {
+  // Sama kayak lineKey() di PosService: sparepart jual UTUH punya key sendiri.
+  if (l.kind === 'sparepart' && l.saleKind === 'utuh') return `${l.kind}:${l.refId}:utuh`;
+  return `${l.kind}:${l.refId}`;
 }
 
 function mergeLine(lines: CartLine[], line: CartLine): CartLine[] {
@@ -222,9 +282,13 @@ function mergeLine(lines: CartLine[], line: CartLine): CartLine[] {
 // data yang sudah ada (bukan bikin kolom kategori baru) — kategori granular
 // ala prototype (AC Split/Cassette/Freon) belum ada datanya di backend, dan
 // nambah itu di luar scope restyle tampilan ini.
+// Paket AC Split (2026-09-30) — pill "Produk" dipecah jadi Split / Indoor
+// / Outdoor (permintaan user: kasir langsung milih jenis unit yang dijual).
 const CATEGORY_PILLS = [
   { key: 'all', label: 'Semua' },
-  { key: 'product', label: 'Produk' },
+  { key: 'split', label: 'Split' },
+  { key: 'indoor', label: 'Indoor' },
+  { key: 'outdoor', label: 'Outdoor' },
   { key: 'sparepart', label: 'Sparepart' },
   { key: 'service', label: 'Jasa' },
 ] as const;
@@ -236,12 +300,10 @@ export default function PosPage() {
   const [lines, setLines] = React.useState<CartLine[]>([]);
   const [search, setSearch] = React.useState('');
   const [kindFilter, setKindFilter] = React.useState<CategoryKey>('all');
-  // Produk yang lagi dipilih buat nentuin batch mana yang mau ditambah ke
-  // keranjang — dialog BatchPicker di bawah muncul selama ini gak null.
-  const [batchPickerProduct, setBatchPickerProduct] = React.useState<Product | null>(null);
   // Diisi kalau checkout balik status confirm_required (ada baris produk
   // yang efektif dijual di bawah/pas modal). null = dialog konfirmasi tertutup.
   const [pendingWarnings, setPendingWarnings] = React.useState<CheckoutWarning[] | null>(null);
+  const [pendingSingleUnits, setPendingSingleUnits] = React.useState<SingleUnitWarning[]>([]);
 
   // Pencarian member LAMA (opsional) — kalau kasir milih salah satu, nama/
   // HP/alamat di form otomatis keisi dan checkout nanti dikirim dengan
@@ -283,12 +345,6 @@ export default function PosPage() {
     queryFn: () => apiClient.get<ServiceItem[]>('/services'),
   });
 
-  const batchesQuery = useQuery({
-    queryKey: ['product-batches', batchPickerProduct?.id],
-    queryFn: () => apiClient.get<ProductBatch[]>(`/products/${batchPickerProduct!.id}/batches`),
-    enabled: !!batchPickerProduct,
-  });
-
   // GET /installation-packages udah filter active:true di server — gak
   // perlu difilter lagi di sini.
   const packagesQuery = useQuery({
@@ -296,46 +352,194 @@ export default function PosPage() {
     queryFn: () => apiClient.get<InstallationPackageOption[]>('/installation-packages'),
   });
 
+  // Audit 2026-09-30 — baris Split (ber-pairGroupKey) dan baris satuan dari
+  // produk yang sama TIDAK boleh digabung: server nolak duplikat
+  // `kind:refId`, dan merge diam-diam bikin Outdoor gratis / Indoor
+  // kelebihan. Return false + toast kalau bentrok.
+  function hasModeConflict(refIds: string[], mode: 'split' | 'single'): boolean {
+    const clash = lines.find(
+      (l) => l.kind === 'product' && refIds.includes(l.refId) && (l.pairGroupKey ? 'split' : 'single') !== mode,
+    );
+    if (!clash) return false;
+    toast.error(
+      `${clash.name} sudah ada di keranjang sebagai ${mode === 'split' ? 'unit satuan' : 'bagian Split'}. Hapus dulu baris itu, atau selesaikan transaksinya, baru tambah yang ini.`,
+    );
+    return true;
+  }
+
   function addLine(line: CartLine) {
+    if (line.kind === 'product' && hasModeConflict([line.refId], line.pairGroupKey ? 'split' : 'single')) return;
     setLines((prev) => mergeLine(prev, line));
     toast.success(`${line.name} ditambahkan ke keranjang.`);
   }
 
-  function addProductBatchLine(batch: ProductBatch) {
-    if (!batchPickerProduct) return;
+  function addProductLine(p: Product) {
     addLine({
       kind: 'product',
-      refId: batchPickerProduct.id,
-      itemCostId: batch.id,
-      name: batchPickerProduct.name,
+      refId: p.id,
+      name: p.name,
       unit: 'unit',
-      unitPrice: Number(batch.sellPrice),
+      unitPrice: Number(p.sellPrice),
       qty: 1,
-      availableStock: batch.stock,
+      availableStock: p.stock,
       withInstallation: false,
       roomLocation: '',
       packageId: undefined,
+      // Unit ber-peran tanpa harga jual (mis. Outdoor yang Indoor-nya
+      // nonaktif) = harga wajib diisi kasir, jangan lolos Rp0.
+      priceNeedsInput: p.acRole != null && Number(p.sellPrice) <= 0 ? true : undefined,
     });
-    setBatchPickerProduct(null);
+  }
+
+  // BARU (Point 2, 2026-09-23) — toggle "Sekalian Outdoor-nya" di kartu POS.
+  // `addLine` (BUKAN `addProductLine`) dipakai langsung di sini biar TIDAK
+  // lewat mergeLine-by-refId — 2 pasangan yang beda kudu selalu jadi 2 baris
+  // baru, gak boleh nge-merge ke baris lama yang kebetulan refId sama tapi
+  // beda pasangan (kasus langka tapi mending eksplisit).
+  function addPairedProductLines(indoorProduct: Product) {
+    if (!indoorProduct.pairedProduct) return;
+    if (hasModeConflict([indoorProduct.id, indoorProduct.pairedProduct.id], 'split')) return;
+    // Stok Split dibatasi sisi yang paling sedikit — qty Indoor & Outdoor
+    // SELALU sama, jadi dua-duanya di-cap ke min(stok Indoor, stok Outdoor).
+    const outdoorStock = productsById.get(indoorProduct.pairedProduct.id)?.stock ?? 0;
+    const splitCap = Math.max(0, Math.min(indoorProduct.stock, outdoorStock));
+    const groupKey = randomGroupKey();
+    addLine({
+      kind: 'product',
+      refId: indoorProduct.id,
+      name: indoorProduct.name,
+      unit: 'unit',
+      unitPrice: Number(indoorProduct.sellPrice),
+      qty: 1,
+      withInstallation: false,
+      roomLocation: '',
+      availableStock: splitCap,
+      pairGroupKey: groupKey,
+      pairRole: 'indoor',
+    });
+    addLine({
+      kind: 'product',
+      refId: indoorProduct.pairedProduct.id,
+      name: indoorProduct.pairedProduct.name,
+      unit: 'unit',
+      unitPrice: 0,
+      qty: 1,
+      withInstallation: false,
+      roomLocation: '',
+      availableStock: splitCap,
+      pairGroupKey: groupKey,
+      pairRole: 'outdoor',
+    });
+  }
+
+  // Jual Outdoor SENDIRIAN (bukan bagian dari Split), mis. ganti unit
+  // outdoor yang rusak/garansi. Paket AC Split (2026-09-30): kalau Outdoor
+  // ini bagian dari paket, harganya GAK baku (sama kayak Indoor saja) —
+  // mulai Rp0 & wajib diisi kasir (`priceNeedsInput`). Produk "Outdoor
+  // saja" yang GAK berpasangan lewat `addProductLine` biasa (harga jualnya
+  // sendiri), bukan lewat sini.
+  function addOutdoorOnlyLine(outdoorProduct: Product) {
+    addLine({
+      kind: 'product',
+      refId: outdoorProduct.id,
+      name: outdoorProduct.name,
+      unit: 'unit',
+      unitPrice: 0,
+      qty: 1,
+      availableStock: outdoorProduct.stock,
+      withInstallation: false,
+      roomLocation: '',
+      packageId: undefined,
+      priceNeedsInput: true,
+    });
+  }
+
+  // BARU (POS — Split/Indoor/Outdoor v2, 2026-09-30) — jual Indoor
+  // SENDIRIAN dari produk yang PUNYA pasangan (misal servis ganti komponen
+  // indoor doang). Beda dari `addProductLine`: `p.sellPrice` di sini adalah
+  // harga PAKET (Split), bukan harga Indoor-doang — gak ada harga baku buat
+  // kombinasi ini (keputusan user: kondisional/nego di lapangan per
+  // transaksi), jadi mulai dari Rp0 & ditandai `priceNeedsInput` biar
+  // keranjang kasih indikator visual dan submit checkout keblokir sampai
+  // kasir isi manual. `addProductLine` yang lama TETAP dipakai apa adanya
+  // buat produk standalone tanpa pasangan (itu emang benar pakai sellPrice).
+  function addIndoorOnlyLine(indoorProduct: Product) {
+    addLine({
+      kind: 'product',
+      refId: indoorProduct.id,
+      name: indoorProduct.name,
+      unit: 'unit',
+      unitPrice: 0,
+      qty: 1,
+      availableStock: indoorProduct.stock,
+      withInstallation: false,
+      roomLocation: '',
+      packageId: undefined,
+      priceNeedsInput: true,
+    });
+  }
+
+  // Ubah harga jual baris produk secara manual (kasir bisa nego harga di
+  // kasir) — dikirim ke server sebagai unitPriceOverride pas checkout.
+  function setUnitPrice(index: number, value: number) {
+    setLines((prev) => prev.map((l, i) => (i === index ? { ...l, unitPrice: value } : l)));
   }
 
   function setQty(index: number, qty: number) {
     if (qty <= 0) return;
+    setLines((prev) => {
+      const target = prev[index];
+      if (!target) return prev;
+      // Point 2 (2026-09-23) — baris ber-pairGroupKey (Indoor+Outdoor mode
+      // Unit Lengkap) SELALU punya qty sama, jadi perubahan di baris manapun
+      // dari pasangan itu diterapkan ke SEMUA baris pasangannya juga.
+      return prev.map((l) => {
+        if (l !== target && !(target.pairGroupKey && l.pairGroupKey === target.pairGroupKey)) {
+          return l;
+        }
+        const capped = l.availableStock != null ? Math.min(qty, l.availableStock) : qty;
+        return { ...l, qty: capped };
+      });
+    });
+  }
+
+  // Qty sparepart boleh pecahan (eceran m/kg/liter, maks 2 desimal) — utuh
+  // tetap bulat. Di-cap ke availableStock kalau ada (soft guard).
+  function setQtyExact(index: number, qty: number) {
+    if (!(qty > 0)) return;
     setLines((prev) =>
       prev.map((l, i) => {
         if (i !== index) return l;
-        const capped = l.availableStock != null ? Math.min(qty, l.availableStock) : qty;
-        return { ...l, qty: capped };
+        const rounded = l.saleKind === 'utuh' ? Math.trunc(qty) : Math.round(qty * 100) / 100;
+        if (!(rounded > 0)) return l;
+        return { ...l, qty: l.availableStock != null ? Math.min(rounded, l.availableStock) : rounded };
       }),
     );
   }
 
   function removeAt(index: number) {
-    setLines((prev) => prev.filter((_, i) => i !== index));
+    setLines((prev) => {
+      const target = prev[index];
+      if (!target) return prev;
+      // Point 2 (2026-09-23) — hapus 1 baris pasangan Unit Lengkap harus
+      // ikut ngehapus baris pasangannya juga (gak boleh nyisain Outdoor
+      // doang atau Indoor doang di keranjang).
+      return prev.filter(
+        (l) => l !== target && !(target.pairGroupKey && l.pairGroupKey === target.pairGroupKey),
+      );
+    });
   }
 
   function toggleInstallation(index: number, value: boolean) {
-    setLines((prev) => prev.map((l, i) => (i === index ? { ...l, withInstallation: value } : l)));
+    setLines((prev) => {
+      const target = prev[index];
+      if (!target) return prev;
+      return prev.map((l) =>
+        l === target || (target.pairGroupKey && l.pairGroupKey === target.pairGroupKey)
+          ? { ...l, withInstallation: value }
+          : l,
+      );
+    });
   }
 
   function setLinePackage(index: number, packageId: string) {
@@ -430,6 +634,10 @@ export default function PosPage() {
   const taxAmount = Math.round((taxBase * taxPercentPreview) / 100);
   const grandTotal = taxBase + taxAmount + transportFeePreview;
   const discountExceeds = discountPreview > subtotal;
+  // BARU (v2, 2026-09-30) — baris "Indoor saja" yang harganya belum diisi
+  // kasir gak boleh lolos checkout (defaultnya Rp0, itu bukan harga jual
+  // beneran, lihat addIndoorOnlyLine).
+  const hasUnpricedLine = lines.some((l) => l.priceNeedsInput && l.unitPrice <= 0);
 
   const checkoutMutation = useMutation({
     mutationFn: async (values: CheckoutFormValues & { confirmOverride?: boolean }) => {
@@ -437,10 +645,21 @@ export default function PosPage() {
       const taxPercent = values.taxPercent?.trim() ? Number(values.taxPercent) : 0;
       const transportFee = values.transportFee?.trim() ? Number(values.transportFee) : 0;
 
-      const installations: { itemIndex: number; roomLocation?: string; packageId?: string }[] =
+      // Siklus AC Indoor/Outdoor Berpasangan (Point 2, 2026-09-23) —
+      // itemIndex tunggal jadi itemIndexes[]. Baris Outdoor (pairRole
+      // 'outdoor') TIDAK bikin entri instalasi sendiri — dia numpang di
+      // entri instalasi baris Indoor pasangannya (index ke-0 = Indoor,
+      // index ke-1 = Outdoor, konvensi urutan yang sama dipakai backend).
+      const installations: { itemIndexes: number[]; roomLocation?: string; packageId?: string }[] =
         [];
       lines.forEach((line, index) => {
         if (line.kind !== 'product' || !line.withInstallation) return;
+        if (line.pairRole === 'outdoor') return; // numpang di entri Indoor-nya
+        const pairedIndex =
+          line.pairGroupKey != null
+            ? lines.findIndex((l) => l.pairGroupKey === line.pairGroupKey && l.pairRole === 'outdoor')
+            : -1;
+        const itemIndexes = pairedIndex >= 0 ? [index, pairedIndex] : [index];
         // Satu entri instalasi PER UNIT (qty produk selalu bilangan bulat,
         // sama seperti aturan CheckoutItemDto backend) — sama seperti
         // buildCheckoutPayload di Flutter (satu unit AC = satu job teknisi).
@@ -448,7 +667,7 @@ export default function PosPage() {
         // SEMUA unit di baris ini — server bikin 1 set item paket per unit.
         for (let j = 0; j < line.qty; j++) {
           installations.push({
-            itemIndex: index,
+            itemIndexes,
             roomLocation: trimmedOrUndefined(line.roomLocation),
             packageId: line.packageId,
           });
@@ -468,10 +687,25 @@ export default function PosPage() {
         items: lines.map((l) => ({
           kind: l.kind,
           refId: l.refId,
-          itemCostId: l.kind === 'product' ? l.itemCostId : undefined,
           qty: l.qty,
           // Diskon per-item SENGAJA gak pernah dikirim dari sini lagi —
           // cuma ada 1 diskon (level-transaksi, `discount` di bawah).
+          //
+          // unitPriceOverride SELALU dikirim buat baris produk — line.unitPrice
+          // udah langsung jadi "harga efektif" begitu ditambah ke keranjang
+          // (default Product.sellPrice, bisa diedit manual lewat setUnitPrice).
+          // Kalau kasir gak pernah nyentuh, nilainya ya sama persis kayak
+          // default itu — server tetap terima sebagai override eksplisit,
+          // gak masalah (hasilnya identik).
+          unitPriceOverride: l.kind === 'product' ? l.unitPrice : undefined,
+          saleKind: l.kind === 'sparepart' ? l.saleKind : undefined,
+          // BARU (Point 2, 2026-09-23) — baris Outdoor mode Unit Lengkap
+          // nunjuk index baris Indoor pasangannya, biar server maksa
+          // harganya 0 & nyamain pairGroupId di StockMovement dua-duanya.
+          pairedWithItemIndex:
+            l.pairRole === 'outdoor'
+              ? lines.findIndex((other) => other.pairGroupKey === l.pairGroupKey && other.pairRole === 'indoor')
+              : undefined,
         })),
         discount,
         discountReason: discount > 0 ? values.discountReason?.trim() : undefined,
@@ -489,6 +723,7 @@ export default function PosPage() {
         // otomatis di server), nunggu kasir/admin confirm dulu lewat dialog.
         // Keranjang & form SENGAJA gak direset biar gampang confirm ulang.
         setPendingWarnings(result.warnings);
+        setPendingSingleUnits(result.singleUnitWarnings ?? []);
         return;
       }
       toast.success(`Transaksi dibuat: ${result.invoiceNumber}`);
@@ -529,6 +764,10 @@ export default function PosPage() {
       toast.error('Diskon melebihi subtotal.');
       return;
     }
+    if (hasUnpricedLine) {
+      toast.error('Ada unit satuan (Indoor/Outdoor saja) yang harganya belum diisi.');
+      return;
+    }
     checkoutMutation.mutate(values);
   }
 
@@ -547,41 +786,172 @@ export default function PosPage() {
     s.name.toLowerCase().includes(q),
   );
 
-  // Kartu grid gabungan buat panel "Cari & Tambah Item" — tiap kartu bawa
-  // `onAdd`-nya sendiri (produk buka BatchPicker, sparepart/jasa langsung
-  // addLine), jadi grid tinggal render tanpa peduli beda logic per jenis.
-  const productCards = filteredProducts.map((p) => {
+  // Paket AC Split (2026-09-30) — 1 Produk AC = paket Indoor + Outdoor
+  // (2 Product yang dipasangkan lewat `pairedProductId` di sisi Indoor).
+  // Grid dipecah per JENIS: tab Split (1 kartu per paket, sekali klik = 1
+  // Indoor + 1 Outdoor), tab Indoor & Outdoor (kartu per unit — unit dari
+  // paket = harga diisi manual kasir, produk "Indoor/Outdoor saja" yang
+  // gak berpasangan = harga jualnya sendiri). Lihat spec
+  // specs/2026-09-30-paket-ac-split-design.md (gantiin kartu 3 tombol v2).
+  const allProducts = productsQuery.data ?? [];
+  const productsById = new Map(allProducts.map((p) => [p.id, p] as const));
+  // Outdoor sebuah paket -> Indoor yang masangin dia.
+  const indoorByOutdoorId = new Map(
+    allProducts.filter((p) => p.pairedProductId).map((p) => [p.pairedProductId!, p] as const),
+  );
+  const matchesSearch = (name: string) => name.toLowerCase().includes(q);
+
+  type Card = {
+    key: string;
+    name: string;
+    subtitle?: string;
+    price?: string;
+    priceLabel?: string;
+    badge?: { label: string; tone: 'ok' | 'warn' };
+    disabled: boolean;
+    onAdd: () => void;
+  };
+
+  // Tab Split — 1 kartu per paket. Harga = harga paket (Product.sellPrice
+  // sisi Indoor, Outdoor Rp0 di keranjang). Salah satu unit habis = kartu
+  // gak bisa diklik + peringatan unit mana yang habis.
+  const splitCards: Card[] = allProducts
+    .filter((p) => p.pairedProductId)
+    .flatMap((p) => {
+      const outdoor = productsById.get(p.pairedProductId!);
+      const outdoorName = outdoor?.name ?? p.pairedProduct?.name ?? 'Outdoor';
+      if (!matchesSearch(p.name) && !matchesSearch(outdoorName)) return [];
+      const indoorStock = p.stock;
+      const outdoorStock = outdoor?.stock ?? 0;
+      const habis = [indoorStock <= 0 && 'Indoor', outdoorStock <= 0 && 'Outdoor'].filter(Boolean);
+      return [
+        {
+          key: `split-${p.id}`,
+          name: `${p.name} + ${outdoorName}`,
+          subtitle: `Indoor ${indoorStock} • Outdoor ${outdoorStock} → paket siap: ${Math.max(0, Math.min(indoorStock, outdoorStock))}${p.brand ? ` • ${p.brand}` : ''}`,
+          price: p.sellPrice,
+          badge: !outdoor
+            ? { label: '⚠ Outdoor nonaktif', tone: 'warn' as const }
+            : habis.length > 0
+              ? { label: `⚠ ${habis.join(' & ')} habis`, tone: 'warn' as const }
+              : { label: 'Lengkap', tone: 'ok' as const },
+          disabled: !outdoor || habis.length > 0,
+          onAdd: () => addPairedProductLines(p),
+        },
+      ];
+    });
+
+  // Kartu 1 unit (tab Indoor/Outdoor, dan produk tanpa peran di tab Semua).
+  // `pairName` keisi = unit dari paket (nama unit pasangannya) -> harga
+  // diisi manual kasir.
+  function unitCard(p: Product, pairName: string | null, onAddPackageUnit: () => void): Card {
     const outOfStock = p.stock <= 0;
+    if (pairName) {
+      return {
+        key: `unit-${p.id}`,
+        name: p.name,
+        subtitle: `${outOfStock ? 'Stok habis' : `Stok ${p.stock}`} • pasangan: ${pairName}`,
+        priceLabel: 'Harga diisi manual',
+        disabled: outOfStock,
+        onAdd: onAddPackageUnit,
+      };
+    }
     return {
-      key: `product-${p.id}`,
+      key: `unit-${p.id}`,
       name: p.name,
       subtitle: outOfStock
         ? 'Belum ada stok — input dulu lewat Barang Masuk'
         : `Stok ${p.stock}${p.brand ? ` • ${p.brand}` : ''}`,
-      price: outOfStock ? undefined : String(p.sellPriceMin ?? 0),
+      price: outOfStock ? undefined : p.sellPrice,
       disabled: outOfStock,
-      onAdd: () => setBatchPickerProduct(p),
+      onAdd: () => addProductLine(p),
     };
+  }
+
+  const indoorCards: Card[] = filteredProducts
+    .filter((p) => p.acRole === 'indoor' || (p.pairedProductId && !p.acRole))
+    .map((p) =>
+      unitCard(p, p.pairedProductId ? (p.pairedProduct?.name ?? 'Outdoor') : null, () => addIndoorOnlyLine(p)),
+    );
+  const outdoorCards: Card[] = filteredProducts
+    .filter((p) => p.acRole === 'outdoor' || (indoorByOutdoorId.has(p.id) && !p.acRole))
+    .map((p) => {
+      const indoor = indoorByOutdoorId.get(p.id);
+      return unitCard(p, indoor ? indoor.name : null, () => addOutdoorOnlyLine(p));
+    });
+  // Produk yang belum punya peran & gak berpasangan (mis. produk lama) —
+  // tetap bisa dijual kayak biasa lewat tab Semua.
+  const otherProductCards: Card[] = filteredProducts
+    .filter((p) => !p.acRole && !p.pairedProductId && !indoorByOutdoorId.has(p.id))
+    .map((p) => unitCard(p, null, () => addProductLine(p)));
+  // Unit "Indoor saja"/"Outdoor saja" yang GAK berpasangan ikut tampil di
+  // tab Semua (unit dari paket cuma lewat tab Indoor/Outdoor, biar tab Semua
+  // gak dobel sama kartu Split-nya).
+  const standaloneRoleCards: Card[] = filteredProducts
+    .filter((p) => p.acRole && !p.pairedProductId && !indoorByOutdoorId.has(p.id))
+    .map((p) => unitCard(p, null, () => addProductLine(p)));
+
+  // Sparepart mode utuh/eceran (2026-09-30) -> 2 kartu (Utuh & Eceran) biar
+  // kasir langsung milih cara jualnya; mode lain tetap 1 kartu.
+  const sparepartCards: Card[] = filteredSpareparts.flatMap((s): Card[] => {
+    const packSize = s.packSize ? Number(s.packSize) : 0;
+    const base = {
+      kind: 'sparepart' as const,
+      refId: s.id,
+      withInstallation: false,
+      roomLocation: '',
+    };
+    if (!hasPackSale(s.trackingMode) || !s.packUnit || !(packSize > 0) || !s.sellPricePack) {
+      return [
+        {
+          key: `sparepart-${s.id}`,
+          name: s.name,
+          subtitle: `Stok ${s.stock} ${s.unit}`,
+          price: s.sellPrice,
+          disabled: false,
+          onAdd: () =>
+            addLine({ ...base, name: s.name, unit: s.unit, unitPrice: Number(s.sellPrice), qty: 1 }),
+        },
+      ];
+    }
+    const stockLabel = formatStock(s);
+    return [
+      {
+        key: `sparepart-${s.id}-utuh`,
+        name: `${s.name} — Utuh`,
+        subtitle: `per ${s.packUnit} (isi ${s.packSize} ${s.unit}) • Stok ${stockLabel}`,
+        price: s.sellPricePack,
+        disabled: Number(s.stock) < packSize,
+        onAdd: () =>
+          addLine({
+            ...base,
+            name: s.name,
+            unit: s.packUnit!,
+            unitPrice: Number(s.sellPricePack),
+            qty: 1,
+            saleKind: 'utuh',
+            availableStock: Math.floor(Number(s.stock) / packSize),
+          }),
+      },
+      {
+        key: `sparepart-${s.id}-eceran`,
+        name: `${s.name} — Eceran`,
+        subtitle: `per ${s.unit} • Stok ${stockLabel}`,
+        price: s.sellPrice,
+        disabled: Number(s.stock) <= 0,
+        onAdd: () =>
+          addLine({
+            ...base,
+            name: s.name,
+            unit: s.unit,
+            unitPrice: Number(s.sellPrice),
+            qty: 1,
+            saleKind: 'eceran',
+          }),
+      },
+    ];
   });
-  const sparepartCards = filteredSpareparts.map((s) => ({
-    key: `sparepart-${s.id}`,
-    name: s.name,
-    subtitle: `Stok ${s.stock} ${s.unit}`,
-    price: s.sellPrice,
-    disabled: false,
-    onAdd: () =>
-      addLine({
-        kind: 'sparepart' as const,
-        refId: s.id,
-        name: s.name,
-        unit: s.unit,
-        unitPrice: Number(s.sellPrice),
-        qty: 1,
-        withInstallation: false,
-        roomLocation: '',
-      }),
-  }));
-  const serviceCards = filteredServices.map((s) => ({
+  const serviceCards: Card[] = filteredServices.map((s) => ({
     key: `service-${s.id}`,
     name: s.name,
     subtitle: s.category ?? 'Jasa',
@@ -600,20 +970,26 @@ export default function PosPage() {
       }),
   }));
 
-  const visibleCards =
+  const visibleCards: Card[] =
     kindFilter === 'all'
-      ? [...productCards, ...sparepartCards, ...serviceCards]
-      : kindFilter === 'product'
-        ? productCards
-        : kindFilter === 'sparepart'
-          ? sparepartCards
-          : serviceCards;
+      ? [...splitCards, ...standaloneRoleCards, ...otherProductCards, ...sparepartCards, ...serviceCards]
+      : kindFilter === 'split'
+        ? splitCards
+        : kindFilter === 'indoor'
+          ? indoorCards
+          : kindFilter === 'outdoor'
+            ? outdoorCards
+            : kindFilter === 'sparepart'
+              ? sparepartCards
+              : serviceCards;
+  const isProductTab = kindFilter === 'split' || kindFilter === 'indoor' || kindFilter === 'outdoor';
   const cardsLoading =
-    (kindFilter === 'all' || kindFilter === 'product') && productsQuery.isLoading
+    (kindFilter === 'all' || isProductTab) && productsQuery.isLoading
       ? true
       : (kindFilter === 'all' || kindFilter === 'sparepart') && sparepartsQuery.isLoading
         ? true
         : (kindFilter === 'all' || kindFilter === 'service') && servicesQuery.isLoading;
+
 
   return (
     <div className="grid gap-6">
@@ -675,6 +1051,8 @@ export default function PosPage() {
                     name={card.name}
                     subtitle={card.subtitle}
                     price={card.price}
+                    priceLabel={card.priceLabel}
+                    badge={card.badge}
                     disabled={card.disabled}
                     onAdd={card.onAdd}
                   />
@@ -710,10 +1088,61 @@ export default function PosPage() {
                     <div key={lineMatchKey(line)} className="rounded-md border p-3">
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="text-sm font-medium">{line.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatRupiah(line.unitPrice)} / {line.unit}
+                          <p className="text-sm font-medium">
+                            {line.name}
+                            {line.pairGroupKey && (
+                              <span className="ml-1.5 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-normal text-secondary-foreground align-middle">
+                                Pasangan Unit Lengkap
+                              </span>
+                            )}
+                            {line.priceNeedsInput && (
+                              <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-normal text-amber-800 align-middle">
+                                Unit satuan dari paket
+                              </span>
+                            )}
+                            {line.kind === 'sparepart' && line.saleKind && (
+                              <span className="ml-1.5 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-normal text-secondary-foreground align-middle">
+                                {line.saleKind === 'utuh' ? 'Utuh' : 'Eceran'}
+                              </span>
+                            )}
                           </p>
+                          {line.kind === 'product' && line.pairRole === 'outdoor' ? (
+                            // Point 2 (2026-09-23) — harga Outdoor mode Unit
+                            // Lengkap DIKUNCI 0 (nempel ke harga Indoor
+                            // pasangannya), gak bisa diedit manual di sini.
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Rp 0 (gratis, nempel ke Indoor) / {line.unit}
+                            </p>
+                          ) : line.kind === 'product' ? (
+                            <div>
+                              <div className="mt-1 flex items-center gap-1.5">
+                                <span className="text-xs text-muted-foreground">Harga:</span>
+                                <CurrencyInput
+                                  className={cn(
+                                    'h-7 w-28 text-xs',
+                                    line.priceNeedsInput &&
+                                      line.unitPrice <= 0 &&
+                                      'border-amber-500 focus-visible:ring-amber-500',
+                                  )}
+                                  value={String(line.unitPrice)}
+                                  onChange={(v) => setUnitPrice(index, Number(v) || 0)}
+                                />
+                                <span className="text-xs text-muted-foreground">
+                                  / {line.unit}
+                                </span>
+                              </div>
+                              {/* Unit satuan dari paket (Indoor/Outdoor saja) */}
+                              {line.priceNeedsInput && line.unitPrice <= 0 && (
+                                <p className="mt-0.5 text-[10px] text-amber-600">
+                                  Wajib diisi manual sebelum checkout.
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              {formatRupiah(line.unitPrice)} / {line.unit}
+                            </p>
+                          )}
                         </div>
                         <Button
                           variant="ghost"
@@ -735,7 +1164,15 @@ export default function PosPage() {
                           >
                             <Minus className="size-3.5" />
                           </Button>
-                          <span className="w-6 text-center text-sm font-medium">{line.qty}</span>
+                          {line.kind === 'sparepart' && line.saleKind ? (
+                            <QtyInput
+                              value={line.qty}
+                              integer={line.saleKind === 'utuh'}
+                              onCommit={(v) => setQtyExact(index, v)}
+                            />
+                          ) : (
+                            <span className="w-6 text-center text-sm font-medium">{line.qty}</span>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1005,6 +1442,11 @@ export default function PosPage() {
                   {discountExceeds && (
                     <p className="mt-1 text-xs text-destructive">Diskon melebihi subtotal.</p>
                   )}
+                  {hasUnpricedLine && (
+                    <p className="mt-1 text-xs text-destructive">
+                      Ada unit satuan (Indoor/Outdoor saja) yang harganya belum diisi.
+                    </p>
+                  )}
                   <div className="mt-2 flex items-center justify-between border-t pt-2">
                     <span className="font-semibold">Total</span>
                     <span className="text-base font-bold text-primary">
@@ -1017,7 +1459,12 @@ export default function PosPage() {
                   type="submit"
                   size="lg"
                   className="w-full"
-                  disabled={checkoutMutation.isPending || lines.length === 0 || discountExceeds}
+                  disabled={
+                    checkoutMutation.isPending ||
+                    lines.length === 0 ||
+                    discountExceeds ||
+                    hasUnpricedLine
+                  }
                 >
                   {checkoutMutation.isPending ? 'Memproses...' : 'Buat Transaksi'}
                 </Button>
@@ -1028,58 +1475,38 @@ export default function PosPage() {
         </div>
       </div>
 
-      <Dialog
-        open={!!batchPickerProduct}
-        onOpenChange={(open) => !open && setBatchPickerProduct(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Pilih Batch — {batchPickerProduct?.name}</DialogTitle>
-            <DialogDescription>
-              Produk ini bisa punya beberapa batch dengan harga jual beda. Pilih batch yang mau
-              dijual buat baris ini.
-            </DialogDescription>
-          </DialogHeader>
-          {batchesQuery.isLoading ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Memuat batch...</p>
-          ) : !batchesQuery.data || batchesQuery.data.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              Belum ada batch aktif — input dulu lewat halaman Barang Masuk.
-            </p>
-          ) : (
-            <div className="grid max-h-72 gap-1 overflow-y-auto">
-              {batchesQuery.data.map((b) => (
-                <button
-                  type="button"
-                  key={b.id}
-                  onClick={() => addProductBatchLine(b)}
-                  className="flex items-center justify-between gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent"
-                >
-                  <div>
-                    <p className="text-sm font-medium">Stok: {b.stock}</p>
-                    {b.supplierName && (
-                      <p className="text-xs text-muted-foreground">{b.supplierName}</p>
-                    )}
-                  </div>
-                  <Badge variant="secondary">{formatRupiah(b.sellPrice)}</Badge>
-                </button>
-              ))}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={!!pendingWarnings} onOpenChange={(open) => !open && setPendingWarnings(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Ada barang dijual di bawah/pas modal</DialogTitle>
+            <DialogTitle>
+              {pendingWarnings && pendingWarnings.length === 0 && pendingSingleUnits.length > 0
+                ? 'Penjualan 1 unit dari paket AC'
+                : 'Ada barang dijual di bawah/pas modal'}
+            </DialogTitle>
             <DialogDescription>
               Transaksi belum tersimpan. Cek lagi baris di bawah ini sebelum lanjut.
             </DialogDescription>
           </DialogHeader>
           <div className="grid max-h-72 gap-3 overflow-y-auto">
+            {/* Paket AC Split (2026-09-30) — modal restock dicatat per
+                paket, gak dipecah per unit. */}
+            {pendingSingleUnits.map((w, i) => (
+              <div key={`single-${w.refId}-${i}`} className="rounded-md border border-amber-400 bg-amber-50 p-3 text-sm leading-relaxed dark:bg-amber-950/30">
+                <p>
+                  Modal total 1 paket <strong>{w.packageName}</strong> (Indoor + Outdoor):{' '}
+                  <strong>{formatRupiah(w.packageBuyPrice)}</strong>
+                </p>
+                <p>
+                  Anda menjual {w.qty > 1 ? `${w.qty} unit` : '1 unit'}{' '}
+                  <strong>{w.unitRole === 'indoor' ? 'Indoor' : 'Outdoor'}</strong> ({w.name}) seharga{' '}
+                  <strong>{formatRupiah(w.sellPrice)}</strong>
+                  {w.qty > 1 ? ' per unit' : ''}.
+                </p>
+                <p className="mt-1 text-muted-foreground">Batal atau teruskan?</p>
+              </div>
+            ))}
             {pendingWarnings?.map((w, i) => (
-              <div key={`${w.itemCostId ?? w.refId}-${i}`} className="rounded-md border p-3 text-sm">
+              <div key={`${w.refId}-${i}`} className="rounded-md border p-3 text-sm">
                 <p className="mb-1 font-medium">{w.name}</p>
                 <SummaryRow label="Harga Modal" value={formatRupiah(w.buyPrice)} />
                 <SummaryRow label="Harga Jual" value={formatRupiah(w.sellPrice)} />
@@ -1109,7 +1536,11 @@ export default function PosPage() {
               Batal
             </Button>
             <Button type="button" onClick={confirmCheckout} disabled={checkoutMutation.isPending}>
-              {checkoutMutation.isPending ? 'Memproses...' : 'Tetap Proses Transaksi'}
+              {checkoutMutation.isPending
+                ? 'Memproses...'
+                : pendingWarnings && pendingWarnings.length === 0 && pendingSingleUnits.length > 0
+                  ? 'Teruskan'
+                  : 'Tetap Proses Transaksi'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1130,39 +1561,102 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 // Kartu grid item (Produk/Sparepart/Jasa gabungan) — padanan visual kartu
 // produk di prototype "Transaksi Baru" (nama + subtitle stok + harga +
 // tombol tambah), gantiin ItemRow/ItemList (tampilan list per-tab) yang lama.
+//
+// Paket AC Split (2026-09-30) — kartu 3 tombol (v2) dihapus, diganti tab
+// Split/Indoor/Outdoor di atas grid. Tambahan: `priceLabel` (teks pengganti
+// harga, mis. "Harga diisi manual" buat unit dari paket) & `badge`
+// (status kartu Split: Lengkap / ⚠ Outdoor habis, dst). Badge SENGAJA gak
+// ikut diredupin pas kartu disabled, biar peringatannya tetap kebaca.
 function ItemCard({
   name,
   subtitle,
   price,
+  priceLabel,
+  badge,
   onAdd,
   disabled,
 }: {
   name: string;
   subtitle?: string;
   price?: string;
+  priceLabel?: string;
+  badge?: { label: string; tone: 'ok' | 'warn' };
   onAdd: () => void;
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onAdd}
-      disabled={disabled}
+    <div
       className={cn(
         'flex flex-col items-start gap-2 rounded-lg border p-3 text-left transition-colors',
-        disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-primary hover:bg-accent',
+        !disabled && 'hover:border-primary hover:bg-accent',
       )}
     >
-      <div className="flex w-full items-start justify-between gap-2">
-        <p className="text-sm leading-tight font-medium">{name}</p>
-        <span className="shrink-0 rounded-full bg-secondary p-1 text-secondary-foreground">
-          <Plus className="size-3.5" />
+      <button
+        type="button"
+        onClick={onAdd}
+        disabled={disabled}
+        className={cn(
+          'flex w-full flex-col items-start gap-2 text-left',
+          disabled && 'cursor-not-allowed opacity-50',
+        )}
+      >
+        <div className="flex w-full items-start justify-between gap-2">
+          <p className="text-sm leading-tight font-medium">{name}</p>
+          <span className="shrink-0 rounded-full bg-secondary p-1 text-secondary-foreground">
+            <Plus className="size-3.5" />
+          </span>
+        </div>
+        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+        {price !== undefined ? (
+          <p className="text-sm font-semibold text-primary">{formatRupiah(price)}</p>
+        ) : (
+          priceLabel && <p className="text-xs font-medium text-amber-600">{priceLabel}</p>
+        )}
+      </button>
+      {badge && (
+        <span
+          className={cn(
+            'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+            badge.tone === 'ok'
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-red-100 text-red-700',
+          )}
+        >
+          {badge.label}
         </span>
-      </div>
-      {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-      {price !== undefined && (
-        <p className="text-sm font-semibold text-primary">{formatRupiah(price)}</p>
       )}
-    </button>
+    </div>
+  );
+}
+
+// Input qty kecil buat baris sparepart mode utuh/eceran (2026-09-30) —
+// state teks lokal biar ngetik "2." / "2,5" gak di-reset tiap keystroke;
+// nilai valid (> 0) langsung di-commit, sisanya dirapikan saat blur.
+function QtyInput({
+  value,
+  integer,
+  onCommit,
+}: {
+  value: number;
+  integer: boolean;
+  onCommit: (v: number) => void;
+}) {
+  // `draft` cuma ada selama user lagi ngetik; selebihnya ikut `value`.
+  const [draft, setDraft] = React.useState<string | null>(null);
+  const text = draft ?? String(value);
+  return (
+    <input
+      inputMode={integer ? 'numeric' : 'decimal'}
+      className="h-7 w-14 rounded-md border bg-background text-center text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      value={text}
+      onChange={(e) => {
+        const raw = e.target.value.replace(',', '.');
+        if (!/^\d*\.?\d{0,2}$/.test(raw)) return;
+        setDraft(raw);
+        const n = Number(raw);
+        if (raw !== '' && n > 0) onCommit(n);
+      }}
+      onBlur={() => setDraft(null)}
+    />
   );
 }

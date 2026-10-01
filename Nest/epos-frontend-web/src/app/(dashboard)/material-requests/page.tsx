@@ -1,5 +1,6 @@
 'use client';
 
+import { unitPartsText, type UnitPartProduct } from '@/components/ac-unit-parts';
 import * as React from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -62,7 +63,13 @@ interface MaterialRequestRow {
   job: {
     id: string;
     type: string;
-    unit: { brand: string | null; model: string | null; barcodeValue: string } | null;
+    unit: {
+      brand: string | null;
+      model: string | null;
+      barcodeValue: string;
+      indoorProduct?: UnitPartProduct | null;
+      outdoorProduct?: UnitPartProduct | null;
+    } | null;
     member: { name: string } | null;
   };
   createdBy: { id: string; displayName: string };
@@ -291,12 +298,17 @@ function RequestDetail({
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Job</span>
-          <Link
-            href={`/teknisi/jobs/${request.job.id}`}
-            className="font-medium text-primary hover:underline"
-          >
-            {unitLabel ?? request.job.type}
-          </Link>
+          <div className="text-right">
+            <Link
+              href={`/teknisi/jobs/${request.job.id}`}
+              className="font-medium text-primary hover:underline"
+            >
+              {unitLabel ?? request.job.type}
+            </Link>
+            {request.job.unit && unitPartsText(request.job.unit) && (
+              <span className="mt-0.5 block text-xs text-muted-foreground">({unitPartsText(request.job.unit)})</span>
+            )}
+          </div>
         </div>
         {request.job.member && (
           <div className="flex items-center justify-between">

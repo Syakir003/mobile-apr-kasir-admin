@@ -1,14 +1,53 @@
+'use client';
+
 import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
-function Table({ className, ...props }: React.ComponentProps<'table'>) {
+/**
+ * Tabel data. Di layar HP (<768px) tabel otomatis tampil sebagai kartu per
+ * baris (CSS di globals.css, `[data-slot=table-container]`): header kolom
+ * disembunyikan dan tiap sel diberi label dari teks header-nya lewat atribut
+ * `data-label` yang dipasang di sini. Ingin tetap berupa tabel yang bisa
+ * digeser horizontal di HP? Beri prop `keepTable`.
+ */
+function Table({
+  className,
+  keepTable,
+  ...props
+}: React.ComponentProps<'table'> & { keepTable?: boolean }) {
+  const ref = React.useRef<HTMLTableElement>(null);
+
+  React.useEffect(() => {
+    const table = ref.current;
+    if (!table || keepTable) return;
+    const apply = () => {
+      const heads = Array.from(table.querySelectorAll('thead th')).map(
+        (th) => th.textContent?.trim() ?? '',
+      );
+      table.querySelectorAll('tbody tr').forEach((tr) => {
+        Array.from(tr.children).forEach((cell, i) => {
+          const label = heads[i];
+          if (cell.getAttribute('colspan') || !label) cell.removeAttribute('data-label');
+          else if (cell.getAttribute('data-label') !== label) cell.setAttribute('data-label', label);
+        });
+      });
+    };
+    apply();
+    // childList saja (bukan attributes) supaya setAttribute di atas tidak memicu loop.
+    const observer = new MutationObserver(apply);
+    observer.observe(table, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [keepTable]);
+
   return (
     <div
       data-slot="table-container"
+      data-keep-table={keepTable ? '' : undefined}
       className="relative w-full overflow-x-auto"
     >
       <table
+        ref={ref}
         data-slot="table"
         className={cn('w-full caption-bottom text-sm', className)}
         {...props}
