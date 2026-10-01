@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import type { ListStatus } from '../common/dto/list-status-query.dto';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 
@@ -13,8 +14,11 @@ export class ServicesCatalogService {
     return this.prisma.service.create({ data: { ...dto, active: true } });
   }
 
-  findAll() {
-    return this.prisma.service.findMany({ where: { active: true }, orderBy: { name: 'asc' } });
+  // BARU (2026-09-25, fitur nonaktifkan Master Data) — `status` opsional,
+  // default 'active'.
+  findAll(status: ListStatus = 'active') {
+    const where = status === 'all' ? {} : { active: status === 'inactive' ? false : true };
+    return this.prisma.service.findMany({ where, orderBy: { name: 'asc' } });
   }
 
   /** Edit jasa setelah dibuat — sama alasannya kayak ProductsService.update. */

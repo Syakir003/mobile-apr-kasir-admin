@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 // Status `MemberAcUnit` beneran cuma `String` polos di schema (komentarnya
 // sendiri bilang "'aktif' | 'menunggu_pemasangan' | dst") — 3 nilai di bawah
@@ -6,7 +6,7 @@ import { IsDateString, IsIn, IsNumber, IsOptional, IsString, Max, Min } from 'cl
 // createForInstallation & technician-jobs.service.ts start/complete job).
 // Enum di DTO ini SENGAJA disamain manual ke situ buat validasi form edit
 // admin (cegah typo), bukan berarti kolomnya di-lock jadi enum beneran di DB.
-const AC_UNIT_STATUSES = ['menunggu_pemasangan', 'aktif', 'dalam_maintenance'] as const;
+const AC_UNIT_STATUSES = ['menunggu_pemasangan', 'aktif', 'dalam_maintenance', 'menunggu_data'] as const;
 
 // Semua field opsional (PATCH parsial, sama pola kayak UpdateSparepartDto) —
 // gak ada field yang di-exclude kayak `stock` di produk/sparepart, karena
@@ -23,8 +23,9 @@ export class UpdateAcUnitDto {
   @IsOptional() @IsDateString() installationDate?: string;
   @IsOptional() @IsDateString() lastServiceDate?: string;
   @IsOptional() @IsDateString() nextServiceDate?: string;
-  // Siklus WA/Fonnte — override siklus servis KHUSUS unit ini, dalam hari.
-  // Kirim `null` eksplisit buat hapus override (unit kembali ikut default
-  // ReminderSetting per jenis job) — lihat RemindersService.resolveIntervalDaysTx.
-  @IsOptional() @IsNumber() @Min(7) @Max(730) serviceIntervalDays?: number | null;
+  // Pengingat servis per unit AC (2026-09-30) — 1 unit = 1 set AC
+  // (indoor+outdoor). Siklus servis dalam hari (7–730), manual per unit.
+  @IsOptional() @IsInt({ message: 'Siklus servis harus bilangan bulat (hari)' }) @Min(7, { message: 'Siklus servis minimal 7 hari' }) @Max(730, { message: 'Siklus servis maksimal 730 hari' }) serviceIntervalDays?: number;
+  // Saklar pengingat: false = matikan (mis. AC dibongkar / tidak dipakai lagi).
+  @IsOptional() @IsBoolean() reminderEnabled?: boolean;
 }

@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
+import { ListStatusQueryDto } from '../common/dto/list-status-query.dto';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -20,8 +21,8 @@ export class ProductsController {
   }
 
   @Get()
-  findAll() {
-    return this.products.findAll();
+  findAll(@Query() query: ListStatusQueryDto) {
+    return this.products.findAll(query.status);
   }
 
   @Get(':id')
@@ -29,9 +30,11 @@ export class ProductsController {
     return this.products.findOne(id);
   }
 
+  // `?includePair=1` (Paket AC Split, 2026-09-30) — ikut nyertain batch
+  // produk pasangannya (Indoor <-> Outdoor), lihat ProductsService.findBatches.
   @Get(':id/batches')
-  findBatches(@Param('id') id: string) {
-    return this.products.findBatches(id);
+  findBatches(@Param('id') id: string, @Query('includePair') includePair?: string) {
+    return this.products.findBatches(id, includePair === '1' || includePair === 'true');
   }
 
   @Roles('admin')

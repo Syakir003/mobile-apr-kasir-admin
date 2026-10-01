@@ -21,8 +21,30 @@ export interface BelowCostWarning {
  * (bukan blokir keras) yang disepakati user 2026-09-08.
  */
 export class ConfirmationRequiredException extends Error {
-  constructor(public readonly warnings: BelowCostWarning[]) {
+  constructor(
+    public readonly warnings: BelowCostWarning[],
+    public readonly singleUnitWarnings: SingleUnitWarning[] = [],
+  ) {
     super('Butuh konfirmasi: ada item yang dijual/dibeli di bawah harga modal');
     this.name = 'ConfirmationRequiredException';
   }
+}
+
+/** BARU (Paket AC Split, 2026-09-30) — 1 baris konfirmasi "jual 1 unit dari
+ * paket AC" (Indoor saja / Outdoor saja dari produk berpasangan). Modal
+ * restock dicatat per PAKET (gak dipecah per unit), jadi yang ditampilin ke
+ * kasir itu modal total 1 paket + harga jual unit yang dia isi — kasir yang
+ * mutusin lanjut atau batal. Dilempar bareng `warnings` di atas lewat
+ * exception yang sama (1 dialog konfirmasi, 1 `confirmOverride`). */
+export interface SingleUnitWarning {
+  refId: string;
+  name: string;
+  unitRole: 'indoor' | 'outdoor';
+  /** "<nama Indoor> + <nama Outdoor>" */
+  packageName: string;
+  /** Modal total 1 paket (Indoor + Outdoor) — MAX buyPrice batch Indoor yang masih ada unitnya. */
+  packageBuyPrice: number;
+  /** Harga jual 1 unit ini (harga yang diisi kasir, sebelum diskon). */
+  sellPrice: number;
+  qty: number;
 }

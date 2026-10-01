@@ -4,6 +4,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ReportsService } from './reports.service';
 import { DateRangeDto } from './dto/date-range.dto';
+import { StockMovementsQueryDto } from './dto/stock-movements-query.dto';
 import { parseDateRange } from './reports.util';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -28,5 +29,15 @@ export class ReportsController {
   profitLoss(@Query() query: DateRangeDto) {
     const { start, end } = parseDateRange(query.from, query.to);
     return this.reports.profitLoss(start, end);
+  }
+
+  @Get('stock-movements')
+  stockMovements(@Query() query: StockMovementsQueryDto) {
+    const { start, end } = parseDateRange(query.from, query.to);
+    return this.reports.stockMovements(start, end, {
+      kind: query.kind,
+      refId: query.refId,
+      category: query.category,
+    });
   }
 }

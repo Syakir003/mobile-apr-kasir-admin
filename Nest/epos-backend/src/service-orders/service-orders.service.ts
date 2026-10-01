@@ -4,6 +4,7 @@ import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { TechnicianJobsService } from '../technician-jobs/technician-jobs.service';
 import { ServiceIntakeDto } from './dto/service-intake.dto';
+import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 
 /**
  * Siklus 2 — Servis Masuk Mandiri: jalur masuk servis yang BUKAN dari
@@ -135,7 +136,7 @@ export class ServiceOrdersService {
         transaction: true,
         invoice: { include: { items: true } },
         createdBy: { select: { id: true, displayName: true } },
-        serviceOrderUnits: { include: { unit: true } },
+        serviceOrderUnits: { include: { unit: { include: UNIT_PRODUCTS_SELECT } } },
         units: { include: { technician: { select: { id: true, displayName: true } } } },
       },
     });
@@ -158,7 +159,7 @@ export class ServiceOrdersService {
       where: { memberId },
       orderBy: { createdAt: 'desc' },
       include: {
-        serviceOrderUnits: { include: { unit: true } },
+        serviceOrderUnits: { include: { unit: { include: UNIT_PRODUCTS_SELECT } } },
         units: { include: { technician: { select: { id: true, displayName: true } } } },
       },
     });

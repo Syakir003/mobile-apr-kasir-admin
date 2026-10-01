@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Member } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
+import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 
 @Injectable()
 export class MembersService {
@@ -183,7 +184,7 @@ export class MembersService {
     const member = await this.prisma.member.findUnique({
       where: { id },
       include: {
-        acUnits: { orderBy: { createdAt: 'desc' } },
+        acUnits: { orderBy: { createdAt: "desc" }, include: UNIT_PRODUCTS_SELECT },
         invoices: {
           orderBy: { createdAt: 'desc' },
           include: { items: true },

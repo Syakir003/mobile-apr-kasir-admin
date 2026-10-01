@@ -4,7 +4,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { AppModule } from './app.module';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 function assertRequiredEnv() {
   // Sebelumnya JWT_SECRET punya fallback hardcoded ('dev-secret-ganti-di-env')
@@ -25,7 +25,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalFilters(new AllExceptionsFilter());
   app.enableCors({ origin: '*' });
 
   // Foto bukti servis (Fase 5, disk lokal — cukup untuk skala 1 toko).

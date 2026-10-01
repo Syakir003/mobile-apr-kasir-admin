@@ -45,6 +45,7 @@ export class WhatsappService {
       message: string;
       dueDate?: Date | null;
       dedupeKey?: string;
+      sentById?: string;
     },
   ) {
     try {
@@ -58,6 +59,7 @@ export class WhatsappService {
           message: params.message,
           dueDate: params.dueDate ?? undefined,
           dedupeKey: params.dedupeKey,
+          sentById: params.sentById,
           status: WhatsappLogStatus.pending,
         },
       });

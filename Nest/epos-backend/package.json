@@ -82,6 +82,7 @@
     ],
     "rootDir": "src",
     "setupFiles": [
+      "reflect-metadata",
       "dotenv/config"
     ],
     "testRegex": ".*\\.spec\\.ts$",

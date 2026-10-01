@@ -39,6 +39,7 @@ import { HistoryQueryDto } from './dto/history-query.dto';
 import { FindAllJobsQueryDto } from './dto/find-all-jobs-query.dto';
 import { AddFindingDto } from './dto/add-finding.dto';
 import { SendBackDto } from './dto/send-back.dto';
+import { ApproveCompleteDto } from './dto/approve-complete.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { SyncBatchDto } from './dto/sync-batch.dto';
 import { OfflineSyncService } from './offline-sync.service';
@@ -308,8 +309,9 @@ export class TechnicianJobsController {
   async approveComplete(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: ApproveCompleteDto,
   ) {
-    const result = await this.jobs.approveComplete(id, user.role);
+    const result = await this.jobs.approveComplete(id, user.role, dto);
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,

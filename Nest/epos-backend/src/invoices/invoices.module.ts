@@ -11,5 +11,6 @@ import { RemindersModule } from '../reminders/reminders.module';
   imports: [WhatsappModule, RemindersModule],
   controllers: [InvoicesController],
   providers: [InvoicesService],
+  exports: [InvoicesService],
 })
 export class InvoicesModule {}

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -7,13 +7,32 @@ import type { CurrentUserPayload } from '../auth/decorators/current-user.decorat
 import { RemindersService } from './reminders.service';
 import { SaveReminderSettingsDto } from './dto/save-reminder-settings.dto';
 import { SaveWaTemplatesDto } from './dto/save-wa-templates.dto';
+import { ScheduleQueryDto } from './dto/schedule-query.dto';
+import { ServiceScheduleService } from './service-schedule.service';
 
 /** Halaman "Pengingat WA" (admin) — padanan reminder_settings_screen.dart +
  * reminder_template_screen.dart mobile, digabung jadi 1 halaman 2 tab di web. */
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('reminders')
 export class RemindersController {
-  constructor(private readonly reminders: RemindersService) {}
+  constructor(
+    private readonly reminders: RemindersService,
+    private readonly schedule: ServiceScheduleService,
+  ) {}
+
+  // Monitoring jadwal servis semua set AC (2026-09-30).
+  @Roles('admin', 'kasir')
+  @Get('schedule')
+  getSchedule(@Query() query: ScheduleQueryDto) {
+    return this.schedule.schedule(query);
+  }
+
+  // Kirim pengingat manual untuk 1 set AC (di luar cron), admin only.
+  @Roles('admin')
+  @Post('units/:unitId/send-now')
+  sendNow(@Param('unitId') unitId: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.schedule.sendNow(unitId, user.sub);
+  }
 
   @Roles('admin', 'kasir')
   @Get('settings')

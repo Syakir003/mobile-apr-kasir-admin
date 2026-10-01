@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
+import { ListStatusQueryDto } from '../common/dto/list-status-query.dto';
 import { InstallationPackagesService } from './installation-packages.service';
 import { CreateInstallationPackageDto } from './dto/create-installation-package.dto';
 import { UpdateInstallationPackageDto } from './dto/update-installation-package.dto';
@@ -19,8 +20,8 @@ export class InstallationPackagesController {
   // kasir butuh baca daftar paket ini pas milih paket instalasi di POS,
   // cuma create/update yang admin-only.
   @Get()
-  findAll() {
-    return this.installationPackages.findAll();
+  findAll(@Query() query: ListStatusQueryDto) {
+    return this.installationPackages.findAll(query.status);
   }
 
   @Get(':id')

@@ -12,6 +12,12 @@ import { computeInvoiceStatus } from '../common/invoice-status.util';
 import { InvoiceHistoryQueryDto } from './dto/invoice-history-query.dto';
 import { CreateManualInvoiceDto } from './dto/create-manual-invoice.dto';
 
+/** Bagian transaksi dari CreateManualInvoiceDto (tanpa penentu member). */
+export type ManualInvoiceCore = Pick<
+  CreateManualInvoiceDto,
+  'date' | 'items' | 'discount' | 'transportFee' | 'totalPaid' | 'notes'
+>;
+
 @Injectable()
 export class InvoicesService {
   constructor(
@@ -199,6 +205,24 @@ export class InvoicesService {
       );
     }
 
+    const prepared = this.prepareManual(dto);
+
+    return this.prisma.$transaction(async (tx) => {
+      const member = dto.memberId
+        ? await tx.member.findUnique({ where: { id: dto.memberId } })
+        : (await this.members.findOrCreate(tx, dto.newMember!.name, dto.newMember!.phone, dto.newMember!.address)).member;
+      if (!member) throw new NotFoundException('Member tidak ditemukan');
+      return this.insertManualInvoiceTx(tx, dto, prepared, member, actorId);
+    });
+  }
+
+  /**
+   * Validasi + hitung total transaksi lampau (tanpa nyentuh DB). Dipisah dari
+   * createManual supaya "Input Data Lampau" (LegacyImportService) bisa
+   * memvalidasi invoice-nya SEBELUM membuka transaksi DB, lalu menulisnya di
+   * transaksi yang sama dengan member + unit AC.
+   */
+  prepareManual(dto: ManualInvoiceCore) {
     // Validasi tiap baris SEBELUM itung total — diskon per-baris yang
     // melebihi harga barisnya sendiri bikin lineTotal negatif (kelas bug
     // yang sama kayak K-1 di audit backend: diskon gak divalidasi vs
@@ -236,84 +260,89 @@ export class InvoicesService {
     const dateKey = this.counters.dateKey(createdAt);
     const status = computeInvoiceStatus(totals.grandTotal, totalPaid);
 
-    return this.prisma.$transaction(async (tx) => {
-      const member = dto.memberId
-        ? await tx.member.findUnique({ where: { id: dto.memberId } })
-        : (await this.members.findOrCreate(tx, dto.newMember!.name, dto.newMember!.phone, dto.newMember!.address)).member;
-      if (!member) throw new NotFoundException('Member tidak ditemukan');
+    return { totals, totalPaid, createdAt, dateKey, status };
+  }
 
-      const invoiceSeq = await this.counters.nextSeq(tx, `invoice_${dateKey}`);
-      const invoice = await tx.invoice.create({
+  /** Tulis invoice lampau + pembayaran + audit di transaksi `tx` milik pemanggil. */
+  async insertManualInvoiceTx(
+    tx: Prisma.TransactionClient,
+    dto: ManualInvoiceCore,
+    prepared: ReturnType<InvoicesService['prepareManual']>,
+    member: { id: string; name: string; phone: string | null },
+    actorId: string,
+  ) {
+    const { totals, totalPaid, createdAt, dateKey, status } = prepared;
+    const invoiceSeq = await this.counters.nextSeq(tx, `invoice_${dateKey}`);
+    const invoice = await tx.invoice.create({
+      data: {
+        number: formatInvoiceNumber(dateKey, invoiceSeq),
+        memberId: member.id,
+        customerName: member.name,
+        customerPhone: member.phone,
+        subtotal: totals.subtotal,
+        discount: dto.discount ?? 0,
+        taxPercent: 0,
+        taxAmount: 0,
+        transportFee: dto.transportFee ?? 0,
+        grandTotal: totals.grandTotal,
+        totalPaid,
+        status,
+        notes: dto.notes ?? 'Input manual — data transaksi lampau',
+        createdById: actorId,
+        createdAt,
+      },
+    });
+
+    for (const item of dto.items) {
+      const lineDiscount = item.discount ?? 0;
+      const lineTotal = Math.round(item.qty * item.unitPrice) - lineDiscount;
+      await tx.invoiceItem.create({
         data: {
-          number: formatInvoiceNumber(dateKey, invoiceSeq),
-          memberId: member.id,
-          customerName: member.name,
-          customerPhone: member.phone,
-          subtotal: totals.subtotal,
-          discount: dto.discount ?? 0,
-          taxPercent: 0,
-          taxAmount: 0,
-          transportFee: dto.transportFee ?? 0,
-          grandTotal: totals.grandTotal,
-          totalPaid,
-          status,
-          notes: dto.notes ?? 'Input manual — data transaksi lampau',
+          invoiceId: invoice.id,
+          kind: 'manual',
+          refId: null,
+          name: item.name,
+          unit: item.unit ?? null,
+          qty: item.qty,
+          unitPrice: item.unitPrice,
+          lineTotal,
+          discount: lineDiscount,
+          buyPriceSnapshot: item.buyPrice ?? null,
+        },
+      });
+    }
+
+    if (totalPaid > 0) {
+      await tx.manualPayment.create({
+        data: {
+          invoiceId: invoice.id,
+          method: 'tunai',
+          amount: totalPaid,
+          note: 'Input manual — pembayaran transaksi lampau',
           createdById: actorId,
           createdAt,
         },
       });
+    }
 
-      for (const item of dto.items) {
-        const lineDiscount = item.discount ?? 0;
-        const lineTotal = Math.round(item.qty * item.unitPrice) - lineDiscount;
-        await tx.invoiceItem.create({
-          data: {
-            invoiceId: invoice.id,
-            kind: 'manual',
-            refId: null,
-            name: item.name,
-            unit: item.unit ?? null,
-            qty: item.qty,
-            unitPrice: item.unitPrice,
-            lineTotal,
-            discount: lineDiscount,
-            buyPriceSnapshot: item.buyPrice ?? null,
-          },
-        });
-      }
-
-      if (totalPaid > 0) {
-        await tx.manualPayment.create({
-          data: {
-            invoiceId: invoice.id,
-            method: 'tunai',
-            amount: totalPaid,
-            note: 'Input manual — pembayaran transaksi lampau',
-            createdById: actorId,
-            createdAt,
-          },
-        });
-      }
-
-      await tx.auditLog.create({
-        data: {
-          actorUid: actorId,
-          action: 'invoices.manual_create',
-          target: invoice.id,
-          detail: {
-            number: invoice.number,
-            grandTotal: totals.grandTotal,
-            totalPaid,
-            memberId: member.id,
-            tanggalAsli: dto.date,
-          },
+    await tx.auditLog.create({
+      data: {
+        actorUid: actorId,
+        action: 'invoices.manual_create',
+        target: invoice.id,
+        detail: {
+          number: invoice.number,
+          grandTotal: totals.grandTotal,
+          totalPaid,
+          memberId: member.id,
+          tanggalAsli: dto.date,
         },
-      });
+      },
+    });
 
-      return tx.invoice.findUnique({
-        where: { id: invoice.id },
-        include: { items: true, member: true },
-      });
+    return tx.invoice.findUnique({
+      where: { id: invoice.id },
+      include: { items: true, member: true },
     });
   }
 }

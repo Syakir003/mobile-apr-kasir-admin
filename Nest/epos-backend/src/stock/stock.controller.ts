@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -29,5 +29,12 @@ export class StockController {
   @Get('movements')
   findMovements(@Query() query: StockMovementsQueryDto) {
     return this.stockService.findMovements(query);
+  }
+
+  // BARU (Siklus QR per-unit, 2026-09-30) — daftar unit fisik 1 batch, buat
+  // halaman cetak/cetak-ulang label QR.
+  @Get('batches/:itemCostId/units')
+  findUnitsByBatch(@Param('itemCostId') itemCostId: string) {
+    return this.stockService.findUnitsByBatch(itemCostId);
   }
 }

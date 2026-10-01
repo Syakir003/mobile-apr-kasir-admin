@@ -15,7 +15,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
 import { wibDayRange } from '../common/wib-date.util';
 import { RemindersService } from '../reminders/reminders.service';
+import { addDays, resolveApproveSchedule } from '../reminders/service-schedule.util';
+import { ApproveCompleteDto } from './dto/approve-complete.dto';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 
 type Role = 'admin' | 'kasir' | 'teknisi';
 
@@ -161,7 +164,7 @@ export class TechnicianJobsService {
       },
       include: {
         member: true,
-        unit: true,
+        unit: { include: UNIT_PRODUCTS_SELECT },
         findings: {
           select: {
             photos: { where: { kind: 'sebelum' }, select: { id: true }, take: 1 },
@@ -210,7 +213,7 @@ export class TechnicianJobsService {
       },
       include: {
         member: true,
-        unit: true,
+        unit: { include: UNIT_PRODUCTS_SELECT },
         order: true,
         findings: {
           include: {
@@ -278,7 +281,7 @@ export class TechnicianJobsService {
       where: status ? { status } : undefined,
       include: {
         member: true,
-        unit: true,
+        unit: { include: UNIT_PRODUCTS_SELECT },
         technician: { select: { id: true, displayName: true, email: true } },
         order: true,
       },
@@ -301,7 +304,7 @@ export class TechnicianJobsService {
       where: { id: jobId },
       include: {
         member: true,
-        unit: true,
+        unit: { include: UNIT_PRODUCTS_SELECT },
         technician: { select: { id: true, displayName: true, email: true } },
         order: true,
         photos: { orderBy: { createdAt: 'asc' } }, // model lama, cuma keisi utk job pra-migrasi
@@ -394,7 +397,7 @@ export class TechnicianJobsService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.technicianJob.findMany({
         where: { technicianId, status: TechnicianJobStatus.selesai },
-        include: { member: true, unit: true, order: true },
+        include: { member: true, unit: { include: UNIT_PRODUCTS_SELECT }, order: true },
         orderBy: { completedAt: 'desc' },
         skip,
         take: pageSize,
@@ -470,7 +473,7 @@ export class TechnicianJobsService {
   ) {
     const job = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
-      include: { unit: true },
+      include: { unit: { include: UNIT_PRODUCTS_SELECT } },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
     this.assertOwnerOrAdmin(job, actorId, role);
@@ -495,6 +498,11 @@ export class TechnicianJobsService {
     }
     if (!job.unit || job.unit.barcodeValue !== scannedBarcode) {
       throw new BadRequestException('Barcode tidak sesuai unit pada job ini');
+    }
+    if (job.unit.status === 'menunggu_data') {
+      throw new BadRequestException(
+        'Data unit AC ini belum dilengkapi. Scan QR-nya di menu Scan Unit dan lengkapi merk/PK dulu.',
+      );
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -720,7 +728,7 @@ export class TechnicianJobsService {
    * temuan + data tambahan seperti sparepart) ITU SENDIRI yang jadi gate,
    * sesuai keputusan user. Efek samping identik dengan complete() lama.
    */
-  async approveComplete(jobId: string, role: Role) {
+  async approveComplete(jobId: string, role: Role, dto: ApproveCompleteDto = {}) {
     if (role !== 'admin') {
       throw new ForbiddenException(
         'Hanya Admin yang boleh menyetujui penyelesaian job',
@@ -735,6 +743,21 @@ export class TechnicianJobsService {
         'Job harus berstatus Menunggu Review untuk disetujui',
       );
     }
+
+    // Pengingat servis per unit AC (2026-09-30) — validasi SEBELUM transaksi
+    // supaya job tidak tertutup kalau siklusnya belum diisi.
+    const unitForSchedule = job.unitId
+      ? await this.prisma.memberAcUnit.findUnique({
+          where: { id: job.unitId },
+          select: { serviceIntervalDays: true },
+        })
+      : null;
+    const schedule = resolveApproveSchedule({
+      jobType: job.type,
+      reminderEnabled: dto.reminderEnabled,
+      serviceIntervalDays: dto.serviceIntervalDays,
+      unitIntervalDays: unitForSchedule?.serviceIntervalDays ?? null,
+    });
 
     let pendingWaLogId: string | null = null;
 
@@ -752,34 +775,42 @@ export class TechnicianJobsService {
         });
       }
       if (job.unitId) {
-        // Siklus WA/Fonnte — siklus servis berikutnya gak lagi di-hardcode
-        // "+3 bulan", tapi diresolusi per unit/jenis job (override unit ->
-        // default ReminderSetting -> 0 = gak dijadwalkan). Port dari
-        // resolve_service_interval_days() SQL, lihat RemindersService.
-        const intervalDays = await this.reminders.resolveIntervalDaysTx(
-          tx,
-          job.unitId,
-          job.type,
-        );
-        const nextService =
-          intervalDays > 0 ? new Date(now.getTime() + intervalDays * 86400000) : null;
+        // Pengingat servis per unit AC (2026-09-30) — 1 unit = 1 set AC
+        // (indoor+outdoor). Hanya cuci/maintenance/pemasangan yang mengatur
+        // ulang jadwal; jenis job lain (perbaikan dst) TIDAK menyentuh
+        // nextServiceDate/siklus/saklar (dulu malah mengosongkannya).
+        const unitData: Prisma.MemberAcUnitUpdateInput = {
+          status: job.type === 'pemasangan' ? 'aktif' : undefined,
+          installationDate: job.type === 'pemasangan' ? now : undefined,
+        };
+        let nextService: Date | null = null;
+        if (schedule.touch) {
+          unitData.lastServiceDate = now;
+          if (schedule.enabled) {
+            nextService = addDays(now, schedule.intervalDays);
+            unitData.reminderEnabled = true;
+            unitData.serviceIntervalDays = schedule.intervalDays;
+            unitData.nextServiceDate = nextService;
+          } else {
+            unitData.reminderEnabled = false;
+            unitData.nextServiceDate = null;
+          }
+        }
 
         const updatedUnit = await tx.memberAcUnit.update({
           where: { id: job.unitId },
-          data: {
-            status: job.type === 'pemasangan' ? 'aktif' : undefined,
-            installationDate: job.type === 'pemasangan' ? now : undefined,
-            lastServiceDate: now,
-            nextServiceDate: nextService,
-          },
+          data: unitData,
         });
 
-        // Pesan "pekerjaan selesai" — cuma diantre kalau unit ini memang
-        // dapat siklus berikutnya (intervalDays>0). Cuma dibuat baris
-        // 'pending' DI SINI (dalam transaksi); Fonnte beneran dipanggil
-        // SETELAH transaksi ini commit (lihat blok di bawah) biar gak nahan
-        // lock Postgres sambil nunggu network I/O.
-        if (intervalDays > 0 && nextService) {
+        if (schedule.touch && !schedule.enabled) {
+          await this.reminders.cancelPendingForUnitTx(tx, job.unitId, 'Pengingat unit dimatikan');
+        }
+
+        // Pesan "pekerjaan selesai" — cuma diantre kalau pengingat nyala dan
+        // ada jadwal berikutnya. Cuma dibuat baris 'pending' DI SINI (dalam
+        // transaksi); provider WA beneran dipanggil SETELAH transaksi ini
+        // commit biar gak nahan lock Postgres sambil nunggu network I/O.
+        if (schedule.touch && schedule.enabled && nextService) {
           const log = await this.reminders.enqueueJobCompleteMessageTx(tx, {
             jobId,
             memberId: updatedUnit.memberId,

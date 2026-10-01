@@ -242,9 +242,26 @@ export class RemindersService {
     return 0;
   }
 
+  /**
+   * Batalkan pesan pengingat/selesai-servis yang masih 'pending' untuk satu
+   * unit AC (1 set indoor+outdoor) — dipakai saat saklar pengingat unit
+   * dimatikan. Pola sama seperti MembersService.setWaOptOut.
+   */
+  async cancelPendingForUnitTx(tx: Prisma.TransactionClient, unitId: string, reason: string) {
+    const res = await tx.whatsappLog.updateMany({
+      where: {
+        status: 'pending',
+        kind: { in: ['selesai_servis', 'reminder_h3', 'reminder_h7'] },
+        unitIds: { has: unitId },
+      },
+      data: { status: 'dibatalkan', error: reason },
+    });
+    return res.count;
+  }
+
   /** Port dari build_wa_body() SQL — fallback berlapis (baris tabel ->
    * default kode -> generik) supaya TIDAK PERNAH melempar/kosong. */
-  private async buildBodyTx(
+  async buildBodyTx(
     tx: Prisma.TransactionClient,
     memberId: string,
     kind: TemplateKind,
@@ -257,11 +274,24 @@ export class RemindersService {
     const units = await tx.memberAcUnit.findMany({
       where: { id: { in: unitIds } },
       orderBy: { roomLocation: 'asc' },
+      include: {
+        indoorProduct: { select: { name: true } },
+        outdoorProduct: { select: { name: true } },
+      },
     });
+    // 1 baris = 1 set AC (indoor+outdoor). Nama: merek+model kalau ada,
+    // kalau kosong (unit dari paket POS) pakai nama produk indoor/outdoor.
     const unitText =
       units.length > 0
         ? units
-            .map((u) => `- ${u.brand ?? ''} ${u.model ?? ''} (${u.roomLocation ?? '-'})`.replace(/\s+/g, ' ').trim())
+            .map((u) => {
+              const label =
+                `${u.brand ?? ''} ${u.model ?? ''}`.replace(/\s+/g, ' ').trim() ||
+                u.indoorProduct?.name ||
+                u.outdoorProduct?.name ||
+                'Unit AC';
+              return u.roomLocation ? `- ${label} (${u.roomLocation})` : `- ${label}`;
+            })
             .join('\n')
         : '- Unit AC Anda';
 
@@ -360,6 +390,7 @@ export class RemindersService {
     const units = await this.prisma.memberAcUnit.findMany({
       where: {
         status: 'aktif',
+        reminderEnabled: true,
         nextServiceDate: { not: null },
         member: { active: true, waOptOut: false },
         // "jika belum pernah diservis lagi": begitu unit punya job yang

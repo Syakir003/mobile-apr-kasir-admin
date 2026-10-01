@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import type { ListStatus } from '../common/dto/list-status-query.dto';
 import {
   CreateInstallationPackageDto,
   InstallationPackageItemDto,
@@ -18,9 +19,12 @@ import { UpdateInstallationPackageDto } from './dto/update-installation-package.
 export class InstallationPackagesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
+  // BARU (2026-09-25, fitur nonaktifkan Master Data) — `status` opsional,
+  // default 'active'.
+  findAll(status: ListStatus = 'active') {
+    const where = status === 'all' ? {} : { active: status === 'inactive' ? false : true };
     return this.prisma.installationPackage.findMany({
-      where: { active: true },
+      where,
       include: { items: { include: { sparepart: true } } },
       orderBy: { name: 'asc' },
     });

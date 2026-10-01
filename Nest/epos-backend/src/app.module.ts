@@ -19,6 +19,7 @@ import { TechnicianJobsModule } from './technician-jobs/technician-jobs.module';
 import { MaterialRequestsModule } from './material-requests/material-requests.module';
 import { PaymentsModule } from './payments/payments.module';
 import { InvoicesModule } from './invoices/invoices.module';
+import { LegacyImportModule } from './legacy-import/legacy-import.module';
 import { ServiceOrdersModule } from './service-orders/service-orders.module';
 import { StockModule } from './stock/stock.module';
 import { ShiftsModule } from './shifts/shifts.module';
@@ -30,6 +31,8 @@ import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { RemindersModule } from './reminders/reminders.module';
+import { SystemResetModule } from './system-reset/system-reset.module';
+import { KasirScanModule } from './kasir-scan/kasir-scan.module';
 
 @Module({
   imports: [
@@ -54,6 +57,7 @@ import { RemindersModule } from './reminders/reminders.module';
     MaterialRequestsModule,
     PaymentsModule,
     InvoicesModule,
+    LegacyImportModule,
     ServiceOrdersModule,
     StockModule,
     ShiftsModule,
@@ -64,6 +68,8 @@ import { RemindersModule } from './reminders/reminders.module';
     NotificationsModule,
     WhatsappModule,
     RemindersModule,
+    SystemResetModule,
+    KasirScanModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -14,6 +14,7 @@ import {
 } from './dto/create-material-request.dto';
 import { DecideMaterialRequestDto } from './dto/decide-material-request.dto';
 import { MaterialRequestQueryDto } from './dto/material-request-query.dto';
+import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 
 type Role = 'admin' | 'kasir' | 'teknisi';
 
@@ -102,7 +103,7 @@ export class MaterialRequestsService {
             select: {
               id: true,
               type: true,
-              unit: { select: { brand: true, model: true, barcodeValue: true } },
+              unit: { select: { brand: true, model: true, barcodeValue: true, ...UNIT_PRODUCTS_SELECT } },
               member: { select: { name: true } },
             },
           },
@@ -341,7 +342,7 @@ export class MaterialRequestsService {
         // (bukan disederhanain jadi tanpa-if) sebagai pengaman kalau ada
         // baris lama/data legacy dengan kind lain nyangkut di DB.
         if (item.kind === 'sparepart') {
-          await this.stockLocking.lockAndDeduct(
+          const locked = await this.stockLocking.lockAndDeduct(
             tx,
             item.kind,
             // refId wajib diisi di CreateMaterialRequestDto (@IsNotEmpty) —
@@ -351,16 +352,41 @@ export class MaterialRequestsService {
             item.refId!,
             Number(item.qty),
           );
-          await tx.stockMovement.create({
-            data: {
-              itemKind: item.kind,
-              refId: item.refId!,
-              name: item.name,
-              qtyChange: new Prisma.Decimal(item.qty).neg(),
-              reason: 'pemakaian_servis',
-              createdById: actorId,
-            },
-          });
+
+          // Siklus sparepart-per-gulungan (2026-09-23) — kalau sparepart-nya
+          // batchTracked, `locked.batchDeductions` keisi (FIFO lintas
+          // item_costs) dan tiap request cuma nyumbang 1 "consumer" ke
+          // lockAndDeduct (beda dari PosService.checkout yang bisa gabungan
+          // cart+paket) — jadi gak butuh allocateBatchDeductions, langsung
+          // loop aja, 1 StockMovement per batch/roll yang kepotong. Sparepart
+          // flat (batchDeductions undefined) tetap 1 StockMovement gabungan,
+          // perilaku lama gak berubah.
+          if (locked.batchDeductions) {
+            for (const d of locked.batchDeductions) {
+              await tx.stockMovement.create({
+                data: {
+                  itemKind: item.kind,
+                  refId: item.refId!,
+                  name: item.name,
+                  qtyChange: new Prisma.Decimal(d.qty).neg(),
+                  reason: 'pemakaian_servis',
+                  createdById: actorId,
+                  itemCostId: d.itemCostId,
+                },
+              });
+            }
+          } else {
+            await tx.stockMovement.create({
+              data: {
+                itemKind: item.kind,
+                refId: item.refId!,
+                name: item.name,
+                qtyChange: new Prisma.Decimal(item.qty).neg(),
+                reason: 'pemakaian_servis',
+                createdById: actorId,
+              },
+            });
+          }
         }
       }
       return tx.materialRequest.update({
