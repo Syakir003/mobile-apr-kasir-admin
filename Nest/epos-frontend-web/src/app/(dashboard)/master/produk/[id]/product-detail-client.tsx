@@ -353,7 +353,7 @@ export function ProductDetailClient({ productId }: { productId: string }) {
         )}
       </div>
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Batch Aktif</CardTitle>

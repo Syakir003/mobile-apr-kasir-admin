@@ -207,7 +207,7 @@ function ProductOpnameTab() {
     // rupiah) & form koreksi, biar gak kepotong kayak sebelumnya
     // (grid-cols dulu kebalik: picker 1fr/lebar, tabel batch malah kepepet
     // di kolom 420px).
-    <div className="grid items-start gap-6 lg:grid-cols-[360px_1fr]">
+    <div className="grid items-start gap-6 xl:grid-cols-[360px_1fr]">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Pilih Produk</CardTitle>
@@ -419,7 +419,7 @@ function SparepartOpnameTab() {
   return (
     // Konsisten sama tab Produk di atas — picker sempit (360px), sisanya
     // buat kartu form.
-    <div className="grid items-start gap-6 lg:grid-cols-[360px_1fr]">
+    <div className="grid items-start gap-6 xl:grid-cols-[360px_1fr]">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Pilih Sparepart</CardTitle>

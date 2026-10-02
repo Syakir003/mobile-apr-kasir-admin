@@ -264,7 +264,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
         <div className="grid h-fit gap-6">
           <Card>
             <CardHeader>

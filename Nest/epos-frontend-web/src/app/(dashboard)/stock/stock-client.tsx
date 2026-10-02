@@ -299,7 +299,7 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
 
   return (
     <>
-      <div className="grid items-start gap-6 lg:grid-cols-[1fr_420px]">
+      <div className="grid items-start gap-6 xl:grid-cols-[1fr_420px]">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Pilih Produk</CardTitle>
@@ -539,7 +539,7 @@ function SparepartStockInTab() {
   }
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[1fr_420px]">
+    <div className="grid items-start gap-6 xl:grid-cols-[1fr_420px]">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Pilih Sparepart</CardTitle>

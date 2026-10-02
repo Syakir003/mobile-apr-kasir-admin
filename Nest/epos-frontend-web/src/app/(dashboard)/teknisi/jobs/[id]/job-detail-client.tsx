@@ -251,7 +251,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
         <p className="mt-1 text-sm text-muted-foreground">{job.type}</p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
         <div className="grid gap-6">
           <Card>
             <CardHeader>

@@ -121,7 +121,7 @@ export function MemberDetailClient({ memberId }: { memberId: string }) {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
         <Card className="h-fit">
           <CardHeader>
             <CardTitle className="text-base">Data Member</CardTitle>

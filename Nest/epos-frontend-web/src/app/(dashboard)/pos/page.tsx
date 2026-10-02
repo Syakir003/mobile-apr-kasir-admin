@@ -1005,7 +1005,7 @@ export default function PosPage() {
           bakal maksa kolom kiri ikut setinggi itu (nyisain ruang kosong
           aneh di bawah card pencarian). items-start bikin tiap kolom
           setinggi konten masing-masing. */}
-      <div className="grid items-start gap-6 lg:grid-cols-[1fr_400px]">
+      <div className="grid items-start gap-6 xl:grid-cols-[1fr_400px]">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Cari & Tambah Item</CardTitle>
