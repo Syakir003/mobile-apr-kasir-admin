@@ -131,7 +131,7 @@ export function MonitoringTab() {
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {CARDS.map((c) => {
           const active = status === c.status;
           return (
@@ -198,7 +198,7 @@ export function MonitoringTab() {
                 <TableHead>Servis terakhir</TableHead>
                 <TableHead>Siklus</TableHead>
                 <TableHead>Jadwal berikutnya</TableHead>
-                <TableHead>WA terakhir</TableHead>
+                <TableHead className="hidden xl:table-cell">WA terakhir</TableHead>
                 <TableHead className="text-right">Aksi</TableHead>
               </TableRow>
             </TableHeader>
@@ -250,7 +250,7 @@ export function MonitoringTab() {
                       {u.adaJobBerjalan && <Badge variant="outline">Job berjalan</Badge>}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden xl:table-cell">
                     {u.lastWa ? (
                       <div>
                         <Badge

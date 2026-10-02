@@ -181,7 +181,7 @@ export function DashboardShell({
           discroll pakai wheel/drag, cuma track abu-abu panjangnya yang
           gak keliatan) — kepanjangan kalau dibiarin nampang di sidebar
           sesempit ini. */}
-      <aside className="hidden h-full w-[260px] shrink-0 flex-col overflow-hidden rounded-r-[2rem] bg-sidebar text-sidebar-foreground shadow-[4px_0_20px_rgba(11,107,98,0.15)] md:flex print:hidden">
+      <aside className="hidden h-full w-[260px] shrink-0 flex-col overflow-hidden rounded-r-[2rem] bg-sidebar text-sidebar-foreground shadow-[4px_0_20px_rgba(11,107,98,0.15)] lg:flex print:hidden">
         <div className="shrink-0 px-4 pt-4">
           <div className="mb-8 px-2">
             {/* Logo APR (Ayub Podo Rukun) — dikasih chip putih biar kontras
@@ -218,19 +218,19 @@ export function DashboardShell({
             (judul + tombol hamburger). Sekarang selalu tampil (desktop
             ikutan) karena butuh tempat buat NotificationBell (Siklus
             Notifikasi Push) yang harus keliatan di semua ukuran layar, gak
-            cuma mobile. Judul "E-POS AC" & tombol hamburger TETAP md:hidden
+            cuma mobile. Judul "E-POS AC" & tombol hamburger TETAP lg:hidden
             (desktop udah ada judul di sidebar, gak perlu dobel). Nav mobile
             TETAP putih (bg-card) — padanan `_MobileNav` Flutter, yang juga
             gak pernah dibikin teal kayak sidebar desktop. shrink-0 biar
             header ini gak ikut kegencet pas <main> scroll. */}
         <header className="flex shrink-0 items-center justify-between border-b bg-card px-4 py-2 print:hidden">
-          <p className="text-sm font-semibold md:hidden">E-POS AC</p>
+          <p className="text-sm font-semibold lg:hidden">E-POS AC</p>
           <div className="ml-auto flex items-center gap-1">
             <NotificationBell />
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden"
+              className="lg:hidden"
               onClick={() => setMobileOpen((v) => !v)}
             >
               <Menu className="size-5" />
@@ -238,7 +238,7 @@ export function DashboardShell({
           </div>
         </header>
         {mobileOpen && (
-          <div className="shrink-0 border-b bg-card p-4 md:hidden print:hidden">
+          <div className="shrink-0 border-b bg-card p-4 lg:hidden print:hidden">
             <NavLinks items={navItems} variant="mobile" onNavigate={() => setMobileOpen(false)} />
             <Button
               variant="ghost"
