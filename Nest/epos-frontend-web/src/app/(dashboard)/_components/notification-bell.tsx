@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { getSocket } from '@/lib/socket';
+import { useRouter } from 'next/navigation';
 import { formatRelativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,29 @@ interface NotificationsPage {
 // push notif ke browser butuh setup terpisah (firebase client SDK, service
 // worker, VAPID key), di luar scope bell in-app ini. Bell ini fokus ke
 // notifikasi yang muncul SELAGI user buka web-nya, bukan push pas app ditutup.
+// Halaman yang dibuka saat notifikasi diklik, berdasarkan jenisnya.
+function notificationHref(n: { type: string; target: string | null }): string | null {
+  switch (n.type) {
+    case 'job_review':
+    case 'job_assigned':
+      return n.target ? `/teknisi/jobs/${n.target}` : '/teknisi/queue';
+    case 'request_submitted':
+      return '/material-requests';
+    case 'request_decided':
+      return '/teknisi/queue';
+    case 'penjualan_baru':
+      return '/kasir-scan';
+    case 'stok_menipis':
+      return '/master/sparepart';
+    case 'opname_selesai':
+      return '/stock/opname';
+    default:
+      return null;
+  }
+}
+
 export function NotificationBell() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [open, setOpen] = React.useState(false);
 
@@ -144,7 +167,14 @@ export function NotificationBell() {
             <button
               key={n.id}
               type="button"
-              onClick={() => !n.read && markReadMutation.mutate(n.id)}
+              onClick={() => {
+                if (!n.read) markReadMutation.mutate(n.id);
+                const href = notificationHref(n);
+                if (href) {
+                  setOpen(false);
+                  router.push(href);
+                }
+              }}
               className={cn(
                 'flex w-full flex-col gap-0.5 border-b px-3 py-2.5 text-left text-sm last:border-b-0 hover:bg-accent',
                 !n.read && 'bg-primary/5',

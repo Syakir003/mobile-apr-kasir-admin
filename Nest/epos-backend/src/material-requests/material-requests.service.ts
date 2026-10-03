@@ -7,6 +7,7 @@ import {
 import { InvoiceStatus, Prisma, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockLockingService } from '../common/services/stock-locking.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
 import {
   CreateMaterialRequestDto,
@@ -31,6 +32,7 @@ export class MaterialRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stockLocking: StockLockingService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -133,7 +135,7 @@ export class MaterialRequestsService {
     const priced = await this.priceItems(dto.items);
     const total = priced.reduce((sum, i) => sum + i.lineTotal, 0);
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       // Lock row job DULU (FOR UPDATE) sebelum baca status — pasangan dari
       // lock yang sama di TechnicianJobsService.submitForReview(). Tanpa
       // ini, submitForReview() bisa lolos cek "gak ada pending request" di
@@ -169,6 +171,26 @@ export class MaterialRequestsService {
         },
         include: { items: true },
       });
+    });
+    // Kabari admin ada pengajuan baru (jalur online maupun offline-sync).
+    if (role !== 'admin') {
+      void this.notifyAdminsNewRequest(jobId, created.id, created.items.length, Number(created.total)).catch(
+        () => undefined,
+      );
+    }
+    return created;
+  }
+
+  private async notifyAdminsNewRequest(jobId: string, requestId: string, itemCount: number, total: number) {
+    const job = await this.prisma.technicianJob.findUnique({
+      where: { id: jobId },
+      select: { technician: { select: { displayName: true } }, member: { select: { name: true } } },
+    });
+    await this.notifications.notifyRoles(['admin'], {
+      title: 'Pengajuan Material Baru',
+      body: `${job?.technician?.displayName ?? 'Teknisi'} mengajukan ${itemCount} item sparepart (Rp${total.toLocaleString('id-ID')})${job?.member ? ` untuk ${job.member.name}` : ''}.`,
+      type: 'request_submitted',
+      target: requestId,
     });
   }
 

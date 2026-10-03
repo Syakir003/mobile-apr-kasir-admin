@@ -18,6 +18,7 @@ import { RemindersService } from '../reminders/reminders.service';
 import { addDays, resolveApproveSchedule } from '../reminders/service-schedule.util';
 import { ApproveCompleteDto } from './dto/approve-complete.dto';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 
 type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
@@ -45,6 +46,7 @@ export class TechnicianJobsService {
     private readonly prisma: PrismaService,
     private readonly reminders: RemindersService,
     private readonly whatsapp: WhatsappService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private assertOwnerOrAdmin(
@@ -667,7 +669,7 @@ export class TechnicianJobsService {
     // ini pegang lock & baca job.status, create() lain yang masih nunggu commit
     // sebelumnya (atau setelahnya) tetap konsisten dengan hasil akhir count
     // di bawah karena dihitung di dalam transaction yang sama, setelah lock.
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
       const job = await tx.technicianJob.findUnique({ where: { id: jobId } });
       if (!job) throw new NotFoundException('Job tidak ditemukan');
@@ -725,6 +727,29 @@ export class TechnicianJobsService {
           updatedAt: new Date(),
         },
       });
+    });
+    // Kabari admin (lonceng web). Dipasang di servis, bukan controller, supaya
+    // jalur offline (sync-batch) dari mobile juga ikut memberi tahu admin.
+    if (role !== 'admin') void this.notifyAdminsReview(jobId).catch(() => undefined);
+    return updated;
+  }
+
+  /** Notifikasi ke semua admin: ada job menunggu review. */
+  private async notifyAdminsReview(jobId: string) {
+    const job = await this.prisma.technicianJob.findUnique({
+      where: { id: jobId },
+      select: {
+        technician: { select: { displayName: true } },
+        member: { select: { name: true } },
+        unit: { select: { brand: true, roomLocation: true } },
+      },
+    });
+    const unit = [job?.unit?.brand, job?.unit?.roomLocation].filter(Boolean).join(' · ');
+    await this.notifications.notifyRoles(['admin'], {
+      title: 'Job Menunggu Review',
+      body: `${job?.technician?.displayName ?? 'Teknisi'} mengajukan job${job?.member ? ` ${job.member.name}` : ''}${unit ? ` (${unit})` : ''} untuk direview.`,
+      type: 'job_review',
+      target: jobId,
     });
   }
 
