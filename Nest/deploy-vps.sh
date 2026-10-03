@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deploy E-POS AC ke VPS (jalankan DI VPS sebagai root):
 #   scp Nest/deploy-vps.sh root@72.62.126.51:/root/ && ssh -t root@72.62.126.51 "bash /root/deploy-vps.sh"
-# atau salin ke VPS lalu: bash deploy-vps.sh [branch]
+# Non-interaktif (mis. dari Claude Code): YES=1 bash /root/deploy-vps.sh [branch]
+# Tanpa YES=1 skrip berhenti setelah backup dan menunggu ketikan "ya".
 #
 # Urutan: cek awal -> backup DB -> pull -> migrasi -> build -> restart -> cek sehat.
 # Berhenti di langkah pertama yang gagal. Migrasi Prisma TIDAK bisa di-undo otomatis;
@@ -27,11 +28,10 @@ on_fail() {
 DEPLOY GAGAL. Kode sebelumnya: $PREV   Dump DB: $DUMP
 Kalau MIGRASI belum jalan  -> cukup: git checkout $PREV && pm2 restart epos-backend epos-frontend
 Kalau MIGRASI sudah jalan  -> kembalikan DB dulu:
-  pg_restore --clean --if-exists --no-owner -d "$DB_URL_PLAIN" $DUMP
+  pg_restore --clean --if-exists --no-owner -d "<DATABASE_URL dari $BE/.env, tanpa ?schema=...>" $DUMP
   lalu: git checkout $PREV && (cd $BE && npx prisma generate && npm run build) && (cd $FE && npm run build) && pm2 restart epos-backend epos-frontend
 EOF
 }
-DB_URL_PLAIN=""
 trap on_fail ERR
 
 say "1/7 Cek awal"
@@ -46,14 +46,9 @@ echo "Jumlah commit baru: $(git rev-list --count HEAD..FETCH_HEAD)"
 DB_URL_PLAIN=$(grep -E '^DATABASE_URL=' "$BE/.env" | head -1 | cut -d= -f2- | tr -d '"' | sed 's/?.*$//')
 [ -n "$DB_URL_PLAIN" ] || { echo "DATABASE_URL tidak ketemu di $BE/.env"; exit 1; }
 
-say "2/7 Pra-cek data (migrasi 20260922 mewajibkan products.sell_price terisi)"
-NULLS=$(psql "$DB_URL_PLAIN" -Atc "select count(*) from products where sell_price is null" 2>/dev/null || echo "?")
-echo "products dengan sell_price NULL: $NULLS"
-if [ "$NULLS" != "0" ]; then
-  echo "Isi dulu (atau cek migrasi 20260922000000_uniform_sell_price) sebelum lanjut."; exit 1
-fi
-echo "Ringkasan isi DB:"
-psql "$DB_URL_PLAIN" -Atc "select 'invoices='||count(*) from invoices union all select 'members='||count(*) from members union all select 'products='||count(*) from products"
+say "2/7 Ringkasan isi DB (sebelum migrasi)"
+psql "$DB_URL_PLAIN" -Atc "select 'invoices='||count(*) from invoices union all select 'members='||count(*) from members union all select 'products='||count(*) from products" || true
+echo "Catatan: produk yang belum pernah stock-in dapat sell_price 0 dari migrasi; isi manual di Master Data."
 
 say "3/7 Backup database -> $DUMP"
 mkdir -p "$BACKUP_DIR"
@@ -61,7 +56,8 @@ pg_dump -Fc "$DB_URL_PLAIN" -f "$DUMP"
 cp "$BE/.env" "$BACKUP_DIR/backend-env-$STAMP.bak"
 pg_restore -l "$DUMP" >/dev/null && echo "Dump valid: $(du -h "$DUMP" | cut -f1)"
 
-read -r -p $'\nLanjut pull + migrasi + restart? Ketik "ya": ' OK </dev/tty
+OK=${YES:+ya}
+[ -n "$OK" ] || read -r -p $'\nLanjut pull + migrasi + restart? Ketik "ya": ' OK </dev/tty
 [ "$OK" = "ya" ] || { echo "Dibatalkan. (Backup tetap tersimpan.)"; trap - ERR; exit 0; }
 
 say "4/7 Pull kode"
