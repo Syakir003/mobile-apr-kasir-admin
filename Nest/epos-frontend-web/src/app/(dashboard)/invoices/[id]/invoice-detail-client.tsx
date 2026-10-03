@@ -11,6 +11,7 @@ import { ArrowLeft, MessageCircle } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { requiredNumberField, trimmedOrUndefined } from '@/lib/form-number';
+import { cn } from '@/lib/utils';
 import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -77,6 +78,9 @@ interface InvoiceAdjustmentRow {
   id: string;
   amount: string;
   reason: string;
+  // Terisi bila penyesuaian ini tambahan dari pengajuan sparepart teknisi;
+  // kosong = diskon (ad-hoc atau voucher) yang sudah masuk total Diskon.
+  requestId: string | null;
   createdAt: string;
 }
 interface ManualPaymentRow {
@@ -251,8 +255,13 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
           </div>
           {latestPayment && (
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Pembayaran</span>
-              <span className="font-medium">{methodLabel(latestPayment.method)}</span>
+              <span className="text-muted-foreground">Sudah dibayar</span>
+              <span className="font-medium">
+                {formatRupiah(data.totalPaid)}
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                  (terakhir via {methodLabel(latestPayment.method)})
+                </span>
+              </span>
             </div>
           )}
           {sisa > 0 && data.status !== 'batal' && (
@@ -299,9 +308,19 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
             <CardContent className="grid gap-1.5 text-sm">
               <TotalRow label="Subtotal" value={formatRupiah(data.subtotal)} />
               {Number(data.discount) > 0 && (
-                <TotalRow label="Diskon" value={`- ${formatRupiah(data.discount)}`} />
+                <TotalRow
+                  label={`Diskon${
+                    data.adjustments.some((a) => !a.requestId)
+                      ? ` (${data.adjustments
+                          .filter((a) => !a.requestId)
+                          .map((a) => adjustmentLabel(a.reason))
+                          .join(', ')})`
+                      : ''
+                  }`}
+                  value={`- ${formatRupiah(data.discount)}`}
+                />
               )}
-              {data.adjustments.map((adj) => (
+              {data.adjustments.filter((a) => a.requestId).map((adj) => (
                 <TotalRow
                   key={adj.id}
                   label={adjustmentLabel(adj.reason)}
@@ -367,7 +386,13 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
                       {trimZero(item.qty)} {item.unit || ''} × {formatRupiah(item.unitPrice)}
                     </p>
                   </div>
-                  <p className="font-medium">{formatRupiah(item.lineTotal)}</p>
+                  <p className="font-medium">
+                    {item.kind === 'product' && Number(item.lineTotal) === 0 ? (
+                      <span className="text-xs font-normal text-muted-foreground">Termasuk paket</span>
+                    ) : (
+                      formatRupiah(item.lineTotal)
+                    )}
+                  </p>
                 </div>
               ))}
             </CardContent>
@@ -526,9 +551,9 @@ function TotalRow({
   bold?: boolean;
 }) {
   return (
-    <div className="flex justify-between">
+    <div className="flex justify-between gap-3">
       <span className={bold ? 'font-semibold' : 'text-muted-foreground'}>{label}</span>
-      <span className={bold ? 'font-semibold' : ''}>{value}</span>
+      <span className={cn('shrink-0 whitespace-nowrap', bold && 'font-semibold')}>{value}</span>
     </div>
   );
 }
