@@ -13,6 +13,7 @@ import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
 import { optionalNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { Button } from '@/components/ui/button';
+import { MemberPicker } from '@/components/member-picker';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
 import { Textarea } from '@/components/ui/textarea';
@@ -309,28 +310,12 @@ export default function PosPage() {
   // HP/alamat di form otomatis keisi dan checkout nanti dikirim dengan
   // memberId eksplisit (bukan ngandelin pencocokan by-phone di backend).
   const [selectedMember, setSelectedMember] = React.useState<MemberSearchResult | null>(null);
-  const [memberSearch, setMemberSearch] = React.useState('');
-  const [memberSearchDebounced, setMemberSearchDebounced] = React.useState('');
   // Kode voucher (opsional) — ketik manual kasir, PERSIS kayak app mobile
   // (bukan dropdown pilihan voucher yang udah "diklaim" member). Voucher
   // tetap nempel ke satu member sejak dibuat admin, tapi validasi itu
   // (kode cocok member yang mana) sepenuhnya di server saat checkout —
   // field ini gak digating oleh ada/tidaknya member yang dipilih.
   const [voucherCode, setVoucherCode] = React.useState('');
-
-  React.useEffect(() => {
-    const t = setTimeout(() => setMemberSearchDebounced(memberSearch.trim()), 300);
-    return () => clearTimeout(t);
-  }, [memberSearch]);
-
-  const memberSearchQuery = useQuery({
-    queryKey: ['members-search', memberSearchDebounced],
-    queryFn: () =>
-      apiClient.get<MemberSearchResult[]>(
-        `/members/search?q=${encodeURIComponent(memberSearchDebounced)}`,
-      ),
-    enabled: memberSearchDebounced.length > 0,
-  });
 
   const productsQuery = useQuery({
     queryKey: ['products'],
@@ -596,7 +581,6 @@ export default function PosPage() {
 
   function selectMember(m: MemberSearchResult) {
     setSelectedMember(m);
-    setMemberSearch('');
     form.setValue('name', m.name, { shouldValidate: true });
     form.setValue('phone', m.phone ?? '', { shouldValidate: true });
     form.setValue('address', m.address ?? '');
@@ -736,7 +720,6 @@ export default function PosPage() {
       setLines([]);
       form.reset();
       setSelectedMember(null);
-      setMemberSearch('');
       setVoucherCode('');
       setPendingWarnings(null);
       // Stok produk/sparepart yg baru kepotong -> data master jadi basi,
@@ -1250,57 +1233,7 @@ export default function PosPage() {
                     member" yang ada di app mobile: pelanggan yang balik
                     lagi tinggal dicari & dipilih di sini, gak perlu
                     diketik ulang dan gak bikin akun member baru/ganda. */}
-                <div className="grid gap-1.5">
-                  <FormLabel>Member</FormLabel>
-                  {selectedMember ? (
-                    <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/50 px-3 py-2 text-sm">
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">{selectedMember.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {selectedMember.phone || 'Tanpa nomor HP'}
-                        </p>
-                      </div>
-                      <Button type="button" variant="ghost" size="sm" onClick={clearSelectedMember}>
-                        Ganti
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        placeholder="Cari nama/HP member lama, atau kosongkan buat pelanggan baru"
-                        className="pl-9"
-                        value={memberSearch}
-                        onChange={(e) => setMemberSearch(e.target.value)}
-                      />
-                      {memberSearch.trim() && (
-                        <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
-                          {memberSearchQuery.isLoading && (
-                            <p className="p-2 text-xs text-muted-foreground">Mencari...</p>
-                          )}
-                          {memberSearchQuery.data?.length === 0 && (
-                            <p className="p-2 text-xs text-muted-foreground">
-                              Gak ketemu — isi manual di bawah buat pelanggan baru.
-                            </p>
-                          )}
-                          {memberSearchQuery.data?.map((m) => (
-                            <button
-                              type="button"
-                              key={m.id}
-                              onClick={() => selectMember(m)}
-                              className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
-                            >
-                              <p className="font-medium">{m.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {m.phone || 'Tanpa nomor HP'}
-                              </p>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <MemberPicker value={selectedMember} onSelect={selectMember} onClear={clearSelectedMember} />
 
                 {/* Kode voucher — diketik manual kasir, sama kayak app mobile.
                     Voucher dibuat admin untuk satu pelanggan tertentu (lihat

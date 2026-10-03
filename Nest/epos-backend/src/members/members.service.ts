@@ -137,16 +137,21 @@ export class MembersService {
    * tanpa harus tau ID mentahnya. Pola sama SparepartsController.search. */
   async search(query: string) {
     const q = query.trim();
-    if (!q) return [];
+    // Tanpa kata kunci = daftar awal (20 member pertama A-Z) buat dropdown
+    // pilih member di POS/servis mandiri; ketik buat mempersempit.
     return this.prisma.member.findMany({
       where: {
         active: true,
-        OR: [
-          { name: { contains: q, mode: 'insensitive' } },
-          { phone: { contains: q } },
-        ],
+        ...(q
+          ? {
+              OR: [
+                { name: { contains: q, mode: 'insensitive' } },
+                { phone: { contains: q } },
+              ],
+            }
+          : {}),
       },
-      take: 10,
+      take: 20,
       orderBy: { name: 'asc' },
     });
   }
