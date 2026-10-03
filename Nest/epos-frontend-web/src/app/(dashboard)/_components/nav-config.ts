@@ -1,6 +1,8 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Bell,
+  Boxes,
+  Hammer,
   ClipboardCheck,
   ClipboardList,
   CreditCard,
@@ -96,7 +98,12 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
       label: 'Data Master',
       icon: Database,
       children: [
-        { href: '/master', label: 'Master Data', icon: Package },
+        // Langsung ke tiap data master (tanpa halaman kartu /master dulu),
+        // sama seperti menu gudang.
+        { href: '/master/produk', label: 'Produk AC', icon: Package },
+        { href: '/master/sparepart', label: 'Sparepart', icon: Wrench },
+        { href: '/master/jasa', label: 'Jasa', icon: Hammer },
+        { href: '/master/paket', label: 'Paket Instalasi', icon: Boxes },
         // Barang Masuk (stock-in per-batch) DIHAPUS dari nav per 2026-09-15
         // — form-nya sekarang nempel langsung di dialog "Lihat Batch"/"Stok"
         // pada Master > Produk & Master > Sparepart, gak perlu halaman/menu

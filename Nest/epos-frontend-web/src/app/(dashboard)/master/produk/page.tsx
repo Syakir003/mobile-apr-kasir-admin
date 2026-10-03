@@ -999,13 +999,16 @@ function ProductTable({
               <React.Fragment key={p.id}>
                 <TableRow className="cursor-pointer" onClick={() => onRowClick(p)}>
                   <TableCell className="text-muted-foreground">{p.sku || '-'}</TableCell>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
+                  {/* Nama + lencana pasangan boleh turun baris (TableCell default
+                      nowrap) — kalau tidak, kolom ini melebar dan Harga Jual,
+                      Status, dan aksi terdorong keluar layar. */}
+                  <TableCell className="min-w-56 font-medium whitespace-normal">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       {p.name}
                       {p.pairedProduct && (
                         <Badge
                           variant="secondary"
-                          className="cursor-pointer"
+                          className="h-auto cursor-pointer whitespace-normal text-left"
                           onClick={(e) => {
                             e.stopPropagation();
                             setExpandedId(isExpanded ? null : p.id);
@@ -1016,7 +1019,7 @@ function ProductTable({
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="text-muted-foreground whitespace-normal">
                     {[p.brand, p.type].filter(Boolean).join(' • ') || '-'}
                   </TableCell>
                   <TableCell>
