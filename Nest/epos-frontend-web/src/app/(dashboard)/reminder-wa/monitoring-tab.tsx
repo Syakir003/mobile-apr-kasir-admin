@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { MoreHorizontal } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
@@ -12,6 +13,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -62,7 +69,7 @@ const STATUS_META: Record<
   belum_terjadwal: { label: 'Belum terjadwal', badge: 'outline' },
   siklus_kosong: { label: 'Siklus belum diisi', badge: 'outline' },
   mati: { label: 'Pengingat mati', badge: 'secondary' },
-  menunggu_data: { label: 'Menunggu data teknisi', badge: 'warning' },
+  menunggu_data: { label: 'Menunggu data teknisi', badge: 'outline' },
 };
 
 const CARDS: { status: ScheduleStatus; title: string }[] = [
@@ -73,6 +80,22 @@ const CARDS: { status: ScheduleStatus; title: string }[] = [
   { status: 'mati', title: 'Pengingat mati' },
   { status: 'menunggu_data', title: 'Menunggu data' },
 ];
+
+// Selisih hari kalender (WIB) dari hari ini: negatif = sudah lewat.
+const wibDay = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+function daysUntil(iso: string): number {
+  const [y1, m1, d1] = wibDay(new Date(iso)).split('-').map(Number);
+  const [y2, m2, d2] = wibDay(new Date()).split('-').map(Number);
+  return Math.round((Date.UTC(y1, m1 - 1, d1) - Date.UTC(y2, m2 - 1, d2)) / 86400000);
+}
+// Label badge jadwal: "Terlambat 20 hari" / "3 hari lagi" menggantikan label kategori
+// yang kurang jelas ("Segera (≤7 hari)"). Status lain tetap memakai label bawaan.
+function scheduleLabel(u: { status: ScheduleStatus; nextServiceDate: string | null }): string {
+  const timed = u.status === 'terlambat' || u.status === 'segera' || u.status === 'bulan_ini' || u.status === 'aman';
+  if (!timed || !u.nextServiceDate) return STATUS_META[u.status].label;
+  const n = daysUntil(u.nextServiceDate);
+  return n < 0 ? `Terlambat ${-n} hari` : n === 0 ? 'Jatuh tempo hari ini' : `${n} hari lagi`;
+}
 
 const WA_STATUS_LABEL: Record<string, string> = {
   pending: 'Menunggu',
@@ -144,12 +167,21 @@ export function MonitoringTab() {
                 active && 'border-primary ring-2 ring-primary/30',
               )}
             >
-              <div className="text-2xl font-semibold tabular-nums">{data?.counts[c.status] ?? '–'}</div>
+              <div
+                className={cn(
+                  'text-2xl font-semibold tabular-nums',
+                  c.status === 'terlambat' && (data?.counts.terlambat ?? 0) > 0 && 'text-destructive',
+                )}
+              >
+                {data?.counts[c.status] ?? '–'}
+              </div>
               <div className="text-xs text-muted-foreground">{c.title}</div>
             </button>
           );
         })}
       </div>
+
+      <p className="-mt-2 text-xs text-muted-foreground">Klik salah satu kartu untuk memfilter daftar di bawah.</p>
 
       <div className="flex flex-wrap items-center gap-2">
         <form
@@ -224,15 +256,31 @@ export function MonitoringTab() {
                   </TableCell>
                 </TableRow>
               )}
-              {data?.items.map((u) => (
+              {data?.items.map((u, i) => {
+                // Satu pelanggan dengan beberapa AC: nama + HP cukup di baris pertama.
+                const sameMember = data.items[i - 1]?.member.id === u.member.id;
+                const noPhone = !u.member.phone;
+                return (
                 <TableRow key={u.id}>
                   <TableCell>
-                    <div className="font-medium">{u.member.name}</div>
-                    <div className="text-xs text-muted-foreground">{u.member.phone || 'Tanpa HP'}</div>
-                    {u.member.waOptOut && (
-                      <Badge variant="secondary" className="mt-1">
-                        Opt-out WA
-                      </Badge>
+                    {sameMember ? (
+                      <div className="pl-3 text-xs text-muted-foreground">↳ pelanggan yang sama</div>
+                    ) : (
+                      <>
+                        <div className="font-medium">{u.member.name}</div>
+                        {noPhone ? (
+                          <div className="text-xs text-amber-700 dark:text-amber-400">
+                            Tanpa nomor HP, WA tidak bisa dikirim
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">{u.member.phone}</div>
+                        )}
+                        {u.member.waOptOut && (
+                          <Badge variant="secondary" className="mt-1">
+                            Opt-out WA
+                          </Badge>
+                        )}
+                      </>
                     )}
                   </TableCell>
                   <TableCell>
@@ -246,7 +294,7 @@ export function MonitoringTab() {
                   <TableCell>
                     <div>{u.nextServiceDate ? formatDate(u.nextServiceDate) : '-'}</div>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      <Badge variant={STATUS_META[u.status].badge}>{STATUS_META[u.status].label}</Badge>
+                      <Badge variant={STATUS_META[u.status].badge}>{scheduleLabel(u)}</Badge>
                       {u.adaJobBerjalan && <Badge variant="outline">Job berjalan</Badge>}
                     </div>
                   </TableCell>
@@ -266,38 +314,53 @@ export function MonitoringTab() {
                           {WA_STATUS_LABEL[u.lastWa.status] ?? u.lastWa.status}
                         </Badge>
                         <div className="mt-1 text-xs text-muted-foreground">{formatDate(u.lastWa.at)}</div>
+                        {u.lastWa.status === 'gagal' && u.lastWa.error && (
+                          <div className="mt-0.5 max-w-40 text-xs whitespace-normal text-destructive">{u.lastWa.error}</div>
+                        )}
                       </div>
                     ) : (
                       <span className="text-xs text-muted-foreground">Belum ada</span>
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex flex-wrap justify-end gap-1">
-                      <Button size="sm" variant="outline" onClick={() => setEditing(u)}>
-                        Atur
-                      </Button>
+                    <div className="flex items-center justify-end gap-1">
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={!u.reminderEnabled || !u.nextServiceDate}
+                        disabled={!u.reminderEnabled || !u.nextServiceDate || noPhone || u.member.waOptOut}
                         title={
                           !u.reminderEnabled
                             ? 'Pengingat mati'
                             : !u.nextServiceDate
                               ? 'Belum ada jadwal servis'
-                              : undefined
+                              : noPhone
+                                ? 'Pelanggan tidak punya nomor HP'
+                                : u.member.waOptOut
+                                  ? 'Pelanggan memilih tidak menerima WA'
+                                  : 'Kirim pengingat sekarang lewat WhatsApp'
                         }
                         onClick={() => setSending(u)}
                       >
-                        Kirim
+                        Kirim WA
                       </Button>
-                      <Button size="sm" variant="ghost" asChild>
-                        <Link href={`/ac-units/${u.id}`}>Detail</Link>
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="icon" variant="ghost" aria-label="Aksi lainnya" title="Aksi lainnya">
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setEditing(u)}>Atur siklus pengingat</DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/ac-units/${u.id}`}>Lihat detail AC</Link>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>

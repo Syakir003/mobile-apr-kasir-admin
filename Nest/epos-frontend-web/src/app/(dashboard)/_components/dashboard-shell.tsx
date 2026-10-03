@@ -35,10 +35,16 @@ function NavLinks({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  // Hanya SATU menu yang menyala: href terpanjang yang cocok. Tanpa ini,
+  // /reminder-wa/riwayat ikut menyalakan /reminder-wa (prefix yang sama).
+  const activeHref = items
+    .flatMap((i) => (isNavGroup(i) ? i.children.map((c) => c.href) : [i.href]))
+    .filter((h) => pathname === h || pathname.startsWith(`${h}/`))
+    .sort((a, b) => b.length - a.length)[0];
   const [openGroups, setOpenGroups] = React.useState<Set<string>>(() => {
     const initial = new Set<string>();
     for (const item of items) {
-      if (isNavGroup(item) && item.children.some((child) => pathname.startsWith(child.href))) {
+      if (isNavGroup(item) && item.children.some((child) => child.href === activeHref)) {
         initial.add(item.label);
       }
     }
@@ -62,9 +68,7 @@ function NavLinks({
       {items.map((item) => {
         if (isNavGroup(item)) {
           const open = openGroups.has(item.label);
-          const groupHasActiveChild = item.children.some((child) =>
-            pathname.startsWith(child.href),
-          );
+          const groupHasActiveChild = item.children.some((child) => child.href === activeHref);
           return (
             <div key={item.label}>
               <button
@@ -90,7 +94,7 @@ function NavLinks({
               {open && (
                 <div className="mt-0.5 grid gap-0.5 pl-4">
                   {item.children.map((child) => {
-                    const active = pathname.startsWith(child.href);
+                    const active = child.href === activeHref;
                     return (
                       <Link
                         key={child.href}
@@ -118,7 +122,7 @@ function NavLinks({
           );
         }
 
-        const active = pathname.startsWith(item.href);
+        const active = item.href === activeHref;
         return (
           <Link
             key={item.href}
