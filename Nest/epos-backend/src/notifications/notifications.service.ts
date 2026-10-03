@@ -4,6 +4,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { FirebaseAdminService } from './firebase-admin.service';
 import { RegisterDeviceTokenDto } from './dto/register-device-token.dto';
 import { NotificationsQueryDto } from './dto/notifications-query.dto';
+import type { Role } from '../auth/decorators/roles.decorator';
 
 /**
  * Siklus Notifikasi Push (2026-09). Satu-satunya "pintu masuk" buat bikin
@@ -127,6 +128,54 @@ export class NotificationsService {
     }
 
     return notification;
+  }
+
+  /** notify() ke semua user AKTIF dengan salah satu role. Gak pernah throw —
+   * dipanggil fire-and-forget dari alur bisnis (checkout, opname, dst). */
+  async notifyRoles(
+    roles: Role[],
+    params: { title: string; body?: string; type: string; target?: string },
+  ) {
+    try {
+      const users = await this.prisma.user.findMany({
+        where: { role: { in: roles }, active: true },
+        select: { id: true },
+      });
+      await Promise.all(users.map((u) => this.notify(u.id, params).catch(() => undefined)));
+    } catch (e) {
+      this.logger.warn(`notifyRoles gagal (${roles.join(',')}): ${e}`);
+    }
+  }
+
+  /**
+   * Cek sparepart yang barusan berkurang stoknya; kalau sisa <= minStock
+   * (minStock > 0) kabari admin + gudang. Dedup: selama masih ada notifikasi
+   * 'stok_menipis' BELUM DIBACA untuk sparepart yang sama, gak dikirim lagi
+   * (biar tiap penjualan gak spam).
+   */
+  async notifyLowStock(sparepartIds: string[]) {
+    if (sparepartIds.length === 0) return;
+    try {
+      const low = await this.prisma.$queryRaw<{ id: string; name: string; stock: string; unit: string }[]>`
+        SELECT id, name, stock, unit FROM spareparts
+        WHERE id = ANY(${sparepartIds}::text[]) AND min_stock > 0 AND stock <= min_stock
+      `;
+      for (const sp of low) {
+        const already = await this.prisma.notification.findFirst({
+          where: { type: 'stok_menipis', target: sp.id, read: false },
+          select: { id: true },
+        });
+        if (already) continue;
+        await this.notifyRoles(['admin', 'gudang'], {
+          title: 'Stok Sparepart Menipis',
+          body: `${sp.name} tersisa ${Number(sp.stock)} ${sp.unit} (di bawah batas minimum).`,
+          type: 'stok_menipis',
+          target: sp.id,
+        });
+      }
+    } catch (e) {
+      this.logger.warn(`notifyLowStock gagal: ${e}`);
+    }
   }
 
   private async pushToDevices(

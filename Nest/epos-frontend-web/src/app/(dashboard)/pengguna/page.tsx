@@ -59,7 +59,7 @@ interface AppUser {
   id: string;
   email: string;
   displayName: string;
-  role: 'admin' | 'kasir' | 'teknisi';
+  role: 'admin' | 'kasir' | 'teknisi' | 'gudang';
   active: boolean;
   createdAt: string;
 }
@@ -68,9 +68,10 @@ const ROLE_LABEL: Record<AppUser['role'], string> = {
   admin: 'Admin',
   kasir: 'Kasir',
   teknisi: 'Teknisi',
+  gudang: 'Gudang',
 };
 
-const ROLE_TABS = ['semua', 'admin', 'kasir', 'teknisi'] as const;
+const ROLE_TABS = ['semua', 'admin', 'kasir', 'teknisi', 'gudang'] as const;
 type RoleTab = (typeof ROLE_TABS)[number];
 
 // Aturan password disalin dari IsStrongPassword (backend, satu-satunya
@@ -91,13 +92,13 @@ const createSchema = z.object({
   email: z.string().email('Email tidak valid'),
   password: passwordField,
   displayName: z.string().min(1, 'Wajib diisi'),
-  role: z.enum(['admin', 'kasir', 'teknisi']),
+  role: z.enum(['admin', 'kasir', 'teknisi', 'gudang']),
 });
 type CreateFormValues = z.infer<typeof createSchema>;
 
 const editSchema = z.object({
   displayName: z.string().min(1, 'Wajib diisi'),
-  role: z.enum(['admin', 'kasir', 'teknisi']),
+  role: z.enum(['admin', 'kasir', 'teknisi', 'gudang']),
 });
 type EditFormValues = z.infer<typeof editSchema>;
 
@@ -265,6 +266,7 @@ export default function PenggunaPage() {
           <TabsTrigger value="admin">Admin</TabsTrigger>
           <TabsTrigger value="kasir">Kasir</TabsTrigger>
           <TabsTrigger value="teknisi">Teknisi</TabsTrigger>
+          <TabsTrigger value="gudang">Gudang</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -395,6 +397,7 @@ export default function PenggunaPage() {
                         <SelectItem value="admin">Admin</SelectItem>
                         <SelectItem value="kasir">Kasir</SelectItem>
                         <SelectItem value="teknisi">Teknisi</SelectItem>
+                        <SelectItem value="gudang">Gudang</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -472,6 +475,7 @@ export default function PenggunaPage() {
                         <SelectItem value="admin">Admin</SelectItem>
                         <SelectItem value="kasir">Kasir</SelectItem>
                         <SelectItem value="teknisi">Teknisi</SelectItem>
+                        <SelectItem value="gudang">Gudang</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />

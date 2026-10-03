@@ -44,9 +44,9 @@ r = await api('kasir', 'POST', '/pos/checkout', { ...co, items: [{ kind: 'produc
 log(r.s >= 400, 'checkout melebihi stok ditolak', `${r.s} ${msg(r)}`);
 
 // --- kasir scan
-r = await api('kasir', 'GET', '/kasir-scan/pending');
+r = await api('admin', 'GET', '/kasir-scan/pending');
 log(r.s === 200, 'kasir-scan pending', `${r.s} ${JSON.stringify(r.j).slice(0, 140)}`);
-r = await api('kasir', 'GET', `/kasir-scan/invoices/${inv?.invoiceId}`);
+r = await api('admin', 'GET', `/kasir-scan/invoices/${inv?.invoiceId}`);
 log(r.s === 200, 'kasir-scan detail invoice', `${r.s} ${JSON.stringify(r.j).slice(0, 220)}`);
 const fulfil = r.j;
 // cari qr token unit reserved
@@ -56,18 +56,18 @@ const reserved = all.filter((u) => u.status === 'reserved');
 const free = all.filter((u) => u.status === 'di_gudang');
 log(reserved.length === 2 && free.length === 1, 'status unit: 2 reserved + 1 di_gudang', `reserved=${reserved.length} gudang=${free.length}`);
 const tokenOf = (u) => u.qrToken ?? u.token ?? u.code;
-r = await api('kasir', 'POST', '/kasir-scan/scan', { invoiceId: inv.invoiceId, qrToken: tokenOf(free[0]) });
+r = await api('admin', 'POST', '/kasir-scan/scan', { invoiceId: inv.invoiceId, qrToken: tokenOf(free[0]) });
 log(r.s === 201 && r.j?.swapped === true, 'scan unit di_gudang menukar unit reserved (swap)', `${r.s} swapped=${r.j?.swapped}`);
-r = await api('kasir', 'POST', '/kasir-scan/scan', { invoiceId: inv.invoiceId, qrToken: tokenOf(reserved[0]) });
+r = await api('admin', 'POST', '/kasir-scan/scan', { invoiceId: inv.invoiceId, qrToken: tokenOf(reserved[0]) });
 log(r.s === 201 || r.s === 200, 'scan unit reserved -> keluar', `${r.s} ${JSON.stringify(r.j).slice(0, 160)}`);
-r = await api('kasir', 'POST', '/kasir-scan/scan', { invoiceId: inv.invoiceId, qrToken: tokenOf(reserved[0]) });
+r = await api('admin', 'POST', '/kasir-scan/scan', { invoiceId: inv.invoiceId, qrToken: tokenOf(reserved[0]) });
 log(r.s >= 400, 'scan ulang unit yang sama ditolak', `${r.s} ${msg(r)}`);
-r = await api('kasir', 'POST', '/kasir-scan/scan', { invoiceId: inv.invoiceId, qrToken: 'TOKEN-NGAWUR' });
+r = await api('admin', 'POST', '/kasir-scan/scan', { invoiceId: inv.invoiceId, qrToken: 'TOKEN-NGAWUR' });
 log(r.s >= 400 && r.s < 500, 'qr tidak dikenal -> 4xx (bukan 500)', `${r.s} ${msg(r)}`);
 r = await api('teknisi', 'GET', '/kasir-scan/pending');
 log(r.s === 403, 'teknisi dilarang kasir-scan', `${r.s}`);
 const itemRef = fulfil?.items?.[0]?.refId ?? prod.id;
-r = await api('kasir', 'POST', '/kasir-scan/manual-fulfill', { invoiceId: inv.invoiceId, refId: itemRef });
+r = await api('admin', 'POST', '/kasir-scan/manual-fulfill', { invoiceId: inv.invoiceId, refId: itemRef });
 log(r.s === 400, 'manual-fulfill saat semua unit sudah keluar ditolak', `${r.s} ${msg(r)}`);
 r = await api('admin', 'GET', `/stock/batches/${batch.id}/units`);
 const after = unitsDb(batch.id);

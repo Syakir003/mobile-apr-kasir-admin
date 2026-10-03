@@ -6,10 +6,16 @@ import { SESSION_COOKIE_NAME, decodeSession, ROLE_HOME, type Role } from '@/lib/
 // yang login boleh masuk" (mis. /dashboard/notifikasi kalau ada nanti).
 const ROLE_PREFIXES: Array<{ prefix: string; roles: Role[] }> = [
   { prefix: '/pos', roles: ['kasir', 'admin'] },
-  { prefix: '/kasir-scan', roles: ['kasir', 'admin'] },
+  { prefix: '/kasir-scan', roles: ['gudang', 'admin'] },
   { prefix: '/teknisi', roles: ['teknisi', 'admin'] },
+  // Cetak laporan stok juga untuk gudang (data keuangan dibuang backend).
+  { prefix: '/laporan/stok/print', roles: ['admin', 'gudang'] },
   { prefix: '/laporan', roles: ['admin'] },
   { prefix: '/pengaturan', roles: ['admin'] },
+  // Gudang cuma boleh Produk & Sparepart (urutan penting: match pertama menang,
+  // jadi dua baris ini harus di atas '/master' admin-only).
+  { prefix: '/master/produk', roles: ['admin', 'gudang'] },
+  { prefix: '/master/sparepart', roles: ['admin', 'gudang'] },
   { prefix: '/master', roles: ['admin'] },
   // Input Transaksi Manual — admin-only (lebih ketat dari '/invoices' biasa
   // yang kebuka juga buat kasir), harus didaftar terpisah dari '/invoices'
@@ -29,7 +35,7 @@ const ROLE_PREFIXES: Array<{ prefix: string; roles: Role[] }> = [
   { prefix: '/pengguna', roles: ['admin'] },
   { prefix: '/audit', roles: ['admin'] },
   { prefix: '/reminder-wa', roles: ['admin'] },
-  { prefix: '/stock', roles: ['admin'] },
+  { prefix: '/stock', roles: ['admin', 'gudang'] },
 ];
 
 const PUBLIC_PATHS = ['/login'];

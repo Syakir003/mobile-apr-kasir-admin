@@ -68,7 +68,7 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
         { href: '/pos', label: 'Kasir (POS)', icon: CreditCard },
         // Tahap KEDUA checkout (Siklus QR per-unit, 2026-09-30) — konfirmasi
         // fisik unit yang keluar dari gudang abis invoice terbit di POS.
-        { href: '/kasir-scan', label: 'Kasir Scan', icon: ScanLine },
+        { href: '/kasir-scan', label: 'Keluar Gudang', icon: ScanLine },
         { href: '/invoices', label: 'Riwayat Transaksi', icon: Receipt },
         // Voucher (campaign diskon buat member) digabung ke grup Transaksi
         // (bukan Data Master) — itu lebih ke alur campaign+klaim, bukan
@@ -140,7 +140,6 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   ],
   kasir: [
     { href: '/pos', label: 'Kasir (POS)', icon: CreditCard },
-    { href: '/kasir-scan', label: 'Kasir Scan', icon: ScanLine },
     { href: '/invoices', label: 'Riwayat Transaksi', icon: Receipt },
     { href: '/service-orders/intake', label: 'Servis Mandiri', icon: UserPlus },
     { href: '/members', label: 'Member', icon: Users },
@@ -151,6 +150,22 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     { href: '/teknisi/queue', label: 'Job', icon: ClipboardList },
     { href: '/ac-units/scan', label: 'Scan Unit', icon: ScanLine },
     { href: '/teknisi/riwayat', label: 'Riwayat', icon: History },
+    { href: '/profil', label: 'Profil', icon: UserCircle },
+  ],
+  // Staf stok (2026-10-03): produk & sparepart (harga jual tetap admin-only
+  // di backend) + opname. Sengaja gak lewat halaman /master (ada Jasa/Paket).
+  gudang: [
+    {
+      label: 'Master Data',
+      icon: Database,
+      children: [
+        { href: '/master/produk', label: 'Produk AC', icon: Package },
+        { href: '/master/sparepart', label: 'Sparepart', icon: Wrench },
+      ],
+    },
+    { href: '/kasir-scan', label: 'Keluar Gudang', icon: ScanLine },
+    { href: '/stock/opname', label: 'Opname Stok', icon: ClipboardCheck },
+    { href: '/stock/laporan', label: 'Laporan Stok', icon: FileBarChart2 },
     { href: '/profil', label: 'Profil', icon: UserCircle },
   ],
 };

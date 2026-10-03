@@ -221,6 +221,8 @@ export function ProductDetailClient({ productId }: { productId: string }) {
       // ditempel ke dus/unitnya. Link permanennya ada di tabel batch juga.
       if (result.batchId) {
         toast.success(`${result.qty} unit ${result.name} siap dicetak labelnya`, {
+          description: 'Cetak lalu tempel di kardus tiap unit, supaya bisa discan saat keluar gudang.',
+          duration: 20000,
           action: {
             label: 'Cetak Label',
             onClick: () => router.push(`/stock/batches/${result.batchId}/print-labels`),
@@ -229,6 +231,8 @@ export function ProductDetailClient({ productId }: { productId: string }) {
       }
       if (result.outdoorBatchId) {
         toast.success(`${result.outdoorQty} unit ${result.outdoorName} siap dicetak labelnya`, {
+          description: 'Cetak lalu tempel di kardus tiap unit, supaya bisa discan saat keluar gudang.',
+          duration: 20000,
           action: {
             label: 'Cetak Label',
             onClick: () => router.push(`/stock/batches/${result.outdoorBatchId}/print-labels`),

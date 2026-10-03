@@ -99,7 +99,7 @@ export class InvoicesService {
    * admin-only. Kasir tetap liat semua data lain (harga jual, subtotal,
    * pembayaran, dst) — cuma buyPriceSnapshot yang di-strip.
    */
-  async findOne(id: string, role: 'admin' | 'kasir' | 'teknisi') {
+  async findOne(id: string, role: 'admin' | 'kasir' | 'teknisi' | 'gudang') {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id },
       include: {

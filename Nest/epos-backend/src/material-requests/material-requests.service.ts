@@ -16,7 +16,7 @@ import { DecideMaterialRequestDto } from './dto/decide-material-request.dto';
 import { MaterialRequestQueryDto } from './dto/material-request-query.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 
-type Role = 'admin' | 'kasir' | 'teknisi';
+type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
 
 /**
  * Port dari decide_material_request + mark_material_used

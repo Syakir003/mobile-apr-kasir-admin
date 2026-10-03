@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export interface JwtPayload {
   sub: string;
-  role: 'admin' | 'kasir' | 'teknisi';
+  role: 'admin' | 'kasir' | 'teknisi' | 'gudang';
   /** Diisi otomatis sama @nestjs/jwt pas sign, satuannya DETIK (bukan ms).
    * Dipakai di validate() buat bandingin sama `user.passwordChangedAt`. */
   iat?: number;

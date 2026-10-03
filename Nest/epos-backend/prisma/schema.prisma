@@ -30,6 +30,7 @@ enum UserRole {
   admin
   kasir
   teknisi
+  gudang
 }
 
 model User {

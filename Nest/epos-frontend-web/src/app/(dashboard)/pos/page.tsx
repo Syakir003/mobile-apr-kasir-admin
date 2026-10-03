@@ -726,7 +726,13 @@ export default function PosPage() {
         setPendingSingleUnits(result.singleUnitWarnings ?? []);
         return;
       }
-      toast.success(`Transaksi dibuat: ${result.invoiceNumber}`);
+      // Unit AC baru DIJATAH di checkout; stok resmi berkurang setelah gudang
+      // menscan QR unitnya (halaman Keluar Gudang). Kasir perlu tahu ini.
+      const hasUnit = lines.some((l) => l.kind === 'product');
+      toast.success(`Transaksi dibuat: ${result.invoiceNumber}`, {
+        description: hasUnit ? 'Unit AC belum keluar gudang. Gudang akan menyiapkan dan scan QR unitnya.' : undefined,
+        duration: hasUnit ? 8000 : undefined,
+      });
       setLines([]);
       form.reset();
       setSelectedMember(null);

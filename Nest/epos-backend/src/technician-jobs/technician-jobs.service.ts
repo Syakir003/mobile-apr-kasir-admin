@@ -20,7 +20,7 @@ import { ApproveCompleteDto } from './dto/approve-complete.dto';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 
-type Role = 'admin' | 'kasir' | 'teknisi';
+type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
 
 /**
  * Siklus 5 (revisi) — checklist temuan servis + review admin. Vokabuler
