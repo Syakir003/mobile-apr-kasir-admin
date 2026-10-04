@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Member } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
+import { MemberListQueryDto } from './dto/member-list-query.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 
 @Injectable()
@@ -161,22 +162,30 @@ export class MembersService {
    * beda dari search() yang cuma buat autocomplete voucher & sengaja
    * filter active:true). `q` opsional buat kotak pencarian di halaman itu.
    */
-  async findAll(q?: string) {
-    const query = q?.trim();
-    return this.prisma.member.findMany({
-      where: query
-        ? {
-            OR: [
-              { name: { contains: query, mode: 'insensitive' } },
-              { phone: { contains: query } },
-            ],
-          }
-        : undefined,
-      include: {
-        _count: { select: { acUnits: true, invoices: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
+  async findAll(params: MemberListQueryDto) {
+    const page = params.page ?? 1;
+    const pageSize = params.pageSize ?? 20;
+    const query = params.q?.trim();
+    const where: Prisma.MemberWhereInput | undefined = query
+      ? {
+          OR: [
+            { name: { contains: query, mode: 'insensitive' } },
+            { phone: { contains: query } },
+          ],
+        }
+      : undefined;
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.member.findMany({
+        where,
+        include: { _count: { select: { acUnits: true, invoices: true } } },
+        // id sebagai pembeda urutan supaya nama kembar tidak loncat antar halaman.
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.member.count({ where }),
+    ]);
+    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
   }
 
   /**

@@ -14,6 +14,7 @@ import { formatDate } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PaginationFooter } from '@/components/master-data/list-controls';
 import {
   Dialog,
   DialogContent,
@@ -63,6 +64,15 @@ interface MemberRow {
   _count: { acUnits: number; invoices: number };
 }
 
+// Respons GET /members (per halaman, pola sama dengan Invoices).
+interface MemberPage {
+  items: MemberRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 // Bentuk respons POST /members — HTTP 200 walaupun butuh konfirmasi (nomor
 // HP udah kepake member lain), bukan error. Pola sama kayak POST /stock/in.
 interface CreateMemberResult {
@@ -90,21 +100,25 @@ export default function MembersPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = React.useState('');
   const [debounced, setDebounced] = React.useState('');
+  const [page, setPage] = React.useState(1);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [pendingDuplicate, setPendingDuplicate] = React.useState<
     CreateMemberResult['existingMember'] | null
   >(null);
 
   React.useEffect(() => {
-    const t = setTimeout(() => setDebounced(search.trim()), 300);
+    const t = setTimeout(() => {
+      setDebounced(search.trim());
+      setPage(1); // kata pencarian berubah -> mulai dari halaman 1
+    }, 300);
     return () => clearTimeout(t);
   }, [search]);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['members', debounced],
+    queryKey: ['members', debounced, page],
     queryFn: () =>
-      apiClient.get<MemberRow[]>(
-        `/members${debounced ? `?q=${encodeURIComponent(debounced)}` : ''}`,
+      apiClient.get<MemberPage>(
+        `/members?page=${page}&pageSize=20${debounced ? `&q=${encodeURIComponent(debounced)}` : ''}`,
       ),
   });
 
@@ -179,12 +193,13 @@ export default function MembersPage() {
 
       {isLoading && <p className="text-sm text-muted-foreground">Memuat member...</p>}
       {isError && <p className="text-sm text-destructive">Gagal memuat data member.</p>}
-      {!isLoading && !isError && (!data || data.length === 0) && (
+      {!isLoading && !isError && (!data || data.items.length === 0) && (
         <p className="text-sm text-muted-foreground">
           {debounced ? 'Tidak ada member yang cocok.' : 'Belum ada member.'}
         </p>
       )}
-      {!isLoading && !isError && data && data.length > 0 && (
+      {!isLoading && !isError && data && data.items.length > 0 && (
+        <>
         <div className="rounded-md border">
           <Table>
             <TableHeader>
@@ -199,7 +214,7 @@ export default function MembersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.map((m) => (
+              {data.items.map((m) => (
                 <TableRow
                   key={m.id}
                   className="cursor-pointer"
@@ -225,6 +240,8 @@ export default function MembersPage() {
             </TableBody>
           </Table>
         </div>
+        <PaginationFooter page={data.page} totalPages={data.totalPages} total={data.total} noun="member" onPage={setPage} />
+        </>
       )}
 
       {/* Tambah Member */}
