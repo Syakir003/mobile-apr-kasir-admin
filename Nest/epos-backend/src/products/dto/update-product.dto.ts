@@ -8,6 +8,7 @@ import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from
 export class UpdateProductDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() brand?: string;
+  @IsOptional() @IsString() model?: string;
   @IsOptional() @IsString() type?: string;
   @IsOptional() @IsNumber() @Min(0) @Max(99.99) pk?: number;
   @IsOptional() @IsBoolean() inverter?: boolean;

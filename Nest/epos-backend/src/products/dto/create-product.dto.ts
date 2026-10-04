@@ -3,6 +3,7 @@ import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from
 export class CreateProductDto {
   @IsString() name: string;
   @IsOptional() @IsString() brand?: string;
+  @IsOptional() @IsString() model?: string;
   @IsOptional() @IsString() type?: string;
   // Kolom `products.pk` di DB itu DECIMAL(4,2) — maks 99.99. Divalidasi di
   // sini biar input ngawur (misal salah ketik "3435" instead of "3.5")

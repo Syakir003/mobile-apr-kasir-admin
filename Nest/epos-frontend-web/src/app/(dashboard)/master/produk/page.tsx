@@ -70,6 +70,7 @@ interface Product {
   sku: string | null;
   name: string;
   brand: string | null;
+  model: string | null;
   type: string | null;
   pk: string | null;
   inverter: boolean;
@@ -113,6 +114,7 @@ function parseQty(v: string): number {
 const productSchema = z.object({
   name: z.string().min(1, 'Wajib diisi'),
   brand: z.string().optional(),
+  model: z.string().optional(),
   type: z.string().optional(),
   category: z.string().optional(),
   // FIX (2026-09-29, respons feedback user) — PK sebelumnya wajib diisi,
@@ -134,6 +136,7 @@ type ProductFormValues = z.infer<typeof productSchema>;
 const emptyValues: ProductFormValues = {
   name: '',
   brand: '',
+  model: '',
   type: '',
   category: '',
   pk: '',
@@ -146,10 +149,17 @@ const emptyValues: ProductFormValues = {
   active: true,
 };
 
+// Nama otomatis = Merek + Model + "<PK> PK", selama belum diketik manual.
+function composeName(v: { brand?: string; model?: string; pk?: string | number }): string {
+  const pk = String(v.pk ?? '').trim();
+  return [v.brand?.trim(), v.model?.trim(), pk && `${pk} PK`].filter(Boolean).join(' ');
+}
+
 function toFormValues(p: Product): ProductFormValues {
   return {
     name: p.name,
     brand: p.brand ?? '',
+    model: p.model ?? '',
     type: p.type ?? '',
     category: p.category ?? '',
     pk: p.pk ?? '',
@@ -269,6 +279,20 @@ export default function ProdukPage() {
     defaultValues: emptyValues,
   });
 
+  // true = Nama sudah diketik/berbeda dari rakitan -> jangan ditimpa otomatis.
+  const nameTouched = React.useRef(false);
+  React.useEffect(() => {
+    const sub = form.watch((v, info) => {
+      if (info.name === 'name') {
+        if (info.type === 'change') nameTouched.current = true;
+        return;
+      }
+      if (nameTouched.current || !['brand', 'model', 'pk'].includes(info.name ?? '')) return;
+      form.setValue('name', composeName(v as ProductFormValues));
+    });
+    return () => sub.unsubscribe();
+  }, [form]);
+
   // Paket AC Split (2026-09-30) — peran unit produk yang lagi diedit cuma
   // bisa diubah kalau produk itu GAK berpasangan (bukan Indoor sebuah
   // paket, bukan juga Outdoor-nya).
@@ -278,6 +302,7 @@ export default function ProdukPage() {
   function openCreate() {
     setEditing(null);
     form.reset(emptyValues);
+    nameTouched.current = false;
     setMode('indoor');
     setOutdoorDraft(emptyOutdoorDraft);
     setInitialStock(emptyInitialStock);
@@ -290,6 +315,7 @@ export default function ProdukPage() {
   async function openEdit(p: Product) {
     setEditing(p);
     form.reset(toFormValues(p));
+    nameTouched.current = p.name !== composeName(toFormValues(p));
     setRoleDraft(p.acRole ?? 'none');
     setDialogOpen(true);
     if (p.pairedProductId) {
@@ -313,6 +339,7 @@ export default function ProdukPage() {
       const base = {
         name: values.name.trim(),
         brand: trimmedOrUndefined(values.brand),
+        model: trimmedOrUndefined(values.model),
         type: trimmedOrUndefined(values.type),
         category: trimmedOrUndefined(values.category),
         // FIX (2026-09-29) — PK sekarang opsional (lihat productSchema),
@@ -609,6 +636,19 @@ export default function ProdukPage() {
                       <FormLabel>Merek</FormLabel>
                       <FormControl>
                         <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="model"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Model</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Mis. ASW-12C19" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

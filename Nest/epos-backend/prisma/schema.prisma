@@ -153,6 +153,7 @@ model Product {
   sku         String?  @unique
   name        String
   brand       String?
+  model       String? // kode model pabrik, mis. ASW-12C19 (dipakai merakit nama otomatis)
   type        String? // 'split', dll
   pk          Decimal? @db.Decimal(4, 2)
   inverter    Boolean  @default(false)
