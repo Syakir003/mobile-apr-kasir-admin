@@ -15,6 +15,7 @@ import { requiredNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
+import { PaginationFooter, SearchBox, useListView } from '@/components/master-data/list-controls';
 import { DeactivateDialog } from '@/components/master-data/deactivate-dialog';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
@@ -165,6 +166,7 @@ export default function SparepartPage() {
     queryKey: ['spareparts', status],
     queryFn: () => apiClient.get<Sparepart[]>(`/spareparts?status=${status}`),
   });
+  const view = useListView(data, (s) => [s.name, s.sku, s.category, s.unit].join(' '));
 
   const form = useForm<SparepartFormValues>({
     resolver: zodResolver(sparepartSchema),
@@ -319,6 +321,8 @@ export default function SparepartPage() {
         </div>
       </div>
 
+      <SearchBox value={view.search} onChange={view.setSearch} placeholder="Cari nama, SKU, kategori, atau satuan..." />
+
       {isLoading && <p className="text-sm text-muted-foreground">Memuat sparepart...</p>}
       {isError && <p className="text-sm text-destructive">Gagal memuat data sparepart.</p>}
       {!isLoading && !isError && (!data || data.length === 0) && (
@@ -326,7 +330,11 @@ export default function SparepartPage() {
           Belum ada sparepart. Klik &ldquo;Tambah Sparepart&rdquo; untuk mulai.
         </p>
       )}
-      {!isLoading && !isError && data && data.length > 0 && (
+      {!isLoading && !isError && data && data.length > 0 && view.total === 0 && (
+        <p className="text-sm text-muted-foreground">Tidak ada sparepart yang cocok dengan pencarian.</p>
+      )}
+      {!isLoading && !isError && data && data.length > 0 && view.total > 0 && (
+        <>
         <div className="rounded-md border">
           <Table>
             <TableHeader>
@@ -340,7 +348,7 @@ export default function SparepartPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.map((s) => (
+              {view.pageItems.map((s) => (
                 <TableRow
                   key={s.id}
                   className="cursor-pointer"
@@ -420,6 +428,8 @@ export default function SparepartPage() {
             </TableBody>
           </Table>
         </div>
+        <PaginationFooter page={view.page} totalPages={view.totalPages} total={view.total} noun="sparepart" onPage={view.setPage} />
+        </>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

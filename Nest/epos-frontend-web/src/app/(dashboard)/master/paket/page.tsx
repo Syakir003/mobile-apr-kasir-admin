@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
+import { PaginationFooter, SearchBox, useListView } from '@/components/master-data/list-controls';
 import { DeactivateDialog } from '@/components/master-data/deactivate-dialog';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
@@ -130,6 +131,7 @@ export default function PaketInstalasiPage() {
     queryKey: ['installation-packages', status],
     queryFn: () => apiClient.get<InstallationPackage[]>(`/installation-packages?status=${status}`),
   });
+  const view = useListView(data, (p) => [p.name, p.description, ...p.items.map((i) => i.name)].join(' '));
   // Buat dropdown "nempel ke sparepart" per item — opsional, item paket
   // boleh juga custom (mis. "Jasa Bongkar Unit Lama") tanpa nempel sparepart.
   // FIX (audit 2026-09-29) — sebelumnya cuma fetch yang aktif (`?status`
@@ -239,6 +241,8 @@ export default function PaketInstalasiPage() {
         </div>
       </div>
 
+      <SearchBox value={view.search} onChange={view.setSearch} placeholder="Cari nama paket, deskripsi, atau isi paket..." />
+
       {isLoading && <p className="text-sm text-muted-foreground">Memuat paket instalasi...</p>}
       {isError && <p className="text-sm text-destructive">Gagal memuat data paket instalasi.</p>}
       {!isLoading && !isError && (!data || data.length === 0) && (
@@ -246,7 +250,11 @@ export default function PaketInstalasiPage() {
           Belum ada paket instalasi. Klik &ldquo;Tambah Paket&rdquo; untuk mulai.
         </p>
       )}
-      {!isLoading && !isError && data && data.length > 0 && (
+      {!isLoading && !isError && data && data.length > 0 && view.total === 0 && (
+        <p className="text-sm text-muted-foreground">Tidak ada paket yang cocok dengan pencarian.</p>
+      )}
+      {!isLoading && !isError && data && data.length > 0 && view.total > 0 && (
+        <>
         <div className="rounded-md border">
           <Table>
             <TableHeader>
@@ -259,7 +267,7 @@ export default function PaketInstalasiPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.map((p) => (
+              {view.pageItems.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell className="font-medium">{p.name}</TableCell>
                   <TableCell className="text-muted-foreground">
@@ -295,6 +303,8 @@ export default function PaketInstalasiPage() {
             </TableBody>
           </Table>
         </div>
+        <PaginationFooter page={view.page} totalPages={view.totalPages} total={view.total} noun="paket" onPage={view.setPage} />
+        </>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

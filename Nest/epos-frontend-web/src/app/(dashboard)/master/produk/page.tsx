@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
+import { PAGE_SIZE, PaginationFooter, SearchBox } from '@/components/master-data/list-controls';
 import { DeactivateDialog } from '@/components/master-data/deactivate-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -259,6 +260,8 @@ export default function ProdukPage() {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Product | null>(null);
   const [status, setStatus] = React.useState<MasterDataStatus>('active');
+  const [search, setSearch] = React.useState('');
+  const [brand, setBrand] = React.useState('all');
   const [deactivating, setDeactivating] = React.useState<Product | null>(null);
   // BARU (2026-09-25) — pilihan jenis input pas Tambah Produk: unit tunggal
   // (Indoor/Outdoor) atau Split (dua-duanya sekaligus, langsung kepasangkan).
@@ -273,6 +276,14 @@ export default function ProdukPage() {
     queryKey: ['products', status],
     queryFn: () => apiClient.get<Product[]>(`/products?status=${status}`),
   });
+
+  const brands = React.useMemo(
+    () =>
+      [...new Set((data ?? []).map((p) => p.brand?.trim()).filter((b): b is string => !!b))].sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [data],
+  );
 
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
@@ -572,8 +583,27 @@ export default function ProdukPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchBox value={search} onChange={setSearch} placeholder="Cari nama, SKU, merek, atau model..." />
+        <Select value={brand} onValueChange={setBrand}>
+          <SelectTrigger className="w-48" aria-label="Filter merek">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Semua merek</SelectItem>
+            {brands.map((b) => (
+              <SelectItem key={b} value={b}>
+                {b}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <ProductTable
         products={data}
+        search={search}
+        brand={brand}
         isLoading={isLoading}
         isError={isError}
         onEdit={openEdit}
@@ -955,6 +985,8 @@ export default function ProdukPage() {
 
 function ProductTable({
   products,
+  search,
+  brand,
   isLoading,
   isError,
   onEdit,
@@ -962,6 +994,8 @@ function ProductTable({
   onRowClick,
 }: {
   products: Product[] | undefined;
+  search: string;
+  brand: string;
   isLoading: boolean;
   isError: boolean;
   onEdit: (p: Product) => void;
@@ -976,13 +1010,10 @@ function ProductTable({
   // nongol di sini sebagai row terpisah). Hook ini WAJIB dipanggil sebelum
   // early-return di bawah (Rules of Hooks).
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
+  const [page, setPage] = React.useState(1);
   const pairedOutdoorIds = React.useMemo(
     () => new Set((products ?? []).filter((p) => p.pairedProductId).map((p) => p.pairedProductId as string)),
     [products],
-  );
-  const topLevelProducts = React.useMemo(
-    () => (products ?? []).filter((p) => !pairedOutdoorIds.has(p.id)),
-    [products, pairedOutdoorIds],
   );
   // FIX (audit 2026-09-29) — sebelumnya map ini di-key pake id si Outdoor
   // sendiri, padahal cara nyarinya (di bawah) pake id si Indoor. Akibatnya
@@ -995,6 +1026,29 @@ function ProductTable({
     () => new Map((products ?? []).map((p) => [p.id, p] as const)),
     [products],
   );
+  // Pencarian: semua kata harus ada di salah satu kolom (urutan bebas, huruf
+  // besar/kecil diabaikan). Pasangan Indoor+Outdoor dihitung satu baris, jadi
+  // baris tampil bila Indoor ATAU Outdoor-nya cocok.
+  const topLevelProducts = React.useMemo(() => {
+    const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = (p?: Product) => {
+      if (!p) return false;
+      if (brand !== 'all' && p.brand?.trim() !== brand) return false;
+      const hay = [p.name, p.sku, p.brand, p.model, p.type, p.category].join(' ').toLowerCase();
+      return words.every((w) => hay.includes(w));
+    };
+    return (products ?? [])
+      .filter((p) => !pairedOutdoorIds.has(p.id))
+      .filter((p) => matches(p) || matches(p.pairedProductId ? productsById.get(p.pairedProductId) : undefined));
+  }, [products, pairedOutdoorIds, productsById, search, brand]);
+  // Balik ke halaman 1 saat pencarian/filter merek berubah (reset saat render,
+  // bukan di effect). Halaman yang melewati batas dijaga clamp di bawah.
+  const filterKey = `${search}|${brand}`;
+  const [prevFilterKey, setPrevFilterKey] = React.useState(filterKey);
+  if (prevFilterKey !== filterKey) {
+    setPrevFilterKey(filterKey);
+    setPage(1);
+  }
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Memuat produk...</p>;
@@ -1010,7 +1064,16 @@ function ProductTable({
     );
   }
 
+  const totalPages = Math.max(1, Math.ceil(topLevelProducts.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedProducts = topLevelProducts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  if (topLevelProducts.length === 0) {
+    return <p className="text-sm text-muted-foreground">Tidak ada produk yang cocok dengan pencarian.</p>;
+  }
+
   return (
+    <>
     <div className="rounded-md border">
       <Table>
         <TableHeader>
@@ -1025,7 +1088,7 @@ function ProductTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {topLevelProducts.map((p) => {
+          {pagedProducts.map((p) => {
             // `outdoor` cuma ketemu kalau Outdoor pasangannya lolos filter
             // status yang lagi aktif di halaman ini (default 'active'). Kalau
             // `p.pairedProduct` ada (backend selalu nyertain ini apapun
@@ -1161,5 +1224,7 @@ function ProductTable({
         </TableBody>
       </Table>
     </div>
+    <PaginationFooter page={currentPage} totalPages={totalPages} total={topLevelProducts.length} noun="produk" onPage={setPage} />
+    </>
   );
 }
