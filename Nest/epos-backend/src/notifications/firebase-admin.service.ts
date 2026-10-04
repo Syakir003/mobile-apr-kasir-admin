@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as admin from 'firebase-admin';
+import { App, cert, getApps, initializeApp } from 'firebase-admin/app';
+import { getMessaging } from 'firebase-admin/messaging';
 
 /**
  * Wrapper firebase-admin — padanan sisi-server dari FcmService.dart (yang
@@ -19,14 +20,14 @@ import * as admin from 'firebase-admin';
 @Injectable()
 export class FirebaseAdminService {
   private readonly logger = new Logger(FirebaseAdminService.name);
-  private app: admin.app.App | null = null;
+  private app: App | null = null;
   private warnedOnce = false;
 
   /** Lazy-init — dipanggil tiap mau kirim, TAPI cuma bener-bener init sekali. */
-  private getApp(): admin.app.App | null {
+  private getApp(): App | null {
     if (this.app) return this.app;
-    if (admin.apps.length > 0) {
-      this.app = admin.apps[0] as admin.app.App;
+    if (getApps().length > 0) {
+      this.app = getApps()[0];
       return this.app;
     }
 
@@ -39,8 +40,8 @@ export class FirebaseAdminService {
 
     try {
       const serviceAccount = JSON.parse(raw);
-      this.app = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
+      this.app = initializeApp({
+        credential: cert(serviceAccount),
       });
       return this.app;
     } catch (e) {
@@ -78,7 +79,7 @@ export class FirebaseAdminService {
     }
     if (tokens.length === 0) return { invalidTokens: [] };
 
-    const res = await admin.messaging(app).sendEachForMulticast({
+    const res = await getMessaging(app).sendEachForMulticast({
       tokens,
       notification: { title: notification.title, body: notification.body },
       data,
