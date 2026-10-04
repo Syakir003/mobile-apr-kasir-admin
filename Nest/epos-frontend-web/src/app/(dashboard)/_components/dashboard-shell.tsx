@@ -166,11 +166,11 @@ export function DashboardShell({
   }
 
   return (
-    // h-screen + overflow-hidden di level ini — sidebar & header jadi diem
+    // fixed inset-0 (bukan h-screen/100vh yang bisa basi setelah jendela di-resize) + overflow-hidden di level ini — sidebar & header jadi diem
     // di tempat, yang scroll cuma <main> di bawah (overflow-y-auto sendiri).
     // print:* di-override balik ke auto/visible biar halaman cetak (invoice/
     // surat jalan/label) gak kepotong sama batas viewport pas di-print.
-    <div className="flex h-screen w-full overflow-hidden print:h-auto print:overflow-visible">
+    <div className="fixed inset-0 flex overflow-hidden print:static print:h-auto print:overflow-visible">
       {/* Padanan `_Sidebar` (adaptive_scaffold.dart): bg solid tealDeep,
           lebar 260px fixed, radius 32px cuma sudut kanan, shadow teal ke
           arah konten — bukan border hairline kayak sebelumnya.
