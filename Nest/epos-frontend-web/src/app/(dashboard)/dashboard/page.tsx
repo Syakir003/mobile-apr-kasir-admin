@@ -72,7 +72,7 @@ const QUICK_ACTIONS = [
   { href: '/members', label: 'Cek Member', icon: Users },
   { href: '/master', label: 'Master Data', icon: Package },
   { href: '/laporan', label: 'Laporan', icon: FileBarChart },
-  { href: '/teknisi/queue', label: 'Servis & Teknisi', icon: Wrench },
+  { href: '/teknisi/queue', label: 'Antrian Servis', icon: Wrench },
 ];
 
 // Server Component: fetch langsung ke backend pas render pertama (lihat

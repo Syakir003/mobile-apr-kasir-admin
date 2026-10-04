@@ -69,7 +69,7 @@ const ACTION_LABELS: Record<string, string> = {
   'installation_package.create': 'Buat Paket Instalasi',
   'installation_package.update': 'Ubah Paket Instalasi',
   'voucher.offer': 'Tawarkan Voucher',
-  'service_order.intake': 'Terima Order Servis Mandiri',
+  'service_order.intake': 'Terima Servis Baru',
   'user.create': 'Buat Akun',
   'user.update': 'Ubah Akun',
   'user.toggle_active': 'Aktif/Nonaktifkan Akun',

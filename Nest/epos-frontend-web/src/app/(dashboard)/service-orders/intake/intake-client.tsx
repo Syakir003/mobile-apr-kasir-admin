@@ -202,7 +202,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
   return (
     <div className="grid gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Servis Mandiri</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Terima Servis Baru</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Buat job servis buat customer yang bawa/minta servis unit AC-nya sendiri — baik unit
           yang udah kebeli/terdaftar di toko ini, maupun unit lama yang belum pernah tercatat.

@@ -122,7 +122,7 @@ export default function MaterialRequestsPage() {
   return (
     <div className="grid gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Pengajuan Masuk</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Permintaan Material</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Permintaan sparepart tambahan dari teknisi lapangan.
         </p>
