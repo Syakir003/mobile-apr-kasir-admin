@@ -9,9 +9,11 @@ import { apiClient } from '@/lib/api-client';
 import { SPAREPART_GROUP, groupLabel, groupStockRows } from '@/lib/stock-group';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -42,6 +44,7 @@ export default function LaporanStokGudangPage() {
   const [kind, setKind] = React.useState<'all' | 'product' | 'sparepart'>('all');
   const rangeValid = Boolean(from && to && from <= to);
   const [brand, setBrand] = React.useState('all');
+  const [showEmpty, setShowEmpty] = React.useState(false);
   const kindQs = kind !== 'all' ? `&kind=${kind}` : '';
 
   const { data, isLoading, isError } = useQuery({
@@ -54,10 +57,29 @@ export default function LaporanStokGudangPage() {
     () => groupStockRows(data?.items ?? []).map((g) => g.label),
     [data],
   );
-  const groups = React.useMemo(
-    () => groupStockRows((data?.items ?? []).filter((r) => brand === 'all' || groupLabel(r) === brand)),
-    [data, brand],
-  );
+  // Barang tanpa stok & tanpa pergerakan (semua angka 0) disembunyikan secara
+  // default — katalog besar membuat laporan penuh baris nol. Paket Indoor+Outdoor
+  // disembunyikan hanya bila KEDUANYA nol, supaya pasangan tidak terpisah.
+  const { shown, hiddenCount } = React.useMemo(() => {
+    const items = (data?.items ?? []).filter((r) => brand === 'all' || groupLabel(r) === brand);
+    if (showEmpty) return { shown: items, hiddenCount: 0 };
+    const isEmpty = (r: Row) => !r.stokAwal && !r.stokMasuk && !r.stokKeluar && !r.sisaStok;
+    const kept: Row[] = [];
+    let hidden = 0;
+    for (let i = 0; i < items.length; i++) {
+      const r = items[i];
+      const next = items[i + 1];
+      const pairNext =
+        r.unitGabungan && next?.pairRole === 'outdoor' && next.name === r.unitGabungan.namaPasangan ? next : undefined;
+      const unit = pairNext ? [r, pairNext] : [r];
+      if (unit.every(isEmpty)) hidden += unit.length;
+      else kept.push(...unit);
+      if (pairNext) i++;
+    }
+    return { shown: kept, hiddenCount: hidden };
+  }, [data, brand, showEmpty]);
+  const groups = React.useMemo(() => groupStockRows(shown), [shown]);
+  const fmtDate = (d: string) => d.split('-').reverse().join('/');
 
   function preset(days: number) {
     const end = new Date();
@@ -115,6 +137,12 @@ export default function LaporanStokGudangPage() {
               </SelectContent>
             </Select>
           </div>
+          <div className="flex items-center gap-2 pb-2">
+            <Checkbox id="show-empty" checked={showEmpty} onCheckedChange={(v) => setShowEmpty(v === true)} />
+            <Label htmlFor="show-empty" className="font-normal">
+              Tampilkan juga barang tanpa stok
+            </Label>
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" onClick={() => preset(7)}>
               7 Hari
@@ -142,7 +170,8 @@ export default function LaporanStokGudangPage() {
           <CardHeader>
             <CardTitle className="text-base">Rincian per Merk</CardTitle>
             <CardDescription>
-              Paket AC: baris Outdoor tampil menjorok di bawah Indoor-nya, dengan jumlah paket lengkap yang siap dijual.
+              Indoor dan Outdoor yang berpasangan ditandai garis di kiri dan dihitung sebagai satu set.
+              {hiddenCount > 0 && ` ${hiddenCount} barang tanpa stok disembunyikan.`}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -150,17 +179,31 @@ export default function LaporanStokGudangPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Nama</TableHead>
-                  <TableHead className="text-right">Stok Awal</TableHead>
-                  <TableHead className="text-right">Masuk</TableHead>
-                  <TableHead className="text-right">Keluar</TableHead>
-                  <TableHead className="text-right">Sisa (Sistem)</TableHead>
+                  <TableHead className="text-right">
+                    Stok Awal
+                    <span className="block text-xs font-normal text-muted-foreground">sebelum {fmtDate(from)}</span>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    Masuk
+                    <span className="block text-xs font-normal text-muted-foreground">selama periode</span>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    Keluar
+                    <span className="block text-xs font-normal text-muted-foreground">selama periode</span>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    Stok Sekarang
+                    <span className="block text-xs font-normal text-muted-foreground">menurut sistem</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {groups.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
-                      Tidak ada item.
+                      {hiddenCount === 0
+                        ? 'Tidak ada item.'
+                        : 'Belum ada barang yang punya stok. Centang "Tampilkan juga barang tanpa stok" untuk melihat semuanya.'}
                     </TableCell>
                   </TableRow>
                 )}
@@ -177,7 +220,12 @@ export default function LaporanStokGudangPage() {
                       const isPackageOutdoor = row.pairRole === 'outdoor' && rows[i - 1]?.unitGabungan?.namaPasangan === row.name;
                       return (
                         <TableRow key={`${row.itemKind}-${row.refId}`} className={isPackageOutdoor ? 'bg-muted/30' : undefined}>
-                          <TableCell className={isPackageOutdoor ? 'pl-8' : undefined}>
+                          <TableCell
+                            className={cn(
+                              isPackageOutdoor && 'pl-8',
+                              (isPackageOutdoor || row.unitGabungan) && 'border-l-4 border-l-primary/40',
+                            )}
+                          >
                             {isPackageOutdoor && <span className="mr-1 text-muted-foreground">↳</span>}
                             {row.name}
                             {row.pairRole && (
@@ -187,7 +235,7 @@ export default function LaporanStokGudangPage() {
                             )}
                             {row.unitGabungan && (
                               <p className="mt-0.5 text-xs text-muted-foreground">
-                                Paket lengkap siap: {row.unitGabungan.sisaStok} (pasangan: {row.unitGabungan.namaPasangan})
+                                Set lengkap siap jual: {row.unitGabungan.sisaStok}
                               </p>
                             )}
                           </TableCell>
