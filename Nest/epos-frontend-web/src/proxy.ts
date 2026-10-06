@@ -71,5 +71,5 @@ export function proxy(req: NextRequest) {
 
 export const config = {
   // Jalan di semua path KECUALI asset statis Next & file publik.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|webp)$).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|webp|woff2)$).*)'],
 };

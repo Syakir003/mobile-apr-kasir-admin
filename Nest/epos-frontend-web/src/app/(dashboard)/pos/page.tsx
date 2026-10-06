@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Minus, Package, Plus, Search, ShoppingCart, Ticket, Trash2 } from 'lucide-react';
+import { Minus, Package, Plus, Search, ShoppingCart, Ticket, Trash2, TriangleAlert } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
@@ -816,13 +816,13 @@ export default function PosPage() {
       return [
         {
           key: `split-${p.id}`,
-          name: `${p.name} + ${outdoorName}`,
-          subtitle: `Indoor ${indoorStock} • Outdoor ${outdoorStock} → paket siap: ${Math.max(0, Math.min(indoorStock, outdoorStock))}${p.brand ? ` • ${p.brand}` : ''}`,
+          name: outdoorName === p.name ? p.name : `${p.name} + ${outdoorName}`,
+          subtitle: `Paket siap ${Math.max(0, Math.min(indoorStock, outdoorStock))} • Indoor ${indoorStock} • Outdoor ${outdoorStock}`,
           price: p.sellPrice,
           badge: !outdoor
-            ? { label: '⚠ Outdoor nonaktif', tone: 'warn' as const }
+            ? { label: 'Outdoor nonaktif', tone: 'warn' as const }
             : habis.length > 0
-              ? { label: `⚠ ${habis.join(' & ')} habis`, tone: 'warn' as const }
+              ? { label: `${habis.join(' & ')} habis`, tone: 'warn' as const }
               : { label: 'Lengkap', tone: 'ok' as const },
           disabled: !outdoor || habis.length > 0,
           onAdd: () => addPairedProductLines(p),
@@ -849,7 +849,7 @@ export default function PosPage() {
       key: `unit-${p.id}`,
       name: p.name,
       subtitle: outOfStock
-        ? 'Belum ada stok — input dulu lewat Barang Masuk'
+        ? 'Belum ada stok - input dulu lewat Barang Masuk'
         : `Stok ${p.stock}${p.brand ? ` • ${p.brand}` : ''}`,
       price: outOfStock ? undefined : p.sellPrice,
       disabled: outOfStock,
@@ -907,7 +907,7 @@ export default function PosPage() {
     return [
       {
         key: `sparepart-${s.id}-utuh`,
-        name: `${s.name} — Utuh`,
+        name: `${s.name} - Utuh`,
         subtitle: `per ${s.packUnit} (isi ${s.packSize} ${s.unit}) • Stok ${stockLabel}`,
         price: s.sellPricePack,
         disabled: Number(s.stock) < packSize,
@@ -924,7 +924,7 @@ export default function PosPage() {
       },
       {
         key: `sparepart-${s.id}-eceran`,
-        name: `${s.name} — Eceran`,
+        name: `${s.name} - Eceran`,
         subtitle: `per ${s.unit} • Stok ${stockLabel}`,
         price: s.sellPrice,
         disabled: Number(s.stock) <= 0,
@@ -1033,7 +1033,7 @@ export default function PosPage() {
                 Tidak ada item yang cocok.
               </p>
             ) : (
-              <div className="grid max-h-[28rem] grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3">
+              <div className="grid max-h-[min(40rem,calc(100dvh-20rem))] min-h-64 grid-cols-1 content-start gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
                 {visibleCards.map((card) => (
                   <ItemCard
                     key={card.key}
@@ -1052,7 +1052,7 @@ export default function PosPage() {
         </Card>
 
         {/* Keranjang ditaruh DI ATAS form checkout (bukan di bawah panel
-            pencarian kayak sebelumnya) — biar abis nambah item dari panel
+            pencarian kayak sebelumnya) - biar abis nambah item dari panel
             kiri, perubahan keranjangnya langsung keliatan di sidebar kanan
             tanpa perlu scroll ngelewatin daftar produk yang panjang. */}
         <div className="grid gap-6">
@@ -1294,7 +1294,7 @@ export default function PosPage() {
                 <p className="text-xs text-muted-foreground">
                   {selectedMember
                     ? 'Transaksi ini disimpan atas nama member yang dipilih di atas.'
-                    : 'Belum pilih member — kalau nomor HP di bawah ini cocok sama member yang sudah ada, otomatis disambungkan ke situ; kalau belum ada, member baru langsung dibuatkan saat transaksi disimpan.'}
+                    : 'Belum pilih member - kalau nomor HP di bawah ini cocok sama member yang sudah ada, otomatis disambungkan ke situ; kalau belum ada, member baru langsung dibuatkan saat transaksi disimpan.'}
                 </p>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -1526,8 +1526,8 @@ function ItemCard({
   return (
     <div
       className={cn(
-        'flex flex-col items-start gap-2 rounded-lg border p-3 text-left transition-colors',
-        !disabled && 'hover:border-primary hover:bg-accent',
+        'group flex flex-col rounded-lg border bg-card transition-colors',
+        !disabled && 'hover:border-primary/60 hover:bg-accent/40',
       )}
     >
       <button
@@ -1535,35 +1535,50 @@ function ItemCard({
         onClick={onAdd}
         disabled={disabled}
         className={cn(
-          'flex w-full flex-col items-start gap-2 text-left',
-          disabled && 'cursor-not-allowed opacity-50',
+          'flex flex-1 flex-col gap-1.5 p-3.5 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 rounded-t-lg',
+          disabled && 'cursor-not-allowed',
         )}
       >
-        <div className="flex w-full items-start justify-between gap-2">
-          <p className="text-sm leading-tight font-medium">{name}</p>
-          <span className="shrink-0 rounded-full bg-secondary p-1 text-secondary-foreground">
-            <Plus className="size-3.5" />
+        <div className="flex w-full items-start justify-between gap-3">
+          <p
+            title={name}
+            className={cn('line-clamp-2 text-sm leading-snug font-medium', disabled && 'text-muted-foreground')}
+          >
+            {name}
+          </p>
+          <span
+            className={cn(
+              'flex size-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground transition-colors',
+              !disabled && 'group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground',
+            )}
+          >
+            <Plus className="size-4" />
           </span>
         </div>
-        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-        {price !== undefined ? (
-          <p className="text-sm font-semibold text-primary">{formatRupiah(price)}</p>
-        ) : (
-          priceLabel && <p className="text-xs font-medium text-amber-600">{priceLabel}</p>
-        )}
+        {subtitle && <p className="text-xs text-muted-foreground tabular-nums">{subtitle}</p>}
       </button>
-      {badge && (
-        <span
-          className={cn(
-            'rounded-full px-2 py-0.5 text-[11px] font-semibold',
-            badge.tone === 'ok'
-              ? 'bg-emerald-100 text-emerald-700'
-              : 'bg-red-100 text-red-700',
-          )}
-        >
-          {badge.label}
-        </span>
-      )}
+      <div className="flex items-center justify-between gap-2 px-3.5 pb-3">
+        {price !== undefined ? (
+          <p className={cn('text-sm font-semibold tabular-nums', disabled ? 'text-muted-foreground' : 'text-primary')}>
+            {formatRupiah(price)}
+          </p>
+        ) : (
+          <p className="text-xs font-medium text-amber-700">{priceLabel}</p>
+        )}
+        {badge && (
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium',
+              badge.tone === 'ok'
+                ? 'bg-emerald-50 text-emerald-700'
+                : 'bg-red-50 text-red-700',
+            )}
+          >
+            {badge.tone === 'warn' && <TriangleAlert className="size-3" />}
+            {badge.label}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

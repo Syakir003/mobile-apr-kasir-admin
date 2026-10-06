@@ -105,7 +105,7 @@ export default function RiwayatWaPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Riwayat WA</h1>
         <p className="text-sm text-muted-foreground">
-          Semua pesan WhatsApp yang pernah dikirim — invoice manual maupun pengingat servis otomatis.
+          Semua pesan WhatsApp yang pernah dikirim - invoice manual maupun pengingat servis otomatis.
         </p>
       </div>
 

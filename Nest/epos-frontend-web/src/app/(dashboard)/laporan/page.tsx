@@ -105,6 +105,39 @@ function firstOfMonth(): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 
+// Gabungkan data harian jadi per minggu (Senin-Minggu). Minggu tanpa transaksi
+// di antara minggu pertama dan terakhir tetap ditampilkan sebagai 0.
+type BarMingguan = { start: string; end: string; total: number; count: number };
+const DAY = 86400000;
+const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+
+function groupByWeek(days: { date: string; total: number; count: number }[]): BarMingguan[] {
+  if (days.length === 0) return [];
+  const mondayOf = (date: string) => {
+    const t = Date.parse(date.slice(0, 10));
+    return t - ((new Date(t).getUTCDay() + 6) % 7) * DAY;
+  };
+  const byWeek = new Map<number, BarMingguan>();
+  for (const d of days) {
+    const m = mondayOf(d.date);
+    const w = byWeek.get(m) ?? { start: iso(m), end: iso(m + 6 * DAY), total: 0, count: 0 };
+    w.total += d.total;
+    w.count += d.count;
+    byWeek.set(m, w);
+  }
+  const keys = [...byWeek.keys()];
+  const first = Math.min(...keys);
+  const last = Math.max(...keys);
+  const out: BarMingguan[] = [];
+  for (let m = first; m <= last; m += 7 * DAY) {
+    out.push(byWeek.get(m) ?? { start: iso(m), end: iso(m + 6 * DAY), total: 0, count: 0 });
+  }
+  return out;
+}
+
+const labelMinggu = (w: BarMingguan) =>
+  new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short' }).format(new Date(w.start));
+
 export default function LaporanPage() {
   const [from, setFrom] = React.useState(() => toDateInput(firstOfMonth()));
   const [to, setTo] = React.useState(() => toDateInput(new Date()));
@@ -154,7 +187,8 @@ export default function LaporanPage() {
     enabled: tab === 'stok' && rangeValid,
   });
 
-  const maxHarian = Math.max(1, ...(salesQuery.data?.grafikHarian.map((d) => d.total) ?? [0]));
+  const grafikMingguan = groupByWeek(salesQuery.data?.grafikHarian ?? []);
+  const maxMingguan = Math.max(1, ...grafikMingguan.map((w) => w.total));
 
   return (
     <div className="grid gap-6">
@@ -216,26 +250,31 @@ export default function LaporanPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Grafik Harian</CardTitle>
-                  <CardDescription>Total penjualan per hari dalam rentang yang dipilih.</CardDescription>
+                  <CardTitle className="text-base">Grafik Mingguan</CardTitle>
+                  <CardDescription>Total penjualan per minggu (Senin sampai Minggu) dalam rentang yang dipilih.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {salesQuery.data.grafikHarian.length === 0 ? (
+                  {grafikMingguan.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Tidak ada transaksi di rentang ini.</p>
                   ) : (
-                    <div className="flex h-40 items-end gap-1.5 overflow-x-auto pb-1">
-                      {salesQuery.data.grafikHarian.map((d) => (
+                    <div className="flex h-48 gap-1.5 overflow-x-auto pb-1">
+                      {grafikMingguan.map((d) => (
                         <div
-                          key={d.date}
-                          className="flex min-w-8 flex-1 flex-col items-center gap-1"
-                          title={`${formatDate(d.date)}: ${formatRupiah(d.total)} (${d.count} invoice)`}
+                          key={d.start}
+                          className="flex h-full min-w-14 max-w-24 flex-1 flex-col items-center gap-1"
+                          title={`${formatDate(d.start)} sampai ${formatDate(d.end)}: ${formatRupiah(d.total)} (${d.count} invoice)`}
                         >
-                          <div
-                            className="w-full rounded-t bg-primary/70"
-                            style={{ height: `${Math.max(4, (d.total / maxHarian) * 100)}%` }}
-                          />
+                          <div className="flex w-full flex-1 flex-col items-center justify-end gap-1">
+                            <span className="text-[10px] font-medium whitespace-nowrap tabular-nums">
+                              {d.total > 0 ? formatRupiah(d.total) : ''}
+                            </span>
+                            <div
+                              className="w-full shrink-0 rounded-t bg-primary/70 transition-colors hover:bg-primary"
+                              style={{ height: `${Math.max(2, (d.total / maxMingguan) * 80)}%` }}
+                            />
+                          </div>
                           <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                            {formatDate(d.date)}
+                            {labelMinggu(d)}
                           </span>
                         </div>
                       ))}
@@ -358,7 +397,7 @@ export default function LaporanPage() {
                 <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
                   <p className="font-medium">
                     Ada {profitLossQuery.data.ringkasan.barisJualSatuanTanpaModal} baris penjualan satuan
-                    (Indoor/Outdoor saja) — modalnya belum dialokasikan, jadi Laba Kotor di atas
+                    (Indoor/Outdoor saja) - modalnya belum dialokasikan, jadi Laba Kotor di atas
                     masih optimis.
                   </p>
                   {(profitLossQuery.data.ringkasan.modalPaketTakTeralokasiMaks ?? 0) > 0 ? (
@@ -388,7 +427,7 @@ export default function LaporanPage() {
                 <CardHeader>
                   <CardTitle className="text-base">Detail per Item</CardTitle>
                   <CardDescription>
-                    HPP dihitung dari harga beli saat transaksi (snapshot) kalau tersedia — catatan di
+                    HPP dihitung dari harga beli saat transaksi (snapshot) kalau tersedia - catatan di
                     kolom terakhir menjelaskan sumber HPP tiap baris.
                   </CardDescription>
                 </CardHeader>
@@ -523,7 +562,7 @@ export default function LaporanPage() {
                               )}
                               {row.jualSatuanTanpaModal ? (
                                 <p className="mt-0.5 text-xs text-amber-700">
-                                  {row.jualSatuanTanpaModal} unit dijual satuan — modal tidak dialokasikan
+                                  {row.jualSatuanTanpaModal} unit dijual satuan - modal tidak dialokasikan
                                 </p>
                               ) : null}
                             </TableCell>

@@ -288,7 +288,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                 label="Unit AC"
                 value={
                   job.unit
-                    ? `${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || '-'} — ${job.unit.roomLocation || 'lokasi belum diisi'}`
+                    ? `${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || '-'} - ${job.unit.roomLocation || 'lokasi belum diisi'}`
                     : '-'
                 }
               />
@@ -321,7 +321,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
               )}
               <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />
               {/* Kalau lagi bisa diedit (lihat NotesEditor di bawah), jangan
-                  dobel ditampilin di sini juga — biar gak ada 2 sumber
+                  dobel ditampilin di sini juga - biar gak ada 2 sumber
                   kebenaran yang keliatan beda pas belum di-save. */}
               {job.notes && !notesEditable && <DetailRow label="Catatan" value={job.notes} />}
               {job.startedAt && (
@@ -420,7 +420,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Mulai Job (scan barcode unit)</label>
                 {/* Balikin gate lama (konsep app mobile teknisi): foto
-                    SEBELUM wajib ada dulu, sebelum job boleh dimulai — sudah
+                    SEBELUM wajib ada dulu, sebelum job boleh dimulai - sudah
                     ditegakkan juga di backend (start()), ini cuma versi
                     proaktifnya biar teknisi gak nunggu klik-dulu-baru-tau. */}
                 {!hasBeforePhoto && (
@@ -466,7 +466,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                   {submitForReviewMutation.isPending ? 'Memproses...' : 'Ajukan Selesai'}
                 </Button>
                 {/* Validasi sisi klien niru persis gate submitForReview() di
-                    backend (technician-jobs.service.ts) — minimal 1 temuan,
+                    backend (technician-jobs.service.ts) - minimal 1 temuan,
                     dan SETIAP temuan minimal 1 foto sebelum + 1 sesudah. Gate
                     pengajuan-material yang belum dicek di sini (belum
                     diporting ke web) tetap ditangani backend & muncul lewat
@@ -506,7 +506,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                   <label className="text-sm font-medium">Kembalikan ke Teknisi</label>
                   <Textarea
                     rows={2}
-                    placeholder="Catatan — apa yang kurang?"
+                    placeholder="Catatan - apa yang kurang?"
                     value={sendBackNote}
                     onChange={(e) => setSendBackNote(e.target.value)}
                   />
@@ -901,7 +901,7 @@ function AddFindingForm({ jobId }: { jobId: string }) {
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-9"
-          placeholder="Cari kategori, atau ketik baru — mis. AC bocor"
+          placeholder="Cari kategori, atau ketik baru - mis. AC bocor"
           value={selectedCategory ? selectedCategory.name : categorySearch}
           onChange={(e) => {
             setSelectedCategory(null);
@@ -915,7 +915,7 @@ function AddFindingForm({ jobId }: { jobId: string }) {
             )}
             {categoryQuery.data?.length === 0 && (
               <p className="p-2 text-xs text-muted-foreground">
-                Gak ketemu — lanjut isi buat bikin kategori baru &ldquo;{categorySearch.trim()}
+                Gak ketemu - lanjut isi buat bikin kategori baru &ldquo;{categorySearch.trim()}
                 &rdquo;.
               </p>
             )}
@@ -988,7 +988,7 @@ function MaterialRequestsList({
   const markUsedMutation = useMutation({
     mutationFn: (requestId: string) => apiClient.patch(`/material-requests/${requestId}/mark-used`),
     onSuccess: () => {
-      toast.success('Ditandai sudah dipakai — stok ikut terpotong.');
+      toast.success('Ditandai sudah dipakai - stok ikut terpotong.');
       queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
     },
     onError: (err) => {
@@ -1027,7 +1027,7 @@ function MaterialRequestsList({
           )}
           {r.status === 'approved' && r.usedAt && (
             <p className="text-xs text-status-success">
-              Sudah dipakai — {formatDateTime(r.usedAt)}
+              Sudah dipakai - {formatDateTime(r.usedAt)}
             </p>
           )}
         </div>

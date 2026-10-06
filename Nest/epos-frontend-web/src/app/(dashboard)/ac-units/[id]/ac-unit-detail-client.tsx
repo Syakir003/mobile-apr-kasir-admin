@@ -174,7 +174,7 @@ export function AcUnitDetailClient({ unitId, role }: { unitId: string; role: Rol
           <DialogHeader>
             <DialogTitle>Edit Data Unit</DialogTitle>
             <DialogDescription>
-              Betulin data unit AC — barcode & pemilik gak bisa diubah dari sini.
+              Betulin data unit AC - barcode & pemilik gak bisa diubah dari sini.
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>

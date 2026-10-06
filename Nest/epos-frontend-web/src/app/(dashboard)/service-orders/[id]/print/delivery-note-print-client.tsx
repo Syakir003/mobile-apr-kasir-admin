@@ -77,7 +77,7 @@ export function DeliveryNotePrintClient({ serviceOrderId }: { serviceOrderId: st
           </Link>
         </Button>
         <p className="text-sm text-muted-foreground">
-          Order ini tidak punya invoice terkait (bukan dari transaksi POS) — surat jalan cuma
+          Order ini tidak punya invoice terkait (bukan dari transaksi POS) - surat jalan cuma
           berlaku untuk pengiriman barang hasil pembelian, jadi tidak ada yang bisa dicetak.
         </p>
       </div>

@@ -221,7 +221,7 @@ export default function PenggunaPage() {
       });
     },
     onSuccess: () => {
-      toast.success('Password berhasil di-reset — sesi lama akun ini otomatis logout.');
+      toast.success('Password berhasil di-reset - sesi lama akun ini otomatis logout.');
       setResetting(null);
     },
     onError: (err) => {
@@ -251,7 +251,7 @@ export default function PenggunaPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Pengguna</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Akun staff untuk login — kasir dan teknisi masing-masing wajib punya akun sendiri.
+            Akun staff untuk login - kasir dan teknisi masing-masing wajib punya akun sendiri.
           </p>
         </div>
         <Button onClick={openCreate}>

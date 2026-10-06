@@ -204,7 +204,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Terima Servis Baru</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Buat job servis buat customer yang bawa/minta servis unit AC-nya sendiri — baik unit
+          Buat job servis buat customer yang bawa/minta servis unit AC-nya sendiri - baik unit
           yang udah kebeli/terdaftar di toko ini, maupun unit lama yang belum pernah tercatat.
         </p>
       </div>
@@ -288,14 +288,14 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                   <TabsTrigger value="new">Unit Belum Tercatat</TabsTrigger>
                 </TabsList>
                 {/* Tab di atas cuma nyala kalau member udah dipilih & punya
-                    unit — teks ini bikin ALASANNYA keliatan tanpa perlu
+                    unit - teks ini bikin ALASANNYA keliatan tanpa perlu
                     hover, soalnya tab yang disabled gak bisa diklik buat
                     ngebuka TabsContent-nya sendiri yang isinya penjelasan
                     serupa. */}
                 {memberUnits.length === 0 && (
                   <p className="mt-1.5 text-xs text-muted-foreground">
                     {selectedMember
-                      ? 'Member ini belum punya unit AC terdaftar — pakai tab "Unit Belum Tercatat".'
+                      ? 'Member ini belum punya unit AC terdaftar - pakai tab "Unit Belum Tercatat".'
                       : 'Pilih member di atas dulu buat mengaktifkan tab ini.'}
                   </p>
                 )}
@@ -311,7 +311,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                   )}
                   {selectedMember && !memberDetailQuery.isLoading && memberUnits.length === 0 && (
                     <p className="text-sm text-muted-foreground">
-                      Member ini belum punya unit AC terdaftar — pakai tab &quot;Unit Belum
+                      Member ini belum punya unit AC terdaftar - pakai tab &quot;Unit Belum
                       Tercatat&quot;.
                     </p>
                   )}
@@ -324,7 +324,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                         {memberUnits.map((u) => (
                           <SelectItem key={u.id} value={u.id}>
                             {[u.brand, u.model].filter(Boolean).join(' ') || 'Unit AC'}
-                            {u.roomLocation ? ` — ${u.roomLocation}` : ''} ({u.barcodeValue})
+                            {u.roomLocation ? ` - ${u.roomLocation}` : ''} ({u.barcodeValue})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -336,7 +336,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                   <p className="text-xs text-muted-foreground">
                     Unit AC yang belum pernah tercatat di sistem (dibeli di tempat lain, atau
                     dibeli di toko ini sebelum ada sistem ini). Semua boleh dikosongin kalau belum
-                    tahu persis — bisa dilengkapi teknisi belakangan. Barcode/QR unit baru
+                    tahu persis - bisa dilengkapi teknisi belakangan. Barcode/QR unit baru
                     digenerate begitu job ini dibuat.
                   </p>
                   <div className="grid grid-cols-2 gap-4">

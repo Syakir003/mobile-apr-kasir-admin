@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Printer } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
-import { SPAREPART_GROUP, groupLabel, groupStockRows } from '@/lib/stock-group';
+import { SPAREPART_GROUP, groupLabel, groupStockRows, hideEmptyRows } from '@/lib/stock-group';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -57,26 +57,11 @@ export default function LaporanStokGudangPage() {
     () => groupStockRows(data?.items ?? []).map((g) => g.label),
     [data],
   );
-  // Barang tanpa stok & tanpa pergerakan (semua angka 0) disembunyikan secara
-  // default — katalog besar membuat laporan penuh baris nol. Paket Indoor+Outdoor
-  // disembunyikan hanya bila KEDUANYA nol, supaya pasangan tidak terpisah.
+  // Barang tanpa stok & tanpa pergerakan disembunyikan secara default
+  // (aturannya di lib/stock-group.ts, dipakai juga oleh halaman cetak).
   const { shown, hiddenCount } = React.useMemo(() => {
     const items = (data?.items ?? []).filter((r) => brand === 'all' || groupLabel(r) === brand);
-    if (showEmpty) return { shown: items, hiddenCount: 0 };
-    const isEmpty = (r: Row) => !r.stokAwal && !r.stokMasuk && !r.stokKeluar && !r.sisaStok;
-    const kept: Row[] = [];
-    let hidden = 0;
-    for (let i = 0; i < items.length; i++) {
-      const r = items[i];
-      const next = items[i + 1];
-      const pairNext =
-        r.unitGabungan && next?.pairRole === 'outdoor' && next.name === r.unitGabungan.namaPasangan ? next : undefined;
-      const unit = pairNext ? [r, pairNext] : [r];
-      if (unit.every(isEmpty)) hidden += unit.length;
-      else kept.push(...unit);
-      if (pairNext) i++;
-    }
-    return { shown: kept, hiddenCount: hidden };
+    return showEmpty ? { shown: items, hiddenCount: 0 } : hideEmptyRows(items);
   }, [data, brand, showEmpty]);
   const groups = React.useMemo(() => groupStockRows(shown), [shown]);
   const fmtDate = (d: string) => d.split('-').reverse().join('/');
@@ -94,7 +79,7 @@ export default function LaporanStokGudangPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Laporan Stok</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Stok awal, masuk, keluar, dan sisa per item — dasar untuk mencocokkan stok sistem dengan fisik.
+          Stok awal, masuk, keluar, dan sisa per item - dasar untuk mencocokkan stok sistem dengan fisik.
         </p>
       </div>
 
@@ -153,7 +138,7 @@ export default function LaporanStokGudangPage() {
           </div>
           {rangeValid && (
             <Button variant="outline" size="sm" asChild className="ml-auto">
-              <Link href={`/laporan/stok/print?from=${from}&to=${to}${kindQs}${brand !== 'all' ? `&brand=${encodeURIComponent(brand)}` : ''}`} target="_blank">
+              <Link href={`/laporan/stok/print?from=${from}&to=${to}${kindQs}${brand !== 'all' ? `&brand=${encodeURIComponent(brand)}` : ''}${showEmpty ? '&semua=1' : ''}`} target="_blank">
                 <Printer className="size-4" />
                 Cetak PDF
               </Link>
@@ -179,6 +164,7 @@ export default function LaporanStokGudangPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Nama</TableHead>
+                  <TableHead>Jenis</TableHead>
                   <TableHead className="text-right">
                     Stok Awal
                     <span className="block text-xs font-normal text-muted-foreground">sebelum {fmtDate(from)}</span>
@@ -200,7 +186,7 @@ export default function LaporanStokGudangPage() {
               <TableBody>
                 {groups.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
                       {hiddenCount === 0
                         ? 'Tidak ada item.'
                         : 'Belum ada barang yang punya stok. Centang "Tampilkan juga barang tanpa stok" untuk melihat semuanya.'}
@@ -210,7 +196,7 @@ export default function LaporanStokGudangPage() {
                 {groups.map((g) => (
                   <React.Fragment key={g.label}>
                     <TableRow className="bg-muted hover:bg-muted">
-                      <TableCell colSpan={4} className="font-semibold">
+                      <TableCell colSpan={5} className="font-semibold">
                         {g.label}
                         <span className="ml-2 text-xs font-normal text-muted-foreground">{g.rows.length} item</span>
                       </TableCell>
@@ -228,15 +214,19 @@ export default function LaporanStokGudangPage() {
                           >
                             {isPackageOutdoor && <span className="mr-1 text-muted-foreground">↳</span>}
                             {row.name}
-                            {row.pairRole && (
-                              <Badge variant="outline" className="ml-2 capitalize">
-                                {row.pairRole}
-                              </Badge>
-                            )}
                             {row.unitGabungan && (
                               <p className="mt-0.5 text-xs text-muted-foreground">
                                 Set lengkap siap jual: {row.unitGabungan.sisaStok}
                               </p>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {row.pairRole ? (
+                              <Badge variant="outline" className="capitalize">
+                                {row.pairRole}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
                             )}
                           </TableCell>
                           <TableCell className="text-right">{row.stokAwal}</TableCell>

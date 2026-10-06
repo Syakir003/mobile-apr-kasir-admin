@@ -140,7 +140,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           <p className="mt-1 text-sm text-muted-foreground">
             {isTeknisi
               ? 'Job servis yang ditugaskan ke Anda.'
-              : 'Semua job servis & pemasangan — kelola penugasan teknisi di sini.'}
+              : 'Semua job servis & pemasangan - kelola penugasan teknisi di sini.'}
           </p>
         </div>
         <Button variant="outline" size="icon" onClick={() => jobsQuery.refetch()}>

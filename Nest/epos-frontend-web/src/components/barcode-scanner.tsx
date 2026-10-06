@@ -95,13 +95,13 @@ export function BarcodeScanner({
           </Button>
         </div>
         <p className="mt-1.5 text-xs text-muted-foreground">
-          Kolom ini juga kepake buat alat scanner fisik (barcode gun) — taruh kursor di sini lalu
+          Kolom ini juga kepake buat alat scanner fisik (barcode gun) - taruh kursor di sini lalu
           tembak.
         </p>
       </TabsContent>
 
       {/* Radix TabsContent unmount total pas gak aktif (gak ada forceMount di
-          sini) — jadi kamera OTOMATIS berhenti (lihat cleanup effect di
+          sini) - jadi kamera OTOMATIS berhenti (lihat cleanup effect di
           CameraScanTab) begitu pindah tab, gak nyala nganggur di background. */}
       <TabsContent value="camera" className="mt-3">
         <CameraScanTab onDetect={onDetect} />
@@ -205,7 +205,7 @@ function CameraScanTab({ onDetect }: { onDetect: (code: string) => void }) {
         </Button>
       )}
       <p className="text-xs text-muted-foreground">
-        Arahkan kamera ke barcode/QR unit — otomatis terdeteksi begitu kebaca jelas.
+        Arahkan kamera ke barcode/QR unit - otomatis terdeteksi begitu kebaca jelas.
       </p>
     </div>
   );
@@ -233,7 +233,7 @@ function UploadScanTab({ onDetect }: { onDetect: (code: string) => void }) {
       const decoded = await scanner.scanFile(file, false);
       onDetect(decoded.trim());
     } catch {
-      toast.error('Gak ketemu kode QR/barcode di foto itu — coba foto lain yang lebih jelas/dekat.');
+      toast.error('Gak ketemu kode QR/barcode di foto itu - coba foto lain yang lebih jelas/dekat.');
     } finally {
       try {
         scanner.clear();
@@ -263,7 +263,7 @@ function UploadScanTab({ onDetect }: { onDetect: (code: string) => void }) {
         {busy ? 'Memindai foto...' : 'Pilih Foto Berisi Kode'}
       </Button>
       <p className="text-xs text-muted-foreground">
-        Pilih foto yang sudah ada di galeri/penyimpanan — bukan membuka kamera.
+        Pilih foto yang sudah ada di galeri/penyimpanan - bukan membuka kamera.
       </p>
     </div>
   );

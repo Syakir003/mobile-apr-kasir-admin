@@ -7,7 +7,7 @@ import { Printer } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { formatRupiah, formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
-import { SPAREPART_GROUP, groupLabel, groupStockRows } from '@/lib/stock-group';
+import { SPAREPART_GROUP, groupLabel, groupStockRows, hideEmptyRows } from '@/lib/stock-group';
 
 interface StockReportRow {
   itemKind: 'product' | 'sparepart';
@@ -34,7 +34,19 @@ interface StockReport {
   ringkasan?: { totalModalTersisa: number; totalOmzetTerjual: number; totalUntungTerjual: number };
 }
 
-export function StokPrintClient({ from, to, kind, brand }: { from: string; to: string; kind?: string; brand?: string }) {
+export function StokPrintClient({
+  from,
+  to,
+  kind,
+  brand,
+  showEmpty,
+}: {
+  from: string;
+  to: string;
+  kind?: string;
+  brand?: string;
+  showEmpty?: boolean;
+}) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['reports', 'stock-movements', 'print', from, to, kind],
     queryFn: () =>
@@ -48,13 +60,20 @@ export function StokPrintClient({ from, to, kind, brand }: { from: string; to: s
   if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat laporan stok.</p>;
 
   const showMoney = Boolean(data.ringkasan);
-  const groups = groupStockRows(data.items.filter((r) => !brand || groupLabel(r) === brand));
+  const scoped = data.items.filter((r) => !brand || groupLabel(r) === brand);
+  const { shown, hiddenCount } = showEmpty ? { shown: scoped, hiddenCount: 0 } : hideEmptyRows(scoped);
+  const groups = groupStockRows(shown);
+  // Kolom angka sempit & seragam supaya Nama dapat sisa lebar terbesar.
+  const num = 'border border-black p-1 text-right';
+  const jenisLabel = (r: StockReportRow) =>
+    r.pairRole === 'indoor' ? 'Indoor' : r.pairRole === 'outdoor' ? 'Outdoor' : r.itemKind === 'sparepart' ? 'Sparepart' : 'Produk';
 
   return (
-    <div className="mx-auto max-w-[297mm]">
-      {/* Laporan tabular (banyak kolom) — pola @page A4 landscape, beda dari
-          invoice yang portrait, biar semua kolom muat gak kepotong. */}
-      <style>{'@page { size: A4 landscape; margin: 10mm; }'}</style>
+    <div className={showMoney ? 'mx-auto max-w-[297mm]' : 'mx-auto max-w-[210mm]'}>
+      {/* Versi admin punya kolom Rupiah (Modal/Omzet/Untung) -> A4 landscape biar
+          semua kolom muat. Versi gudang (tanpa Rupiah, 8 kolom) -> A4 portrait,
+          seperti kartu stok kertas. */}
+      <style>{`@page { size: A4 ${showMoney ? 'landscape' : 'portrait'}; margin: 10mm; }`}</style>
 
       <div className="mb-4 flex items-center justify-end print:hidden">
         <Button onClick={() => window.print()}>
@@ -77,25 +96,28 @@ export function StokPrintClient({ from, to, kind, brand }: { from: string; to: s
           >
             <div className="text-center">
               <p className="text-lg font-bold">AYUB AC</p>
-              <p className="text-sm font-semibold">Laporan Stok — {g.label}</p>
+              <p className="text-sm font-semibold">Laporan Stok - {g.label}</p>
               <p className="text-xs">
-                {formatDate(from)} — {formatDate(to)}
+                {formatDate(from)} - {formatDate(to)}
               </p>
+              {gi === 0 && hiddenCount > 0 && (
+                <p className="text-[9px] italic">{hiddenCount} barang tanpa stok tidak dicetak.</p>
+              )}
             </div>
 
-            <table className="mt-3 w-full border-collapse border border-black text-[9px]">
+            <table className={`mt-3 w-full border-collapse border border-black ${showMoney ? 'text-[9px]' : 'text-[10px]'}`}>
               <thead>
                 <tr>
-                  <th className="border border-black p-1">Nama</th>
-                  <th className="border border-black p-1">Jenis</th>
-                  <th className="border border-black p-1">Stok Awal</th>
-                  <th className="border border-black p-1">Masuk</th>
-                  <th className="border border-black p-1">Keluar</th>
-                  <th className="border border-black p-1">Sisa</th>
+                  <th className="border border-black p-1 text-left">Nama</th>
+                  <th className="w-16 border border-black p-1">Jenis</th>
+                  <th className="w-14 border border-black p-1">Stok Awal</th>
+                  <th className="w-14 border border-black p-1">Masuk</th>
+                  <th className="w-14 border border-black p-1">Keluar</th>
+                  <th className="w-16 border border-black p-1">Stok Sekarang</th>
                   {!showMoney && (
                     <>
-                      <th className="w-20 border border-black p-1">Fisik</th>
-                      <th className="w-20 border border-black p-1">Selisih</th>
+                      <th className="w-16 border border-black p-1">Fisik</th>
+                      <th className="w-16 border border-black p-1">Selisih</th>
                     </>
                   )}
                   {showMoney && (
@@ -119,20 +141,20 @@ export function StokPrintClient({ from, to, kind, brand }: { from: string; to: s
                         {row.name}
                         {row.unitGabungan && (
                           <div className="text-[8px] italic">
-                            Paket lengkap siap: {row.unitGabungan.sisaStok} (pasangan: {row.unitGabungan.namaPasangan})
+                            Set lengkap siap jual: {row.unitGabungan.sisaStok}
                           </div>
                         )}
                         {row.jualSatuanTanpaModal ? (
                           <div className="text-[8px] italic">
-                            {row.jualSatuanTanpaModal} unit dijual satuan — modal tidak dialokasikan
+                            {row.jualSatuanTanpaModal} unit dijual satuan - modal tidak dialokasikan
                           </div>
                         ) : null}
                       </td>
-                      <td className="border border-black p-1 text-center capitalize">{row.pairRole ?? row.itemKind}</td>
-                      <td className="border border-black p-1 text-right">{row.stokAwal}</td>
-                      <td className="border border-black p-1 text-right">{row.stokMasuk}</td>
-                      <td className="border border-black p-1 text-right">{row.stokKeluar}</td>
-                      <td className="border border-black p-1 text-right">{row.sisaStok}</td>
+                      <td className="border border-black p-1 text-center">{jenisLabel(row)}</td>
+                      <td className={num}>{row.stokAwal}</td>
+                      <td className={num}>{row.stokMasuk}</td>
+                      <td className={num}>{row.stokKeluar}</td>
+                      <td className={`${num} font-semibold`}>{row.sisaStok}</td>
                       {!showMoney && (
                         <>
                           <td className="border border-black p-1" />

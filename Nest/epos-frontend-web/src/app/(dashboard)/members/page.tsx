@@ -250,7 +250,7 @@ export default function MembersPage() {
           <DialogHeader>
             <DialogTitle>Tambah Member</DialogTitle>
             <DialogDescription>
-              Daftarin pelanggan manual — gak perlu nunggu dia checkout dulu.
+              Daftarin pelanggan manual - gak perlu nunggu dia checkout dulu.
             </DialogDescription>
           </DialogHeader>
           <Form {...createForm}>

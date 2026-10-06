@@ -229,48 +229,46 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
         Kembali ke Riwayat Transaksi
       </Link>
 
-      {/* Header status-first ala prototype "Invoice & Struk" — status,
-          nomor invoice, total, dan metode pembayaran terakhir langsung
-          kebaca tanpa scroll. Warna header pakai token sidebar (teal) yang
-          sama dengan sidebar/dashboard, BUKAN warna baru. */}
-      <Card className="overflow-hidden py-0">
-        <div className="flex flex-wrap items-start justify-between gap-4 bg-sidebar px-6 py-5 text-sidebar-foreground">
+      {/* Header status-first: nomor + status di atas, tiga angka tagihan
+          sejajar di bawahnya. Tanpa blok warna penuh supaya angka yang
+          jadi pusat perhatian. */}
+      <Card className="gap-0 py-0">
+        <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-5">
           <div>
-            <p className="text-sm text-sidebar-foreground/70">Invoice</p>
-            <h1 className="text-2xl font-bold text-white">{data.number}</h1>
-            <p className="mt-1 text-sm text-sidebar-foreground/70">
-              {formatDateTime(data.createdAt)}
-            </p>
+            <p className="text-sm text-muted-foreground">Invoice</p>
+            <h1 className="mt-0.5 text-2xl font-semibold tracking-tight tabular-nums">{data.number}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{formatDateTime(data.createdAt)}</p>
           </div>
           <Badge variant={invoiceStatusVariant(data.status)} className="px-3 py-1 text-sm">
             {statusLabel(data.status)}
           </Badge>
         </div>
-        <CardContent className="grid gap-1.5 py-4">
-          <div className="flex items-baseline justify-between">
-            <span className="text-sm text-muted-foreground">Total Tagihan</span>
-            <span className="text-2xl font-bold text-primary">
-              {formatRupiah(data.grandTotal)}
-            </span>
+        <dl className="grid divide-y border-t sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="px-5 py-4">
+            <dt className="text-xs text-muted-foreground">Total Tagihan</dt>
+            <dd className="mt-1 text-xl font-semibold tabular-nums">{formatRupiah(data.grandTotal)}</dd>
           </div>
-          {latestPayment && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Sudah dibayar</span>
-              <span className="font-medium">
-                {formatRupiah(data.totalPaid)}
-                <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                  (terakhir via {methodLabel(latestPayment.method)})
-                </span>
-              </span>
-            </div>
-          )}
-          {sisa > 0 && data.status !== 'batal' && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Sisa Tagihan</span>
-              <span className="font-medium text-destructive">{formatRupiah(sisa)}</span>
-            </div>
-          )}
-        </CardContent>
+          <div className="px-5 py-4">
+            <dt className="text-xs text-muted-foreground">Sudah Dibayar</dt>
+            <dd className="mt-1 text-xl font-semibold tabular-nums">{formatRupiah(data.totalPaid)}</dd>
+            {latestPayment && (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Terakhir via {methodLabel(latestPayment.method)}
+              </p>
+            )}
+          </div>
+          <div className="px-5 py-4">
+            <dt className="text-xs text-muted-foreground">Sisa Tagihan</dt>
+            <dd
+              className={cn(
+                'mt-1 text-xl font-semibold tabular-nums',
+                sisa > 0 && data.status !== 'batal' ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {formatRupiah(sisa)}
+            </dd>
+          </div>
+        </dl>
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
@@ -348,7 +346,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
           </Card>
 
           {/* Aksi ditaruh DI BAWAH Ringkasan (bukan baris terpisah di atas
-              kolom, dan bukan juga langsung nempel di header) — alurnya jadi
+              kolom, dan bukan juga langsung nempel di header) - alurnya jadi
               baca dulu detail & totalnya, baru mutusin aksi apa, padanan
               baris "Kirim WA / Kirim Email / Cetak Struk" di prototype.
               "Kirim Email" SENGAJA gak diikutin: belum ada kemampuan kirim
@@ -377,16 +375,16 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
             <CardHeader>
               <CardTitle className="text-base">Item</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-3">
+            <CardContent className="grid divide-y">
               {data.items.map((item) => (
-                <div key={item.id} className="flex items-start justify-between gap-3 text-sm">
+                <div key={item.id} className="flex items-start justify-between gap-3 py-3 text-sm first:pt-0 last:pb-0">
                   <div>
                     <p className="font-medium">{item.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {trimZero(item.qty)} {item.unit || ''} × {formatRupiah(item.unitPrice)}
                     </p>
                   </div>
-                  <p className="font-medium">
+                  <p className="font-medium tabular-nums">
                     {item.kind === 'product' && Number(item.lineTotal) === 0 ? (
                       <span className="text-xs font-normal text-muted-foreground">Termasuk paket</span>
                     ) : (
@@ -407,17 +405,17 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
                 <p className="text-sm text-muted-foreground">Belum ada pembayaran.</p>
               )}
               {data.manualPayments.length > 0 && (
-                <div className="grid gap-3">
+                <div className="grid divide-y">
                   {data.manualPayments.map((p) => (
-                    <div key={p.id} className="flex items-start justify-between gap-3 text-sm">
+                    <div key={p.id} className="flex items-start justify-between gap-3 py-3 text-sm first:pt-0 last:pb-0">
                       <div>
                         <p className="font-medium">{methodLabel(p.method)}</p>
                         <p className="text-xs text-muted-foreground">
                           {formatDateTime(p.createdAt)}
-                          {p.note ? ` — ${p.note}` : ''}
+                          {p.note ? ` - ${p.note}` : ''}
                         </p>
                       </div>
-                      <p className="font-medium">{formatRupiah(p.amount)}</p>
+                      <p className="font-medium tabular-nums">{formatRupiah(p.amount)}</p>
                     </div>
                   ))}
                 </div>
@@ -553,7 +551,7 @@ function TotalRow({
   return (
     <div className="flex justify-between gap-3">
       <span className={bold ? 'font-semibold' : 'text-muted-foreground'}>{label}</span>
-      <span className={cn('shrink-0 whitespace-nowrap', bold && 'font-semibold')}>{value}</span>
+      <span className={cn('shrink-0 whitespace-nowrap tabular-nums', bold && 'font-semibold')}>{value}</span>
     </div>
   );
 }

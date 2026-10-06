@@ -426,7 +426,7 @@ function AturDialog({ item, onClose }: { item: ScheduleItem; onClose: () => void
         <DialogHeader>
           <DialogTitle>Atur pengingat servis</DialogTitle>
           <DialogDescription>
-            {item.member.name} — {item.label}
+            {item.member.name} - {item.label}
             {item.roomLocation ? ` (${item.roomLocation})` : ''}. Satu set AC = satu pengingat.
           </DialogDescription>
         </DialogHeader>

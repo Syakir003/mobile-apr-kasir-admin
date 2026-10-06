@@ -35,3 +35,34 @@ export function groupStockRows<T extends GroupableRow>(rows: T[]): StockGroup<T>
     a.label === SPAREPART_GROUP ? 1 : b.label === SPAREPART_GROUP ? -1 : a.label.localeCompare(b.label),
   );
 }
+
+interface MovementRow {
+  name: string;
+  stokAwal: number;
+  stokMasuk: number;
+  stokKeluar: number;
+  sisaStok: number;
+  pairRole?: 'indoor' | 'outdoor';
+  unitGabungan?: { namaPasangan: string };
+}
+
+// Barang tanpa stok & tanpa pergerakan (semua angka 0) disembunyikan — katalog
+// besar membuat laporan penuh baris nol. Paket Indoor+Outdoor disembunyikan
+// hanya bila KEDUANYA nol, supaya pasangan tidak terpisah. Dipakai bersama oleh
+// halaman Laporan Stok dan halaman cetaknya.
+export function hideEmptyRows<T extends MovementRow>(items: T[]): { shown: T[]; hiddenCount: number } {
+  const isEmpty = (r: T) => !r.stokAwal && !r.stokMasuk && !r.stokKeluar && !r.sisaStok;
+  const shown: T[] = [];
+  let hiddenCount = 0;
+  for (let i = 0; i < items.length; i++) {
+    const r = items[i];
+    const next = items[i + 1];
+    const pairNext =
+      r.unitGabungan && next?.pairRole === 'outdoor' && next.name === r.unitGabungan.namaPasangan ? next : undefined;
+    const unit = pairNext ? [r, pairNext] : [r];
+    if (unit.every(isEmpty)) hiddenCount += unit.length;
+    else shown.push(...unit);
+    if (pairNext) i++;
+  }
+  return { shown, hiddenCount };
+}

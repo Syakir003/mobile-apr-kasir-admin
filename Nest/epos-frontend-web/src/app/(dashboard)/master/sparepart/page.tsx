@@ -308,7 +308,7 @@ export default function SparepartPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Sparepart</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Bahan & komponen servis — freon, pipa, bracket, dsb. Klik baris buat lihat & tambah
+            Bahan & komponen servis - freon, pipa, bracket, dsb. Klik baris buat lihat & tambah
             stok.
           </p>
         </div>
@@ -438,7 +438,7 @@ export default function SparepartPage() {
             <DialogTitle>{editing ? 'Edit Sparepart' : 'Tambah Sparepart'}</DialogTitle>
             <DialogDescription>
               {editing
-                ? 'Ubah data sparepart. Stok tidak diubah dari sini — klik baris di tabel buat tambah stok.'
+                ? 'Ubah data sparepart. Stok tidak diubah dari sini - klik baris di tabel buat tambah stok.'
                 : 'Isi data sparepart baru.'}
             </DialogDescription>
           </DialogHeader>
@@ -509,7 +509,7 @@ export default function SparepartPage() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Isi kemasan cuma contoh umum — sesuaikan dengan barang yang kamu beli.
+                    Isi kemasan cuma contoh umum - sesuaikan dengan barang yang kamu beli.
                   </p>
                 </div>
               )}
@@ -637,7 +637,7 @@ export default function SparepartPage() {
               {!editing &&
                 (mode === 'gulungan' ? (
                   <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-                    Sparepart per-gulungan gak bisa diisi stok awal di sini — tambahkan gulungan
+                    Sparepart per-gulungan gak bisa diisi stok awal di sini - tambahkan gulungan
                     pertama lewat menu Barang Masuk setelah sparepart ini dibuat.
                   </p>
                 ) : packMode ? (
@@ -728,7 +728,7 @@ function InitialStockPack({ form }: { form: UseFormReturn<SparepartFormValues> }
         name="stockIn"
         render={({ field }) => (
           <FormItem>
-            <FormLabel>Stok awal — input dalam satuan</FormLabel>
+            <FormLabel>Stok awal - input dalam satuan</FormLabel>
             <div className="flex gap-2">
               {(['pack', 'unit'] as const).map((k) => (
                 <Button

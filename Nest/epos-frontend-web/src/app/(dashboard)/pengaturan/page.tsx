@@ -73,7 +73,7 @@ const RESET_SCOPE_CONFIGS: ResetScopeConfig[] = [
     title: 'Reset Total',
     buttonLabel: 'Reset Total',
     description:
-      'Hapus SEMUA data bisnis — transaksi, pelanggan, DAN seluruh Master Data (Produk/Sparepart/Jasa/Paket). Cuma akun pengguna & pengaturan sistem yang tersisa.',
+      'Hapus SEMUA data bisnis - transaksi, pelanggan, DAN seluruh Master Data (Produk/Sparepart/Jasa/Paket). Cuma akun pengguna & pengaturan sistem yang tersisa.',
     dataList: [
       'Semua yang dihapus di "Reset Transaksi + Pelanggan"',
       'Master Data: Produk, Sparepart, Jasa, Paket Instalasi (+ isinya)',
@@ -120,7 +120,7 @@ export default function PengaturanPage() {
       ),
     onSuccess: (result) => {
       const total = Object.values(result.deletedCounts).reduce((sum, n) => sum + n, 0);
-      toast.success(`Reset berhasil — ${total} baris data terhapus.`);
+      toast.success(`Reset berhasil - ${total} baris data terhapus.`);
       setResetDialogScope(null);
       // Data yang kehapus nyebar ke hampir semua query di aplikasi (invoice,
       // member, produk, dst) — bukan cuma app-config. Clear semua cache biar
@@ -200,7 +200,7 @@ export default function PengaturanPage() {
           <CardHeader>
             <CardTitle className="text-base">Umum</CardTitle>
             <CardDescription>
-              Perubahan langsung berlaku untuk transaksi/invoice baru — bukan yang sudah ada.
+              Perubahan langsung berlaku untuk transaksi/invoice baru - bukan yang sudah ada.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -233,7 +233,7 @@ export default function PengaturanPage() {
                         <Input placeholder="INV-{YYYYMMDD}-{SEQ}" {...field} />
                       </FormControl>
                       <FormDescription>
-                        Referensi saja untuk saat ini — nomor invoice tetap digenerate backend
+                        Referensi saja untuk saat ini - nomor invoice tetap digenerate backend
                         dengan pola <code>INV-YYYYMMDD-SEQ</code>.
                       </FormDescription>
                       <FormMessage />
@@ -277,9 +277,9 @@ export default function PengaturanPage() {
 
       <Card className="border-destructive/50">
         <CardHeader>
-          <CardTitle className="text-base text-destructive">Zona Bahaya — Reset Database</CardTitle>
+          <CardTitle className="text-base text-destructive">Zona Bahaya - Reset Database</CardTitle>
           <CardDescription>
-            Hapus data secara permanen. Cuma admin yang bisa akses bagian ini — pastikan kamu
+            Hapus data secara permanen. Cuma admin yang bisa akses bagian ini - pastikan kamu
             paham betul cakupan tiap tombol sebelum lanjut, gak ada fitur backup otomatis.
           </CardDescription>
         </CardHeader>

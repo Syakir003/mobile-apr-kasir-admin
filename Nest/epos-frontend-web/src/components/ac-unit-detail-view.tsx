@@ -202,7 +202,7 @@ export function AcUnitDetailView({
                             <li key={f.id} className="rounded bg-muted/50 p-2">
                               <span className="font-medium">{f.title}</span>
                               {f.note && (
-                                <span className="text-muted-foreground"> — {f.note}</span>
+                                <span className="text-muted-foreground"> - {f.note}</span>
                               )}
                             </li>
                           ))}

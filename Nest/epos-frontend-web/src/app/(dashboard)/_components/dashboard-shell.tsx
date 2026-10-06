@@ -79,7 +79,7 @@ function NavLinks({
                   variant === 'sidebar'
                     ? groupHasActiveChild
                       ? 'text-white'
-                      : 'text-sidebar-foreground hover:bg-white/10'
+                      : 'text-sidebar-foreground hover:bg-white/8 hover:text-white'
                     : groupHasActiveChild
                       ? 'text-foreground'
                       : 'text-muted-foreground hover:bg-secondary/60 hover:text-secondary-foreground',
@@ -92,7 +92,12 @@ function NavLinks({
                 />
               </button>
               {open && (
-                <div className="mt-0.5 grid gap-0.5 pl-4">
+                <div
+                  className={cn(
+                    'mt-0.5 mb-1 ml-5 grid gap-0.5 border-l pl-2',
+                    variant === 'sidebar' ? 'border-white/10' : 'border-border',
+                  )}
+                >
                   {item.children.map((child) => {
                     const active = child.href === activeHref;
                     return (
@@ -104,8 +109,8 @@ function NavLinks({
                           'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
                           variant === 'sidebar'
                             ? active
-                              ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                              : 'text-sidebar-foreground/80 hover:bg-white/10'
+                              ? 'bg-white/12 text-white shadow-[inset_3px_0_0_0_#6df5e1]'
+                              : 'text-sidebar-foreground/80 hover:bg-white/8 hover:text-white'
                             : active
                               ? 'bg-secondary text-secondary-foreground'
                               : 'text-muted-foreground hover:bg-secondary/60 hover:text-secondary-foreground',
@@ -132,8 +137,8 @@ function NavLinks({
               'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
               variant === 'sidebar'
                 ? active
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-sidebar-foreground hover:bg-white/10'
+                  ? 'bg-white/12 text-white shadow-[inset_3px_0_0_0_#6df5e1]'
+                  : 'text-sidebar-foreground hover:bg-white/8 hover:text-white'
                 : active
                   ? 'bg-secondary text-secondary-foreground'
                   : 'text-muted-foreground hover:bg-secondary/60 hover:text-secondary-foreground',
@@ -173,21 +178,21 @@ export function DashboardShell({
     <div className="fixed inset-0 flex overflow-hidden print:static print:h-auto print:overflow-visible">
       {/* Padanan `_Sidebar` (adaptive_scaffold.dart): bg solid tealDeep,
           lebar 260px fixed, radius 32px cuma sudut kanan, shadow teal ke
-          arah konten — bukan border hairline kayak sebelumnya.
-          `print:hidden` — halaman cetak (invoice/surat jalan/label, lihat
+          arah konten - bukan border hairline kayak sebelumnya.
+          `print:hidden` - halaman cetak (invoice/surat jalan/label, lihat
           app/(dashboard)/invoices/[id]/print & service-orders/[id]/print*)
           gak boleh ikut ke-print, cuma dokumennya doang. */}
       {/* overflow-hidden di <aside> (bukan overflow-y-auto kayak sebelumnya)
-          — judul & tombol Keluar sekarang diem di tempat (shrink-0), CUMA
+          - judul & tombol Keluar sekarang diem di tempat (shrink-0), CUMA
           daftar menu di tengah yang scroll kalau kepanjangan (min-h-0 wajib
           di situ, tanpa itu flex child gak mau nyusut buat mulai scroll).
           Scrollbar bawaan browser sengaja disembunyiin (tetep bisa
           discroll pakai wheel/drag, cuma track abu-abu panjangnya yang
-          gak keliatan) — kepanjangan kalau dibiarin nampang di sidebar
+          gak keliatan) - kepanjangan kalau dibiarin nampang di sidebar
           sesempit ini. */}
-      <aside className="hidden h-full w-[260px] shrink-0 flex-col overflow-hidden rounded-r-[2rem] bg-sidebar text-sidebar-foreground shadow-[4px_0_20px_rgba(11,107,98,0.15)] lg:flex print:hidden">
+      <aside className="hidden h-full w-[260px] shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground lg:flex print:hidden">
         <div className="shrink-0 px-4 pt-4">
-          <div className="mb-8 px-2">
+          <div className="mb-6">
             {/* Logo APR (Ayub Podo Rukun) — dikasih chip putih biar kontras
                 di atas background teal sidebar, warna logonya (biru+abu2)
                 jadi kelap-kelip ketimbang nyambung sama teal. */}
@@ -197,7 +202,15 @@ export function DashboardShell({
               </div>
               <p className="text-lg font-bold text-white">E-POS AC</p>
             </div>
-            <p className="text-xs text-sidebar-foreground">{user.displayName}</p>
+            <div className="flex items-center gap-2.5 rounded-lg bg-white/8 px-2.5 py-2">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-sm font-semibold text-white">
+                {user.displayName.trim().charAt(0).toUpperCase()}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-white">{user.displayName}</p>
+                <p className="text-xs text-sidebar-foreground capitalize">{user.role}</p>
+              </div>
+            </div>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -224,7 +237,7 @@ export function DashboardShell({
             Notifikasi Push) yang harus keliatan di semua ukuran layar, gak
             cuma mobile. Judul "E-POS AC" & tombol hamburger TETAP lg:hidden
             (desktop udah ada judul di sidebar, gak perlu dobel). Nav mobile
-            TETAP putih (bg-card) — padanan `_MobileNav` Flutter, yang juga
+            TETAP putih (bg-card) - padanan `_MobileNav` Flutter, yang juga
             gak pernah dibikin teal kayak sidebar desktop. shrink-0 biar
             header ini gak ikut kegencet pas <main> scroll. */}
         <header className="flex shrink-0 items-center justify-between border-b bg-card px-4 py-2 print:hidden">

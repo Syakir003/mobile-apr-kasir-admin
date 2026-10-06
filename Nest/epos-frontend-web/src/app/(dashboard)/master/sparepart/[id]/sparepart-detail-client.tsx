@@ -405,7 +405,7 @@ export function BatchTrackedStockIn({
             <p className="text-sm text-muted-foreground">Memuat gulungan...</p>
           ) : !batchesQuery.data || batchesQuery.data.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Belum ada gulungan aktif — sparepart ini belum punya stok.
+              Belum ada gulungan aktif - sparepart ini belum punya stok.
             </p>
           ) : (
             <div className="rounded-md border">
@@ -453,7 +453,7 @@ export function BatchTrackedStockIn({
           <CardDescription>
             {isGabungan
               ? `Isi ${sparepart.unit} tiap ${sparepart.packUnit} yang datang (kalau kurang dari ${sparepart.packSize} ${sparepart.unit}, hanya bisa dijual eceran). Satu harga modal berlaku buat semua ${sparepart.packUnit} di nota ini.`
-              : 'Isi panjang tiap gulungan yang datang — boleh beda-beda. Satu harga modal berlaku buat semua gulungan di nota ini.'}
+              : 'Isi panjang tiap gulungan yang datang - boleh beda-beda. Satu harga modal berlaku buat semua gulungan di nota ini.'}
           </CardDescription>
         </CardHeader>
         <CardContent>

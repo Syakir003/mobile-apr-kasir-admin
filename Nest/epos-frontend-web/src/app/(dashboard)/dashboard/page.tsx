@@ -114,45 +114,37 @@ export default async function DashboardPage() {
         <Card className="@container">
           <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
             <div className="flex items-center gap-2.5">
-              <span className="shrink-0 rounded-lg bg-secondary p-1.5 text-secondary-foreground">
-                <BarChart3 className="size-4" />
-              </span>
+              <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
               <p className="min-w-0 text-xs leading-tight text-muted-foreground">Transaksi Hari Ini</p>
             </div>
-            <p className="whitespace-nowrap text-xl font-bold tabular-nums @[15rem]:text-2xl">{summary.transaksiHariIni}</p>
+            <p className="whitespace-nowrap text-xl font-semibold tabular-nums @[15rem]:text-2xl">{summary.transaksiHariIni}</p>
           </CardContent>
         </Card>
         <Card className="@container">
           <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
             <div className="flex items-center gap-2.5">
-              <span className="shrink-0 rounded-lg bg-secondary p-1.5 text-secondary-foreground">
-                <Wallet className="size-4" />
-              </span>
+              <Wallet className="size-4 shrink-0 text-muted-foreground" />
               <p className="min-w-0 text-xs leading-tight text-muted-foreground">Omzet Hari Ini</p>
             </div>
-            <p className="whitespace-nowrap text-xl font-bold tabular-nums @[15rem]:text-2xl">{formatRupiah(summary.omzetHariIni)}</p>
+            <p className="whitespace-nowrap text-xl font-semibold tabular-nums @[15rem]:text-2xl">{formatRupiah(summary.omzetHariIni)}</p>
           </CardContent>
         </Card>
         <Card className="@container">
           <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
             <div className="flex items-center gap-2.5">
-              <span className="shrink-0 rounded-lg bg-status-warning/15 p-1.5 text-status-warning">
-                <Wrench className="size-4" />
-              </span>
+              <Wrench className="size-4 shrink-0 text-muted-foreground" />
               <p className="min-w-0 text-xs leading-tight text-muted-foreground">Job Servis Aktif</p>
             </div>
-            <p className="whitespace-nowrap text-xl font-bold tabular-nums @[15rem]:text-2xl">{totalJobAktif}</p>
+            <p className="whitespace-nowrap text-xl font-semibold tabular-nums @[15rem]:text-2xl">{totalJobAktif}</p>
           </CardContent>
         </Card>
         <Card className="@container">
           <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
             <div className="flex items-center gap-2.5">
-              <span className="shrink-0 rounded-lg bg-destructive/10 p-1.5 text-destructive">
-                <AlertCircle className="size-4" />
-              </span>
+              <AlertCircle className="size-4 shrink-0 text-muted-foreground" />
               <p className="min-w-0 text-xs leading-tight text-muted-foreground">Invoice Belum Lunas</p>
             </div>
-            <p className="whitespace-nowrap text-xl font-bold tabular-nums @[15rem]:text-2xl">{totalBelumLunas}</p>
+            <p className="whitespace-nowrap text-xl font-semibold tabular-nums @[15rem]:text-2xl">{totalBelumLunas}</p>
           </CardContent>
         </Card>
       </div>
@@ -170,7 +162,7 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent className="p-0">
             {summary.recentInvoices.length === 0 && (
-              <p className="px-6 pb-6 text-sm text-muted-foreground">Belum ada transaksi.</p>
+              <p className="px-5 pb-5 text-sm text-muted-foreground">Belum ada transaksi.</p>
             )}
             {summary.recentInvoices.length > 0 && (
               <div className="grid">
@@ -178,7 +170,7 @@ export default async function DashboardPage() {
                   <Link
                     key={inv.id}
                     href={`/invoices/${inv.id}`}
-                    className="flex flex-col gap-2 border-t px-4 py-3 text-sm hover:bg-accent sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6"
+                    className="flex flex-col gap-2 border-t px-4 py-3 text-sm hover:bg-accent sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-5"
                   >
                     <div className="min-w-0">
                       <p className="truncate font-medium">{inv.number}</p>
@@ -251,11 +243,9 @@ export default async function DashboardPage() {
           <Link
             key={action.href}
             href={action.href}
-            className="flex flex-col items-center gap-2 rounded-lg border bg-card p-4 text-center hover:bg-accent"
+            className="flex flex-col items-center gap-2 rounded-lg border bg-card p-4 text-center transition-colors hover:bg-accent"
           >
-            <span className="rounded-full bg-secondary p-2.5 text-secondary-foreground">
-              <action.icon className="size-5" />
-            </span>
+            <action.icon className="size-5 text-muted-foreground" />
             <span className="text-sm font-medium">{action.label}</span>
           </Link>
         ))}

@@ -228,7 +228,7 @@ export default function PaketInstalasiPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Paket Instalasi</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Bundel sparepart & biaya tambahan buat instalasi unit AC — dipakai pas transaksi
+            Bundel sparepart & biaya tambahan buat instalasi unit AC - dipakai pas transaksi
             pemasangan biar gak input item satu-satu tiap kali.
           </p>
         </div>
@@ -400,7 +400,7 @@ export default function PaketInstalasiPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="none">— Item custom (gak nempel) —</SelectItem>
+                            <SelectItem value="none">- Item custom (gak nempel) -</SelectItem>
                             {spareparts.data?.map((s) => {
                               // Sparepart nonaktif tetap ditampilin (biar
                               // linkage lama yang udah kepilih keliatan

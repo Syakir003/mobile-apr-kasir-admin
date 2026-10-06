@@ -51,7 +51,7 @@ export function UnitLabelsPrintClient({ serviceOrderId }: { serviceOrderId: stri
           Kembali
         </Button>
         <p className="text-sm text-muted-foreground">
-          Order ini tidak punya unit AC — tidak ada label yang bisa dicetak.
+          Order ini tidak punya unit AC - tidak ada label yang bisa dicetak.
         </p>
       </div>
     );

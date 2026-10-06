@@ -371,7 +371,7 @@ function RequestDetail({
                 </div>
               ))}
               {reviseItems.length === 0 && (
-                <p className="text-xs text-destructive">Semua item dihapus — minimal sisa 1.</p>
+                <p className="text-xs text-destructive">Semua item dihapus - minimal sisa 1.</p>
               )}
             </div>
           )}
@@ -400,7 +400,7 @@ function RequestDetail({
                 <span className="text-muted-foreground">Pemakaian</span>
                 <span className="font-medium">
                   {request.usedAt
-                    ? `Sudah dipakai — ${formatDateTime(request.usedAt)}`
+                    ? `Sudah dipakai - ${formatDateTime(request.usedAt)}`
                     : 'Belum ditandai dipakai teknisi'}
                 </span>
               </div>

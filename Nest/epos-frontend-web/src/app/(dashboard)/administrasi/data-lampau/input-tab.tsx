@@ -430,7 +430,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                         <Select value={u.indoorProductId || NONE} onValueChange={(v) => patchUnit(u.key, { indoorProductId: v === NONE ? '' : v })}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value={NONE}>— tidak ada —</SelectItem>
+                            <SelectItem value={NONE}>- tidak ada -</SelectItem>
                             {indoorOpts.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                           </SelectContent>
                         </Select>
@@ -439,7 +439,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                         <Select value={u.outdoorProductId || NONE} onValueChange={(v) => patchUnit(u.key, { outdoorProductId: v === NONE ? '' : v })}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value={NONE}>— tidak ada —</SelectItem>
+                            <SelectItem value={NONE}>- tidak ada -</SelectItem>
                             {outdoorOpts.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                           </SelectContent>
                         </Select>
@@ -492,7 +492,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
               3. Sertakan transaksi lampau (opsional)
             </Label>
           </div>
-          <CardDescription>Catatan histori saja — tidak memotong stok.</CardDescription>
+          <CardDescription>Catatan histori saja - tidak memotong stok.</CardDescription>
         </CardHeader>
         {withInvoice && (
           <CardContent className="grid gap-4">

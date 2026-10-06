@@ -262,7 +262,7 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
       // TANPA butuh perubahan response backend (batchId/outdoorBatchId udah
       // ada dari dulu).
       if (result.status === 'ok' && result.batchId) {
-        toast.success(`Barang masuk tercatat — ${result.qty} unit ${result.name}`, {
+        toast.success(`Barang masuk tercatat - ${result.qty} unit ${result.name}`, {
           action: {
             label: 'Cetak Label',
             onClick: () => router.push(`/stock/batches/${result.batchId}/print-labels`),
@@ -341,7 +341,7 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
                     <p className="text-sm text-muted-foreground">Memuat batch...</p>
                   ) : !batchesQuery.data || batchesQuery.data.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      Belum ada batch aktif — produk ini belum punya stok/harga jual.
+                      Belum ada batch aktif - produk ini belum punya stok/harga jual.
                     </p>
                   ) : (
                     <div className="rounded-md border">
@@ -414,7 +414,7 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
                             checked={pairLengkap}
                             onCheckedChange={(v) => setPairLengkap(v === true)}
                           />
-                          Sekalian Outdoor-nya ({selected.pairedProduct.name}) — Unit Lengkap
+                          Sekalian Outdoor-nya ({selected.pairedProduct.name}) - Unit Lengkap
                         </label>
                       )}
                       <FormField
@@ -737,7 +737,7 @@ function SparepartRollStockInForm({
     <Card>
       <CardHeader>
         <CardTitle className="text-base">{sparepart.name}</CardTitle>
-        <CardDescription>Per gulungan — panjang boleh beda-beda tiap gulungan.</CardDescription>
+        <CardDescription>Per gulungan - panjang boleh beda-beda tiap gulungan.</CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>

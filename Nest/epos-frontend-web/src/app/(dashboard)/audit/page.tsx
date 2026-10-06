@@ -194,7 +194,7 @@ export default function AuditLogPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Log Audit</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Jejak semua aksi penting yang tercatat otomatis — siapa ngelakuin apa, kapan.
+          Jejak semua aksi penting yang tercatat otomatis - siapa ngelakuin apa, kapan.
         </p>
       </div>
 
@@ -325,7 +325,7 @@ export default function AuditLogPage() {
           <DialogHeader>
             <DialogTitle>{detailRow && actionLabel(detailRow.action)}</DialogTitle>
             <DialogDescription>
-              {detailRow && formatDateTime(detailRow.at)} — oleh{' '}
+              {detailRow && formatDateTime(detailRow.at)} - oleh{' '}
               {detailRow?.actor.displayName}
             </DialogDescription>
           </DialogHeader>

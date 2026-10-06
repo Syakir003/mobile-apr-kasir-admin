@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { ChevronRight, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
@@ -217,8 +217,8 @@ async function withOrphanCleanup(orphanId: string, originalErr: unknown): Promis
     .catch(() => false);
   return new Error(
     cleaned
-      ? `${originalMessage} — Outdoor yang sempat kebuat udah otomatis dinonaktifkan (cek filter status "Nonaktif"), coba simpan ulang.`
-      : `${originalMessage} — DAN Outdoor yang sempat kebuat GAGAL dinonaktifkan otomatis. Cek & nonaktifkan manual lewat tabel Master Data Produk.`,
+      ? `${originalMessage} - Outdoor yang sempat kebuat udah otomatis dinonaktifkan (cek filter status "Nonaktif"), coba simpan ulang.`
+      : `${originalMessage} - DAN Outdoor yang sempat kebuat GAGAL dinonaktifkan otomatis. Cek & nonaktifkan manual lewat tabel Master Data Produk.`,
   );
 }
 
@@ -241,13 +241,13 @@ function buildDeactivateWarning(product: Product, allProducts: Product[] | undef
   }
   if (product.pairedProduct) {
     parts.push(
-      `Produk ini berpasangan sama Outdoor "${product.pairedProduct.name}" — pasangannya TETAP aktif, gak ikut kenonaktifin.`,
+      `Produk ini berpasangan sama Outdoor "${product.pairedProduct.name}" - pasangannya TETAP aktif, gak ikut kenonaktifin.`,
     );
   } else {
     const claimedBy = (allProducts ?? []).find((p) => p.pairedProductId === product.id);
     if (claimedBy) {
       parts.push(
-        `Produk ini adalah Outdoor pasangan "${claimedBy.name}" — Indoor-nya TETAP aktif, gak ikut kenonaktifin.`,
+        `Produk ini adalah Outdoor pasangan "${claimedBy.name}" - Indoor-nya TETAP aktif, gak ikut kenonaktifin.`,
       );
     }
   }
@@ -504,7 +504,7 @@ export default function ProdukPage() {
           confirmOverride: true,
         });
       }
-      toast.success('Stok awal tersimpan — QR tiap unit bisa dicetak dari halaman detail produk.');
+      toast.success('Stok awal tersimpan - QR tiap unit bisa dicetak dari halaman detail produk.');
     } catch (err) {
       toast.error(
         `Produk kebuat, tapi stok awal gagal disimpan (${err instanceof Error ? err.message : 'error'}). Isi lewat halaman detail produk.`,
@@ -618,7 +618,7 @@ export default function ProdukPage() {
             <DialogDescription>
               {editing
                 ? 'Ubah identitas, spesifikasi & harga jual produk. Stok diatur lewat halaman detail (klik baris di tabel).'
-                : 'Isi identitas, spesifikasi & harga jual produk baru. Stok awal (opsional) bisa langsung diisi di bagian bawah — stok berikutnya lewat halaman detail (klik baris di tabel).'}
+                : 'Isi identitas, spesifikasi & harga jual produk baru. Stok awal (opsional) bisa langsung diisi di bagian bawah - stok berikutnya lewat halaman detail (klik baris di tabel).'}
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
@@ -633,11 +633,11 @@ export default function ProdukPage() {
                     <SelectContent>
                       <SelectItem value="indoor">Indoor (unit tunggal)</SelectItem>
                       <SelectItem value="outdoor">Outdoor (unit tunggal)</SelectItem>
-                      <SelectItem value="split">Split — Indoor + Outdoor sekaligus</SelectItem>
+                      <SelectItem value="split">Split - Indoor + Outdoor sekaligus</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Pilih &ldquo;Split&rdquo; kalau unit ini AC 2-komponen — Indoor &amp; Outdoor
+                    Pilih &ldquo;Split&rdquo; kalau unit ini AC 2-komponen - Indoor &amp; Outdoor
                     langsung dibikin &amp; dipasangkan sekali submit, jadi 1 Produk AC (paket).
                   </p>
                 </div>
@@ -809,7 +809,7 @@ export default function ProdukPage() {
               />
               {/* BARU (2026-09-25) — ganti dropdown "Pasangan Outdoor" lama.
                   Pas Tambah Produk mode Split, atau pas Edit produk apa aja
-                  (form gabungan) — section ringkas ini yang nge-handle bikin
+                  (form gabungan) - section ringkas ini yang nge-handle bikin
                   atau update pasangan Outdoor-nya, gak lagi milih dari
                   dropdown produk yang udah ada. */}
               {((!editing && mode === 'split') || (editing && !editingIsPairTarget)) && (
@@ -819,7 +819,7 @@ export default function ProdukPage() {
                     <p className="text-xs text-muted-foreground">
                       {editing
                         ? outdoorDraft.id
-                          ? 'Produk ini punya pasangan Outdoor — ubah namanya di sini kalau perlu. Harga jualnya diatur terpisah lewat Edit produk Outdoor itu sendiri (klik badge "Berpasangan" di tabel buat buka row-nya).'
+                          ? 'Produk ini punya pasangan Outdoor - ubah namanya di sini kalau perlu. Harga jualnya diatur terpisah lewat Edit produk Outdoor itu sendiri (klik badge "Berpasangan" di tabel buat buka row-nya).'
                           : 'Kosongkan kalau produk ini gak punya pasangan Outdoor. Isi buat bikin & pasangkan Outdoor baru.'
                         : 'Isi nama unit Outdoor-nya. Detail lain (merek, PK, BTU, harga jual, dst) bisa dilengkapi belakangan lewat Edit.'}
                     </p>
@@ -838,7 +838,7 @@ export default function ProdukPage() {
                         }
                       />
                       {/* Klarifikasi harga (2026-09-25, disederhanakan
-                          2026-09-29 — field Harga Jual Outdoor DIHAPUS dari
+                          2026-09-29 - field Harga Jual Outdoor DIHAPUS dari
                           form ini, cuma 1x input harga sekarang: Harga Jual
                           Indoor di atas). Nyambung ke logika PosService:
                           baris Outdoor mode "Unit Lengkap" SELALU ditimpa
@@ -848,7 +848,7 @@ export default function ProdukPage() {
                           paket (Indoor/Outdoor saja) harganya diisi kasir
                           pas checkout, bukan harga baku di Master Data. */}
                       <p className="text-xs text-muted-foreground">
-                        Harga jual gak perlu diisi di sini — harga jual <strong>satu paket AC
+                        Harga jual gak perlu diisi di sini - harga jual <strong>satu paket AC
                         (Split)</strong> 100% ditentukan dari <strong>Harga Jual Paket</strong> di
                         atas. Kalau nanti Indoor atau Outdoor-nya dijual satuan (mis. ganti unit
                         outdoor doang), harganya diisi kasir langsung pas checkout di POS.
@@ -917,7 +917,7 @@ export default function ProdukPage() {
                       />
                       {initialBelowCost && (
                         <p className="text-xs text-destructive">
-                          Modal sama/lebih besar dari harga jual — tetap bisa disimpan, cek lagi angkanya.
+                          Modal sama/lebih besar dari harga jual - tetap bisa disimpan, cek lagi angkanya.
                         </p>
                       )}
                     </div>
@@ -1101,24 +1101,28 @@ function ProductTable({
             return (
               <React.Fragment key={p.id}>
                 <TableRow className="cursor-pointer" onClick={() => onRowClick(p)}>
-                  <TableCell className="text-muted-foreground">{p.sku || '-'}</TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{p.sku || '-'}</TableCell>
                   {/* Nama + lencana pasangan boleh turun baris (TableCell default
-                      nowrap) — kalau tidak, kolom ini melebar dan Harga Jual,
+                      nowrap) - kalau tidak, kolom ini melebar dan Harga Jual,
                       Status, dan aksi terdorong keluar layar. */}
                   <TableCell className="min-w-56 font-medium whitespace-normal">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      {p.name}
+                    <div className="grid gap-0.5">
+                      <span>{p.name}</span>
                       {p.pairedProduct && (
-                        <Badge
-                          variant="secondary"
-                          className="h-auto cursor-pointer whitespace-normal text-left"
+                        <button
+                          type="button"
+                          aria-expanded={isExpanded}
+                          className="flex w-fit max-w-[18rem] items-center gap-1 text-left text-xs font-normal text-primary hover:underline"
                           onClick={(e) => {
                             e.stopPropagation();
                             setExpandedId(isExpanded ? null : p.id);
                           }}
                         >
-                          Berpasangan: {p.pairedProduct.name}
-                        </Badge>
+                          <ChevronDown
+                            className={`size-3 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          />
+                          <span className="truncate">Outdoor: {p.pairedProduct.name}</span>
+                        </button>
                       )}
                     </div>
                   </TableCell>
@@ -1212,7 +1216,7 @@ function ProductTable({
                       ) : (
                         <p className="py-1 pl-4 text-sm text-muted-foreground">
                           Outdoor pasangan (&ldquo;{p.pairedProduct.name}&rdquo;) lagi kesaring filter status di
-                          atas — ganti ke &ldquo;Semua&rdquo; buat lihat &amp; kelola.
+                          atas - ganti ke &ldquo;Semua&rdquo; buat lihat &amp; kelola.
                         </p>
                       )}
                     </TableCell>

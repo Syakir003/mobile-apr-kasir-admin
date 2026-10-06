@@ -364,7 +364,7 @@ export function ProductDetailClient({ productId }: { productId: string }) {
             <CardDescription>
               {isPackage || packageIndoor
                 ? 'Stok per unit dari tiap barang masuk. Barang masuk paket nampil sekelompok (Indoor & Outdoor), modalnya 1 angka per paket. Tiap unit punya QR sendiri buat stok gudang.'
-                : 'Daftar batch aktif (stok > 0). Tiap batch punya harga modal sendiri — harga jual udah seragam (lihat badge di atas), diatur lewat Master Data Produk.'}
+                : 'Daftar batch aktif (stok > 0). Tiap batch punya harga modal sendiri - harga jual udah seragam (lihat badge di atas), diatur lewat Master Data Produk.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -372,7 +372,7 @@ export function ProductDetailClient({ productId }: { productId: string }) {
               <p className="text-sm text-muted-foreground">Memuat batch...</p>
             ) : batchGroups.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Belum ada batch aktif — produk ini belum punya stok. Isi form di kanan buat mulai.
+                Belum ada batch aktif - produk ini belum punya stok. Isi form di kanan buat mulai.
               </p>
             ) : (
               <div className="rounded-md border">
@@ -445,7 +445,7 @@ export function ProductDetailClient({ productId }: { productId: string }) {
               <CardTitle className="text-base">Restock Outdoor</CardTitle>
               <CardDescription>
                 Outdoor ini bagian dari paket, jadi gak punya modal sendiri. Semua barang masuk (termasuk
-                kiriman Outdoor susulan) dicatat lewat halaman paket — isi Jumlah Indoor 0 kalau cuma
+                kiriman Outdoor susulan) dicatat lewat halaman paket - isi Jumlah Indoor 0 kalau cuma
                 Outdoor yang datang.
               </CardDescription>
             </CardHeader>

@@ -147,7 +147,7 @@ export function MemberDetailClient({ memberId }: { memberId: string }) {
               <span>
                 Berhenti kirim pengingat WA
                 <span className="block text-xs text-muted-foreground">
-                  Invoice tetap bisa dikirim manual — ini cuma nyetop pengingat servis otomatis.
+                  Invoice tetap bisa dikirim manual - ini cuma nyetop pengingat servis otomatis.
                 </span>
               </span>
             </label>
@@ -159,7 +159,7 @@ export function MemberDetailClient({ memberId }: { memberId: string }) {
             <CardHeader>
               <CardTitle className="text-base">Unit AC</CardTitle>
               <CardDescription>
-                Unit yang tercatat atas nama member ini — klik untuk lihat riwayat servisnya.
+                Unit yang tercatat atas nama member ini - klik untuk lihat riwayat servisnya.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -220,7 +220,7 @@ export function MemberDetailClient({ memberId }: { memberId: string }) {
             <CardHeader>
               <CardTitle className="text-base">Riwayat Pembelian</CardTitle>
               <CardDescription>
-                Semua invoice member ini — unit AC, sparepart, maupun jasa.
+                Semua invoice member ini - unit AC, sparepart, maupun jasa.
               </CardDescription>
             </CardHeader>
             <CardContent>
