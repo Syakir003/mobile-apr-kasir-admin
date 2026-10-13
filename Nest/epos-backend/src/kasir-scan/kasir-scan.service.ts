@@ -29,10 +29,11 @@ export class KasirScanService {
   /** Daftar invoice yang masih punya unit 'reserved' (belum full di-scan/ceklist). */
   async listPending() {
     const rows = await this.prisma.$queryRaw<
-      { invoice_id: string; number: string; customer_name: string | null; created_at: Date; pending_lines: bigint }[]
+      { invoice_id: string; number: string; customer_name: string | null; created_at: Date; pending_lines: bigint; pending_units: bigint }[]
     >`
       SELECT i.id AS invoice_id, i.number, i.customer_name, i.created_at,
-             COUNT(DISTINCT su.ref_id) AS pending_lines
+             COUNT(DISTINCT su.ref_id) AS pending_lines,
+             COUNT(*) AS pending_units
       FROM stock_units su
       JOIN invoices i ON i.id = su.reserved_for_invoice_id
       WHERE su.status = 'reserved'
@@ -45,6 +46,7 @@ export class KasirScanService {
       customerName: r.customer_name,
       createdAt: r.created_at,
       pendingLines: Number(r.pending_lines),
+      pendingUnits: Number(r.pending_units),
     }));
   }
 
@@ -56,16 +58,28 @@ export class KasirScanService {
     if (!invoice) throw new NotFoundException('Invoice tidak ditemukan');
 
     const rows = await this.prisma.$queryRaw<
-      { ref_id: string; product_name: string; qty_total: bigint; qty_fulfilled: bigint }[]
+      {
+        ref_id: string;
+        product_name: string;
+        ac_role: string | null;
+        pair_name: string | null;
+        qty_total: bigint;
+        qty_fulfilled: bigint;
+      }[]
     >`
-      SELECT su.ref_id, p.name AS product_name,
+      SELECT su.ref_id, p.name AS product_name, p.ac_role,
+             COALESCE(pp.name, pi.name) AS pair_name,
              COUNT(*) AS qty_total,
              COUNT(*) FILTER (WHERE su.status = 'keluar') AS qty_fulfilled
       FROM stock_units su
       JOIN products p ON p.id = su.ref_id
+      LEFT JOIN products pp ON pp.id = p.paired_product_id          -- Indoor -> Outdoor pasangannya
+      LEFT JOIN products pi ON pi.paired_product_id = p.id          -- Outdoor -> Indoor pasangannya
       WHERE su.reserved_for_invoice_id = ${invoiceId}
-      GROUP BY su.ref_id, p.name
-      ORDER BY p.name ASC
+      GROUP BY su.ref_id, p.name, p.ac_role, pp.name, pi.name
+      -- Indoor lalu Outdoor pasangannya berdampingan (satu paket)
+      ORDER BY COALESCE(CASE WHEN p.ac_role = 'outdoor' THEN pi.name END, p.name) ASC,
+               CASE p.ac_role WHEN 'indoor' THEN 0 WHEN 'outdoor' THEN 1 ELSE 2 END
     `;
 
     return {
@@ -75,6 +89,8 @@ export class KasirScanService {
       lines: rows.map((r) => ({
         refId: r.ref_id,
         productName: r.product_name,
+        acRole: r.ac_role === 'indoor' || r.ac_role === 'outdoor' ? r.ac_role : null,
+        pairName: r.pair_name,
         qtyTotal: Number(r.qty_total),
         qtyFulfilled: Number(r.qty_fulfilled),
         qtyRemaining: Number(r.qty_total) - Number(r.qty_fulfilled),
@@ -92,8 +108,12 @@ export class KasirScanService {
    * buat invoice ini, unit yang tadinya direservasi dilepas balik `di_gudang`. */
   async scanUnit(dto: ScanUnitDto, actorId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const found = await tx.stockUnit.findUnique({ where: { qrToken: dto.qrToken } });
-      if (!found) throw new BadRequestException('QR ini gak dikenali sistem');
+      // Terima token QR (hasil scan kamera) ATAU kode di label (PRD-0001-U0007) yang diketik manual.
+      const code = dto.qrToken.trim();
+      const found = await tx.stockUnit.findFirst({
+        where: { OR: [{ qrToken: code }, { unitCode: { equals: code, mode: 'insensitive' } }] },
+      });
+      if (!found) throw new BadRequestException('QR atau kode ini tidak dikenali sistem');
 
       const rows = await tx.$queryRawUnsafe<LockedUnit[]>(
         `SELECT id, ref_id, item_cost_id, unit_code, status, reserved_for_invoice_id
@@ -187,11 +207,14 @@ export class KasirScanService {
       },
     });
 
+    const product = await tx.product.findUnique({ where: { id: scanned.ref_id }, select: { name: true, acRole: true } });
     return {
       status: 'ok' as const,
       refId: scanned.ref_id,
       stockUnitId: scanned.id,
       unitCode: scanned.unit_code,
+      productName: product?.name ?? null,
+      acRole: product?.acRole ?? null,
       swapped: true,
       releasedUnitCode: released.unit_code,
     };
@@ -269,9 +292,9 @@ export class KasirScanService {
     method: 'scan' | 'manual',
   ) {
     const rows = await tx.$queryRawUnsafe<
-      { id: string; ref_id: string; status: string; reserved_for_invoice_id: string | null }[]
+      { id: string; ref_id: string; unit_code: string; status: string; reserved_for_invoice_id: string | null }[]
     >(
-      `SELECT id, ref_id, status, reserved_for_invoice_id FROM stock_units WHERE id = $1 FOR UPDATE`,
+      `SELECT id, ref_id, unit_code, status, reserved_for_invoice_id FROM stock_units WHERE id = $1 FOR UPDATE`,
       stockUnitId,
     );
     const unit = rows[0];
@@ -300,6 +323,14 @@ export class KasirScanService {
       },
     });
 
-    return { status: 'ok' as const, refId: unit.ref_id, stockUnitId: unit.id };
+    const product = await tx.product.findUnique({ where: { id: unit.ref_id }, select: { name: true, acRole: true } });
+    return {
+      status: 'ok' as const,
+      refId: unit.ref_id,
+      stockUnitId: unit.id,
+      unitCode: unit.unit_code,
+      productName: product?.name ?? null,
+      acRole: product?.acRole ?? null,
+    };
   }
 }

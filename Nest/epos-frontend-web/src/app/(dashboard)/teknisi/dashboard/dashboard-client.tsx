@@ -111,7 +111,7 @@ export function TeknisiDashboardClient({ role }: { role: Role; displayName: stri
         <MetricCard
           href="/teknisi/queue"
           label="Job Berjalan"
-          value={loading ? '—' : String(aktif)}
+          value={loading ? '-' : String(aktif)}
           sub={loading ? undefined : `Dari ${totalDitugaskan} job ditugaskan`}
           icon={Wrench}
           featured
@@ -119,7 +119,7 @@ export function TeknisiDashboardClient({ role }: { role: Role; displayName: stri
         <MetricCard
           href="/teknisi/riwayat"
           label="Job Selesai"
-          value={loading ? '—' : String(selesai)}
+          value={loading ? '-' : String(selesai)}
           sub="Total sepanjang waktu"
           icon={CheckCircle2}
         />
@@ -131,7 +131,7 @@ export function TeknisiDashboardClient({ role }: { role: Role; displayName: stri
             <div className="flex items-center gap-2">
               <AlertTriangle className="size-4 shrink-0 text-status-warning" />
               <p className="text-sm font-semibold">
-                {needsAttention.length} job belum bisa dimulai — foto Sebelum belum diunggah
+                {needsAttention.length} job belum bisa dimulai - foto Sebelum belum diunggah
               </p>
             </div>
             <div className="grid gap-2">
@@ -228,9 +228,9 @@ function MetricCard({
     <Link href={href}>
       <div
         className={cn(
-          'flex min-h-[140px] flex-col justify-between rounded-[20px] p-6 transition-shadow hover:shadow-md',
+          'flex min-h-[140px] flex-col justify-between rounded-xl p-5 transition-colors hover:border-primary/40',
           featured
-            ? 'bg-gradient-to-br from-[#0b6b62] to-[#006b5f] text-white'
+            ? 'bg-primary text-primary-foreground'
             : 'border bg-card text-card-foreground',
         )}
       >
@@ -241,13 +241,13 @@ function MetricCard({
           {featured ? (
             <Icon className="size-7 shrink-0 text-white/85" />
           ) : (
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10">
-              <Icon className="size-5 text-primary" />
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md">
+              <Icon className="size-5 text-muted-foreground" />
             </div>
           )}
         </div>
         <div>
-          <p className="text-[32px] leading-tight font-bold">{value}</p>
+          <p className="text-3xl leading-tight font-semibold tabular-nums">{value}</p>
           {sub && (
             <p className={cn('mt-1 text-xs', featured ? 'text-white/70' : 'text-muted-foreground')}>
               {sub}

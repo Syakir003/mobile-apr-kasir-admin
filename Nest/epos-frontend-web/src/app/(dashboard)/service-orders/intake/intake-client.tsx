@@ -7,12 +7,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Search, Wrench } from 'lucide-react';
+import { Wrench } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { optionalNumberField, numberOrUndefined, trimmedOrUndefined } from '@/lib/form-number';
 import type { Role } from '@/lib/session';
 import { Button } from '@/components/ui/button';
+import { MemberPicker } from '@/components/member-picker';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -94,25 +95,9 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
   const isAdmin = role === 'admin';
 
   const [selectedMember, setSelectedMember] = React.useState<MemberSearchResult | null>(null);
-  const [memberSearch, setMemberSearch] = React.useState('');
-  const [memberSearchDebounced, setMemberSearchDebounced] = React.useState('');
   const [unitMode, setUnitMode] = React.useState<'existing' | 'new'>('new');
   const [existingUnitId, setExistingUnitId] = React.useState<string | undefined>(undefined);
   const [technicianId, setTechnicianId] = React.useState<string | undefined>(undefined);
-
-  React.useEffect(() => {
-    const t = setTimeout(() => setMemberSearchDebounced(memberSearch.trim()), 300);
-    return () => clearTimeout(t);
-  }, [memberSearch]);
-
-  const memberSearchQuery = useQuery({
-    queryKey: ['members-search', memberSearchDebounced],
-    queryFn: () =>
-      apiClient.get<MemberSearchResult[]>(
-        `/members/search?q=${encodeURIComponent(memberSearchDebounced)}`,
-      ),
-    enabled: memberSearchDebounced.length > 0,
-  });
 
   // Unit-unit yang udah kepunya member terpilih — cuma relevan kalau member
   // udah dipilih dari daftar (member baru pasti belum punya unit apapun).
@@ -137,7 +122,6 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
 
   function selectMember(m: MemberSearchResult) {
     setSelectedMember(m);
-    setMemberSearch('');
     form.setValue('name', m.name, { shouldValidate: true });
     form.setValue('phone', m.phone ?? '', { shouldValidate: true });
     form.setValue('address', m.address ?? '');
@@ -147,7 +131,6 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
 
   function clearSelectedMember() {
     setSelectedMember(null);
-    setMemberSearch('');
     setExistingUnitId(undefined);
     setUnitMode('new');
     form.setValue('name', '');
@@ -219,9 +202,9 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
   return (
     <div className="grid gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Servis Mandiri</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Terima Servis Baru</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Buat job servis buat customer yang bawa/minta servis unit AC-nya sendiri — baik unit
+          Buat job servis buat customer yang bawa/minta servis unit AC-nya sendiri - baik unit
           yang udah kebeli/terdaftar di toko ini, maupun unit lama yang belum pernah tercatat.
         </p>
       </div>
@@ -233,57 +216,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
               <CardTitle className="text-base">Data Pelanggan</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4">
-              <div className="grid gap-1.5">
-                <FormLabel>Member</FormLabel>
-                {selectedMember ? (
-                  <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/50 px-3 py-2 text-sm">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{selectedMember.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {selectedMember.phone || 'Tanpa nomor HP'}
-                      </p>
-                    </div>
-                    <Button type="button" variant="ghost" size="sm" onClick={clearSelectedMember}>
-                      Ganti
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      placeholder="Cari nama/HP member lama, atau kosongkan buat pelanggan baru"
-                      className="pl-9"
-                      value={memberSearch}
-                      onChange={(e) => setMemberSearch(e.target.value)}
-                    />
-                    {memberSearch.trim() && (
-                      <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
-                        {memberSearchQuery.isLoading && (
-                          <p className="p-2 text-xs text-muted-foreground">Mencari...</p>
-                        )}
-                        {memberSearchQuery.data?.length === 0 && (
-                          <p className="p-2 text-xs text-muted-foreground">
-                            Gak ketemu — isi manual di bawah buat pelanggan baru.
-                          </p>
-                        )}
-                        {memberSearchQuery.data?.map((m) => (
-                          <button
-                            type="button"
-                            key={m.id}
-                            onClick={() => selectMember(m)}
-                            className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
-                          >
-                            <p className="font-medium">{m.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {m.phone || 'Tanpa nomor HP'}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              <MemberPicker value={selectedMember} onSelect={selectMember} onClear={clearSelectedMember} />
 
               <FormField
                 control={form.control}
@@ -355,14 +288,14 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                   <TabsTrigger value="new">Unit Belum Tercatat</TabsTrigger>
                 </TabsList>
                 {/* Tab di atas cuma nyala kalau member udah dipilih & punya
-                    unit — teks ini bikin ALASANNYA keliatan tanpa perlu
+                    unit - teks ini bikin ALASANNYA keliatan tanpa perlu
                     hover, soalnya tab yang disabled gak bisa diklik buat
                     ngebuka TabsContent-nya sendiri yang isinya penjelasan
                     serupa. */}
                 {memberUnits.length === 0 && (
                   <p className="mt-1.5 text-xs text-muted-foreground">
                     {selectedMember
-                      ? 'Member ini belum punya unit AC terdaftar — pakai tab "Unit Belum Tercatat".'
+                      ? 'Member ini belum punya unit AC terdaftar - pakai tab "Unit Belum Tercatat".'
                       : 'Pilih member di atas dulu buat mengaktifkan tab ini.'}
                   </p>
                 )}
@@ -378,7 +311,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                   )}
                   {selectedMember && !memberDetailQuery.isLoading && memberUnits.length === 0 && (
                     <p className="text-sm text-muted-foreground">
-                      Member ini belum punya unit AC terdaftar — pakai tab &quot;Unit Belum
+                      Member ini belum punya unit AC terdaftar - pakai tab &quot;Unit Belum
                       Tercatat&quot;.
                     </p>
                   )}
@@ -391,7 +324,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                         {memberUnits.map((u) => (
                           <SelectItem key={u.id} value={u.id}>
                             {[u.brand, u.model].filter(Boolean).join(' ') || 'Unit AC'}
-                            {u.roomLocation ? ` — ${u.roomLocation}` : ''} ({u.barcodeValue})
+                            {u.roomLocation ? ` - ${u.roomLocation}` : ''} ({u.barcodeValue})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -403,7 +336,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                   <p className="text-xs text-muted-foreground">
                     Unit AC yang belum pernah tercatat di sistem (dibeli di tempat lain, atau
                     dibeli di toko ini sebelum ada sistem ini). Semua boleh dikosongin kalau belum
-                    tahu persis — bisa dilengkapi teknisi belakangan. Barcode/QR unit baru
+                    tahu persis - bisa dilengkapi teknisi belakangan. Barcode/QR unit baru
                     digenerate begitu job ini dibuat.
                   </p>
                   <div className="grid grid-cols-2 gap-4">

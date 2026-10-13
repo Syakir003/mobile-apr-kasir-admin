@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { StockService } from './stock.service';
 import { StockController } from './stock.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 // PrismaModule & CommonModule (StockLockingService) sudah @Global(), gak perlu di-import di sini.
 @Module({
+  imports: [NotificationsModule],
   controllers: [StockController],
   providers: [StockService],
 })

@@ -106,12 +106,12 @@ export default function InvoicesPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Riwayat Transaksi</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Semua invoice dari transaksi POS — cari, filter, atau cetak ulang.
+          Semua invoice dari transaksi POS - cari, filter, atau cetak ulang.
         </p>
       </div>
 
       {/* Tiap kolom filter dikasih Label yang sama tingginya (termasuk yang
-          search/status, walau labelnya gak "penting" secara isi) — biar
+          search/status, walau labelnya gak "penting" secara isi) - biar
           input-nya semua rata sejajar satu baris, gak jaggy kayak
           sebelumnya (search & status gak ada label, jadi lebih naik ke atas
           dibanding Dari/Sampai Tanggal yang ada label-nya). */}

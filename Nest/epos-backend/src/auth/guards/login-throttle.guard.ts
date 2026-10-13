@@ -78,16 +78,11 @@ export class LoginThrottleGuard implements CanActivate {
 }
 
 /**
- * Ambil IP client. X-Forwarded-For dipercaya karena app ini bakal jalan di
- * belakang reverse proxy — ambil entri PERTAMA (client asli; sisanya rantai
- * proxy). CATATAN: kalau app di-expose LANGSUNG ke internet tanpa proxy,
- * header ini bisa dipalsu client dan rem per-IP jadi gampang dilewatin.
- * Jangan deploy tanpa reverse proxy di depan.
+ * Ambil IP client dari request.ip. main.ts mengaktifkan
+ * trust proxy "loopback", jadi Express hanya membaca X-Forwarded-For kalau
+ * koneksi datang dari nginx lokal, dan memakai entri yang DITAMBAHKAN nginx
+ * (bukan entri pertama yang bisa dipalsu client buat lolos dari rate limit).
  */
 function extractIp(request: Request): string {
-  const forwarded = request.headers?.['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length > 0) {
-    return forwarded.split(',')[0].trim();
-  }
   return request.ip ?? request.socket?.remoteAddress ?? 'unknown';
 }

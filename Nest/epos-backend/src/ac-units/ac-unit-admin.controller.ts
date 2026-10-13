@@ -29,20 +29,20 @@ export class AcUnitAdminController {
     private readonly corrections: AcUnitCorrectionsService,
   ) {}
 
-  @Roles('admin', 'kasir')
+  @Roles('admin', 'kasir', 'gudang')
   @Get('unit-labels')
   listLabels(@Query() query: UnitLabelsQueryDto) {
     return this.labels.list(query);
   }
 
   /** ids dipisah koma, mis. ?ids=a,b,c (maks 100). */
-  @Roles('admin', 'kasir')
+  @Roles('admin', 'kasir', 'gudang')
   @Get('unit-labels/data')
   labelData(@Query('ids') ids = '') {
     return this.labels.labelData(ids.split(','));
   }
 
-  @Roles('admin', 'kasir')
+  @Roles('admin', 'kasir', 'gudang')
   @Post('unit-labels/mark-printed')
   markPrinted(@Body() dto: UnitLabelIdsDto) {
     return this.labels.markPrinted(dto.ids);

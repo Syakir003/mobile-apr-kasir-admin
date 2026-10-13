@@ -7,6 +7,7 @@ import type { CurrentUserPayload } from '../auth/decorators/current-user.decorat
 import { MembersService } from './members.service';
 import { SetWaOptOutDto } from './dto/set-wa-opt-out.dto';
 import { CreateMemberDto } from './dto/create-member.dto';
+import { MemberListQueryDto } from './dto/member-list-query.dto';
 
 /** Baru ditambah Siklus 6 — sebelumnya MembersService murni internal
  * (findOrCreate dipanggil dari POS/ServiceOrders), gak ada endpoint REST
@@ -26,11 +27,11 @@ export class MembersController {
     return this.members.search(q ?? '');
   }
 
-  /** Halaman "Member" — tabel semua member. */
+  /** Halaman "Member" — tabel semua member, per halaman: { items, total, page, pageSize, totalPages }. */
   @Roles('admin', 'kasir')
   @Get()
-  findAll(@Query('q') q?: string) {
-    return this.members.findAll(q);
+  findAll(@Query() query: MemberListQueryDto) {
+    return this.members.findAll(query);
   }
 
   /** Detail member: unit AC + riwayat pembelian (invoice). */

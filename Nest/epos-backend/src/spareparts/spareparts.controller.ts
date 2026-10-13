@@ -31,8 +31,10 @@ export class SparepartsController {
   }
 
   @Get(':id/batches')
-  findBatches(@Param('id') id: string) {
-    return this.spareparts.findBatches(id);
+  async findBatches(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    const batches = await this.spareparts.findBatches(id);
+    // Harga modal (buyPrice) cuma buat admin — sama seperti ProductsController.findBatches.
+    return user.role === 'admin' ? batches : batches.map(({ buyPrice, ...rest }) => rest);
   }
 
   @Roles('admin')

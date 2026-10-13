@@ -7,8 +7,10 @@ function setup(opts: { scanned: U; reserved?: U[]; movements?: any[]; otherInvoi
   const movements = opts.movements ?? [];
   const calls = { stockUnitUpdate: [] as any[], mvUpdate: [] as any[], mvDelete: [] as any[], mvCreate: [] as any[] };
   const tx: any = {
+    product: { findUnique: jest.fn(async () => ({ name: 'Produk Uji' })) },
     stockUnit: {
       findUnique: jest.fn(async () => ({ id: opts.scanned.id })),
+      findFirst: jest.fn(async () => ({ id: opts.scanned.id })),
       update: jest.fn(async (a: any) => { calls.stockUnitUpdate.push(a); }),
     },
     invoice: {

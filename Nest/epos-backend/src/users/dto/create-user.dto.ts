@@ -10,5 +10,5 @@ export class CreateUserDto {
   @IsStrongPassword()
   password: string;
   @IsString() displayName: string;
-  @IsIn(['admin', 'kasir', 'teknisi']) role: 'admin' | 'kasir' | 'teknisi';
+  @IsIn(['admin', 'kasir', 'teknisi', 'gudang']) role: 'admin' | 'kasir' | 'teknisi' | 'gudang';
 }

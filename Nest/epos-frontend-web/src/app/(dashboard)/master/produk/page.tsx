@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { ChevronRight, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
+import { PAGE_SIZE, PaginationFooter, SearchBox } from '@/components/master-data/list-controls';
 import { DeactivateDialog } from '@/components/master-data/deactivate-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -70,6 +71,7 @@ interface Product {
   sku: string | null;
   name: string;
   brand: string | null;
+  model: string | null;
   type: string | null;
   pk: string | null;
   inverter: boolean;
@@ -113,6 +115,7 @@ function parseQty(v: string): number {
 const productSchema = z.object({
   name: z.string().min(1, 'Wajib diisi'),
   brand: z.string().optional(),
+  model: z.string().optional(),
   type: z.string().optional(),
   category: z.string().optional(),
   // FIX (2026-09-29, respons feedback user) — PK sebelumnya wajib diisi,
@@ -134,6 +137,7 @@ type ProductFormValues = z.infer<typeof productSchema>;
 const emptyValues: ProductFormValues = {
   name: '',
   brand: '',
+  model: '',
   type: '',
   category: '',
   pk: '',
@@ -146,10 +150,17 @@ const emptyValues: ProductFormValues = {
   active: true,
 };
 
+// Nama otomatis = Merek + Model + "<PK> PK", selama belum diketik manual.
+function composeName(v: { brand?: string; model?: string; pk?: string | number }): string {
+  const pk = String(v.pk ?? '').trim();
+  return [v.brand?.trim(), v.model?.trim(), pk && `${pk} PK`].filter(Boolean).join(' ');
+}
+
 function toFormValues(p: Product): ProductFormValues {
   return {
     name: p.name,
     brand: p.brand ?? '',
+    model: p.model ?? '',
     type: p.type ?? '',
     category: p.category ?? '',
     pk: p.pk ?? '',
@@ -206,8 +217,8 @@ async function withOrphanCleanup(orphanId: string, originalErr: unknown): Promis
     .catch(() => false);
   return new Error(
     cleaned
-      ? `${originalMessage} — Outdoor yang sempat kebuat udah otomatis dinonaktifkan (cek filter status "Nonaktif"), coba simpan ulang.`
-      : `${originalMessage} — DAN Outdoor yang sempat kebuat GAGAL dinonaktifkan otomatis. Cek & nonaktifkan manual lewat tabel Master Data Produk.`,
+      ? `${originalMessage} - Outdoor yang sempat kebuat udah otomatis dinonaktifkan (cek filter status "Nonaktif"), coba simpan ulang.`
+      : `${originalMessage} - DAN Outdoor yang sempat kebuat GAGAL dinonaktifkan otomatis. Cek & nonaktifkan manual lewat tabel Master Data Produk.`,
   );
 }
 
@@ -230,13 +241,13 @@ function buildDeactivateWarning(product: Product, allProducts: Product[] | undef
   }
   if (product.pairedProduct) {
     parts.push(
-      `Produk ini berpasangan sama Outdoor "${product.pairedProduct.name}" — pasangannya TETAP aktif, gak ikut kenonaktifin.`,
+      `Produk ini berpasangan sama Outdoor "${product.pairedProduct.name}" - pasangannya TETAP aktif, gak ikut kenonaktifin.`,
     );
   } else {
     const claimedBy = (allProducts ?? []).find((p) => p.pairedProductId === product.id);
     if (claimedBy) {
       parts.push(
-        `Produk ini adalah Outdoor pasangan "${claimedBy.name}" — Indoor-nya TETAP aktif, gak ikut kenonaktifin.`,
+        `Produk ini adalah Outdoor pasangan "${claimedBy.name}" - Indoor-nya TETAP aktif, gak ikut kenonaktifin.`,
       );
     }
   }
@@ -249,6 +260,8 @@ export default function ProdukPage() {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Product | null>(null);
   const [status, setStatus] = React.useState<MasterDataStatus>('active');
+  const [search, setSearch] = React.useState('');
+  const [brand, setBrand] = React.useState('all');
   const [deactivating, setDeactivating] = React.useState<Product | null>(null);
   // BARU (2026-09-25) — pilihan jenis input pas Tambah Produk: unit tunggal
   // (Indoor/Outdoor) atau Split (dua-duanya sekaligus, langsung kepasangkan).
@@ -264,10 +277,32 @@ export default function ProdukPage() {
     queryFn: () => apiClient.get<Product[]>(`/products?status=${status}`),
   });
 
+  const brands = React.useMemo(
+    () =>
+      [...new Set((data ?? []).map((p) => p.brand?.trim()).filter((b): b is string => !!b))].sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [data],
+  );
+
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
     defaultValues: emptyValues,
   });
+
+  // true = Nama sudah diketik/berbeda dari rakitan -> jangan ditimpa otomatis.
+  const nameTouched = React.useRef(false);
+  React.useEffect(() => {
+    const sub = form.watch((v, info) => {
+      if (info.name === 'name') {
+        if (info.type === 'change') nameTouched.current = true;
+        return;
+      }
+      if (nameTouched.current || !['brand', 'model', 'pk'].includes(info.name ?? '')) return;
+      form.setValue('name', composeName(v as ProductFormValues));
+    });
+    return () => sub.unsubscribe();
+  }, [form]);
 
   // Paket AC Split (2026-09-30) — peran unit produk yang lagi diedit cuma
   // bisa diubah kalau produk itu GAK berpasangan (bukan Indoor sebuah
@@ -278,6 +313,7 @@ export default function ProdukPage() {
   function openCreate() {
     setEditing(null);
     form.reset(emptyValues);
+    nameTouched.current = false;
     setMode('indoor');
     setOutdoorDraft(emptyOutdoorDraft);
     setInitialStock(emptyInitialStock);
@@ -290,6 +326,7 @@ export default function ProdukPage() {
   async function openEdit(p: Product) {
     setEditing(p);
     form.reset(toFormValues(p));
+    nameTouched.current = p.name !== composeName(toFormValues(p));
     setRoleDraft(p.acRole ?? 'none');
     setDialogOpen(true);
     if (p.pairedProductId) {
@@ -313,6 +350,7 @@ export default function ProdukPage() {
       const base = {
         name: values.name.trim(),
         brand: trimmedOrUndefined(values.brand),
+        model: trimmedOrUndefined(values.model),
         type: trimmedOrUndefined(values.type),
         category: trimmedOrUndefined(values.category),
         // FIX (2026-09-29) — PK sekarang opsional (lihat productSchema),
@@ -466,7 +504,7 @@ export default function ProdukPage() {
           confirmOverride: true,
         });
       }
-      toast.success('Stok awal tersimpan — QR tiap unit bisa dicetak dari halaman detail produk.');
+      toast.success('Stok awal tersimpan - QR tiap unit bisa dicetak dari halaman detail produk.');
     } catch (err) {
       toast.error(
         `Produk kebuat, tapi stok awal gagal disimpan (${err instanceof Error ? err.message : 'error'}). Isi lewat halaman detail produk.`,
@@ -545,8 +583,27 @@ export default function ProdukPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchBox value={search} onChange={setSearch} placeholder="Cari nama, SKU, merek, atau model..." />
+        <Select value={brand} onValueChange={setBrand}>
+          <SelectTrigger className="w-48" aria-label="Filter merek">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Semua merek</SelectItem>
+            {brands.map((b) => (
+              <SelectItem key={b} value={b}>
+                {b}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <ProductTable
         products={data}
+        search={search}
+        brand={brand}
         isLoading={isLoading}
         isError={isError}
         onEdit={openEdit}
@@ -561,7 +618,7 @@ export default function ProdukPage() {
             <DialogDescription>
               {editing
                 ? 'Ubah identitas, spesifikasi & harga jual produk. Stok diatur lewat halaman detail (klik baris di tabel).'
-                : 'Isi identitas, spesifikasi & harga jual produk baru. Stok awal (opsional) bisa langsung diisi di bagian bawah — stok berikutnya lewat halaman detail (klik baris di tabel).'}
+                : 'Isi identitas, spesifikasi & harga jual produk baru. Stok awal (opsional) bisa langsung diisi di bagian bawah - stok berikutnya lewat halaman detail (klik baris di tabel).'}
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
@@ -576,11 +633,11 @@ export default function ProdukPage() {
                     <SelectContent>
                       <SelectItem value="indoor">Indoor (unit tunggal)</SelectItem>
                       <SelectItem value="outdoor">Outdoor (unit tunggal)</SelectItem>
-                      <SelectItem value="split">Split — Indoor + Outdoor sekaligus</SelectItem>
+                      <SelectItem value="split">Split - Indoor + Outdoor sekaligus</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Pilih &ldquo;Split&rdquo; kalau unit ini AC 2-komponen — Indoor &amp; Outdoor
+                    Pilih &ldquo;Split&rdquo; kalau unit ini AC 2-komponen - Indoor &amp; Outdoor
                     langsung dibikin &amp; dipasangkan sekali submit, jadi 1 Produk AC (paket).
                   </p>
                 </div>
@@ -609,6 +666,19 @@ export default function ProdukPage() {
                       <FormLabel>Merek</FormLabel>
                       <FormControl>
                         <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="model"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Model</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Mis. ASW-12C19" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -739,7 +809,7 @@ export default function ProdukPage() {
               />
               {/* BARU (2026-09-25) — ganti dropdown "Pasangan Outdoor" lama.
                   Pas Tambah Produk mode Split, atau pas Edit produk apa aja
-                  (form gabungan) — section ringkas ini yang nge-handle bikin
+                  (form gabungan) - section ringkas ini yang nge-handle bikin
                   atau update pasangan Outdoor-nya, gak lagi milih dari
                   dropdown produk yang udah ada. */}
               {((!editing && mode === 'split') || (editing && !editingIsPairTarget)) && (
@@ -749,7 +819,7 @@ export default function ProdukPage() {
                     <p className="text-xs text-muted-foreground">
                       {editing
                         ? outdoorDraft.id
-                          ? 'Produk ini punya pasangan Outdoor — ubah namanya di sini kalau perlu. Harga jualnya diatur terpisah lewat Edit produk Outdoor itu sendiri (klik badge "Berpasangan" di tabel buat buka row-nya).'
+                          ? 'Produk ini punya pasangan Outdoor - ubah namanya di sini kalau perlu. Harga jualnya diatur terpisah lewat Edit produk Outdoor itu sendiri (klik badge "Berpasangan" di tabel buat buka row-nya).'
                           : 'Kosongkan kalau produk ini gak punya pasangan Outdoor. Isi buat bikin & pasangkan Outdoor baru.'
                         : 'Isi nama unit Outdoor-nya. Detail lain (merek, PK, BTU, harga jual, dst) bisa dilengkapi belakangan lewat Edit.'}
                     </p>
@@ -768,7 +838,7 @@ export default function ProdukPage() {
                         }
                       />
                       {/* Klarifikasi harga (2026-09-25, disederhanakan
-                          2026-09-29 — field Harga Jual Outdoor DIHAPUS dari
+                          2026-09-29 - field Harga Jual Outdoor DIHAPUS dari
                           form ini, cuma 1x input harga sekarang: Harga Jual
                           Indoor di atas). Nyambung ke logika PosService:
                           baris Outdoor mode "Unit Lengkap" SELALU ditimpa
@@ -778,7 +848,7 @@ export default function ProdukPage() {
                           paket (Indoor/Outdoor saja) harganya diisi kasir
                           pas checkout, bukan harga baku di Master Data. */}
                       <p className="text-xs text-muted-foreground">
-                        Harga jual gak perlu diisi di sini — harga jual <strong>satu paket AC
+                        Harga jual gak perlu diisi di sini - harga jual <strong>satu paket AC
                         (Split)</strong> 100% ditentukan dari <strong>Harga Jual Paket</strong> di
                         atas. Kalau nanti Indoor atau Outdoor-nya dijual satuan (mis. ganti unit
                         outdoor doang), harganya diisi kasir langsung pas checkout di POS.
@@ -847,7 +917,7 @@ export default function ProdukPage() {
                       />
                       {initialBelowCost && (
                         <p className="text-xs text-destructive">
-                          Modal sama/lebih besar dari harga jual — tetap bisa disimpan, cek lagi angkanya.
+                          Modal sama/lebih besar dari harga jual - tetap bisa disimpan, cek lagi angkanya.
                         </p>
                       )}
                     </div>
@@ -915,6 +985,8 @@ export default function ProdukPage() {
 
 function ProductTable({
   products,
+  search,
+  brand,
   isLoading,
   isError,
   onEdit,
@@ -922,6 +994,8 @@ function ProductTable({
   onRowClick,
 }: {
   products: Product[] | undefined;
+  search: string;
+  brand: string;
   isLoading: boolean;
   isError: boolean;
   onEdit: (p: Product) => void;
@@ -936,13 +1010,10 @@ function ProductTable({
   // nongol di sini sebagai row terpisah). Hook ini WAJIB dipanggil sebelum
   // early-return di bawah (Rules of Hooks).
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
+  const [page, setPage] = React.useState(1);
   const pairedOutdoorIds = React.useMemo(
     () => new Set((products ?? []).filter((p) => p.pairedProductId).map((p) => p.pairedProductId as string)),
     [products],
-  );
-  const topLevelProducts = React.useMemo(
-    () => (products ?? []).filter((p) => !pairedOutdoorIds.has(p.id)),
-    [products, pairedOutdoorIds],
   );
   // FIX (audit 2026-09-29) — sebelumnya map ini di-key pake id si Outdoor
   // sendiri, padahal cara nyarinya (di bawah) pake id si Indoor. Akibatnya
@@ -955,6 +1026,29 @@ function ProductTable({
     () => new Map((products ?? []).map((p) => [p.id, p] as const)),
     [products],
   );
+  // Pencarian: semua kata harus ada di salah satu kolom (urutan bebas, huruf
+  // besar/kecil diabaikan). Pasangan Indoor+Outdoor dihitung satu baris, jadi
+  // baris tampil bila Indoor ATAU Outdoor-nya cocok.
+  const topLevelProducts = React.useMemo(() => {
+    const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = (p?: Product) => {
+      if (!p) return false;
+      if (brand !== 'all' && p.brand?.trim() !== brand) return false;
+      const hay = [p.name, p.sku, p.brand, p.model, p.type, p.category].join(' ').toLowerCase();
+      return words.every((w) => hay.includes(w));
+    };
+    return (products ?? [])
+      .filter((p) => !pairedOutdoorIds.has(p.id))
+      .filter((p) => matches(p) || matches(p.pairedProductId ? productsById.get(p.pairedProductId) : undefined));
+  }, [products, pairedOutdoorIds, productsById, search, brand]);
+  // Balik ke halaman 1 saat pencarian/filter merek berubah (reset saat render,
+  // bukan di effect). Halaman yang melewati batas dijaga clamp di bawah.
+  const filterKey = `${search}|${brand}`;
+  const [prevFilterKey, setPrevFilterKey] = React.useState(filterKey);
+  if (prevFilterKey !== filterKey) {
+    setPrevFilterKey(filterKey);
+    setPage(1);
+  }
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Memuat produk...</p>;
@@ -970,7 +1064,16 @@ function ProductTable({
     );
   }
 
+  const totalPages = Math.max(1, Math.ceil(topLevelProducts.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedProducts = topLevelProducts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  if (topLevelProducts.length === 0) {
+    return <p className="text-sm text-muted-foreground">Tidak ada produk yang cocok dengan pencarian.</p>;
+  }
+
   return (
+    <>
     <div className="rounded-md border">
       <Table>
         <TableHeader>
@@ -985,7 +1088,7 @@ function ProductTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {topLevelProducts.map((p) => {
+          {pagedProducts.map((p) => {
             // `outdoor` cuma ketemu kalau Outdoor pasangannya lolos filter
             // status yang lagi aktif di halaman ini (default 'active'). Kalau
             // `p.pairedProduct` ada (backend selalu nyertain ini apapun
@@ -998,25 +1101,32 @@ function ProductTable({
             return (
               <React.Fragment key={p.id}>
                 <TableRow className="cursor-pointer" onClick={() => onRowClick(p)}>
-                  <TableCell className="text-muted-foreground">{p.sku || '-'}</TableCell>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      {p.name}
+                  <TableCell className="font-mono text-xs text-muted-foreground">{p.sku || '-'}</TableCell>
+                  {/* Nama + lencana pasangan boleh turun baris (TableCell default
+                      nowrap) - kalau tidak, kolom ini melebar dan Harga Jual,
+                      Status, dan aksi terdorong keluar layar. */}
+                  <TableCell className="min-w-56 font-medium whitespace-normal">
+                    <div className="grid gap-0.5">
+                      <span>{p.name}</span>
                       {p.pairedProduct && (
-                        <Badge
-                          variant="secondary"
-                          className="cursor-pointer"
+                        <button
+                          type="button"
+                          aria-expanded={isExpanded}
+                          className="flex w-fit max-w-[18rem] items-center gap-1 text-left text-xs font-normal text-primary hover:underline"
                           onClick={(e) => {
                             e.stopPropagation();
                             setExpandedId(isExpanded ? null : p.id);
                           }}
                         >
-                          Berpasangan: {p.pairedProduct.name}
-                        </Badge>
+                          <ChevronDown
+                            className={`size-3 shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          />
+                          <span className="truncate">Outdoor: {p.pairedProduct.name}</span>
+                        </button>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="text-muted-foreground whitespace-normal">
                     {[p.brand, p.type].filter(Boolean).join(' • ') || '-'}
                   </TableCell>
                   <TableCell>
@@ -1106,7 +1216,7 @@ function ProductTable({
                       ) : (
                         <p className="py-1 pl-4 text-sm text-muted-foreground">
                           Outdoor pasangan (&ldquo;{p.pairedProduct.name}&rdquo;) lagi kesaring filter status di
-                          atas — ganti ke &ldquo;Semua&rdquo; buat lihat &amp; kelola.
+                          atas - ganti ke &ldquo;Semua&rdquo; buat lihat &amp; kelola.
                         </p>
                       )}
                     </TableCell>
@@ -1118,5 +1228,7 @@ function ProductTable({
         </TableBody>
       </Table>
     </div>
+    <PaginationFooter page={currentPage} totalPages={totalPages} total={topLevelProducts.length} noun="produk" onPage={setPage} />
+    </>
   );
 }

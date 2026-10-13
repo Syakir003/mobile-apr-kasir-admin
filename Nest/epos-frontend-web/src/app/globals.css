@@ -87,7 +87,7 @@
 :root {
   /* --radius dasar 16px supaya --radius-xl (dipakai Card) jadi 20px — persis
      radius kartu di style guide Figma. */
-  --radius: 1rem;
+  --radius: 0.5rem;
 
   --background: #f6f8f8; /* AppColors.cloud */
   --foreground: #0e1e1d; /* AppColors.textInk */
@@ -195,10 +195,10 @@
      rgba(0,107,95,0.15)`) & AppShadows.elevated Flutter. Dipakai otomatis
      lewat utility shadow-xs/shadow-sm/shadow-md/shadow-lg yang sudah kepake
      di button/card/input (gak perlu ubah className komponen). */
-  --shadow-xs: 0 4px 10px rgba(11, 107, 98, 0.08);
-  --shadow-sm: 0 4px 10px rgba(11, 107, 98, 0.15);
-  --shadow-md: 0 8px 24px rgba(11, 107, 98, 0.18);
-  --shadow-lg: 0 8px 40px rgba(11, 107, 98, 0.25);
+  --shadow-xs: 0 1px 2px rgba(14, 30, 29, 0.05);
+  --shadow-sm: 0 1px 3px rgba(14, 30, 29, 0.08);
+  --shadow-md: 0 4px 12px rgba(14, 30, 29, 0.10);
+  --shadow-lg: 0 8px 24px rgba(14, 30, 29, 0.14);
 
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -317,4 +317,40 @@
     flex-wrap: wrap;
     justify-content: flex-end;
   }
+}
+
+/* Getar singkat untuk form login yang gagal; mati kalau reduced-motion. */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+@utility animate-shake {
+  animation: shake 0.35s ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-shake { animation: none; }
+}
+
+/* Latar halaman login: blob warna logo yang melayang pelan. */
+@keyframes blob-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(4%, -6%, 0) scale(1.12); }
+}
+@utility animate-blob {
+  animation: blob-drift 14s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-blob { animation: none; }
+}
+
+/* Garis aliran udara di panel login: dash bergeser pelan. */
+@keyframes airflow {
+  to { stroke-dashoffset: -400; }
+}
+@utility animate-airflow {
+  animation: airflow 22s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-airflow { animation: none; }
 }

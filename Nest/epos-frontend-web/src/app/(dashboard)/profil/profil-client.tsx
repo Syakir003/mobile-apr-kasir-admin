@@ -33,6 +33,7 @@ const ROLE_LABEL: Record<Role, string> = {
   admin: 'Admin',
   kasir: 'Kasir',
   teknisi: 'Teknisi',
+  gudang: 'Gudang',
 };
 
 // Aturan sama persis kayak backend IsStrongPassword (satu-satunya sumber

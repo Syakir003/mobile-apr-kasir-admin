@@ -6,6 +6,6 @@ import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 // PATCH /:id/toggle-active dengan pengaman anti-kunci-diri-sendirinya
 // sendiri, sengaja gak digabung ke sini biar pengaman itu gak ke-bypass).
 export class UpdateUserDto {
-  @IsOptional() @IsIn(['admin', 'kasir', 'teknisi']) role?: 'admin' | 'kasir' | 'teknisi';
+  @IsOptional() @IsIn(['admin', 'kasir', 'teknisi', 'gudang']) role?: 'admin' | 'kasir' | 'teknisi' | 'gudang';
   @IsOptional() @IsString() @MinLength(1) displayName?: string;
 }

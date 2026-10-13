@@ -10,7 +10,7 @@
 
 export const SESSION_COOKIE_NAME = 'epos_session';
 
-export type Role = 'admin' | 'kasir' | 'teknisi';
+export type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
 
 export interface SessionUser {
   id: string;
@@ -46,4 +46,5 @@ export const ROLE_HOME: Record<Role, string> = {
   admin: '/dashboard',
   kasir: '/pos',
   teknisi: '/teknisi/dashboard',
+  gudang: '/master/produk',
 };

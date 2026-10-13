@@ -55,7 +55,7 @@ export function ResetScopeDialog({
           <DialogTitle className="text-destructive">{title}</DialogTitle>
           <DialogDescription>
             Aksi ini <strong>PERMANEN</strong> dan <strong>TIDAK BISA DIBATALKAN</strong>. Gak ada
-            fitur backup otomatis — pastikan kamu memang mau menghapus data-data berikut:
+            fitur backup otomatis - pastikan kamu memang mau menghapus data-data berikut:
           </DialogDescription>
         </DialogHeader>
 

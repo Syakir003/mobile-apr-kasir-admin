@@ -14,7 +14,7 @@ export default function StockOpnamePage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Opname & Riwayat Stok</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Koreksi stok fisik produk/sparepart, dan lihat histori mutasi stok.
+          Hitung fisik sparepart lalu samakan stok sistem, dan lihat histori mutasi stok.
         </p>
       </div>
 

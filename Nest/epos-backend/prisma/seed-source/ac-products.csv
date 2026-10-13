@@ -1,0 +1,236 @@
+merek;seri;model;jenis;pk
+Aiwa;Aiwa;AER-K2E05ADC;Indoor;0,5
+Aiwa;Aiwa;AER-K2E05ADC;Outdoor;0,5
+Aiwa;Aiwa;AER-K2E10ADC;Indoor;1
+Aiwa;Aiwa;AER-K2E10ADC;Outdoor;1
+Aiwa;Aiwa;AER-K2E15ADC;Indoor;1,5
+Aiwa;Aiwa;AER-K2E15ADC;Outdoor;1,5
+Aiwa;Aiwa;AER-K2E20ADC;Indoor;2
+Aiwa;Aiwa;AER-K2E20ADC;Outdoor;2
+Aqua;Aqua Inverter;AQA-CRV10WXW;Indoor;1
+Aqua;Aqua Inverter;AQA-CRV6WP;Indoor;0,5
+Aqua;Aqua Inverter;AQA-KRV10WXW;Outdoor;1
+Aqua;Aqua Inverter;AQA-KRV6WP;Outdoor;0,5
+Ariston;Ariston;KIOS-12MDO;Outdoor;1,5
+Ariston;Ariston;KIOS-12UDO;Indoor;1,5
+Ariston;Ariston;KIOS-18MDO;Outdoor;2
+Ariston;Ariston;KIOS-18UDO;Indoor;2
+Ariston;Ariston;KIOS-5MDO;Outdoor;0,5
+Ariston;Ariston;KIOS-5UDO;Indoor;0,5
+Ariston;Ariston;KIOS-9MDO;Outdoor;1
+Ariston;Ariston;KIOS-9UDO;Indoor;1
+Aux;Aux;AS09A4;Outdoor;1
+Aux;Aux;AS12A4;Outdoor;1,5
+Aux;Aux;AS18A4;Outdoor;2
+Aux;Aux;ASW09A4;Indoor;1
+Aux;Aux;ASW12A4;Indoor;1,5
+Aux;Aux;ASW18A4;Indoor;2
+Cawang;Cawang;EP-SN-09SGM;Indoor;1
+Cawang;Cawang;EP-SN-12SGM;Indoor;1,5
+Cawang;Cawang;EP-SN-5SGM;Indoor;0,5
+Cawang;Cawang;EU-SN-09SGM;Outdoor;1
+Cawang;Cawang;EU-SN-12SGM;Outdoor;1,5
+Cawang;Cawang;EU-SN-5SGM;Outdoor;0,5
+Changhong;Changhong;CSC-05NVB4;Indoor;0,5
+Changhong;Changhong;CSC-05NVB4;Outdoor;0,5
+Changhong;Changhong;CSC-05NVS4;Indoor;0,5
+Changhong;Changhong;CSC-05NVS4;Outdoor;0,5
+Changhong;Changhong;CSC-09NVB4;Indoor;1
+Changhong;Changhong;CSC-09NVB4;Outdoor;1
+Changhong;Changhong;CSC-09NVS4;Indoor;1
+Changhong;Changhong;CSC-09NVS4;Outdoor;1
+Changhong;Changhong;CSC-12NVB4;Indoor;1,5
+Changhong;Changhong;CSC-12NVB4;Outdoor;1,5
+Changhong;Changhong;CSC-12NVS4;Indoor;1,5
+Changhong;Changhong;CSC-12NVS4;Outdoor;1,5
+Changhong;Changhong;CSC-18NVB3;Indoor;2
+Changhong;Changhong;CSC-18NVB3;Outdoor;2
+Daikin;Daikin Packaged;2FDN200HY14;Indoor;
+Daikin;Daikin Multi S;2MKC30QVM4;Outdoor;
+Daikin;Daikin Multi S;CTKC15RVM4;Indoor;0,5
+Daikin;Daikin Multi S;CTKC20RVM4;Indoor;0,75
+Daikin;Daikin Multi S;CTKC25RVM4;Indoor;1
+Daikin;Daikin Standar;FTC15YV14;Indoor;0,5
+Daikin;Daikin Standar;FTC25YV14;Indoor;1
+Daikin;Daikin Standar;FTC35YV14;Indoor;1,5
+Daikin;Daikin Standar;FTC50YV14;Indoor;2
+Daikin;Daikin Inverter Thailand;FTKC15TVM4;Indoor;0,5
+Daikin;Daikin Inverter;FTKE15YV14;Indoor;0,5
+Daikin;Daikin Inverter;FTKE20YV14;Indoor;0,75
+Daikin;Daikin Inverter;FTKE25YV14;Indoor;1
+Daikin;Daikin Inverter;FTKE35YV14;Indoor;1,5
+Daikin;Daikin Inverter;FTKE50YV14;Indoor;2
+Daikin;Daikin Evo Inverter;FTKF25AV14;Indoor;1
+Daikin;Daikin Evo Inverter;FTKF35AV14;Indoor;1,5
+Daikin;Daikin Evo Inverter;FTKF50AV14;Indoor;2
+Daikin;Daikin Inverter;FTKH25YV14;Indoor;1
+Daikin;Daikin Inverter Thailand;FTKQ50UVM4;Indoor;2
+Daikin;Daikin Standar;FTV15CXV14;Indoor;0,5
+Daikin;Daikin Standar;FTV35CXV14;Indoor;1,5
+Daikin;Daikin Standar;FTV60CXV14;Indoor;2,5
+Daikin;Daikin Standing;FVC125AV14;Indoor;5
+Daikin;Daikin Standing;FVC85AV14;Indoor;3,5
+Daikin;Daikin Standing;FVC85AV14;Indoor;3,5
+Daikin;Daikin Standing;FVGR10PV14;Indoor;
+Daikin;Daikin Air Purifier;MC40UVM4;Air Purifier;
+Daikin;Daikin Air Purifier;MC55UVM6;Air Purifier;
+Daikin;Daikin Air Purifier;MCQ30ZVM7;Air Purifier;
+Daikin;Daikin Standing;RC125AY14;Outdoor;5
+Daikin;Daikin Standar;RC15YV14;Outdoor;0,5
+Daikin;Daikin Standar;RC25YV14;Outdoor;1
+Daikin;Daikin Standar;RC35YV14;Outdoor;1,5
+Daikin;Daikin Standar;RC50YV14;Outdoor;2
+Daikin;Daikin Standing;RC85AV14;Outdoor;3,5
+Daikin;Daikin Standing;RC85AY14;Outdoor;3,5
+Daikin;Daikin Packaged;RCN100HY14;Outdoor;
+Daikin;Daikin Standing;RCN100HY14A;Outdoor;
+Daikin;Daikin Inverter Thailand;RKC15TVM4;Outdoor;0,5
+Daikin;Daikin Inverter;RKE15YV14;Outdoor;0,5
+Daikin;Daikin Inverter;RKE20YV14;Outdoor;0,75
+Daikin;Daikin Inverter;RKE25YV14;Outdoor;1
+Daikin;Daikin Inverter;RKE35YV14;Outdoor;1,5
+Daikin;Daikin Inverter;RKE50YV14;Outdoor;2
+Daikin;Daikin Evo Inverter;RKF25AV14;Outdoor;1
+Daikin;Daikin Evo Inverter;RKF35AV14;Outdoor;1,5
+Daikin;Daikin Evo Inverter;RKF50AV14;Outdoor;2
+Daikin;Daikin Inverter;RKH25YV14;Outdoor;1
+Daikin;Daikin Inverter Thailand;RKQ50UVM4;Outdoor;2
+Daikin;Daikin Standar;RV35CXV14;Outdoor;1,5
+Daikin;Daikin Standar;RV60CXV14;Outdoor;2,5
+Daikin;Daikin Standar;RVV15CXV14;Outdoor;0,5
+Flife;Flife Low Watt;FAC-05FCOO;Indoor;0,5
+Flife;Flife Low Watt;FAC-05FCOO;Outdoor;0,5
+Flife;Flife Standar;FAC-05FMOO2;Indoor;0,5
+Flife;Flife Standar;FAC-05FMOO2;Outdoor;0,5
+Flife;Flife Standar;FAC-07FMOO3;Indoor;0,75
+Flife;Flife Standar;FAC-07FMOO3;Outdoor;0,75
+Flife;Flife Low Watt;FAC-09FCOO;Indoor;1
+Flife;Flife Low Watt;FAC-09FCOO;Outdoor;1
+Flife;Flife Standar;FAC-09FMOO2;Indoor;1
+Flife;Flife Standar;FAC-09FMOO2;Outdoor;1
+Flife;Flife Low Watt;FAC-12FCOO;Indoor;1,5
+Flife;Flife Low Watt;FAC-12FCOO;Outdoor;1,5
+Flife;Flife Standar;FAC-12FMOO2;Indoor;1,5
+Flife;Flife Standar;FAC-12FMOO2;Outdoor;1,5
+Flife;Flife Standar;FAC-18FLOO;Indoor;2
+Flife;Flife Standar;FAC-18FLOO;Outdoor;2
+Flife;Flife Standar;FAC-18FMOO2;Indoor;2
+Flife;Flife Standar;FAC-18FMOO2;Outdoor;2
+Gree;Gree Cassette;GKC-24T;Indoor;3
+Gree;Gree Cassette;GKC-24T;Outdoor;3
+Gree;Gree Cassette;GKC-48TM;Indoor;5
+Gree;Gree Cassette;GKC-55TM;Indoor;6
+Gree;Gree Cassette;GKC-55TM;Outdoor;6
+Gree;Gree Portable;GPC05P2;Portable;0,5
+Gree;Gree Portable;GPC09P2;Portable;1
+Gree;Gree Portable;GPC12P2;Portable;1,5
+Gree;Gree Ceiling;GTC-55ZDM;Indoor;6
+Gree;Gree Cassette;GUC-48WM;Outdoor;5
+Gree;Gree Ceiling;GUC-55WM;Outdoor;6
+Gree;Gree Standing;GVC-24STS;Indoor;3
+Gree;Gree Standing;GVC-24STS;Outdoor;3
+Gree;Gree Standing;GVC-24TS (S);Indoor;3
+Gree;Gree Standing;GVC-24TS (S);Outdoor;3
+Gree;Gree Standing;GVC-48STS(S);Indoor;5
+Gree;Gree Standing;GVC-48STS(S);Outdoor;5
+Gree;Gree Low Watt;GWC05C3ES;Indoor;0,5
+Gree;Gree Low Watt;GWC05C3ES;Outdoor;0,5
+Gree;Gree Inverter;GWC05F1S;Indoor;0,5
+Gree;Gree Inverter;GWC05F1S;Outdoor;0,5
+Gree;Gree Inverter;GWC05F5S;Indoor;0,5
+Gree;Gree Inverter;GWC05F5S;Outdoor;0,5
+Gree;Gree;GWC05N1;Indoor;0,5
+Gree;Gree;GWC05N1;Outdoor;0,5
+Gree;Gree;GWC05N1A;Indoor;0,5
+Gree;Gree;GWC05N1A;Outdoor;0,5
+Gree;Gree Low Watt;GWC07C3ES;Indoor;0,75
+Gree;Gree Low Watt;GWC07C3ES;Outdoor;0,75
+Gree;Gree;GWC07N1;Indoor;0,75
+Gree;Gree;GWC07N1;Outdoor;0,75
+Gree;Gree;GWC07N1A;Indoor;0,75
+Gree;Gree;GWC07N1A;Outdoor;0,75
+Gree;Gree Low Watt;GWC09C3ES;Indoor;1
+Gree;Gree Low Watt;GWC09C3ES;Outdoor;1
+Gree;Gree Inverter;GWC09F1S;Indoor;1
+Gree;Gree Inverter;GWC09F1S;Outdoor;1
+Gree;Gree Inverter;GWC09F5S;Indoor;1
+Gree;Gree Inverter;GWC09F5S;Outdoor;1
+Gree;Gree;GWC09N1;Indoor;1
+Gree;Gree;GWC09N1;Outdoor;1
+Gree;Gree;GWC09N1A;Indoor;1
+Gree;Gree;GWC09N1A;Outdoor;1
+Gree;Gree Inverter;GWC12F1S;Indoor;1,5
+Gree;Gree Inverter;GWC12F1S;Outdoor;1,5
+Gree;Gree Inverter;GWC12F5S;Indoor;1,5
+Gree;Gree Inverter;GWC12F5S;Outdoor;1,5
+Gree;Gree;GWC12N1;Indoor;1,5
+Gree;Gree;GWC12N1;Outdoor;1,5
+Gree;Gree;GWC12N1A;Indoor;1,5
+Gree;Gree;GWC12N1A;Outdoor;1,5
+Gree;Gree Inverter;GWC18F5S;Indoor;2
+Gree;Gree Inverter;GWC18F5S;Outdoor;2
+Gree;Gree;GWC18N1;Indoor;2
+Gree;Gree;GWC18N1;Outdoor;2
+Gree;Gree;GWC18N1A;Indoor;2
+Gree;Gree;GWC18N1A;Outdoor;2
+Gree;Gree Inverter;GWC24F5S;Indoor;2,5
+Gree;Gree Inverter;GWC24F5S;Outdoor;2,5
+Gree;Gree Cassette;TF06;Panel;
+Hisense;Hisense;AN-05CDG;Indoor;0,5
+Hisense;Hisense;AN-05CDG;Outdoor;0,5
+Hisense;Hisense;AN-09CDG;Indoor;1
+Hisense;Hisense;AN-09CDG;Outdoor;1
+Modena;Modena;RA-0521AAWH;Indoor;0,5
+Modena;Modena;RA-0531AAWH;Outdoor;0,5
+Modena;Modena;RA-0921AAWH;Indoor;1
+Modena;Modena;RA-0931AAWH;Outdoor;1
+Modena;Modena;RA-1221AAWH;Indoor;1,5
+Modena;Modena;RA-1231AAWH;Outdoor;1,5
+Panasonic;Panasonic;CS-DN5CKJ;Indoor;0,5
+Panasonic;Panasonic;CS-DN9CKJ;Indoor;1
+Panasonic;Panasonic;CS-UN18AKJ;Indoor;2
+Panasonic;Panasonic;CS-YN12AKJ;Indoor;1,5
+Panasonic;Panasonic;CS-YN5AKJ;Indoor;0,5
+Panasonic;Panasonic;CS-YN7AKJ;Indoor;0,75
+Panasonic;Panasonic;CS-YN9AKJ;Indoor;1
+Panasonic;Panasonic;CS-ZN5YKP;Indoor;0,5
+Panasonic;Panasonic;CS-ZN7YKP;Indoor;0,75
+Panasonic;Panasonic;CS-ZN9YKP;Indoor;1
+Panasonic;Panasonic;CU-UN18AKJ;Outdoor;2
+Panasonic;Panasonic;CU-YN12AKJ;Outdoor;1,5
+Panasonic;Panasonic;CU-YN5AKJ;Outdoor;0,5
+Panasonic;Panasonic;CU-YN7AKJ;Outdoor;0,75
+Panasonic;Panasonic;CU-YN9AKJ;Outdoor;1
+Panasonic;Panasonic;CU-ZN5YKP;Outdoor;0,5
+Panasonic;Panasonic;CU-ZN7YKP;Outdoor;0,75
+Panasonic;Panasonic;CU-ZN9YKP;Outdoor;1
+Polytron;Polytron;ODPAC05VH;Outdoor;0,5
+Polytron;Polytron;ODPAC07VH;Outdoor;0,75
+Polytron;Polytron;ODPAC09VH;Outdoor;1
+Polytron;Polytron;ODPAC12VH;Outdoor;1,5
+Polytron;Polytron;ODPAC18VH;Outdoor;2
+Polytron;Polytron;PAC05VH;Indoor;0,5
+Polytron;Polytron;PAC07VH;Indoor;0,75
+Polytron;Polytron;PAC09VH;Indoor;1
+Polytron;Polytron;PAC12VH;Indoor;1,5
+Polytron;Polytron;PAC18VH;Indoor;2
+Sharp;Sharp;AH-A12ZCY;Indoor;1,5
+Sharp;Sharp;AH-A18ZCY;Indoor;2
+Sharp;Sharp;AH-A5BEY2;Indoor;0,5
+Sharp;Sharp;AH-A7BEY2;Indoor;0,75
+Sharp;Sharp;AH-A9BEY2;Indoor;1
+Sharp;Sharp;AU-A12ZCY;Outdoor;1,5
+Sharp;Sharp;AU-A18ZCY;Outdoor;2
+Sharp;Sharp;AU-A5BEY2;Outdoor;0,5
+Sharp;Sharp;AU-A7BEY2;Outdoor;0,75
+Sharp;Sharp;AU-A9BEY2;Outdoor;1
+Sharp;Sharp;MSAF-07CRN2;Indoor;0,75
+Sharp;Sharp;MSAF-07CRN2;Outdoor;0,75
+Sharp;Sharp;MSAF-12CRN2X;Indoor;1,5
+Sharp;Sharp;MSAF-12CRN2X;Outdoor;1,5
+Sharp;Sharp;MSFQ-18CRN8;Indoor;2
+Sharp;Sharp;MSFQ-18CRN8;Outdoor;2
+Sharp;Sharp;MSFT-05CRN8;Indoor;0,5
+Sharp;Sharp;MSFT-05CRN8;Outdoor;0,5
+Sharp;Sharp;MSFT-09CRN;Indoor;1
+Sharp;Sharp;MSFT-09CRN;Outdoor;1

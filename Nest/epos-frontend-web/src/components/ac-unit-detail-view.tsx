@@ -88,7 +88,7 @@ export function AcUnitDetailView({
         <p className="mt-1 text-sm text-muted-foreground">{unit.roomLocation || 'Lokasi belum diisi'}</p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
         <Card className="h-fit">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Data Unit</CardTitle>
@@ -202,7 +202,7 @@ export function AcUnitDetailView({
                             <li key={f.id} className="rounded bg-muted/50 p-2">
                               <span className="font-medium">{f.title}</span>
                               {f.note && (
-                                <span className="text-muted-foreground"> — {f.note}</span>
+                                <span className="text-muted-foreground"> - {f.note}</span>
                               )}
                             </li>
                           ))}

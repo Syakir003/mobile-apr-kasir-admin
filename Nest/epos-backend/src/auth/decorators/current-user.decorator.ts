@@ -2,7 +2,7 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 
 export interface CurrentUserPayload {
   sub: string;
-  role: 'admin' | 'kasir' | 'teknisi';
+  role: 'admin' | 'kasir' | 'teknisi' | 'gudang';
   displayName: string;
 }
 

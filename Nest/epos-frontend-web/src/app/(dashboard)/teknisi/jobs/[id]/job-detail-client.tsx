@@ -10,6 +10,7 @@ import { ArrowLeft, ScanLine, Search, Trash2 } from 'lucide-react';
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
 import type { Role } from '@/lib/session';
+import { cn } from '@/lib/utils';
 import { statusBadgeVariant } from '../../queue/queue-client';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { BarcodeQr } from '@/components/barcode-qr';
@@ -242,18 +243,26 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
           <ArrowLeft className="size-4" />
           Kembali
         </Link>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">
-            {job.unit ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC' : `Order ${job.type}`}
+            {job.member?.name || (job.unit ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC' : 'Job servis')}
           </h1>
           <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">{job.type}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {jobTypeLabel(job.type)}
+          {job.unit
+            ? ` · ${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'}${job.unit.roomLocation ? ` (${job.unit.roomLocation})` : ''}`
+            : ''}
+        </p>
+        <div className="mt-3">
+          <JobSteps status={job.status} />
+        </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
         <div className="grid gap-6">
-          <Card>
+          <Card className={cn(isAdmin && job.status === 'menunggu_review' && 'order-last')}>
             <CardHeader>
               <CardTitle className="text-base">Detail</CardTitle>
             </CardHeader>
@@ -279,7 +288,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                 label="Unit AC"
                 value={
                   job.unit
-                    ? `${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || '-'} — ${job.unit.roomLocation || 'lokasi belum diisi'}`
+                    ? `${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || '-'} - ${job.unit.roomLocation || 'lokasi belum diisi'}`
                     : '-'
                 }
               />
@@ -290,34 +299,29 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                   valueNode={<UnitPartsList unit={job.unit} showSku />}
                 />
               )}
-              {job.unit && <DetailRow label="Barcode Unit" value={job.unit.barcodeValue} />}
               {job.unit && (
-                // Preview QR unit ini — biar bisa dicek/dilihat lagi tanpa
-                // harus buka halaman detail unit terpisah. Berguna khususnya
-                // buat job dari customer yang BELUM member sebelumnya
-                // (servis mandiri, unit baru) — QR-nya baru digenerate pas
-                // job ini dibuat (AcUnitsService.registerExisting), jadi di
-                // sinilah tempat pertama admin/teknisi bisa lihat & cetak.
-                <div className="grid gap-2 rounded-md border bg-white p-3">
-                  <div className="flex justify-center">
-                    <BarcodeQr value={job.unit.barcodeValue} size={96} />
+                // Preview QR unit ini — biar bisa dicek/dilihat lagi tanpa harus
+                // buka halaman detail unit terpisah. Link cetak cuma admin/kasir
+                // (GET /service-orders/:id 403 untuk teknisi).
+                <div className="flex items-center gap-3 rounded-md border bg-white p-2 text-neutral-900">
+                  <BarcodeQr value={job.unit.barcodeValue} size={64} />
+                  <div className="min-w-0 text-xs text-neutral-600">
+                    <p className="font-mono text-sm text-neutral-900">{job.unit.barcodeValue}</p>
+                    <p>QR label unit AC ini</p>
+                    {job.order && !isTeknisi && (
+                      <Link
+                        href={`/service-orders/${job.order.id}/print-labels`}
+                        className="mt-1 inline-block font-medium text-neutral-900 hover:underline"
+                      >
+                        Cetak label unit
+                      </Link>
+                    )}
                   </div>
-                  {/* GET /service-orders/:id (dipakai halaman print-labels)
-                      admin+kasir doang di backend — link cetak sengaja gak
-                      ditampilin buat teknisi (bakal 403 kalau diklik). */}
-                  {job.order && !isTeknisi && (
-                    <Link
-                      href={`/service-orders/${job.order.id}/print-labels`}
-                      className="text-center text-xs text-muted-foreground hover:text-foreground hover:underline"
-                    >
-                      Cetak Label Unit
-                    </Link>
-                  )}
                 </div>
               )}
               <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />
               {/* Kalau lagi bisa diedit (lihat NotesEditor di bawah), jangan
-                  dobel ditampilin di sini juga — biar gak ada 2 sumber
+                  dobel ditampilin di sini juga - biar gak ada 2 sumber
                   kebenaran yang keliatan beda pas belum di-save. */}
               {job.notes && !notesEditable && <DetailRow label="Catatan" value={job.notes} />}
               {job.startedAt && (
@@ -384,7 +388,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
           </Card>
         </div>
 
-        <Card className="h-fit">
+        <Card className="h-fit xl:sticky xl:top-6">
           <CardHeader>
             <CardTitle className="text-base">Aksi</CardTitle>
           </CardHeader>
@@ -416,7 +420,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Mulai Job (scan barcode unit)</label>
                 {/* Balikin gate lama (konsep app mobile teknisi): foto
-                    SEBELUM wajib ada dulu, sebelum job boleh dimulai — sudah
+                    SEBELUM wajib ada dulu, sebelum job boleh dimulai - sudah
                     ditegakkan juga di backend (start()), ini cuma versi
                     proaktifnya biar teknisi gak nunggu klik-dulu-baru-tau. */}
                 {!hasBeforePhoto && (
@@ -462,7 +466,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                   {submitForReviewMutation.isPending ? 'Memproses...' : 'Ajukan Selesai'}
                 </Button>
                 {/* Validasi sisi klien niru persis gate submitForReview() di
-                    backend (technician-jobs.service.ts) — minimal 1 temuan,
+                    backend (technician-jobs.service.ts) - minimal 1 temuan,
                     dan SETIAP temuan minimal 1 foto sebelum + 1 sesudah. Gate
                     pengajuan-material yang belum dicek di sini (belum
                     diporting ke web) tetap ditangani backend & muncul lewat
@@ -502,7 +506,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                   <label className="text-sm font-medium">Kembalikan ke Teknisi</label>
                   <Textarea
                     rows={2}
-                    placeholder="Catatan — apa yang kurang?"
+                    placeholder="Catatan - apa yang kurang?"
                     value={sendBackNote}
                     onChange={(e) => setSendBackNote(e.target.value)}
                   />
@@ -537,6 +541,75 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
         </Card>
       </div>
     </div>
+  );
+}
+
+const JOB_TYPE_LABEL: Record<string, string> = {
+  pemasangan: 'Pemasangan',
+  cuci: 'Cuci AC',
+  maintenance: 'Maintenance',
+  service: 'Servis',
+  perbaikan: 'Perbaikan',
+  bongkar: 'Bongkar',
+  bongkar_pasang: 'Bongkar pasang',
+};
+function jobTypeLabel(type: string): string {
+  return JOB_TYPE_LABEL[type] ?? type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ');
+}
+
+const JOB_STEPS: [string, string][] = [
+  ['assigned', 'Ditugaskan'],
+  ['sedang_dikerjakan', 'Dikerjakan'],
+  ['menunggu_review', 'Review admin'],
+  ['selesai', 'Selesai'],
+];
+
+/** Posisi job di alurnya: ditugaskan, dikerjakan, review admin, selesai. */
+function JobSteps({ status }: { status: string }) {
+  if (status === 'dibatalkan') return null;
+  const idx = status === 'menunggu_penugasan' ? -1 : JOB_STEPS.findIndex(([k]) => k === status);
+  return (
+    <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" aria-label="Tahap job">
+      {JOB_STEPS.map(([key, label], i) => (
+        <li key={key} className="flex items-center gap-2" aria-current={i === idx ? 'step' : undefined}>
+          <span
+            className={cn(
+              'flex size-5 items-center justify-center rounded-full border text-[10px]',
+              i < idx && 'border-primary bg-primary text-primary-foreground',
+              i === idx && 'border-primary font-semibold text-primary ring-2 ring-primary/20',
+              i > idx && 'text-muted-foreground',
+            )}
+          >
+            {i < idx ? '✓' : i + 1}
+          </span>
+          <span className={cn(i === idx ? 'font-medium' : 'text-muted-foreground')}>{label}</span>
+          {i < JOB_STEPS.length - 1 && <span className="h-px w-5 bg-border" />}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** Thumbnail foto temuan (klik = buka ukuran penuh). Bila file hilang tampil keterangan, bukan gambar rusak. */
+function PhotoThumb({ src, label }: { src: string; label: string }) {
+  const [failed, setFailed] = React.useState(false);
+  if (failed) {
+    return (
+      <div className="flex size-24 items-center justify-center rounded border border-dashed p-1 text-center text-[10px] text-muted-foreground">
+        Foto tidak ditemukan
+      </div>
+    );
+  }
+  return (
+    <a href={src} target="_blank" rel="noreferrer" title={`Buka foto ${label.toLowerCase()} ukuran penuh`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={`Foto ${label.toLowerCase()}`}
+        onError={() => setFailed(true)}
+        className="size-24 rounded border object-cover transition hover:ring-2 hover:ring-primary/40"
+      />
+    </a>
   );
 }
 
@@ -689,23 +762,8 @@ function FindingPhotoGroup({
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
         {photos.map((p) => (
-          <a
-            key={p.id}
-            href={`/api/proxy${p.path}`}
-            target="_blank"
-            rel="noreferrer"
-            title={`Buka foto ${label.toLowerCase()} ukuran penuh`}
-          >
-            {/* Foto disajikan lewat proxy same-origin (/api/proxy/uploads/...)
-                biar gak perlu expose BACKEND_URL publik ke browser — proxy ini
-                udah ada & generik (apapun path diteruskan ke backend). */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/proxy${p.path}`}
-              alt={`Foto ${label.toLowerCase()}`}
-              className="size-14 rounded border object-cover"
-            />
-          </a>
+          // Foto lewat proxy same-origin (/api/proxy/uploads/...), tidak perlu BACKEND_URL publik.
+          <PhotoThumb key={p.id} src={`/api/proxy${p.path}`} label={label} />
         ))}
         {canEdit && (
           <FindingPhotoUploadButton jobId={jobId} findingId={findingId} kind={kind} />
@@ -843,7 +901,7 @@ function AddFindingForm({ jobId }: { jobId: string }) {
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-9"
-          placeholder="Cari kategori, atau ketik baru — mis. AC bocor"
+          placeholder="Cari kategori, atau ketik baru - mis. AC bocor"
           value={selectedCategory ? selectedCategory.name : categorySearch}
           onChange={(e) => {
             setSelectedCategory(null);
@@ -857,7 +915,7 @@ function AddFindingForm({ jobId }: { jobId: string }) {
             )}
             {categoryQuery.data?.length === 0 && (
               <p className="p-2 text-xs text-muted-foreground">
-                Gak ketemu — lanjut isi buat bikin kategori baru &ldquo;{categorySearch.trim()}
+                Gak ketemu - lanjut isi buat bikin kategori baru &ldquo;{categorySearch.trim()}
                 &rdquo;.
               </p>
             )}
@@ -930,7 +988,7 @@ function MaterialRequestsList({
   const markUsedMutation = useMutation({
     mutationFn: (requestId: string) => apiClient.patch(`/material-requests/${requestId}/mark-used`),
     onSuccess: () => {
-      toast.success('Ditandai sudah dipakai — stok ikut terpotong.');
+      toast.success('Ditandai sudah dipakai - stok ikut terpotong.');
       queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
     },
     onError: (err) => {
@@ -969,7 +1027,7 @@ function MaterialRequestsList({
           )}
           {r.status === 'approved' && r.usedAt && (
             <p className="text-xs text-status-success">
-              Sudah dipakai — {formatDateTime(r.usedAt)}
+              Sudah dipakai - {formatDateTime(r.usedAt)}
             </p>
           )}
         </div>

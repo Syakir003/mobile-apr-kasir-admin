@@ -315,7 +315,7 @@ function CreateVoucherDialog({
         <DialogHeader>
           <DialogTitle>Buat Voucher</DialogTitle>
           <DialogDescription>
-            Voucher ad-hoc untuk satu pelanggan — pilih pelanggan, tipe+nilai diskon, syarat
+            Voucher ad-hoc untuk satu pelanggan - pilih pelanggan, tipe+nilai diskon, syarat
             opsional, lalu tanggal kedaluwarsa.
           </DialogDescription>
         </DialogHeader>

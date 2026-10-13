@@ -82,7 +82,7 @@ export function KoreksiTab() {
   }
   const approve = useMutation({
     mutationFn: (id: string) => apiClient.post(`/unit-corrections/${id}/approve`, {}),
-    onSuccess: () => done('Disetujui — data unit sudah berganti.'),
+    onSuccess: () => done('Disetujui - data unit sudah berganti.'),
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Gagal menyetujui.'),
   });
   const reject = useMutation({
@@ -141,7 +141,7 @@ export function KoreksiTab() {
               <p className="text-xs text-muted-foreground">
                 {STATUS_LABEL[c.status]} oleh {c.reviewedBy?.displayName ?? '-'}
                 {c.reviewedAt ? ` · ${formatDateTime(c.reviewedAt)}` : ''}
-                {c.reviewNote ? ` — ${c.reviewNote}` : ''}
+                {c.reviewNote ? ` - ${c.reviewNote}` : ''}
               </p>
             )}
             {c.status === 'pending' && (

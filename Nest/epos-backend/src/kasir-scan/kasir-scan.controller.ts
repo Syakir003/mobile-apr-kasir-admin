@@ -8,11 +8,10 @@ import { KasirScanService } from './kasir-scan.service';
 import { ScanUnitDto } from './dto/scan-unit.dto';
 import { ManualFulfillDto } from './dto/manual-fulfill.dto';
 
-// Admin + kasir — sama pembatasan kayak checkout POS (StockController/
-// stock-in tetap admin-only, tapi ngeluarin barang abis invoice terbit ini
-// pekerjaan kasir/gudang sehari-hari).
+// Admin + gudang. Kasir cukup checkout; yang mengambil unit dari rak dan
+// menscan QR-nya adalah gudang.
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'kasir')
+@Roles('admin', 'gudang')
 @Controller('kasir-scan')
 export class KasirScanController {
   constructor(private readonly kasirScan: KasirScanService) {}

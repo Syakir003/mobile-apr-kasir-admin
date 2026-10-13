@@ -15,6 +15,7 @@ import { requiredNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
+import { PaginationFooter, SearchBox, useListView } from '@/components/master-data/list-controls';
 import { DeactivateDialog } from '@/components/master-data/deactivate-dialog';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
@@ -165,6 +166,7 @@ export default function SparepartPage() {
     queryKey: ['spareparts', status],
     queryFn: () => apiClient.get<Sparepart[]>(`/spareparts?status=${status}`),
   });
+  const view = useListView(data, (s) => [s.name, s.sku, s.category, s.unit].join(' '));
 
   const form = useForm<SparepartFormValues>({
     resolver: zodResolver(sparepartSchema),
@@ -306,7 +308,7 @@ export default function SparepartPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Sparepart</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Bahan & komponen servis — freon, pipa, bracket, dsb. Klik baris buat lihat & tambah
+            Bahan & komponen servis - freon, pipa, bracket, dsb. Klik baris buat lihat & tambah
             stok.
           </p>
         </div>
@@ -319,6 +321,8 @@ export default function SparepartPage() {
         </div>
       </div>
 
+      <SearchBox value={view.search} onChange={view.setSearch} placeholder="Cari nama, SKU, kategori, atau satuan..." />
+
       {isLoading && <p className="text-sm text-muted-foreground">Memuat sparepart...</p>}
       {isError && <p className="text-sm text-destructive">Gagal memuat data sparepart.</p>}
       {!isLoading && !isError && (!data || data.length === 0) && (
@@ -326,7 +330,11 @@ export default function SparepartPage() {
           Belum ada sparepart. Klik &ldquo;Tambah Sparepart&rdquo; untuk mulai.
         </p>
       )}
-      {!isLoading && !isError && data && data.length > 0 && (
+      {!isLoading && !isError && data && data.length > 0 && view.total === 0 && (
+        <p className="text-sm text-muted-foreground">Tidak ada sparepart yang cocok dengan pencarian.</p>
+      )}
+      {!isLoading && !isError && data && data.length > 0 && view.total > 0 && (
+        <>
         <div className="rounded-md border">
           <Table>
             <TableHeader>
@@ -340,7 +348,7 @@ export default function SparepartPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.map((s) => (
+              {view.pageItems.map((s) => (
                 <TableRow
                   key={s.id}
                   className="cursor-pointer"
@@ -420,6 +428,8 @@ export default function SparepartPage() {
             </TableBody>
           </Table>
         </div>
+        <PaginationFooter page={view.page} totalPages={view.totalPages} total={view.total} noun="sparepart" onPage={view.setPage} />
+        </>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -428,7 +438,7 @@ export default function SparepartPage() {
             <DialogTitle>{editing ? 'Edit Sparepart' : 'Tambah Sparepart'}</DialogTitle>
             <DialogDescription>
               {editing
-                ? 'Ubah data sparepart. Stok tidak diubah dari sini — klik baris di tabel buat tambah stok.'
+                ? 'Ubah data sparepart. Stok tidak diubah dari sini - klik baris di tabel buat tambah stok.'
                 : 'Isi data sparepart baru.'}
             </DialogDescription>
           </DialogHeader>
@@ -499,7 +509,7 @@ export default function SparepartPage() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Isi kemasan cuma contoh umum — sesuaikan dengan barang yang kamu beli.
+                    Isi kemasan cuma contoh umum - sesuaikan dengan barang yang kamu beli.
                   </p>
                 </div>
               )}
@@ -627,7 +637,7 @@ export default function SparepartPage() {
               {!editing &&
                 (mode === 'gulungan' ? (
                   <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-                    Sparepart per-gulungan gak bisa diisi stok awal di sini — tambahkan gulungan
+                    Sparepart per-gulungan gak bisa diisi stok awal di sini - tambahkan gulungan
                     pertama lewat menu Barang Masuk setelah sparepart ini dibuat.
                   </p>
                 ) : packMode ? (
@@ -718,7 +728,7 @@ function InitialStockPack({ form }: { form: UseFormReturn<SparepartFormValues> }
         name="stockIn"
         render={({ field }) => (
           <FormItem>
-            <FormLabel>Stok awal — input dalam satuan</FormLabel>
+            <FormLabel>Stok awal - input dalam satuan</FormLabel>
             <div className="flex gap-2">
               {(['pack', 'unit'] as const).map((k) => (
                 <Button

@@ -7,6 +7,8 @@ export interface StockReportCatalogItem {
   name: string;
   unit: string;
   category: string | null;
+  // Merk (cuma produk) — dipakai gudang buat breakdown per merk.
+  brand?: string | null;
 }
 
 /** Angka mentah hasil query — semua opsional/null (item bisa gak punya
@@ -33,6 +35,7 @@ export interface StockReportRow {
   name: string;
   unit: string;
   category: string | null;
+  brand?: string | null;
   stokAwal: number;
   stokMasuk: number;
   stokKeluar: number;
@@ -84,6 +87,7 @@ export function buildStockReportRow(
     name: item.name,
     unit: item.unit,
     category: item.category,
+    brand: item.brand,
     stokAwal: n(agg.opening),
     stokMasuk: n(agg.masuk),
     stokKeluar: n(agg.keluar),

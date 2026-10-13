@@ -324,9 +324,9 @@ export class ReportsService {
     filter: { refId?: string; category?: string },
   ): Promise<StockReportRow[]> {
     const catalog = await this.prisma.$queryRaw<
-      { id: string; name: string; category: string | null; paired_product_id: string | null; ac_role: string | null }[]
+      { id: string; name: string; category: string | null; brand: string | null; paired_product_id: string | null; ac_role: string | null }[]
     >`
-      SELECT id, name, category, paired_product_id, ac_role
+      SELECT id, name, category, brand, paired_product_id, ac_role
       FROM products
       WHERE active = true
         AND (${filter.refId ?? null}::text IS NULL OR id = ${filter.refId ?? null})
@@ -410,6 +410,7 @@ export class ReportsService {
         name: c.name,
         unit: 'unit',
         category: c.category,
+        brand: c.brand,
       };
 
       const opts = c.paired_product_id

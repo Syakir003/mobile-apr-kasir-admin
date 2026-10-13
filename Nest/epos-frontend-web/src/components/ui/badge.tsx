@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 // Bentuk pill — padanan geometri AppBadgeTone/status badge di style guide
 // Flutter (semua badge status berbentuk pill, bukan rounded-rect).
 const badgeVariants = cva(
-  "inline-flex items-center justify-center rounded-full border px-2.5 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden",
+  "inline-flex items-center justify-center rounded-md border px-2.5 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden",
   {
     variants: {
       variant: {
@@ -22,9 +22,9 @@ const badgeVariants = cva(
         // Dua varian tambahan khusus E-POS (bukan default shadcn) — dipakai
         // buat badge status job/invoice (mis. 'lunas' vs 'kurang_bayar').
         success:
-          'border-transparent bg-status-success text-status-success-foreground',
+          'border-status-success/25 bg-status-success/12 text-green-800 dark:text-status-success',
         warning:
-          'border-transparent bg-status-warning text-status-warning-foreground',
+          'border-status-warning/30 bg-status-warning/15 text-status-warning-foreground dark:text-status-warning',
       },
     },
     defaultVariants: {

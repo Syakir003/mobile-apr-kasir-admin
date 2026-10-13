@@ -21,11 +21,11 @@ interface WaTemplateRow {
   updatedAt: string | null;
 }
 
-const TEMPLATE_LABEL: Record<string, string> = {
-  invoice: 'Invoice (dikirim tiap tombol "Kirim WA" di halaman detail invoice)',
-  selesai_servis: 'Selesai Servis',
-  reminder_h3: 'Pengingat H-3 (3 hari sebelum jatuh tempo)',
-  reminder_h7: 'Pengingat H+7 (7 hari lewat jatuh tempo)',
+const TEMPLATE_META: Record<string, { title: string; hint: string }> = {
+  invoice: { title: 'Invoice', hint: 'Dikirim saat tombol "Kirim WA" di halaman detail invoice diklik.' },
+  selesai_servis: { title: 'Selesai servis', hint: 'Dikirim otomatis begitu admin menyetujui job servis selesai.' },
+  reminder_h3: { title: 'Pengingat 3 hari sebelum jatuh tempo', hint: 'Dikirim otomatis pukul 09.00 WIB.' },
+  reminder_h7: { title: 'Pengingat 7 hari setelah jatuh tempo', hint: 'Dikirim otomatis pukul 09.00 WIB bila AC belum diservis.' },
 };
 
 // Placeholder yang SAH beda per kind — sinkron dengan PLACEHOLDERS_BY_KIND di
@@ -66,8 +66,9 @@ export default function ReminderWaPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Pengingat WA</h1>
         <p className="text-sm text-muted-foreground">
-          Pantau jadwal servis semua AC. Pengingat otomatis (H-3, H+7) dikirim tiap jam 09:00 WIB;
-          siklus diatur per AC (1 set indoor + outdoor = 1 pengingat).
+          Pantau jadwal servis tiap AC pelanggan. Setiap hari pukul 09.00 WIB sistem mengirim WhatsApp
+          otomatis: 3 hari sebelum jatuh tempo, dan 7 hari setelah jatuh tempo bila belum diservis.
+          Satu set AC (indoor + outdoor) dihitung satu pengingat.
         </p>
       </div>
 
@@ -118,12 +119,14 @@ function TemplatePesanTab() {
     return <p className="text-sm text-destructive">Gagal memuat template pesan.</p>;
   }
 
+  const dirty = query.data.some((t) => (drafts[t.kind] ?? t.body) !== t.body);
+
   return (
-    <div className="grid max-w-2xl gap-4">
+    <div className="grid max-w-5xl gap-4">
       <p className="text-sm text-muted-foreground">
-        Tiap jenis pesan punya placeholder sendiri (lihat di bawah tiap kartu) — pakai cuma yang
-        tercantum, keyword lain akan ditolak saat disimpan. Mengganti template cuma berlaku untuk
-        pesan berikutnya — pesan yang sudah terkirim tidak ikut berubah.
+        Pesan boleh memakai isian dalam kurung kurawal, misalnya {'{nama}'}. Pakai hanya isian yang
+        tercantum di tiap kartu, isian lain ditolak saat disimpan. Perubahan hanya berlaku untuk
+        pesan berikutnya, pesan yang sudah terkirim tidak ikut berubah.
       </p>
       {query.data.map((tmpl) => {
         const body = drafts[tmpl.kind] ?? tmpl.body;
@@ -131,30 +134,32 @@ function TemplatePesanTab() {
         return (
           <Card key={tmpl.kind}>
             <CardHeader>
-              <CardTitle className="text-base">{TEMPLATE_LABEL[tmpl.kind] ?? tmpl.kind}</CardTitle>
+              <CardTitle className="text-base">{TEMPLATE_META[tmpl.kind]?.title ?? tmpl.kind}</CardTitle>
+              <CardDescription>{TEMPLATE_META[tmpl.kind]?.hint}</CardDescription>
               {placeholders.length > 0 && (
                 <CardDescription>
-                  Placeholder:{' '}
+                  Isian yang boleh dipakai:{' '}
                   {placeholders.map((p) => (
                     <code key={p} className="mr-1 rounded bg-muted px-1">{`{${p}}`}</code>
                   ))}
                 </CardDescription>
               )}
             </CardHeader>
-            <CardContent className="grid gap-3">
+            <CardContent className="grid gap-3 xl:grid-cols-2">
               <Textarea
-                rows={6}
+                rows={8}
+                className="h-full min-h-40 font-mono text-sm"
                 value={body}
                 onChange={(e) => setDrafts((prev) => ({ ...prev, [tmpl.kind]: e.target.value }))}
               />
               <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">
-                <p className="mb-1 text-xs font-medium text-muted-foreground">Preview (data contoh)</p>
+                <p className="mb-1 text-xs font-medium text-muted-foreground">Contoh pesan yang diterima pelanggan</p>
                 {previewText(body)}
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                className="w-fit"
+                className="w-fit xl:col-span-2"
                 onClick={() => setDrafts((prev) => ({ ...prev, [tmpl.kind]: tmpl.defaultBody }))}
               >
                 Reset ke bawaan
@@ -163,13 +168,15 @@ function TemplatePesanTab() {
           </Card>
         );
       })}
-      <Button
-        onClick={() => saveMutation.mutate(drafts)}
-        disabled={saveMutation.isPending}
-        className="w-fit"
-      >
-        {saveMutation.isPending ? 'Menyimpan...' : 'Simpan Template'}
-      </Button>
+      {/* Bilah simpan selalu terlihat di bawah layar (daftar template panjang). */}
+      <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 rounded-lg border bg-background/95 px-4 py-3 shadow-sm backdrop-blur">
+        <span className="text-sm text-muted-foreground">
+          {dirty ? 'Ada perubahan yang belum disimpan.' : 'Semua perubahan sudah tersimpan.'}
+        </span>
+        <Button onClick={() => saveMutation.mutate(drafts)} disabled={saveMutation.isPending || !dirty}>
+          {saveMutation.isPending ? 'Menyimpan...' : 'Simpan Template'}
+        </Button>
+      </div>
     </div>
   );
 }

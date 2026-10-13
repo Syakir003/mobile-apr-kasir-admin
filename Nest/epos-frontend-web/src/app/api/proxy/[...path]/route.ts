@@ -16,6 +16,13 @@ async function proxy(req: NextRequest, path: string[]) {
     return NextResponse.json({ message: 'Sesi habis, silakan login ulang' }, { status: 401 });
   }
 
+  // Pertahanan CSRF berlapis di atas sameSite=lax: request yang mengubah data
+  // harus berasal dari origin yang sama (browser selalu mengirim Origin di POST/PUT/PATCH/DELETE).
+  const origin = req.headers.get('origin');
+  if (!['GET', 'HEAD'].includes(req.method) && origin && new URL(origin).host !== req.headers.get('host')) {
+    return NextResponse.json({ message: 'Origin tidak diizinkan' }, { status: 403 });
+  }
+
   const targetUrl = new URL(`/${path.join('/')}`, BACKEND_URL);
   targetUrl.search = req.nextUrl.search;
 

@@ -14,12 +14,12 @@ const MASTER_DATA_SECTIONS = [
   {
     href: '/master/produk',
     title: 'Produk AC',
-    description: 'Katalog unit AC yang dijual — merek, spesifikasi, harga jual, stok.',
+    description: 'Katalog unit AC yang dijual - merek, spesifikasi, harga jual, stok.',
   },
   {
     href: '/master/sparepart',
     title: 'Sparepart',
-    description: 'Bahan & komponen servis — freon, pipa, bracket, dsb.',
+    description: 'Bahan & komponen servis - freon, pipa, bracket, dsb.',
   },
   {
     href: '/master/jasa',

@@ -579,16 +579,12 @@ class NestJobRepository implements JobRepository {
 
   @override
   Future<String> signedPhotoUrl(String path, {int expiresInSeconds = 3600}) async {
-    // Foto Nest disajikan statis PUBLIK (app.useStaticAssets di main.ts) —
-    // nama file UUID server-generated tak bisa ditebak, jadi tak perlu
-    // signing seperti Supabase Storage. expiresInSeconds diabaikan, tetap
-    // dipertahankan di interface biar SupabaseJobRepository (rollback) tak
-    // perlu diubah.
-    // ponytail: foto job LAMA (pra-migrasi, path gaya Supabase Storage tanpa
-    // awalan '/uploads') tidak akan bisa dimuat lewat baseUrl Nest — belum
-    // relevan sekarang (cloud Supabase baru aktif sesi ini, belum ada data
-    // foto produksi), tambahkan deteksi path lama dulu kalau kejadian nyata.
-    return '$_baseUrl$path';
+    // Foto Nest wajib login (UploadsController) dan Image.network tak bisa kirim
+    // header, jadi minta URL bertanda tangan berumur 1 jam ke /uploads/sign.
+    // expiresInSeconds diabaikan (TTL ditentukan server), dipertahankan demi
+    // interface bersama SupabaseJobRepository.
+    final res = await _get('/uploads/sign?path=${Uri.encodeQueryComponent(path)}');
+    return '$_baseUrl${(res as Map)['url']}';
   }
 
   @override
