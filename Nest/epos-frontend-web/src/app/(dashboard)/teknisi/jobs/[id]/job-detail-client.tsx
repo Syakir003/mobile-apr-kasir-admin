@@ -1187,6 +1187,11 @@ function MarkUsedDialog({
     Object.fromEntries(request.items.map((it) => [it.id, String(Number(it.qty))])),
   );
   const [note, setNote] = React.useState('');
+  // Tombol +/- (gaya sama dengan form pengajuan): naik/turun 1, ditahan di 0..disetujui.
+  function setStepUsed(itemId: string, next: number, approved: number) {
+    const v = Math.min(approved, Math.max(0, Math.round(next * 100) / 100));
+    setUsed((prev) => ({ ...prev, [itemId]: String(v) }));
+  }
 
   const rows = request.items.map((it) => {
     const approved = Number(it.qty);
@@ -1239,16 +1244,46 @@ function MarkUsedDialog({
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    max={approved}
-                    step="any"
-                    className={cn('w-24', invalid && 'border-destructive')}
-                    value={used[it.id] ?? ''}
-                    onChange={(e) => setUsed((prev) => ({ ...prev, [it.id]: e.target.value }))}
-                  />
+                  <div
+                    className={cn(
+                      'flex items-center rounded-md border',
+                      invalid && 'border-destructive',
+                    )}
+                  >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-9 rounded-r-none"
+                      aria-label={`Kurangi ${it.name}`}
+                      disabled={!(Number(used[it.id]) > 0)}
+                      onClick={() => setStepUsed(it.id, Number(used[it.id]) - 1, approved)}
+                    >
+                      <Minus className="size-4" />
+                    </Button>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      max={approved}
+                      step="any"
+                      aria-label={`Jumlah terpakai ${it.name}`}
+                      className="h-9 w-14 [appearance:textfield] rounded-none border-0 px-1 text-center shadow-none focus-visible:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      value={used[it.id] ?? ''}
+                      onChange={(e) => setUsed((prev) => ({ ...prev, [it.id]: e.target.value }))}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-9 rounded-l-none"
+                      aria-label={`Tambah ${it.name}`}
+                      disabled={!(Number(used[it.id]) < approved)}
+                      onClick={() => setStepUsed(it.id, (Number(used[it.id]) || 0) + 1, approved)}
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                  </div>
                   <span className="w-10 text-xs text-muted-foreground">{it.unit ?? ''}</span>
                 </div>
               </div>
