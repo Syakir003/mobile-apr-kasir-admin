@@ -4,7 +4,17 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { MoreHorizontal } from 'lucide-react';
+import {
+  AlarmClock,
+  BellOff,
+  CalendarClock,
+  CalendarDays,
+  CircleHelp,
+  Hourglass,
+  MoreHorizontal,
+  Search,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
@@ -72,14 +82,20 @@ const STATUS_META: Record<
   menunggu_data: { label: 'Menunggu data teknisi', badge: 'outline' },
 };
 
-const CARDS: { status: ScheduleStatus; title: string }[] = [
-  { status: 'terlambat', title: 'Terlambat' },
-  { status: 'segera', title: '7 hari ke depan' },
-  { status: 'bulan_ini', title: '8–30 hari' },
-  { status: 'siklus_kosong', title: 'Siklus belum diisi' },
-  { status: 'mati', title: 'Pengingat mati' },
-  { status: 'menunggu_data', title: 'Menunggu data' },
+// tone: warna ikon + aksen atas kartu; row: garis aksen di sisi kiri baris tabel.
+const CARDS: { status: ScheduleStatus; title: string; icon: LucideIcon; tone: string; bar: string }[] = [
+  { status: 'terlambat', title: 'Terlambat', icon: AlarmClock, tone: 'bg-red-500/10 text-red-600 dark:text-red-400', bar: 'bg-red-500' },
+  { status: 'segera', title: '7 hari ke depan', icon: CalendarClock, tone: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', bar: 'bg-amber-500' },
+  { status: 'bulan_ini', title: '8–30 hari', icon: CalendarDays, tone: 'bg-sky-500/10 text-sky-600 dark:text-sky-400', bar: 'bg-sky-500' },
+  { status: 'siklus_kosong', title: 'Siklus belum diisi', icon: CircleHelp, tone: 'bg-slate-500/10 text-slate-600 dark:text-slate-400', bar: 'bg-slate-400' },
+  { status: 'mati', title: 'Pengingat mati', icon: BellOff, tone: 'bg-slate-500/10 text-slate-600 dark:text-slate-400', bar: 'bg-slate-400' },
+  { status: 'menunggu_data', title: 'Menunggu data', icon: Hourglass, tone: 'bg-violet-500/10 text-violet-600 dark:text-violet-400', bar: 'bg-violet-500' },
 ];
+
+const ROW_ACCENT: Partial<Record<ScheduleStatus, string>> = {
+  terlambat: 'shadow-[inset_3px_0_0_0_var(--color-red-500)]',
+  segera: 'shadow-[inset_3px_0_0_0_var(--color-amber-500)]',
+};
 
 // Selisih hari kalender (WIB) dari hari ini: negatif = sudah lewat.
 const wibDay = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
@@ -163,19 +179,20 @@ export function MonitoringTab() {
               type="button"
               onClick={() => pickStatus(active ? 'semua' : c.status)}
               className={cn(
-                'rounded-lg border bg-card p-3 text-left transition-colors hover:bg-accent',
+                'relative flex items-center gap-3 overflow-hidden rounded-xl border bg-card p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md',
                 active && 'border-primary ring-2 ring-primary/30',
               )}
             >
-              <div
-                className={cn(
-                  'text-2xl font-semibold tabular-nums',
-                  c.status === 'terlambat' && (data?.counts.terlambat ?? 0) > 0 && 'text-destructive',
-                )}
-              >
-                {data?.counts[c.status] ?? '–'}
-              </div>
-              <div className="text-xs text-muted-foreground">{c.title}</div>
+              <span className={cn('absolute inset-x-0 top-0 h-0.5', c.bar)} />
+              <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', c.tone)}>
+                <c.icon className="size-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-2xl leading-none font-semibold tabular-nums">
+                  {data?.counts[c.status] ?? '–'}
+                </span>
+                <span className="mt-1 block truncate text-xs text-muted-foreground">{c.title}</span>
+              </span>
             </button>
           );
         })}
@@ -192,12 +209,15 @@ export function MonitoringTab() {
             setPage(1);
           }}
         >
-          <Input
-            className="min-w-0 flex-1 sm:w-64 sm:flex-none"
-            placeholder="Cari pelanggan, HP, lokasi, AC..."
-            value={qInput}
-            onChange={(e) => setQInput(e.target.value)}
-          />
+          <div className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Cari pelanggan, HP, lokasi, AC..."
+              value={qInput}
+              onChange={(e) => setQInput(e.target.value)}
+            />
+          </div>
           <Button type="submit" variant="outline">
             Cari
           </Button>
@@ -220,10 +240,10 @@ export function MonitoringTab() {
         )}
       </div>
 
-      <Card>
+      <Card className="overflow-hidden">
         <CardContent className="p-0">
           <Table>
-            <TableHeader>
+            <TableHeader className="bg-muted/50">
               <TableRow>
                 <TableHead>Pelanggan</TableHead>
                 <TableHead>AC</TableHead>
@@ -261,7 +281,7 @@ export function MonitoringTab() {
                 const sameMember = data.items[i - 1]?.member.id === u.member.id;
                 const noPhone = !u.member.phone;
                 return (
-                <TableRow key={u.id}>
+                <TableRow key={u.id} className={cn(ROW_ACCENT[u.status], u.status === 'mati' && 'opacity-60')}>
                   <TableCell>
                     {sameMember ? (
                       <div className="pl-3 text-xs text-muted-foreground">↳ pelanggan yang sama</div>

@@ -64,6 +64,17 @@ export function BrandPanel({ children }: { children: React.ReactNode }) {
           <path d="M-40 880 C 260 780, 480 660, 840 570" />
         </g>
       </svg>
+      {/* cahaya ambient + butiran halus supaya gradien tidak datar */}
+      <div aria-hidden className="pointer-events-none absolute -top-32 -right-24 size-[28rem] rounded-full bg-[#6df5e1]/20 blur-[110px]" />
+      <div aria-hidden className="pointer-events-none absolute -bottom-40 -left-32 size-[32rem] rounded-full bg-[#023630]/70 blur-[120px]" />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-[0.07] mix-blend-overlay"
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
+        }}
+      />
       {/* sorotan kursor */}
       <div
         aria-hidden
