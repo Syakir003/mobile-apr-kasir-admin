@@ -28,15 +28,16 @@ async function proxy(req: NextRequest, path: string[]) {
 
   const isBodyMethod = !['GET', 'HEAD'].includes(req.method);
   const contentType = req.headers.get('content-type') ?? '';
-  const isMultipart = contentType.includes('multipart/form-data');
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${session.accessToken}`,
   };
-  // Content-Type multipart JANGAN di-set manual (boundary-nya harus ikut
-  // apa adanya dari request asli) — biarin fetch() nge-handle sendiri kalau
-  // body-nya FormData/stream.
-  if (isBodyMethod && !isMultipart && contentType) {
+  // Content-Type SELALU diteruskan apa adanya, termasuk multipart — boundary-nya
+  // ada di dalam header itu. Body di sini berupa stream (bukan FormData), jadi
+  // fetch() TIDAK bisa menebak boundary; tanpa header ini backend tidak
+  // mengenali request sebagai multipart, file tidak terbaca, dan upload foto
+  // berakhir 500.
+  if (isBodyMethod && contentType) {
     headers['Content-Type'] = contentType;
   }
 

@@ -231,6 +231,13 @@ export class TechnicianJobsController {
     @Body('clientActionId') clientActionId: string | undefined,
     @CurrentUser() user: CurrentUserPayload,
   ) {
+    // multer diam-diam melewati request yang bukan multipart (mis. Content-Type
+    // hilang di tengah jalan) — tanpa cek ini file undefined dan jadi 500 mentah.
+    if (!file) {
+      throw new BadRequestException(
+        'Foto tidak terbaca. Pilih ulang fotonya (JPG/PNG/WEBP, maks 10MB) lalu coba lagi.',
+      );
+    }
     if (!clientActionId) {
       return this.jobs.addFindingPhoto(
         id,

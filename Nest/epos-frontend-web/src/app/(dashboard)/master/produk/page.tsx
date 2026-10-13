@@ -17,6 +17,7 @@ import {
   optionalNumberField,
   trimmedOrUndefined,
   numberOrUndefined,
+  numberOrNull,
 } from '@/lib/form-number';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -80,6 +81,10 @@ interface Product {
   warranty: string | null;
   stock: number;
   sellPrice: string;
+  // Harga per tipe pembeli (2026-10-13) — sellPrice = Ritel. null = belum
+  // diisi (tipe itu tidak bisa membeli produk ini tanpa ganti harga manual).
+  priceInstaller: number | null;
+  priceReseller: number | null;
   description: string | null;
   category: string | null;
   active: boolean;
@@ -130,6 +135,8 @@ const productSchema = z.object({
   warranty: z.string().optional(),
   description: z.string().optional(),
   sellPrice: requiredNumberField('Harga jual wajib diisi'),
+  priceInstaller: optionalNumberField,
+  priceReseller: optionalNumberField,
   active: z.boolean(),
 });
 type ProductFormValues = z.infer<typeof productSchema>;
@@ -147,6 +154,8 @@ const emptyValues: ProductFormValues = {
   warranty: '',
   description: '',
   sellPrice: '',
+  priceInstaller: '',
+  priceReseller: '',
   active: true,
 };
 
@@ -170,6 +179,8 @@ function toFormValues(p: Product): ProductFormValues {
     warranty: p.warranty ?? '',
     description: p.description ?? '',
     sellPrice: p.sellPrice,
+    priceInstaller: p.priceInstaller?.toString() ?? '',
+    priceReseller: p.priceReseller?.toString() ?? '',
     active: p.active,
   };
 }
@@ -368,6 +379,9 @@ export default function ProdukPage() {
         // harga diatur lewat stock-in per-batch; sekarang Master Data ini
         // satu-satunya tempat atur harga jual produk).
         sellPrice: Number(values.sellPrice),
+        // Kosong = null = hapus harga tipe itu (bukan "biarkan apa adanya").
+        priceInstaller: numberOrNull(values.priceInstaller),
+        priceReseller: numberOrNull(values.priceReseller),
       };
 
       if (editing) {
@@ -718,8 +732,8 @@ export default function ProdukPage() {
                   <FormItem>
                     <FormLabel>
                       {(!editing && mode === 'split') || editing?.pairedProductId
-                        ? 'Harga Jual Paket (Split)'
-                        : 'Harga Jual'}
+                        ? 'Harga Jual Paket (Split) - Ritel'
+                        : 'Harga Jual Ritel'}
                     </FormLabel>
                     <FormControl>
                       <CurrencyInput {...field} />
@@ -728,6 +742,37 @@ export default function ProdukPage() {
                   </FormItem>
                 )}
               />
+              {/* Harga per tipe pembeli (2026-10-13) — opsional. Kosong =
+                  member tipe itu tidak bisa membeli produk ini dengan harga
+                  otomatis (kasir harus isi harga manual). */}
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="priceInstaller"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Harga Installer</FormLabel>
+                      <FormControl>
+                        <CurrencyInput {...field} placeholder="Belum diisi" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="priceReseller"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Harga Reseller</FormLabel>
+                      <FormControl>
+                        <CurrencyInput {...field} placeholder="Belum diisi" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
               <div className="grid grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
@@ -1142,7 +1187,19 @@ function ProductTable({
                       <Badge variant="warning">Belum ada stok</Badge>
                     )}
                   </TableCell>
-                  <TableCell>{formatRupiah(p.sellPrice)}</TableCell>
+                  <TableCell>
+                    {formatRupiah(p.sellPrice)}
+                    {(p.priceInstaller !== null || p.priceReseller !== null) && (
+                      <p className="whitespace-nowrap text-xs text-muted-foreground">
+                        {[
+                          p.priceInstaller !== null && `Installer ${formatRupiah(p.priceInstaller)}`,
+                          p.priceReseller !== null && `Reseller ${formatRupiah(p.priceReseller)}`,
+                        ]
+                          .filter(Boolean)
+                          .join(' • ')}
+                      </p>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={p.active ? 'success' : 'secondary'}>
                       {p.active ? 'Aktif' : 'Nonaktif'}

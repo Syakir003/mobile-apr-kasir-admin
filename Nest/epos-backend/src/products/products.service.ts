@@ -5,12 +5,14 @@ import { CountersService } from '../counters/counters.service';
 import type { ListStatus } from '../common/dto/list-status-query.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { TierPricesService, splitTierPrices } from '../common/services/tier-prices.service';
 
 @Injectable()
 export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly counters: CountersService,
+    private readonly tierPrices: TierPricesService,
   ) {}
 
   /**
@@ -28,7 +30,9 @@ export class ProductsService {
       // Paket AC Split (2026-09-30) — produk yang dipasangkan ke Outdoor
       // SELALU berperan Indoor, apapun `acRole` yang kekirim.
       const acRole = dto.pairedProductId ? 'indoor' : (dto.acRole ?? null);
-      const product = await tx.product.create({ data: { ...dto, acRole, sku, active: true } });
+      const { tierPrices, rest } = splitTierPrices(dto);
+      const product = await tx.product.create({ data: { ...rest, acRole, sku, active: true } });
+      await this.tierPrices.save(tx, 'product', product.id, tierPrices);
       if (dto.pairedProductId) await this.markAsOutdoor(tx, dto.pairedProductId);
       return product;
     });
@@ -134,7 +138,8 @@ export class ProductsService {
       include: { pairedProduct: { select: { id: true, name: true } } },
     });
     const stockMap = await this.stockFor(products.map((p) => p.id));
-    return products.map((p) => ({ ...p, stock: stockMap.get(p.id) ?? 0 }));
+    const withTiers = await this.tierPrices.attach('product', products);
+    return withTiers.map((p) => ({ ...p, stock: stockMap.get(p.id) ?? 0 }));
   }
 
   async findOne(id: string) {
@@ -150,7 +155,8 @@ export class ProductsService {
     });
     if (!product) throw new NotFoundException('Produk tidak ditemukan');
     const stockMap = await this.stockFor([id]);
-    return { ...product, stock: stockMap.get(id) ?? 0 };
+    const [withTiers] = await this.tierPrices.attach('product', [product]);
+    return { ...withTiers, stock: stockMap.get(id) ?? 0 };
   }
 
   /** List batch aktif 1 produk — dipakai tabel "Batch Aktif" di halaman
@@ -252,10 +258,12 @@ export class ProductsService {
         `Produk ini bagian dari paket AC, perannya tetap ${lockedRole === 'indoor' ? 'Indoor' : 'Outdoor'}`,
       );
     }
-    const data = lockedRole ? { ...dto, acRole: lockedRole } : dto;
+    const { tierPrices, rest } = splitTierPrices(dto);
+    const data = lockedRole ? { ...rest, acRole: lockedRole } : rest;
 
     const product = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.product.update({ where: { id }, data });
+      await this.tierPrices.save(tx, 'product', id, tierPrices);
       if (dto.pairedProductId) await this.markAsOutdoor(tx, dto.pairedProductId);
       return updated;
     });

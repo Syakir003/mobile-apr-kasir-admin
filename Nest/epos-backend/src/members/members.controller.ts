@@ -8,6 +8,7 @@ import { MembersService } from './members.service';
 import { SetWaOptOutDto } from './dto/set-wa-opt-out.dto';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { MemberListQueryDto } from './dto/member-list-query.dto';
+import { SetPriceTierDto } from './dto/set-price-tier.dto';
 
 /** Baru ditambah Siklus 6 — sebelumnya MembersService murni internal
  * (findOrCreate dipanggil dari POS/ServiceOrders), gak ada endpoint REST
@@ -47,6 +48,18 @@ export class MembersController {
   @Post()
   create(@Body() dto: CreateMemberDto, @CurrentUser() user: CurrentUserPayload) {
     return this.members.create(dto, user.sub);
+  }
+
+  /** Ubah tipe pembeli (Ritel/Installer/Reseller) — admin saja, karena
+   * tipe menentukan harga jual. Kasir cuma bisa memilihnya saat membuat member. */
+  @Roles('admin')
+  @Patch(':id/price-tier')
+  setPriceTier(
+    @Param('id') id: string,
+    @Body() dto: SetPriceTierDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.members.setPriceTier(id, dto.priceTier, user.sub);
   }
 
   /** Pelanggan minta berhenti/lanjut dikirimi pengingat WA — Siklus WA/Fonnte. */

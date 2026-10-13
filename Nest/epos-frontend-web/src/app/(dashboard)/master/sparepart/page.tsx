@@ -11,7 +11,12 @@ import { ChevronRight, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
-import { requiredNumberField, trimmedOrUndefined } from '@/lib/form-number';
+import {
+  numberOrNull,
+  optionalNumberField,
+  requiredNumberField,
+  trimmedOrUndefined,
+} from '@/lib/form-number';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
@@ -71,6 +76,8 @@ interface Sparepart {
   unit: string;
   sellPrice: string;
   stock: string;
+  // Qty yang sudah disetujui admin buat teknisi tapi belum dipakai.
+  reserved?: number;
   minStock: string;
   active: boolean;
   // Siklus sparepart-per-gulungan (2026-09-23).
@@ -80,6 +87,11 @@ interface Sparepart {
   packUnit: string | null;
   packSize: string | null;
   sellPricePack: string | null;
+  // Harga per tipe pembeli (2026-10-13) — sellPrice/sellPricePack = Ritel.
+  priceInstaller: number | null;
+  priceReseller: number | null;
+  pricePackInstaller: number | null;
+  pricePackReseller: number | null;
 }
 
 const sparepartSchema = z.object({
@@ -94,11 +106,25 @@ const sparepartSchema = z.object({
   packUnit: z.string().optional(),
   packSize: z.string().optional(),
   sellPricePack: z.string().optional(),
+  priceInstaller: optionalNumberField,
+  priceReseller: optionalNumberField,
+  pricePackInstaller: optionalNumberField,
+  pricePackReseller: optionalNumberField,
   // Stok awal mode kemasan: satuan input ('pack' = satuan besar) + modal.
   stockIn: z.enum(['pack', 'unit']),
   initialBuyPrice: z.string().optional(),
 }).superRefine((v, ctx) => {
   if (!hasPackSale(v.trackingMode)) return;
+  // Harga utuh per tipe butuh harga eceran tipe itu (aturan yang sama di server).
+  for (const tier of ['Installer', 'Reseller'] as const) {
+    if (v[`pricePack${tier}`]?.trim() && !v[`price${tier}`]?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [`price${tier}`],
+        message: `Isi dulu harga eceran ${tier}`,
+      });
+    }
+  }
   if (Number(v.stock) > 0 && !(Number(v.initialBuyPrice) > 0)) {
     ctx.addIssue({
       code: 'custom',
@@ -132,6 +158,10 @@ const emptyValues: SparepartFormValues = {
   packUnit: '',
   packSize: '',
   sellPricePack: '',
+  priceInstaller: '',
+  priceReseller: '',
+  pricePackInstaller: '',
+  pricePackReseller: '',
   stockIn: 'pack',
   initialBuyPrice: '',
 };
@@ -149,6 +179,10 @@ function toFormValues(s: Sparepart): SparepartFormValues {
     packUnit: s.packUnit ?? '',
     packSize: s.packSize ?? '',
     sellPricePack: s.sellPricePack ?? '',
+    priceInstaller: s.priceInstaller?.toString() ?? '',
+    priceReseller: s.priceReseller?.toString() ?? '',
+    pricePackInstaller: s.pricePackInstaller?.toString() ?? '',
+    pricePackReseller: s.pricePackReseller?.toString() ?? '',
     stockIn: 'pack',
     initialBuyPrice: '',
   };
@@ -198,6 +232,12 @@ export default function SparepartPage() {
         category: trimmedOrUndefined(values.category),
         unit: values.unit.trim(),
         sellPrice: Number(values.sellPrice),
+        // Kosong = null = hapus harga tipe itu. Harga utuh cuma relevan di
+        // mode kemasan; di mode lain dikosongkan.
+        priceInstaller: numberOrNull(values.priceInstaller),
+        priceReseller: numberOrNull(values.priceReseller),
+        pricePackInstaller: pack ? numberOrNull(values.pricePackInstaller) : null,
+        pricePackReseller: pack ? numberOrNull(values.pricePackReseller) : null,
         trackingMode: values.trackingMode,
         ...(pack
           ? {
@@ -386,7 +426,14 @@ export default function SparepartPage() {
                       formatRupiah(s.sellPrice)
                     )}
                   </TableCell>
-                  <TableCell>{formatStock(s)}</TableCell>
+                  <TableCell>
+                    {formatStock(s)}
+                    {s.reserved ? (
+                      <span className="block text-xs text-muted-foreground">
+                        {s.reserved} {s.unit} dipesan teknisi
+                      </span>
+                    ) : null}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={s.active ? 'success' : 'secondary'}>
                       {s.active ? 'Aktif' : 'Nonaktif'}
@@ -634,6 +681,41 @@ export default function SparepartPage() {
                   />
                 )}
               </div>
+              {/* Harga per tipe pembeli (2026-10-13) — opsional. Harga di atas
+                  = harga Ritel. Kosong = member tipe itu tidak bisa membeli
+                  sparepart ini. */}
+              {(['Installer', 'Reseller'] as const).map((tier) => (
+                <div key={tier} className={packMode ? 'grid grid-cols-2 gap-4' : 'grid gap-4'}>
+                  <FormField
+                    control={form.control}
+                    name={`price${tier}`}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{packMode ? `Harga ${tier} eceran` : `Harga ${tier}`}</FormLabel>
+                        <FormControl>
+                          <CurrencyInput {...field} placeholder="Belum diisi" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {packMode && (
+                    <FormField
+                      control={form.control}
+                      name={`pricePack${tier}`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Harga {tier} utuh</FormLabel>
+                          <FormControl>
+                            <CurrencyInput {...field} placeholder="Belum diisi" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+              ))}
               {!editing &&
                 (mode === 'gulungan' ? (
                   <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">

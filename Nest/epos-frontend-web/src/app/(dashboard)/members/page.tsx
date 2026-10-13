@@ -11,6 +11,7 @@ import { Plus, Search } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
+import { TIER_LABEL, TIER_OPTIONS, type PriceTier } from '@/lib/price-tier';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,6 +60,7 @@ interface MemberRow {
   phone: string | null;
   address: string | null;
   customerType: string | null;
+  priceTier: PriceTier;
   memberSince: string | null;
   active: boolean;
   _count: { acUnits: number; invoices: number };
@@ -86,6 +88,8 @@ const createMemberSchema = z.object({
   phone: z.string().optional(),
   address: z.string().optional(),
   customerType: z.enum(['rumah', 'perusahaan', 'toko', '']).optional(),
+  // Tipe pembeli (2026-10-13) — menentukan harga & hak beli di POS.
+  priceTier: z.enum(['retail', 'installer', 'reseller']),
 });
 type CreateMemberValues = z.infer<typeof createMemberSchema>;
 const emptyCreateValues: CreateMemberValues = {
@@ -93,6 +97,7 @@ const emptyCreateValues: CreateMemberValues = {
   phone: '',
   address: '',
   customerType: '',
+  priceTier: 'retail',
 };
 
 export default function MembersPage() {
@@ -140,6 +145,7 @@ export default function MembersPage() {
         phone: values.phone?.trim() || undefined,
         address: values.address?.trim() || undefined,
         customerType: values.customerType || undefined,
+        priceTier: values.priceTier,
         confirmOverride: values.confirmOverride,
       }),
     onSuccess: (result) => {
@@ -220,7 +226,14 @@ export default function MembersPage() {
                   className="cursor-pointer"
                   onClick={() => router.push(`/members/${m.id}`)}
                 >
-                  <TableCell className="font-medium">{m.name}</TableCell>
+                  <TableCell className="font-medium">
+                    {m.name}
+                    {m.priceTier !== 'retail' && (
+                      <Badge variant="secondary" className="ml-2">
+                        {TIER_LABEL[m.priceTier]}
+                      </Badge>
+                    )}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{m.phone || '-'}</TableCell>
                   <TableCell className="max-w-[240px] truncate text-muted-foreground">
                     {m.address || '-'}
@@ -315,6 +328,34 @@ export default function MembersPage() {
                         <SelectItem value="toko">Toko</SelectItem>
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={createForm.control}
+                name="priceTier"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipe Pembeli</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {TIER_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label} - {opt.hint}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Menentukan harga di kasir. Installer dan Reseller hanya bisa membeli AC dan
+                      Sparepart. Setelah disimpan, tipe hanya bisa diubah admin.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -7,6 +7,7 @@ import { Printer } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
 import { formatRupiah, formatDate, statusLabel } from '@/lib/format';
+import { TIER_LABEL, type PriceTier } from '@/lib/price-tier';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,8 @@ interface SalesReport {
   totalPajak: number;
   breakdownKategori: { category: string; totalLine: number; qty: number }[];
   grafikHarian: { date: string; total: number; count: number }[];
+  // Per tipe pembeli (2026-10-13) — total = definisi yang sama dengan totalPenjualan.
+  perTipePembeli: { tier: PriceTier; total: number; count: number }[];
 }
 
 interface ServiceReport {
@@ -309,6 +312,36 @@ export default function LaporanPage() {
                           <TableCell>{row.category}</TableCell>
                           <TableCell className="text-right">{row.qty}</TableCell>
                           <TableCell className="text-right">{formatRupiah(row.totalLine)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Penjualan per Tipe Pembeli</CardTitle>
+                  <CardDescription>
+                    Tipe dicatat per invoice saat transaksi dibuat, jadi tidak berubah kalau tipe member
+                    diganti belakangan.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Tipe Pembeli</TableHead>
+                        <TableHead className="text-right">Jumlah Invoice</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(salesQuery.data.perTipePembeli ?? []).map((row) => (
+                        <TableRow key={row.tier}>
+                          <TableCell>{TIER_LABEL[row.tier]}</TableCell>
+                          <TableCell className="text-right">{row.count}</TableCell>
+                          <TableCell className="text-right">{formatRupiah(row.total)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

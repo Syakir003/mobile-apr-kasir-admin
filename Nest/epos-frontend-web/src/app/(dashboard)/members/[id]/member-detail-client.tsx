@@ -9,6 +9,14 @@ import { toast } from 'sonner';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate, formatRupiah, statusLabel } from '@/lib/format';
+import { TIER_LABEL, TIER_OPTIONS, type PriceTier } from '@/lib/price-tier';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -56,6 +64,7 @@ interface MemberDetail {
   phone: string | null;
   address: string | null;
   customerType: string | null;
+  priceTier: PriceTier;
   memberSince: string | null;
   notes: string | null;
   active: boolean;
@@ -74,7 +83,13 @@ function unitStatusVariant(status: string): 'success' | 'secondary' | 'warning' 
   return 'secondary';
 }
 
-export function MemberDetailClient({ memberId }: { memberId: string }) {
+export function MemberDetailClient({
+  memberId,
+  canEditTier,
+}: {
+  memberId: string;
+  canEditTier: boolean;
+}) {
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -98,6 +113,19 @@ export function MemberDetailClient({ memberId }: { memberId: string }) {
     },
   });
 
+  const tierMutation = useMutation({
+    mutationFn: (priceTier: PriceTier) =>
+      apiClient.patch(`/members/${memberId}/price-tier`, { priceTier }),
+    onSuccess: (_res, priceTier) => {
+      toast.success(`Tipe pembeli diubah ke ${TIER_LABEL[priceTier]}.`);
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      queryClient.invalidateQueries({ queryKey: ['members-pick'] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal mengubah tipe pembeli.');
+    },
+  });
+
   if (isLoading) return <p className="text-sm text-muted-foreground">Memuat member...</p>;
   if (isError || !data) {
     return <p className="text-sm text-destructive">Gagal memuat data member.</p>;
@@ -118,6 +146,7 @@ export function MemberDetailClient({ memberId }: { memberId: string }) {
           <Badge variant={data.active ? 'success' : 'secondary'}>
             {data.active ? 'Aktif' : 'Nonaktif'}
           </Badge>
+          {data.priceTier !== 'retail' && <Badge variant="secondary">{TIER_LABEL[data.priceTier]}</Badge>}
         </div>
       </div>
 
@@ -130,6 +159,34 @@ export function MemberDetailClient({ memberId }: { memberId: string }) {
             <DetailRow label="No. HP" value={data.phone || '-'} />
             <DetailRow label="Alamat" value={data.address || '-'} />
             <DetailRow label="Tipe" value={data.customerType || '-'} />
+            {/* Tipe pembeli (2026-10-13) — menentukan harga & hak beli di POS.
+                Berlaku ke transaksi berikutnya; invoice lama tidak berubah. */}
+            {canEditTier ? (
+              <div className="grid gap-1.5 border-t pt-3">
+                <span className="text-muted-foreground">Tipe Pembeli</span>
+                <Select
+                  value={data.priceTier}
+                  disabled={tierMutation.isPending}
+                  onValueChange={(v) => tierMutation.mutate(v as PriceTier)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIER_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground">
+                  Menentukan harga di kasir. Installer dan Reseller hanya bisa membeli AC dan Sparepart.
+                </span>
+              </div>
+            ) : (
+              <DetailRow label="Tipe Pembeli" value={TIER_LABEL[data.priceTier]} />
+            )}
             <DetailRow
               label="Member Sejak"
               value={data.memberSince ? formatDate(data.memberSince) : '-'}

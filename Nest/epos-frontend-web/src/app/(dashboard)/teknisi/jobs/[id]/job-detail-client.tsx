@@ -5,10 +5,11 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, ScanLine, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, ScanLine, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
+import { formatStock } from '@/lib/sparepart-mode';
 import type { Role } from '@/lib/session';
 import { cn } from '@/lib/utils';
 import { statusBadgeVariant } from '../../queue/queue-client';
@@ -19,6 +20,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
@@ -52,6 +61,8 @@ interface MaterialRequestItemRow {
   name: string;
   unit: string | null;
   qty: string;
+  // Jumlah yang dilaporkan terpakai; null = belum dilaporkan / data lama (anggap penuh).
+  qtyUsed: string | null;
   unitPrice: string;
   lineTotal: string;
 }
@@ -63,6 +74,7 @@ interface MaterialRequestRow {
   decisionNote: string | null;
   createdAt: string;
   usedAt: string | null;
+  usedNote: string | null;
   items: MaterialRequestItemRow[];
 }
 interface SparepartOption {
@@ -71,6 +83,13 @@ interface SparepartOption {
   unit: string;
   sellPrice: string;
   stock: string;
+  // Qty yang sudah disetujui admin buat teknisi lain tapi belum dipakai (stok fisik
+  // belum terpotong). Yang dihitung "stok" di form ini = stock - reserved.
+  reserved?: number;
+  // Dipakai formatStock buat tampilan "roll + meter" (ikut dikirim GET /spareparts).
+  trackingMode?: string | null;
+  packUnit?: string | null;
+  packSize?: string | null;
 }
 interface JobDetail {
   id: string;
@@ -841,81 +860,183 @@ interface CategorySearchResult {
   name: string;
 }
 
-/** Form nambah temuan baru — kombo cari kategori existing (autocomplete,
- * pola sama kayak search member di service-orders/intake) ATAU ketik bebas
- * buat kategori baru (auto-create di backend lewat findOrCreateCategory). */
+/** Satu calon temuan (chip) — id terisi kalau dipilih dari saran kategori,
+ * kosong kalau ketikan baru (kategori dibuat otomatis di backend). */
+interface PendingFinding {
+  id?: string;
+  name: string;
+}
+
+/** Form nambah temuan — satu kolom ketik; koma / Enter memecahnya jadi temuan
+ * terpisah (chip), tiap chip jadi satu temuan sendiri (satu temuan = satu
+ * kategori, foto sebelum/sesudah menempel per temuan). Saran kategori existing
+ * muncul untuk kata yang sedang diketik; catatan dipakai bersama semua chip. */
 function AddFindingForm({ jobId }: { jobId: string }) {
   const queryClient = useQueryClient();
-  const [categorySearch, setCategorySearch] = React.useState('');
-  const [categorySearchDebounced, setCategorySearchDebounced] = React.useState('');
-  const [selectedCategory, setSelectedCategory] = React.useState<CategorySearchResult | null>(
-    null,
-  );
+  const [draft, setDraft] = React.useState('');
+  const [draftDebounced, setDraftDebounced] = React.useState('');
+  const [pending, setPending] = React.useState<PendingFinding[]>([]);
   const [note, setNote] = React.useState('');
+  // Daftar saran bisa ditutup manual (tombol X) kalau menutupi isian di bawahnya;
+  // muncul lagi begitu teks diubah.
+  const [listClosed, setListClosed] = React.useState(false);
 
   React.useEffect(() => {
-    const t = setTimeout(() => setCategorySearchDebounced(categorySearch.trim()), 300);
+    const t = setTimeout(() => setDraftDebounced(draft.trim()), 300);
     return () => clearTimeout(t);
-  }, [categorySearch]);
+  }, [draft]);
 
   const categoryQuery = useQuery({
-    queryKey: ['problem-categories', categorySearchDebounced],
+    queryKey: ['problem-categories', draftDebounced],
     queryFn: () =>
       apiClient.get<CategorySearchResult[]>(
-        `/technician-jobs/categories/search?q=${encodeURIComponent(categorySearchDebounced)}`,
+        `/technician-jobs/categories/search?q=${encodeURIComponent(draftDebounced)}`,
       ),
-    enabled: categorySearchDebounced.length > 0 && !selectedCategory,
+    enabled: draftDebounced.length > 0,
   });
 
+  function addPending(items: PendingFinding[]) {
+    setPending((prev) => {
+      const next = [...prev];
+      for (const it of items) {
+        const name = it.name.trim();
+        if (!name) continue;
+        if (next.some((p) => p.name.toLowerCase() === name.toLowerCase())) continue;
+        next.push({ id: it.id, name });
+      }
+      return next;
+    });
+  }
+
+  function onDraftChange(value: string) {
+    setListClosed(false);
+    if (!value.includes(',')) {
+      setDraft(value);
+      return;
+    }
+    // Koma (termasuk hasil paste "A, B, C"): semua bagian sebelum koma terakhir jadi chip.
+    const parts = value.split(',');
+    const rest = parts.pop() ?? '';
+    addPending(parts.map((name) => ({ name })));
+    setDraft(rest.replace(/^\s+/, ''));
+  }
+
+  function commitDraft() {
+    if (!draft.trim()) return;
+    addPending([{ name: draft }]);
+    setDraft('');
+    setListClosed(false);
+  }
+
   const addFindingMutation = useMutation({
-    mutationFn: () =>
-      apiClient.post(`/technician-jobs/${jobId}/findings`, {
-        categoryId: selectedCategory?.id,
-        categoryName: selectedCategory ? undefined : categorySearch.trim(),
-        note: note.trim() || undefined,
-      }),
-    onSuccess: () => {
-      toast.success('Temuan ditambahkan.');
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
-      setCategorySearch('');
-      setSelectedCategory(null);
-      setNote('');
+    mutationFn: async (items: PendingFinding[]) => {
+      const failed: PendingFinding[] = [];
+      let firstError: unknown = null;
+      // Berurutan supaya urutan temuan di job sesuai urutan ketikan.
+      for (const it of items) {
+        try {
+          await apiClient.post(`/technician-jobs/${jobId}/findings`, {
+            categoryId: it.id,
+            categoryName: it.id ? undefined : it.name,
+            note: note.trim() || undefined,
+          });
+        } catch (err) {
+          failed.push(it);
+          firstError ??= err;
+        }
+      }
+      return { failed, firstError, total: items.length };
     },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : 'Gagal menambah temuan.');
+    onSuccess: ({ failed, firstError, total }) => {
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
+      setPending(failed);
+      if (failed.length === 0) {
+        toast.success(total > 1 ? `${total} temuan ditambahkan.` : 'Temuan ditambahkan.');
+        setNote('');
+        return;
+      }
+      const msg = firstError instanceof ApiError ? firstError.message : 'Gagal menambah temuan.';
+      toast.error(
+        total === failed.length
+          ? msg
+          : `${total - failed.length} temuan masuk, ${failed.length} gagal (${msg}). Yang gagal masih ada di daftar - coba lagi.`,
+      );
     },
   });
 
   function submit() {
-    if (!selectedCategory && !categorySearch.trim()) {
+    const items = [...pending];
+    const d = draft.trim();
+    if (d && !items.some((p) => p.name.toLowerCase() === d.toLowerCase())) {
+      items.push({ name: d });
+    }
+    if (items.length === 0) {
       toast.error('Isi atau pilih kategori temuan dulu.');
       return;
     }
-    addFindingMutation.mutate();
+    setDraft('');
+    addFindingMutation.mutate(items);
   }
+
+  const count = pending.length + (draft.trim() ? 1 : 0);
 
   return (
     <div className="grid gap-2 rounded-md border border-dashed p-3">
       <label className="text-sm font-medium">Tambah Temuan</label>
+      {pending.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {pending.map((p) => (
+            <span
+              key={p.name}
+              className="inline-flex items-center gap-1 rounded-full border bg-accent py-1 pr-1 pl-3 text-sm"
+            >
+              {p.name}
+              <button
+                type="button"
+                aria-label={`Hapus ${p.name}`}
+                onClick={() => setPending((prev) => prev.filter((x) => x.name !== p.name))}
+                className="flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="relative">
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          className="pl-9"
-          placeholder="Cari kategori, atau ketik baru - mis. AC bocor"
-          value={selectedCategory ? selectedCategory.name : categorySearch}
-          onChange={(e) => {
-            setSelectedCategory(null);
-            setCategorySearch(e.target.value);
+          placeholder={
+            pending.length > 0
+              ? 'Temuan berikutnya...'
+              : 'Cari kategori, atau ketik baru - mis. AC bocor'
+          }
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commitDraft();
+            } else if (e.key === 'Backspace' && !draft && pending.length > 0) {
+              setPending((prev) => prev.slice(0, -1));
+            }
           }}
         />
-        {categorySearch.trim() && !selectedCategory && (
+        {draft.trim() && !listClosed && (
           <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
+            <button
+              type="button"
+              aria-label="Tutup daftar saran"
+              onClick={() => setListClosed(true)}
+              className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
             {categoryQuery.isLoading && (
-              <p className="p-2 text-xs text-muted-foreground">Mencari...</p>
+              <p className="p-2 text-sm text-muted-foreground">Mencari...</p>
             )}
             {categoryQuery.data?.length === 0 && (
-              <p className="p-2 text-xs text-muted-foreground">
-                Gak ketemu - lanjut isi buat bikin kategori baru &ldquo;{categorySearch.trim()}
+              <p className="p-2 pr-9 text-sm text-muted-foreground">
+                Gak ketemu - tekan Enter atau koma buat bikin kategori baru &ldquo;{draft.trim()}
                 &rdquo;.
               </p>
             )}
@@ -924,10 +1045,10 @@ function AddFindingForm({ jobId }: { jobId: string }) {
                 type="button"
                 key={c.id}
                 onClick={() => {
-                  setSelectedCategory(c);
-                  setCategorySearch(c.name);
+                  addPending([{ id: c.id, name: c.name }]);
+                  setDraft('');
                 }}
-                className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
+                className="block w-full px-3 py-2 pr-9 text-left text-sm hover:bg-accent"
               >
                 {c.name}
               </button>
@@ -935,9 +1056,12 @@ function AddFindingForm({ jobId }: { jobId: string }) {
           </div>
         )}
       </div>
+      <p className="text-xs text-muted-foreground">
+        Lebih dari satu temuan? Pisahkan dengan koma atau Enter - tiap temuan punya foto sendiri.
+      </p>
       <Textarea
         rows={2}
-        placeholder="Catatan (opsional)"
+        placeholder="Catatan (opsional, berlaku untuk semua temuan di atas)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
       />
@@ -948,7 +1072,11 @@ function AddFindingForm({ jobId }: { jobId: string }) {
         disabled={addFindingMutation.isPending}
         onClick={submit}
       >
-        {addFindingMutation.isPending ? 'Menyimpan...' : 'Tambah Temuan'}
+        {addFindingMutation.isPending
+          ? 'Menyimpan...'
+          : count > 1
+            ? `Tambah ${count} Temuan`
+            : 'Tambah Temuan'}
       </Button>
     </div>
   );
@@ -974,7 +1102,8 @@ function materialRequestStatusLabel(status: string): string {
 
 /** Daftar pengajuan sparepart buat job ini — read-only (approve/reject/
  * revisi cuma dari halaman admin "Pengajuan Masuk"), kecuali tombol
- * "Tandai Terpakai" yang emang tindakan teknisi/admin di lapangan. */
+ * "Tandai Terpakai" yang emang tindakan teknisi/admin di lapangan: teknisi
+ * melaporkan jumlah yang BENAR-BENAR terpakai per item. */
 function MaterialRequestsList({
   jobId,
   requests,
@@ -984,17 +1113,7 @@ function MaterialRequestsList({
   requests: MaterialRequestRow[];
   canMarkUsed: boolean;
 }) {
-  const queryClient = useQueryClient();
-  const markUsedMutation = useMutation({
-    mutationFn: (requestId: string) => apiClient.patch(`/material-requests/${requestId}/mark-used`),
-    onSuccess: () => {
-      toast.success('Ditandai sudah dipakai - stok ikut terpotong.');
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
-    },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : 'Gagal menandai dipakai.');
-    },
-  });
+  const [reporting, setReporting] = React.useState<MaterialRequestRow | null>(null);
 
   return (
     <div className="grid gap-2">
@@ -1013,26 +1132,157 @@ function MaterialRequestsList({
           {r.decisionNote && (
             <p className="text-xs text-muted-foreground">Catatan admin: {r.decisionNote}</p>
           )}
+          {r.status === 'approved' && !r.usedAt && (
+            <p className="text-xs text-muted-foreground">
+              Stok sudah dipesan untuk job ini. Setelah dipakai, laporkan jumlah yang terpakai.
+            </p>
+          )}
           {r.status === 'approved' && !r.usedAt && canMarkUsed && (
             <Button
               type="button"
               size="sm"
               variant="outline"
               className="justify-self-start"
-              disabled={markUsedMutation.isPending}
-              onClick={() => markUsedMutation.mutate(r.id)}
+              onClick={() => setReporting(r)}
             >
-              {markUsedMutation.isPending ? 'Memproses...' : 'Tandai Terpakai'}
+              Tandai Terpakai
             </Button>
           )}
           {r.status === 'approved' && r.usedAt && (
-            <p className="text-xs text-status-success">
-              Sudah dipakai - {formatDateTime(r.usedAt)}
-            </p>
+            <div className="grid gap-0.5">
+              <p className="text-xs text-status-success">
+                Sudah dipakai - {formatDateTime(r.usedAt)}
+              </p>
+              {r.items.map((it) => (
+                <p key={it.id} className="text-xs text-muted-foreground">
+                  {it.name}: terpakai {it.qtyUsed ?? it.qty} dari {it.qty} {it.unit ?? ''}
+                </p>
+              ))}
+              {r.usedNote && <p className="text-xs text-muted-foreground">Catatan: {r.usedNote}</p>}
+            </div>
           )}
         </div>
       ))}
+      {reporting && (
+        <MarkUsedDialog jobId={jobId} request={reporting} onClose={() => setReporting(null)} />
+      )}
     </div>
+  );
+}
+
+/** Dialog lapor pemakaian: tiap item diisi jumlah terpakai (default = jumlah
+ * disetujui, boleh 0..disetujui). Stok dipotong sesuai yang terpakai; sisanya
+ * kembali jadi stok tersedia dan tagihan pelanggan turun sebesar selisihnya. */
+function MarkUsedDialog({
+  jobId,
+  request,
+  onClose,
+}: {
+  jobId: string;
+  request: MaterialRequestRow;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [used, setUsed] = React.useState<Record<string, string>>(() =>
+    Object.fromEntries(request.items.map((it) => [it.id, String(Number(it.qty))])),
+  );
+  const [note, setNote] = React.useState('');
+
+  const rows = request.items.map((it) => {
+    const approved = Number(it.qty);
+    const value = used[it.id] ?? '';
+    const n = Number(value);
+    const invalid = value.trim() === '' || !Number.isFinite(n) || n < 0 || n > approved;
+    return { it, approved, n, invalid };
+  });
+  const anyInvalid = rows.some((r) => r.invalid);
+  const refund = rows.reduce(
+    (sum, r) =>
+      r.invalid ? sum : sum + (Number(r.it.lineTotal) - Math.round(r.n * Number(r.it.unitPrice))),
+    0,
+  );
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      apiClient.patch(`/material-requests/${request.id}/mark-used`, {
+        items: rows.map((r) => ({ itemId: r.it.id, qtyUsed: r.n })),
+        note: note.trim() || undefined,
+      }),
+    onSuccess: () => {
+      toast.success('Pemakaian dilaporkan - stok terpotong sesuai yang terpakai.');
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['spareparts'] });
+      onClose();
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal melaporkan pemakaian.');
+    },
+  });
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !mutation.isPending && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Sparepart yang terpakai</DialogTitle>
+          <DialogDescription>
+            Isi jumlah yang benar-benar dipakai. Yang tidak terpakai kembali ke stok.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          {rows.map(({ it, approved, invalid }) => (
+            <div key={it.id} className="grid gap-1">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{it.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Disetujui {approved} {it.unit ?? ''}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    max={approved}
+                    step="any"
+                    className={cn('w-24', invalid && 'border-destructive')}
+                    value={used[it.id] ?? ''}
+                    onChange={(e) => setUsed((prev) => ({ ...prev, [it.id]: e.target.value }))}
+                  />
+                  <span className="w-10 text-xs text-muted-foreground">{it.unit ?? ''}</span>
+                </div>
+              </div>
+              {invalid && (
+                <p className="text-xs text-destructive">Isi 0 sampai {approved} {it.unit ?? ''}.</p>
+              )}
+            </div>
+          ))}
+          <Textarea
+            rows={2}
+            placeholder="Catatan (opsional) - mis. sisa dibawa pulang"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          {!anyInvalid && refund > 0 && (
+            <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Tagihan pelanggan turun {formatRupiah(refund)} karena sebagian tidak terpakai.
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={mutation.isPending} onClick={onClose}>
+            Batal
+          </Button>
+          <Button
+            type="button"
+            disabled={anyInvalid || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
+            {mutation.isPending ? 'Menyimpan...' : 'Konfirmasi'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1053,6 +1303,11 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
   const sparepartsQuery = useQuery({
     queryKey: ['spareparts'],
     queryFn: () => apiClient.get<SparepartOption[]>('/spareparts'),
+    // Stok yang tampil = stok TERSEDIA (fisik dikurangi yang sudah sudah dipesan).
+    select: (data) =>
+      data.map((s) =>
+        s.reserved ? { ...s, stock: String(Math.max(0, Math.round((Number(s.stock) - s.reserved) * 100) / 100)) } : s,
+      ),
   });
   const [rows, setRows] = React.useState<MaterialRequestFormRow[]>([
     { sparepart: null, search: '', qty: '1' },
@@ -1091,6 +1346,15 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
   const canSubmit =
     rows.some((r) => r.sparepart && Number(r.qty) > 0) && !submitMutation.isPending;
 
+  // Total yang diajukan per sparepart (satuan kecil) — sparepart yang sama di
+  // beberapa baris dijumlahkan, karena semuanya memakai stok yang sama.
+  const requested = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.sparepart) continue;
+    requested.set(r.sparepart.id, (requested.get(r.sparepart.id) ?? 0) + (Number(r.qty) || 0));
+  }
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
   return (
     <div className="grid gap-2 rounded-md border border-dashed p-3">
       <label className="text-sm font-medium">Ajukan Sparepart Tambahan</label>
@@ -1100,7 +1364,8 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
           ? []
           : (sparepartsQuery.data ?? []).filter((s) => s.name.toLowerCase().includes(q)).slice(0, 8);
         return (
-          <div key={i} className="flex items-start gap-2">
+          <div key={i} className="grid gap-1">
+          <div className="flex items-start gap-2">
             <div className="relative flex-1">
               <Input
                 placeholder="Cari sparepart..."
@@ -1121,7 +1386,7 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
                     >
                       <p>{s.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        Stok {s.stock} {s.unit} • {formatRupiah(s.sellPrice)}
+                        Stok {formatStock(s)} • {formatRupiah(s.sellPrice)}
                       </p>
                     </button>
                   ))}
@@ -1148,6 +1413,27 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
             >
               <Trash2 className="size-4" />
             </Button>
+          </div>
+          {row.sparepart &&
+            (() => {
+              const sp = row.sparepart;
+              const asked = round2(requested.get(sp.id) ?? 0);
+              const left = round2(Number(sp.stock) - asked);
+              const over = left < 0;
+              return (
+                <p
+                  className={cn(
+                    'text-[13px] leading-snug',
+                    over ? 'font-medium text-destructive' : 'text-muted-foreground',
+                  )}
+                >
+                  Stok {formatStock(sp)}
+                  {sp.reserved ? ` (${sp.reserved} ${sp.unit} sudah dipesan)` : ''} • diajukan {asked}{' '}
+                  {sp.unit} •{' '}
+                  {over ? `kurang ${round2(-left)} ${sp.unit}` : `sisa ${formatStock({ ...sp, stock: left })}`}
+                </p>
+              );
+            })()}
           </div>
         );
       })}

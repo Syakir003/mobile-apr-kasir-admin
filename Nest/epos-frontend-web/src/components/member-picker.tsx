@@ -9,12 +9,19 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormLabel } from '@/components/ui/form';
+import { TIER_LABEL, type PriceTier } from '@/lib/price-tier';
 
 export interface MemberOption {
   id: string;
   name: string;
   phone: string | null;
   address: string | null;
+  // Tipe pembeli (2026-10-13) — ikut dikirim GET /members/search.
+  priceTier?: PriceTier;
+}
+
+function tierSuffix(m: MemberOption): string {
+  return m.priceTier && m.priceTier !== 'retail' ? ` • ${TIER_LABEL[m.priceTier]}` : '';
 }
 
 const PAGE_SIZE = 20; // sama dengan `take` di MembersService.search
@@ -90,7 +97,10 @@ export function MemberPicker({
         <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/50 px-3 py-2 text-sm">
           <div className="min-w-0">
             <p className="truncate font-medium">{value.name}</p>
-            <p className="truncate text-xs text-muted-foreground">{value.phone || 'Tanpa nomor HP'}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {value.phone || 'Tanpa nomor HP'}
+              {tierSuffix(value)}
+            </p>
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={onClear}>
             Ganti
@@ -149,7 +159,10 @@ export function MemberPicker({
                   className={cn('block w-full px-3 py-2 text-left text-sm', i === active && 'bg-accent')}
                 >
                   <p className="font-medium">{m.name}</p>
-                  <p className="text-xs text-muted-foreground">{m.phone || 'Tanpa nomor HP'}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {m.phone || 'Tanpa nomor HP'}
+                    {tierSuffix(m)}
+                  </p>
                 </button>
               ))}
               {items.length >= PAGE_SIZE && (

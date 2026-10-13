@@ -19,6 +19,10 @@ export class CheckoutCustomerDto {
   @IsString() @IsNotEmpty() phone: string;
   @IsOptional() @IsString() address?: string;
   @IsOptional() @IsString() memberId?: string;
+  // Tipe pembeli (2026-10-13) — CUMA dipakai kalau checkout ini membuat
+  // member BARU (nomor HP belum terdaftar). Member yang sudah ada selalu
+  // pakai tipe di database, field ini diabaikan.
+  @IsOptional() @IsIn(['retail', 'installer', 'reseller']) priceTier?: 'retail' | 'installer' | 'reseller';
 }
 
 export class CheckoutItemDto {

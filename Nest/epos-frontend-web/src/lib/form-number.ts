@@ -35,6 +35,13 @@ export function trimmedOrUndefined(v: string | undefined | null): string | undef
   return t ? t : undefined;
 }
 
+/** String form -> number, atau null kalau kosong. Buat field angka yang
+ * dikosongkan = "hapus nilainya di server" (mis. harga per tipe pembeli). */
+export function numberOrNull(v: string | undefined | null): number | null {
+  const t = v?.trim();
+  return t ? Number(t) : null;
+}
+
 /** String form -> number, atau undefined kalau kosong. Buat field angka opsional. */
 export function numberOrUndefined(v: string | undefined | null): number | undefined {
   const t = v?.trim();

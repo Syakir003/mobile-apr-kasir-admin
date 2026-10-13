@@ -21,6 +21,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { formatStock, hasPackSale, type SparepartMode } from '@/lib/sparepart-mode';
+import { TIER_LABEL, TIER_OPTIONS, type PriceTier } from '@/lib/price-tier';
 import {
   Dialog,
   DialogContent,
@@ -68,6 +69,9 @@ interface Product {
   brand: string | null;
   stock: number;
   sellPrice: string;
+  // Harga per tipe pembeli (2026-10-13) — sellPrice = Ritel; null = belum diisi.
+  priceInstaller: number | null;
+  priceReseller: number | null;
   // BARU (Point 2, 2026-09-23) — AC Indoor/Outdoor Berpasangan.
   pairedProductId: string | null;
   pairedProduct: { id: string; name: string } | null;
@@ -81,12 +85,20 @@ interface Sparepart {
   unit: string;
   sellPrice: string;
   stock: string;
+  // Qty yang sudah dipesan teknisi (pengajuan disetujui, belum dipakai). Setelah
+  // query di bawah, `stock` sudah = stok TERSEDIA (fisik - reserved).
+  reserved?: number;
   // Mode utuh/eceran (2026-09-30) — `unit`/`sellPrice` = satuan kecil
   // (eceran); utuh pakai packUnit/sellPricePack.
   trackingMode: SparepartMode;
   packUnit: string | null;
   packSize: string | null;
   sellPricePack: string | null;
+  // Harga per tipe pembeli (2026-10-13) — eceran & utuh; null = belum diisi.
+  priceInstaller: number | null;
+  priceReseller: number | null;
+  pricePackInstaller: number | null;
+  pricePackReseller: number | null;
 }
 interface ServiceItem {
   id: string;
@@ -119,6 +131,7 @@ interface MemberSearchResult {
   name: string;
   phone: string | null;
   address: string | null;
+  priceTier?: PriceTier;
 }
 
 type CartItemKind = 'product' | 'sparepart' | 'service';
@@ -157,6 +170,14 @@ interface CartLine {
   // selama unitPrice masih 0, dan buat validasi blokir submit checkout
   // (lihat hasUnpricedLine).
   priceNeedsInput?: boolean;
+  // Tipe pembeli (2026-10-13) — true = harga baris ini dari katalog (ikut
+  // berubah kalau tipe pembeli berganti). false/kosong = harga manual murni
+  // (unit satuan dari paket, Outdoor pasangan Split).
+  catalogPriced?: boolean;
+  // true = kasir mengetik harga sendiri. Harga katalog yang TIDAK diedit
+  // tidak dikirim sebagai override, biar server yang menentukan harga sesuai
+  // tipe member di database.
+  priceEdited?: boolean;
   // BARU (Sparepart utuh/eceran, 2026-09-30) — cuma buat kind='sparepart'
   // mode konversi/gabungan. 'utuh': qty dalam packUnit (bulat), harga
   // sellPricePack. 'eceran': qty dalam satuan kecil, harga sellPrice.
@@ -317,6 +338,78 @@ export default function PosPage() {
   // field ini gak digating oleh ada/tidaknya member yang dipilih.
   const [voucherCode, setVoucherCode] = React.useState('');
 
+  // Tipe pembeli (2026-10-13). Member lama: tipe dari datanya. Pelanggan
+  // baru: dipilih kasir di bawah (default Ritel). Server tetap yang
+  // memutuskan — kalau nomor HP ternyata sudah terdaftar, tipe di database
+  // yang dipakai.
+  const [newMemberTier, setNewMemberTier] = React.useState<PriceTier>('retail');
+  const tier: PriceTier = selectedMember ? (selectedMember.priceTier ?? 'retail') : newMemberTier;
+  const nonRetail = tier !== 'retail';
+
+  function productPrice(p: Product, t: PriceTier = tier): number | null {
+    if (t === 'retail') return Number(p.sellPrice);
+    return t === 'installer' ? p.priceInstaller : p.priceReseller;
+  }
+  function sparepartPrice(s: Sparepart, saleKind?: 'utuh' | 'eceran', t: PriceTier = tier): number | null {
+    if (t === 'retail') return Number(saleKind === 'utuh' ? s.sellPricePack : s.sellPrice);
+    if (saleKind === 'utuh') return t === 'installer' ? s.pricePackInstaller : s.pricePackReseller;
+    return t === 'installer' ? s.priceInstaller : s.priceReseller;
+  }
+  // Produk: harga tipe kosong = kasir wajib isi manual. Unit ber-peran tanpa
+  // harga jual (mis. Outdoor yang Indoor-nya nonaktif) juga wajib diisi.
+  function productNeedsInput(p: Product, price: number | null): true | undefined {
+    return price === null || (p.acRole != null && price <= 0) ? true : undefined;
+  }
+  function tierPriceCard(price: number | null): { price?: string; priceLabel?: string } {
+    return price === null
+      ? { priceLabel: `Harga ${TIER_LABEL[tier]} belum diisi` }
+      : { price: String(price) };
+  }
+
+  // Tipe pembeli berganti (pilih/lepas member, ganti tipe pelanggan baru):
+  // keranjang disesuaikan — harga katalog dihitung ulang, dan untuk
+  // Installer/Reseller baris Jasa serta instalasi dibuang (bukan hak belinya).
+  function applyTier(next: PriceTier) {
+    if (next === tier) return;
+    const products = productsQuery.data ?? [];
+    const spareparts = sparepartsQuery.data ?? [];
+    const dropped: string[] = [];
+    const out: CartLine[] = [];
+    for (const l of lines) {
+      if (next !== 'retail' && l.kind === 'service') {
+        dropped.push(l.name);
+        continue;
+      }
+      let line: CartLine =
+        next !== 'retail' ? { ...l, withInstallation: false, packageId: undefined, roomLocation: '' } : l;
+      if (line.catalogPriced && line.kind === 'product') {
+        const p = products.find((x) => x.id === line.refId);
+        if (p) {
+          const price = productPrice(p, next);
+          line = { ...line, unitPrice: price ?? 0, priceEdited: false, priceNeedsInput: productNeedsInput(p, price) };
+        }
+      } else if (line.catalogPriced && line.kind === 'sparepart') {
+        const s = spareparts.find((x) => x.id === line.refId);
+        const price = s ? sparepartPrice(s, line.saleKind, next) : null;
+        if (price === null) {
+          dropped.push(line.name);
+          continue;
+        }
+        line = { ...line, unitPrice: price };
+      }
+      out.push(line);
+    }
+    setLines(out);
+    if (next !== 'retail' && kindFilter === 'service') setKindFilter('all');
+    if (lines.length > 0) {
+      toast.info(`Keranjang disesuaikan ke harga ${TIER_LABEL[next]}.`, {
+        description: dropped.length
+          ? `Dikeluarkan (tidak tersedia untuk ${TIER_LABEL[next]}): ${dropped.join(', ')}`
+          : undefined,
+      });
+    }
+  }
+
   const productsQuery = useQuery({
     queryKey: ['products'],
     queryFn: () => apiClient.get<Product[]>('/products'),
@@ -324,6 +417,10 @@ export default function PosPage() {
   const sparepartsQuery = useQuery({
     queryKey: ['spareparts'],
     queryFn: () => apiClient.get<Sparepart[]>('/spareparts'),
+    select: (data) =>
+      data.map((s) =>
+        s.reserved ? { ...s, stock: String(Math.max(0, Math.round((Number(s.stock) - s.reserved) * 100) / 100)) } : s,
+      ),
   });
   const servicesQuery = useQuery({
     queryKey: ['services'],
@@ -359,20 +456,21 @@ export default function PosPage() {
   }
 
   function addProductLine(p: Product) {
+    const price = productPrice(p);
     addLine({
       kind: 'product',
       refId: p.id,
       name: p.name,
       unit: 'unit',
-      unitPrice: Number(p.sellPrice),
+      unitPrice: price ?? 0,
       qty: 1,
       availableStock: p.stock,
       withInstallation: false,
       roomLocation: '',
       packageId: undefined,
-      // Unit ber-peran tanpa harga jual (mis. Outdoor yang Indoor-nya
-      // nonaktif) = harga wajib diisi kasir, jangan lolos Rp0.
-      priceNeedsInput: p.acRole != null && Number(p.sellPrice) <= 0 ? true : undefined,
+      catalogPriced: true,
+      // Harga wajib diisi kasir, jangan lolos Rp0 (lihat productNeedsInput).
+      priceNeedsInput: productNeedsInput(p, price),
     });
   }
 
@@ -389,12 +487,15 @@ export default function PosPage() {
     const outdoorStock = productsById.get(indoorProduct.pairedProduct.id)?.stock ?? 0;
     const splitCap = Math.max(0, Math.min(indoorProduct.stock, outdoorStock));
     const groupKey = randomGroupKey();
+    const paketPrice = productPrice(indoorProduct);
     addLine({
       kind: 'product',
       refId: indoorProduct.id,
       name: indoorProduct.name,
       unit: 'unit',
-      unitPrice: Number(indoorProduct.sellPrice),
+      unitPrice: paketPrice ?? 0,
+      catalogPriced: true,
+      priceNeedsInput: paketPrice === null ? true : undefined,
       qty: 1,
       withInstallation: false,
       roomLocation: '',
@@ -467,7 +568,7 @@ export default function PosPage() {
   // Ubah harga jual baris produk secara manual (kasir bisa nego harga di
   // kasir) — dikirim ke server sebagai unitPriceOverride pas checkout.
   function setUnitPrice(index: number, value: number) {
-    setLines((prev) => prev.map((l, i) => (i === index ? { ...l, unitPrice: value } : l)));
+    setLines((prev) => prev.map((l, i) => (i === index ? { ...l, unitPrice: value, priceEdited: true } : l)));
   }
 
   function setQty(index: number, qty: number) {
@@ -580,6 +681,7 @@ export default function PosPage() {
   });
 
   function selectMember(m: MemberSearchResult) {
+    applyTier(m.priceTier ?? 'retail');
     setSelectedMember(m);
     form.setValue('name', m.name, { shouldValidate: true });
     form.setValue('phone', m.phone ?? '', { shouldValidate: true });
@@ -587,6 +689,8 @@ export default function PosPage() {
   }
 
   function clearSelectedMember() {
+    applyTier('retail');
+    setNewMemberTier('retail');
     setSelectedMember(null);
     // Data yang otomatis ke-isi pas milih member (nama/HP/alamat) ikut
     // dikosongin lagi — biar "Ganti" beneran balik ke keadaan kosong buat
@@ -622,6 +726,25 @@ export default function PosPage() {
   // kasir gak boleh lolos checkout (defaultnya Rp0, itu bukan harga jual
   // beneran, lihat addIndoorOnlyLine).
   const hasUnpricedLine = lines.some((l) => l.priceNeedsInput && l.unitPrice <= 0);
+
+  // Info stok sparepart di keranjang. Stok & pemakaian dihitung dalam satuan
+  // KECIL (`unit`): baris Utuh dikali isi kemasan, dan sparepart yang sama
+  // boleh muncul di dua baris (Utuh + Eceran) yang memakai stok yang sama.
+  const sparepartById = new Map((sparepartsQuery.data ?? []).map((s) => [s.id, s] as const));
+  const perUnitOf = (l: CartLine): number =>
+    l.saleKind === 'utuh' ? Number(sparepartById.get(l.refId)?.packSize ?? 1) || 1 : 1;
+  const sparepartUsed = new Map<string, number>();
+  for (const l of lines) {
+    if (l.kind !== 'sparepart') continue;
+    sparepartUsed.set(l.refId, (sparepartUsed.get(l.refId) ?? 0) + l.qty * perUnitOf(l));
+  }
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  // Sisa stok setelah semua baris keranjang (satuan kecil); null = data stok belum ada.
+  function sparepartLeft(l: CartLine): number | null {
+    const sp = sparepartById.get(l.refId);
+    if (l.kind !== 'sparepart' || !sp) return null;
+    return round2(Number(sp.stock) - (sparepartUsed.get(l.refId) ?? 0));
+  }
 
   const checkoutMutation = useMutation({
     mutationFn: async (values: CheckoutFormValues & { confirmOverride?: boolean }) => {
@@ -667,6 +790,8 @@ export default function PosPage() {
           // eksplisit — backend langsung pakai member itu, skip pencocokan
           // by-phone (lihat CheckoutCustomerDto.memberId).
           memberId: selectedMember?.id,
+          // Cuma dipakai server kalau transaksi ini membuat member BARU.
+          priceTier: selectedMember ? undefined : newMemberTier,
         },
         items: lines.map((l) => ({
           kind: l.kind,
@@ -681,7 +806,13 @@ export default function PosPage() {
           // Kalau kasir gak pernah nyentuh, nilainya ya sama persis kayak
           // default itu — server tetap terima sebagai override eksplisit,
           // gak masalah (hasilnya identik).
-          unitPriceOverride: l.kind === 'product' ? l.unitPrice : undefined,
+          //
+          // Tipe pembeli (2026-10-13): harga katalog yang TIDAK diedit kasir
+          // tidak lagi dikirim — server menghitungnya dari tipe member di
+          // database. Yang dikirim cuma harga manual (unit satuan, Outdoor
+          // pasangan) dan harga yang diketik kasir.
+          unitPriceOverride:
+            l.kind === 'product' && (!l.catalogPriced || l.priceEdited) ? l.unitPrice : undefined,
           saleKind: l.kind === 'sparepart' ? l.saleKind : undefined,
           // BARU (Point 2, 2026-09-23) — baris Outdoor mode Unit Lengkap
           // nunjuk index baris Indoor pasangannya, biar server maksa
@@ -720,6 +851,7 @@ export default function PosPage() {
       setLines([]);
       form.reset();
       setSelectedMember(null);
+      setNewMemberTier('retail');
       setVoucherCode('');
       setPendingWarnings(null);
       // Stok produk/sparepart yg baru kepotong -> data master jadi basi,
@@ -754,7 +886,7 @@ export default function PosPage() {
       return;
     }
     if (hasUnpricedLine) {
-      toast.error('Ada unit satuan (Indoor/Outdoor saja) yang harganya belum diisi.');
+      toast.error('Ada barang di keranjang yang harganya belum diisi.');
       return;
     }
     checkoutMutation.mutate(values);
@@ -818,7 +950,7 @@ export default function PosPage() {
           key: `split-${p.id}`,
           name: outdoorName === p.name ? p.name : `${p.name} + ${outdoorName}`,
           subtitle: `Paket siap ${Math.max(0, Math.min(indoorStock, outdoorStock))} • Indoor ${indoorStock} • Outdoor ${outdoorStock}`,
-          price: p.sellPrice,
+          ...tierPriceCard(productPrice(p)),
           badge: !outdoor
             ? { label: 'Outdoor nonaktif', tone: 'warn' as const }
             : habis.length > 0
@@ -851,7 +983,7 @@ export default function PosPage() {
       subtitle: outOfStock
         ? 'Belum ada stok - input dulu lewat Barang Masuk'
         : `Stok ${p.stock}${p.brand ? ` • ${p.brand}` : ''}`,
-      price: outOfStock ? undefined : p.sellPrice,
+      ...(outOfStock ? {} : tierPriceCard(productPrice(p))),
       disabled: outOfStock,
       onAdd: () => addProductLine(p),
     };
@@ -889,34 +1021,39 @@ export default function PosPage() {
       refId: s.id,
       withInstallation: false,
       roomLocation: '',
+      catalogPriced: true,
     };
     if (!hasPackSale(s.trackingMode) || !s.packUnit || !(packSize > 0) || !s.sellPricePack) {
+      const price = sparepartPrice(s);
       return [
         {
           key: `sparepart-${s.id}`,
           name: s.name,
-          subtitle: `Stok ${s.stock} ${s.unit}`,
-          price: s.sellPrice,
-          disabled: false,
-          onAdd: () =>
-            addLine({ ...base, name: s.name, unit: s.unit, unitPrice: Number(s.sellPrice), qty: 1 }),
+          subtitle: `Stok ${s.stock} ${s.unit}${s.reserved ? ` • ${s.reserved} dipesan teknisi` : ''}`,
+          ...tierPriceCard(price),
+          // Sparepart tidak bisa diisi harga manual — tanpa harga tipe ini
+          // server menolak, jadi kartunya dimatikan.
+          disabled: price === null,
+          onAdd: () => addLine({ ...base, name: s.name, unit: s.unit, unitPrice: price ?? 0, qty: 1 }),
         },
       ];
     }
+    const utuhPrice = sparepartPrice(s, 'utuh');
+    const eceranPrice = sparepartPrice(s, 'eceran');
     const stockLabel = formatStock(s);
     return [
       {
         key: `sparepart-${s.id}-utuh`,
         name: `${s.name} - Utuh`,
         subtitle: `per ${s.packUnit} (isi ${s.packSize} ${s.unit}) • Stok ${stockLabel}`,
-        price: s.sellPricePack,
-        disabled: Number(s.stock) < packSize,
+        ...tierPriceCard(utuhPrice),
+        disabled: Number(s.stock) < packSize || utuhPrice === null,
         onAdd: () =>
           addLine({
             ...base,
             name: s.name,
             unit: s.packUnit!,
-            unitPrice: Number(s.sellPricePack),
+            unitPrice: utuhPrice ?? 0,
             qty: 1,
             saleKind: 'utuh',
             availableStock: Math.floor(Number(s.stock) / packSize),
@@ -926,21 +1063,22 @@ export default function PosPage() {
         key: `sparepart-${s.id}-eceran`,
         name: `${s.name} - Eceran`,
         subtitle: `per ${s.unit} • Stok ${stockLabel}`,
-        price: s.sellPrice,
-        disabled: Number(s.stock) <= 0,
+        ...tierPriceCard(eceranPrice),
+        disabled: Number(s.stock) <= 0 || eceranPrice === null,
         onAdd: () =>
           addLine({
             ...base,
             name: s.name,
             unit: s.unit,
-            unitPrice: Number(s.sellPrice),
+            unitPrice: eceranPrice ?? 0,
             qty: 1,
             saleKind: 'eceran',
           }),
       },
     ];
   });
-  const serviceCards: Card[] = filteredServices.map((s) => ({
+  // Jasa cuma untuk Ritel — Installer/Reseller hanya AC dan Sparepart.
+  const serviceCards: Card[] = (nonRetail ? [] : filteredServices).map((s) => ({
     key: `service-${s.id}`,
     name: s.name,
     subtitle: s.category ?? 'Jasa',
@@ -1010,7 +1148,7 @@ export default function PosPage() {
               />
             </div>
             <div className="mb-3 flex flex-wrap gap-2">
-              {CATEGORY_PILLS.map((pill) => (
+              {CATEGORY_PILLS.filter((pill) => !(nonRetail && pill.key === 'service')).map((pill) => (
                 <button
                   key={pill.key}
                   type="button"
@@ -1128,9 +1266,32 @@ export default function PosPage() {
                               )}
                             </div>
                           ) : (
-                            <p className="text-xs text-muted-foreground">
-                              {formatRupiah(line.unitPrice)} / {line.unit}
-                            </p>
+                            <div>
+                              <p className="text-xs text-muted-foreground">
+                                {formatRupiah(line.unitPrice)} / {line.unit}
+                              </p>
+                              {line.kind === 'sparepart' &&
+                                (() => {
+                                  const sp = sparepartById.get(line.refId);
+                                  const left = sparepartLeft(line);
+                                  if (!sp || left === null) return null;
+                                  const used = round2(sparepartUsed.get(line.refId) ?? 0);
+                                  const over = left < 0;
+                                  return (
+                                    <p
+                                      className={cn(
+                                        'mt-1 text-[13px] leading-snug',
+                                        over ? 'font-medium text-destructive' : 'text-muted-foreground',
+                                      )}
+                                    >
+                                      Stok {formatStock(sp)} • di keranjang {used} {sp.unit} •{' '}
+                                      {over
+                                        ? `kurang ${round2(-left)} ${sp.unit}`
+                                        : `sisa ${formatStock({ ...sp, stock: left })}`}
+                                    </p>
+                                  );
+                                })()}
+                            </div>
                           )}
                         </div>
                         <Button
@@ -1167,7 +1328,13 @@ export default function PosPage() {
                             size="icon"
                             className="size-7"
                             disabled={
-                              line.availableStock != null && line.qty >= line.availableStock
+                              (line.availableStock != null && line.qty >= line.availableStock) ||
+                              // Sparepart: tombol + mati kalau sisa stok gabungan
+                              // (semua baris sparepart yang sama) tidak cukup 1 langkah lagi.
+                              (() => {
+                                const left = sparepartLeft(line);
+                                return left !== null && left < perUnitOf(line);
+                              })()
                             }
                             onClick={() => setQty(index, line.qty + 1)}
                           >
@@ -1178,7 +1345,7 @@ export default function PosPage() {
                           {formatRupiah(Math.round(line.qty * line.unitPrice))}
                         </p>
                       </div>
-                      {line.kind === 'product' && (
+                      {line.kind === 'product' && !nonRetail && (
                         <div className="mt-3 border-t pt-3">
                           <label className="flex items-center gap-2 text-sm">
                             <Checkbox
@@ -1234,6 +1401,48 @@ export default function PosPage() {
                     lagi tinggal dicari & dipilih di sini, gak perlu
                     diketik ulang dan gak bikin akun member baru/ganda. */}
                 <MemberPicker value={selectedMember} onSelect={selectMember} onClear={clearSelectedMember} />
+
+                {/* Tipe pembeli (2026-10-13) — member lama: tampil dari
+                    datanya. Pelanggan baru: kasir memilih, default Ritel. */}
+                {selectedMember ? (
+                  nonRetail && (
+                    <p className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+                      Member <strong>{TIER_LABEL[tier]}</strong> - memakai harga {TIER_LABEL[tier]}, hanya
+                      bisa membeli AC dan Sparepart.
+                    </p>
+                  )
+                ) : (
+                  <div className="grid gap-1.5">
+                    <FormLabel>Tipe Pelanggan Baru</FormLabel>
+                    <div className="flex flex-wrap gap-2">
+                      {TIER_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          title={opt.hint}
+                          aria-pressed={newMemberTier === opt.value}
+                          onClick={() => {
+                            applyTier(opt.value);
+                            setNewMemberTier(opt.value);
+                          }}
+                          className={cn(
+                            'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+                            newMemberTier === opt.value
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'hover:bg-accent',
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {nonRetail
+                        ? `Harga ${TIER_LABEL[tier]}, hanya AC dan Sparepart. Kalau nomor HP ternyata sudah terdaftar, tipe mengikuti data member itu.`
+                        : 'Biarkan Ritel untuk pembeli biasa. Pilih Installer atau Reseller hanya untuk pelanggan baru bertipe itu.'}
+                    </p>
+                  </div>
+                )}
 
                 {/* Kode voucher — diketik manual kasir, sama kayak app mobile.
                     Voucher dibuat admin untuk satu pelanggan tertentu (lihat

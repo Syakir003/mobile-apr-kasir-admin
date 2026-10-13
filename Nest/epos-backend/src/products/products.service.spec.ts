@@ -18,7 +18,8 @@ describe('ProductsService — pairedProductId (Point 2)', () => {
       $transaction: (fn: any) => fn(prisma),
     };
     const counters: any = { nextSeq: jest.fn(async () => 1) };
-    return { service: new ProductsService(prisma, counters), prisma };
+    const tierPrices: any = { save: jest.fn(), attach: jest.fn(async (_k: string, items: any[]) => items) };
+    return { service: new ProductsService(prisma, counters, tierPrices), prisma };
   }
 
   it('update() nolak pairedProductId yang gak ada produknya', async () => {

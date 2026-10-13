@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { MemberListQueryDto } from './dto/member-list-query.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
+import type { PriceTierName } from '../common/price-tier.util';
 
 @Injectable()
 export class MembersService {
@@ -24,6 +25,9 @@ export class MembersService {
     name: string,
     rawPhone: string,
     address?: string,
+    // Tipe pembeli buat member BARU saja (2026-10-13). Member yang sudah ada
+    // (ketemu lewat nomor HP) TIDAK diubah tipenya dari sini.
+    priceTier: PriceTierName = 'retail',
   ): Promise<{ member: Member; isNew: boolean }> {
     const phone = this.normalizePhone(rawPhone);
 
@@ -50,6 +54,7 @@ export class MembersService {
           name,
           phone,
           address: address ?? null,
+          priceTier,
           memberSince: new Date(),
           totalAcUnits: 0,
           active: true,
@@ -68,6 +73,7 @@ export class MembersService {
         name,
         phone,
         address: address ?? null,
+        priceTier,
         memberSince: new Date(),
         totalAcUnits: 0,
         active: true,
@@ -114,6 +120,7 @@ export class MembersService {
           phone,
           address: dto.address ?? null,
           customerType: dto.customerType ?? null,
+          priceTier: dto.priceTier ?? 'retail',
           memberSince: new Date(),
           totalAcUnits: 0,
           active: true,
@@ -125,7 +132,7 @@ export class MembersService {
           actorUid: actorId,
           action: 'member.create_manual',
           target: member.id,
-          detail: { name: member.name, phone: member.phone || null },
+          detail: { name: member.name, phone: member.phone || null, priceTier: member.priceTier },
         },
       });
 
@@ -218,6 +225,27 @@ export class MembersService {
    * manual (tombol "Kirim WA") TETAP bisa dikirim kasir/admin kapan pun —
    * opt-out cuma nyetop pengingat OTOMATIS, sama persis semantik aslinya.
    */
+  /** Ubah tipe pembeli member (admin) — menentukan harga & hak beli di POS.
+   * Invoice lama tidak berubah (tipe di-snapshot per invoice). */
+  async setPriceTier(id: string, priceTier: PriceTierName, actorId: string) {
+    const member = await this.prisma.member.findUnique({ where: { id } });
+    if (!member) throw new NotFoundException('Member tidak ditemukan');
+    if (member.priceTier === priceTier) return { ok: true, priceTier };
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.member.update({ where: { id }, data: { priceTier } });
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'member.set_price_tier',
+          target: id,
+          detail: { name: member.name, from: member.priceTier, to: priceTier },
+        },
+      });
+    });
+    return { ok: true, priceTier };
+  }
+
   async setWaOptOut(id: string, optOut: boolean, actorId: string) {
     const member = await this.prisma.member.findUnique({ where: { id } });
     if (!member) throw new NotFoundException('Member tidak ditemukan');

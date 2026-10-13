@@ -8,6 +8,7 @@ import { MaterialRequestsService } from './material-requests.service';
 import { CreateMaterialRequestDto } from './dto/create-material-request.dto';
 import { DecideMaterialRequestDto } from './dto/decide-material-request.dto';
 import { MaterialRequestQueryDto } from './dto/material-request-query.dto';
+import { MarkUsedDto } from './dto/mark-used.dto';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -37,7 +38,10 @@ export class MaterialRequestsController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const result = await this.requests.create(jobId, dto, user.sub, user.role);
-    this.realtime.emitToAdmin('material_request.created', { jobId, requestId: result.id });
+    this.realtime.emitToAdmin('material_request.created', {
+      jobId,
+      requestId: result.id,
+    });
     return result;
   }
 
@@ -49,14 +53,13 @@ export class MaterialRequestsController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     const result = await this.requests.decide(id, dto, user.sub);
-    this.realtime.emitToAdmin('material_request.decided', { requestId: id, status: result.status });
+    this.realtime.emitToAdmin('material_request.decided', {
+      requestId: id,
+      status: result.status,
+    });
     if (result.technicianId) {
       const label =
-        dto.decision === 'reject'
-          ? 'ditolak'
-          : dto.decision === 'revise'
-            ? 'direvisi & disetujui'
-            : 'disetujui';
+        dto.decision === 'reject' ? 'ditolak' : dto.decision === 'revise' ? 'direvisi & disetujui' : 'disetujui';
       this.notifications
         .notify(result.technicianId, {
           title: 'Pengajuan Material Diputuskan',
@@ -76,7 +79,7 @@ export class MaterialRequestsController {
 
   @Roles('admin', 'teknisi')
   @Patch('material-requests/:id/mark-used')
-  markUsed(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
-    return this.requests.markUsed(id, user.sub, user.role);
+  markUsed(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload, @Body() dto: MarkUsedDto) {
+    return this.requests.markUsed(id, user.sub, user.role, dto);
   }
 }

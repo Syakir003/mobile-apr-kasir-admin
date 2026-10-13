@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Member, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockLockingService, LockedItem } from '../common/services/stock-locking.service';
 import { CountersService } from '../counters/counters.service';
@@ -18,6 +18,9 @@ import {
 } from './pos-calc.util';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
 import { checkBelowCost } from '../common/below-cost.util';
+import { assertTierCanBuy, isNonRetail, resolveTierUnitPrice } from '../common/price-tier.util';
+import type { PriceTierName } from '../common/price-tier.util';
+import { TierPricesService } from '../common/services/tier-prices.service';
 import {
   ConfirmationRequiredException,
   BelowCostWarning,
@@ -61,6 +64,7 @@ export class PosService {
     private readonly acUnits: AcUnitsService,
     private readonly technicianJobs: TechnicianJobsService,
     private readonly vouchers: VouchersService,
+    private readonly tierPrices: TierPricesService,
   ) {}
 
   /**
@@ -100,10 +104,37 @@ export class PosService {
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         const now = new Date();
-        const member = dto.customer.memberId
-          ? await tx.member.findUnique({ where: { id: dto.customer.memberId } })
-          : (await this.members.findOrCreate(tx, dto.customer.name, dto.customer.phone, dto.customer.address)).member;
+        let member: Member | null;
+        if (dto.customer.memberId) {
+          member = await tx.member.findUnique({ where: { id: dto.customer.memberId } });
+        } else {
+          const created = await this.members.findOrCreate(
+            tx,
+            dto.customer.name,
+            dto.customer.phone,
+            dto.customer.address,
+            dto.customer.priceTier,
+          );
+          member = created.member;
+          // Kasir boleh mendaftarkan Installer/Reseller baru langsung dari
+          // kasir — dicatat biar admin bisa menelusuri siapa yang memberi
+          // harga khusus ke siapa.
+          if (created.isNew && member.priceTier !== 'retail') {
+            await tx.auditLog.create({
+              data: {
+                actorUid: actorId,
+                action: 'member.create_tiered',
+                target: member.id,
+                detail: { name: member.name, phone: member.phone || null, priceTier: member.priceTier, via: 'pos' },
+              },
+            });
+          }
+        }
         if (!member) throw new NotFoundException('Member yang dipilih tidak ditemukan');
+
+        // Tipe pembeli (2026-10-13) — SELALU dari database, bukan dari klien.
+        const tier: PriceTierName = member.priceTier;
+        assertTierCanBuy(tier, dto.items, dto.installations);
 
         const packageIds = [
           ...new Set((dto.installations ?? []).map((i) => i.packageId).filter((id): id is string => !!id)),
@@ -251,8 +282,18 @@ export class PosService {
             // baris Outdoor mode "Unit Lengkap" (pairedWithItemIndex keisi)
             // harganya DIPAKSA 0, gak peduli unitPriceOverride yang kekirim
             // (modal/harga jual sepenuhnya nempel ke sisi Indoor).
-            const unitPrice =
-              item.pairedWithItemIndex !== undefined ? 0 : (item.unitPriceOverride ?? locked.unitPrice);
+            // Harga dasar: Ritel = Product.sellPrice; Installer/Reseller =
+            // tier_prices (wajib sudah diisi, kecuali harganya di-override).
+            let unitPrice: number;
+            if (item.pairedWithItemIndex !== undefined) unitPrice = 0;
+            else if (item.unitPriceOverride !== undefined) unitPrice = item.unitPriceOverride;
+            else if (isNonRetail(tier)) {
+              unitPrice = resolveTierUnitPrice(
+                tier,
+                locked.name,
+                await this.tierPrices.find(tx, 'product', item.refId, tier),
+              );
+            } else unitPrice = locked.unitPrice;
             // Paket AC Split (2026-09-30) — unit satuan dari paket: modal
             // paket gak dipecah per unit, HPP baris ini SENGAJA 0 (ditandai
             // costUnallocated di invoice_items, lihat di bawah).
@@ -281,7 +322,15 @@ export class PosService {
             if (buyPriceSnapshot !== null && locked.qtyMultiplier && locked.qtyMultiplier !== 1) {
               buyPriceSnapshot = Math.round(buyPriceSnapshot * locked.qtyMultiplier); // modal utuh: rupiah bulat (hindari 900000.01 dari pembulatan per-satuan-kecil)
             }
-            priced.set(lineKey(item), { ...locked, buyPriceSnapshot });
+            const unitPrice = isNonRetail(tier)
+              ? resolveTierUnitPrice(
+                  tier,
+                  locked.name,
+                  await this.tierPrices.find(tx, 'sparepart', item.refId, tier),
+                  locked.saleKind,
+                )
+              : locked.unitPrice;
+            priced.set(lineKey(item), { ...locked, unitPrice, buyPriceSnapshot });
           }
         }
 
@@ -631,6 +680,7 @@ export class PosService {
             grandTotal: totals.grandTotal,
             totalPaid: 0,
             status: computeInvoiceStatus(totals.grandTotal, 0),
+            priceTier: tier,
             notes: dto.notes,
             createdById: actorId,
           },

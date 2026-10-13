@@ -47,6 +47,7 @@ interface MaterialRequestItemRow {
   name: string;
   unit: string | null;
   qty: string;
+  qtyUsed: string | null;
   unitPrice: string;
   lineTotal: string;
 }
@@ -59,6 +60,7 @@ interface MaterialRequestRow {
   createdAt: string;
   decidedAt: string | null;
   usedAt: string | null;
+  usedNote: string | null;
   items: MaterialRequestItemRow[];
   job: {
     id: string;
@@ -403,6 +405,23 @@ function RequestDetail({
                     ? `Sudah dipakai - ${formatDateTime(request.usedAt)}`
                     : 'Belum ditandai dipakai teknisi'}
                 </span>
+              </div>
+            )}
+            {request.status === 'approved' && request.usedAt && (
+              <div className="grid gap-1 rounded-md bg-muted px-3 py-2">
+                <p className="text-xs text-muted-foreground">Dilaporkan terpakai</p>
+                {request.items.map((it) => {
+                  const used = it.qtyUsed ?? it.qty;
+                  const less = Number(used) < Number(it.qty);
+                  return (
+                    <p key={it.id} className={less ? 'font-medium' : undefined}>
+                      {it.name}: {Number(used)} dari {Number(it.qty)} {it.unit ?? ''}
+                    </p>
+                  );
+                })}
+                {request.usedNote && (
+                  <p className="text-xs text-muted-foreground">Catatan teknisi: {request.usedNote}</p>
+                )}
               </div>
             )}
           </>

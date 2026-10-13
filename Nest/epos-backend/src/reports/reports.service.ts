@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PRICE_TIERS } from '../common/price-tier.util';
 import { buildStockReportRow, orderPairedRows, StockReportRow, StockReportCatalogItem } from './stock-report-row.util';
 
 /**
@@ -59,7 +60,22 @@ export class ReportsService {
       ORDER BY 1
     `;
 
+    // 4) per tipe pembeli (2026-10-13) — definisi SAMA dengan totalPenjualan
+    //    di atas (SUM grand_total invoice), dipecah menurut tipe yang
+    //    di-snapshot di invoice. Ketiga tipe selalu dikembalikan (0 kalau kosong).
+    const byTier = await this.prisma.invoice.groupBy({
+      by: ['priceTier'],
+      where: { createdAt: { gte: start, lte: end } },
+      _sum: { grandTotal: true },
+      _count: { _all: true },
+    });
+    const perTipePembeli = PRICE_TIERS.map((tier) => {
+      const row = byTier.find((r) => r.priceTier === tier);
+      return { tier, total: Number(row?._sum.grandTotal ?? 0), count: row?._count._all ?? 0 };
+    });
+
     return {
+      perTipePembeli,
       totalPenjualan: Number(totals._sum.grandTotal ?? 0),
       totalInvoice: totals._count._all,
       totalDiskon: Number(totals._sum.discount ?? 0),

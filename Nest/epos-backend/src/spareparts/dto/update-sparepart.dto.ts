@@ -22,4 +22,12 @@ export class UpdateSparepartDto {
   @IsOptional() @IsString() packUnit?: string;
   @IsOptional() @IsNumber() @Min(0.01) packSize?: number;
   @IsOptional() @IsNumber() @Min(0) sellPricePack?: number;
+
+  // Harga per tipe pembeli (2026-10-13). sellPrice/sellPricePack = harga
+  // Ritel. price* = eceran per `unit`, pricePack* = utuh per `packUnit`.
+  // `null` = kosongkan (tipe itu jadi tidak bisa membeli sparepart ini).
+  @IsOptional() @IsNumber() @Min(0) priceInstaller?: number | null;
+  @IsOptional() @IsNumber() @Min(0) priceReseller?: number | null;
+  @IsOptional() @IsNumber() @Min(0) pricePackInstaller?: number | null;
+  @IsOptional() @IsNumber() @Min(0) pricePackReseller?: number | null;
 }

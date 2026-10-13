@@ -28,4 +28,9 @@ export class UpdateProductDto {
   // sama polanya kayak UsersService.toggleActive, cuma gak butuh pengaman
   // anti-kunci-diri-sendiri (produk bukan akun).
   @IsOptional() @IsBoolean() active?: boolean;
+
+  // Harga per tipe pembeli (2026-10-13). sellPrice = harga Ritel. `null` =
+  // kosongkan (tipe itu jadi tidak bisa membeli produk ini).
+  @IsOptional() @IsNumber() @Min(0) priceInstaller?: number | null;
+  @IsOptional() @IsNumber() @Min(0) priceReseller?: number | null;
 }

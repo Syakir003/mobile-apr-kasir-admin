@@ -29,4 +29,9 @@ export class CreateProductDto {
   // Kalau pairedProductId keisi, server MAKSA 'indoor' buat produk ini &
   // 'outdoor' buat pasangannya (lihat ProductsService.syncPairRoles).
   @IsOptional() @IsIn(['indoor', 'outdoor']) acRole?: 'indoor' | 'outdoor';
+
+  // Harga per tipe pembeli (2026-10-13). sellPrice = harga Ritel. `null` =
+  // kosongkan (tipe itu jadi tidak bisa membeli produk ini).
+  @IsOptional() @IsNumber() @Min(0) priceInstaller?: number | null;
+  @IsOptional() @IsNumber() @Min(0) priceReseller?: number | null;
 }

@@ -88,6 +88,9 @@ export class SystemResetService {
           await del(tx, 'installationPackageItem', (t) => t.installationPackageItem.deleteMany());
           await del(tx, 'installationPackage', (t) => t.installationPackage.deleteMany());
           await del(tx, 'itemCost', (t) => t.itemCost.deleteMany());
+          // Harga per tipe pembeli nempel ke produk/sparepart (tanpa FK) —
+          // ikut dihapus biar gak jadi baris yatim.
+          await del(tx, 'tierPrice', (t) => t.tierPrice.deleteMany());
           await del(tx, 'product', (t) => t.product.deleteMany());
           await del(tx, 'sparepart', (t) => t.sparepart.deleteMany());
           await del(tx, 'service', (t) => t.service.deleteMany());

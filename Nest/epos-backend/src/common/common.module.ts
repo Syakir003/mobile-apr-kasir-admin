@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { StockLockingService } from './services/stock-locking.service';
 import { RateLimitService } from './services/rate-limit.service';
+import { TierPricesService } from './services/tier-prices.service';
 
 @Global()
 @Module({
@@ -8,7 +9,7 @@ import { RateLimitService } from './services/rate-limit.service';
   // makanya ditaruh di CommonModule yang @Global, bukan di-provide ulang di
   // tiap module yang butuh. Kalau di-provide ulang, tiap module dapet
   // instance sendiri dan hitungannya kepecah.
-  providers: [StockLockingService, RateLimitService],
-  exports: [StockLockingService, RateLimitService],
+  providers: [StockLockingService, RateLimitService, TierPricesService],
+  exports: [StockLockingService, RateLimitService, TierPricesService],
 })
 export class CommonModule {}

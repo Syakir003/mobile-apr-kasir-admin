@@ -416,6 +416,10 @@ model Member {
   // Supabase (migrasi 0023): begitu di-set true, semua WhatsappLog 'pending'
   // milik member ini otomatis dibatalkan (lihat MembersService.setWaOptOut).
   waOptOut      Boolean  @default(false) @map("wa_opt_out")
+  // Tipe pembeli (2026-10-13) — menentukan harga & hak beli di POS: retail
+  // (default) beli AC/Sparepart/Jasa; installer & reseller cuma AC/Sparepart
+  // dengan harga dari tabel tier_prices. BEDA dari customerType (label saja).
+  priceTier     PriceTier @default(retail) @map("price_tier")
 
   acUnits       MemberAcUnit[]
   transactions  Transaction[]
@@ -592,6 +596,9 @@ model Invoice {
   grandTotal    Decimal       @map("grand_total") @db.Decimal(14, 2)
   totalPaid     Decimal       @default(0) @map("total_paid") @db.Decimal(14, 2)
   status        InvoiceStatus @default(belum_dibayar)
+  // Snapshot tipe pembeli saat invoice dibuat (buat laporan per tipe) —
+  // gak ikut berubah kalau tipe member diganti belakangan.
+  priceTier     PriceTier     @default(retail) @map("price_tier")
   notes         String?
   createdById   String        @map("created_by")
   createdBy     User          @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
@@ -906,6 +913,8 @@ model MaterialRequest {
   usedAt         DateTime? @map("used_at")
   usedById       String?   @map("used_by")
   usedBy         User?     @relation("RequestUsedBy", fields: [usedById], references: [id])
+  // Catatan teknisi saat melaporkan pemakaian (opsional).
+  usedNote       String?   @map("used_note")
   updatedAt      DateTime  @updatedAt @map("updated_at") // dipakai backend utk deteksi konflik saat batch sync dari mode offline
 
   items       MaterialRequestItem[]
@@ -930,6 +939,10 @@ model MaterialRequestItem {
   name      String
   unit      String?
   qty       Decimal         @db.Decimal(10, 2)
+  // Jumlah yang BENAR-BENAR terpakai, diisi teknisi saat "Tandai Terpakai"
+  // (0..qty). NULL = belum dilaporkan, atau baris lama dari sebelum fitur ini
+  // (anggap terpakai penuh = qty).
+  qtyUsed   Decimal?        @map("qty_used") @db.Decimal(10, 2)
   unitPrice Decimal         @map("unit_price") @db.Decimal(14, 2)
   lineTotal Decimal         @map("line_total") @db.Decimal(14, 2)
 
@@ -1190,4 +1203,32 @@ model UndianParticipant {
   @@unique([undianId, memberId])
   @@index([undianId])
   @@map("undian_participants")
+}
+
+// ----------------------------------------------------------------------------
+// TIPE PEMBELI & HARGA PER TIPE (2026-10-13)
+// ----------------------------------------------------------------------------
+
+enum PriceTier {
+  retail // pembeli/pemakai langsung — harga = Product.sellPrice / Sparepart.sellPrice
+  installer // teknisi luar, jual lagi ke customernya
+  reseller // punya toko, jual lagi (paling murah)
+}
+
+// Harga jual per tipe pembeli NON-retail. Pola kind+refId sama kayak
+// ItemCost (tanpa FK — produk/sparepart dinonaktifkan, bukan dihapus).
+// Harga retail TIDAK disimpan di sini: tetap di kolom sellPrice/sellPricePack
+// masing-masing, biar konsumen lama gak berubah. Baris yang gak ada = harga
+// tipe itu belum diisi -> checkout tipe itu DITOLAK (bukan fallback retail).
+model TierPrice {
+  id        String    @id @default(uuid())
+  kind      String // 'product' | 'sparepart'
+  refId     String    @map("ref_id")
+  tier      PriceTier
+  price     Decimal   @db.Decimal(14, 2) // produk: per unit; sparepart: eceran per `unit`
+  pricePack Decimal?  @map("price_pack") @db.Decimal(14, 2) // sparepart jual utuh per `packUnit`
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([kind, refId, tier])
+  @@map("tier_prices")
 }

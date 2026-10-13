@@ -39,6 +39,25 @@ export interface LockedItem {
 export type SaleKind = 'utuh' | 'eceran';
 
 /**
+ * Stok sparepart yang "dipesan" teknisi: item pengajuan material yang sudah
+ * DISETUJUI tapi belum ditandai terpakai (stok fisik belum dipotong, tagihan
+ * invoice sudah naik). Dihitung (bukan disimpan) supaya tidak ada angka kedua
+ * yang bisa tidak sinkron. Subquery ini dipakai apa adanya di SELECT yang
+ * mengunci baris `spareparts` — alias tabel luar harus `spareparts`.
+ */
+export const SPAREPART_RESERVED_SQL = `(SELECT COALESCE(SUM(i.qty), 0)
+  FROM material_request_items i
+  JOIN material_requests r ON r.id = i.request_id
+  WHERE i.kind = 'sparepart' AND i.ref_id = spareparts.id
+    AND r.status = 'approved' AND r.used_at IS NULL)`;
+
+export interface LockOptions {
+  /** true = jangan hitung stok yang dipesan teknisi (dipakai markUsed, yang
+   * memang memakai pesanannya sendiri). Default: pesanan mengurangi stok tersedia. */
+  ignoreReserved?: boolean;
+}
+
+/**
  * Port dari pola `FOR UPDATE` di checkout_transaction (pos_functions.sql,
  * baris ~308-336) dan mark_material_used (payment_approval_photo_rules.sql).
  * `FOR UPDATE` mengunci baris sampai transaksi commit/rollback. WAJIB
@@ -66,6 +85,7 @@ export class StockLockingService {
     refId: string,
     qty: number,
     saleKind?: SaleKind | null,
+    opts: LockOptions = {},
   ): Promise<LockedItem> {
     if (kind === 'sparepart') {
       const rows = await tx.$queryRawUnsafe<
@@ -80,10 +100,12 @@ export class StockLockingService {
           pack_unit: string | null;
           pack_size: unknown;
           sell_price_pack: unknown;
+          reserved?: unknown;
         }[]
       >(
         `SELECT name, active, unit, batch_tracked, stock, sell_price,
-                tracking_mode, pack_unit, pack_size, sell_price_pack
+                tracking_mode, pack_unit, pack_size, sell_price_pack,
+                ${SPAREPART_RESERVED_SQL} AS reserved
          FROM spareparts WHERE id = $1 FOR UPDATE`,
         refId,
       );
@@ -109,6 +131,16 @@ export class StockLockingService {
       const saleUnit = isUtuh ? row.pack_unit! : row.unit;
       const salePrice = isUtuh ? Number(row.sell_price_pack) : Number(row.sell_price);
 
+      // Stok yang sudah dipesan teknisi (pengajuan disetujui, belum terpakai)
+      // tidak boleh dijual/dipakai tempat lain.
+      const reserved = opts.ignoreReserved ? 0 : Number(row.reserved ?? 0);
+      if (reserved > 0 && Number(row.stock) - reserved < baseQty) {
+        const free = Math.max(0, Math.round((Number(row.stock) - reserved) * 100) / 100);
+        throw new BadRequestException(
+          `Stok ${row.name} tidak cukup — tersedia ${free} ${row.unit}, ${reserved} ${row.unit} sudah dipesan teknisi`,
+        );
+      }
+
       if (!row.batch_tracked) {
         // Flat — perilaku lama, gak berubah (selain fix bug unit hardcode
         // 'pcs' di bawah, yang sekarang baca `row.unit` asli). Mode
@@ -116,11 +148,7 @@ export class StockLockingService {
         if (Number(row.stock) < baseQty) {
           throw new BadRequestException(`Stok ${row.name} tidak cukup`);
         }
-        await tx.$executeRawUnsafe(
-          `UPDATE spareparts SET stock = stock - $1 WHERE id = $2`,
-          baseQty,
-          refId,
-        );
+        await tx.$executeRawUnsafe(`UPDATE spareparts SET stock = stock - $1 WHERE id = $2`, baseQty, refId);
         return {
           name: row.name,
           unit: saleUnit,
@@ -139,9 +167,7 @@ export class StockLockingService {
       //     baru roll penuh (FIFO umur di masing-masing kelompok).
       const useFullOnly = isUtuh && row.tracking_mode === 'gabungan';
       const openedFirst = !isUtuh && row.tracking_mode === 'gabungan' && packSize !== null;
-      const batches = await tx.$queryRawUnsafe<
-        { id: string; stock: unknown; buy_price: unknown }[]
-      >(
+      const batches = await tx.$queryRawUnsafe<{ id: string; stock: unknown; buy_price: unknown }[]>(
         `SELECT id, stock, buy_price FROM item_costs
          WHERE kind = 'sparepart' AND ref_id = $1 AND stock > 0
            ${useFullOnly ? 'AND stock = $2::numeric' : ''}
@@ -198,9 +224,10 @@ export class StockLockingService {
     // di-flip ke 'reserved' DI SINI (row udah kekunci FOR UPDATE) — belum
     // ditandain invoice mana, itu ditulis belakangan sama PosService.checkout
     // begitu invoice.id ada (lihat komentar reservedUnitIds di LockedItem).
-    const productRows = await tx.$queryRawUnsafe<
-      { name: string; active: boolean; sell_price: unknown }[]
-    >(`SELECT name, active, sell_price FROM products WHERE id = $1`, refId);
+    const productRows = await tx.$queryRawUnsafe<{ name: string; active: boolean; sell_price: unknown }[]>(
+      `SELECT name, active, sell_price FROM products WHERE id = $1`,
+      refId,
+    );
     const product = productRows[0];
     if (!product) throw new BadRequestException(`Produk ${refId} tidak ditemukan`);
     if (!product.active) throw new BadRequestException(`${product.name} tidak aktif`);
@@ -244,7 +271,10 @@ export class StockLockingService {
     for (const u of availableUnits) {
       batchQtyMap.set(u.item_cost_id, (batchQtyMap.get(u.item_cost_id) ?? 0) + 1);
     }
-    const batchDeductions = [...batchQtyMap].map(([itemCostId, unitCount]) => ({ itemCostId, qty: unitCount }));
+    const batchDeductions = [...batchQtyMap].map(([itemCostId, unitCount]) => ({
+      itemCostId,
+      qty: unitCount,
+    }));
     const reservedUnitIds = availableUnits.map((u) => u.id);
 
     await tx.$executeRawUnsafe(

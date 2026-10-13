@@ -4,10 +4,14 @@ import type { ListStatus } from '../common/dto/list-status-query.dto';
 import { CreateSparepartDto } from './dto/create-sparepart.dto';
 import { UpdateSparepartDto } from './dto/update-sparepart.dto';
 import { resolveSparepartMode } from './sparepart-mode.util';
+import { TierPricesService, splitTierPrices } from '../common/services/tier-prices.service';
 
 @Injectable()
 export class SparepartsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tierPrices: TierPricesService,
+  ) {}
 
   /** Siklus sparepart-per-gulungan (2026-09-23) — sparepart batchTracked
    * WAJIB mulai dari stok 0. Kalau dibolehin isi `stock` langsung di sini,
@@ -45,11 +49,16 @@ export class SparepartsService {
         'Sparepart per-gulungan gak bisa punya stok awal saat dibuat — tambahkan gulungan pertama lewat menu Barang Masuk setelah sparepart ini dibuat.',
       );
     }
-    const { trackingMode: _tm, batchTracked: _bt, packUnit: _pu, packSize: _ps, sellPricePack: _sp, ...rest } = dto;
+    const { tierPrices, rest: columns } = splitTierPrices(dto);
+    const { trackingMode: _tm, batchTracked: _bt, packUnit: _pu, packSize: _ps, sellPricePack: _sp, ...rest } = columns;
     void [_tm, _bt, _pu, _ps, _sp];
     const sku = await this.normalizeSku(dto.sku);
-    return this.prisma.sparepart.create({
-      data: { ...rest, sku, ...mode, active: true },
+    return this.prisma.$transaction(async (tx) => {
+      const sparepart = await tx.sparepart.create({
+        data: { ...rest, sku, ...mode, active: true },
+      });
+      await this.tierPrices.save(tx, 'sparepart', sparepart.id, tierPrices);
+      return sparepart;
     });
   }
 
@@ -57,9 +66,27 @@ export class SparepartsService {
   // default 'active'. `search()` di bawah SENGAJA gak ikut diubah — tetap
   // hardcode active-only, dipakai autocomplete POS/teknisi yang emang cuma
   // boleh nunjukin sparepart yang aktif.
-  findAll(status: ListStatus = 'active') {
+  async findAll(status: ListStatus = 'active') {
     const where = status === 'all' ? {} : { active: status === 'inactive' ? false : true };
-    return this.prisma.sparepart.findMany({ where, orderBy: { name: 'asc' } });
+    const rows = await this.prisma.sparepart.findMany({
+      where,
+      orderBy: { name: 'asc' },
+    });
+    // `reserved` = qty yang sudah disetujui admin buat teknisi tapi belum
+    // dipakai (stok fisik belum dipotong). Stok tersedia = stock - reserved.
+    const reservedRows = await this.prisma.materialRequestItem.groupBy({
+      by: ['refId'],
+      where: {
+        kind: 'sparepart',
+        request: { is: { status: 'approved', usedAt: null } },
+      },
+      _sum: { qty: true },
+    });
+    const reservedById = new Map(reservedRows.map((r) => [r.refId, Number(r._sum.qty ?? 0)]));
+    return this.tierPrices.attach(
+      'sparepart',
+      rows.map((r) => ({ ...r, reserved: reservedById.get(r.id) ?? 0 })),
+    );
   }
 
   /** Dipakai autocomplete input sparepart teknisi (requirement eksplisit). */
@@ -80,7 +107,9 @@ export class SparepartsService {
    *
    * Siklus sparepart-per-gulungan (2026-09-23). */
   async findBatches(sparepartId: string) {
-    const sparepart = await this.prisma.sparepart.findUnique({ where: { id: sparepartId } });
+    const sparepart = await this.prisma.sparepart.findUnique({
+      where: { id: sparepartId },
+    });
     if (!sparepart) throw new NotFoundException('Sparepart tidak ditemukan');
     return this.prisma.itemCost.findMany({
       where: { kind: 'sparepart', refId: sparepartId, stock: { gt: 0 } },
@@ -121,12 +150,21 @@ export class SparepartsService {
       );
     }
 
-    const { trackingMode: _tm, batchTracked: _bt, packUnit: _pu, packSize: _ps, sellPricePack: _sp, ...rest } = dto;
+    const { tierPrices, rest: columns } = splitTierPrices(dto);
+    const { trackingMode: _tm, batchTracked: _bt, packUnit: _pu, packSize: _ps, sellPricePack: _sp, ...rest } = columns;
     void [_tm, _bt, _pu, _ps, _sp];
     const sku = await this.normalizeSku(dto.sku, id);
-    const sparepart = await this.prisma.sparepart.update({
-      where: { id },
-      data: { ...rest, ...(sku !== undefined ? { sku } : {}), ...(mode ?? {}) },
+    const sparepart = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.sparepart.update({
+        where: { id },
+        data: {
+          ...rest,
+          ...(sku !== undefined ? { sku } : {}),
+          ...(mode ?? {}),
+        },
+      });
+      await this.tierPrices.save(tx, 'sparepart', id, tierPrices);
+      return updated;
     });
 
     await this.prisma.auditLog.create({
@@ -134,7 +172,10 @@ export class SparepartsService {
         actorUid: actorId,
         action: 'sparepart.update',
         target: id,
-        detail: { ...dto, ...(mode ? { resolvedMode: mode.trackingMode } : {}) },
+        detail: {
+          ...dto,
+          ...(mode ? { resolvedMode: mode.trackingMode } : {}),
+        },
       },
     });
 
