@@ -25,25 +25,34 @@ export default function LoginPage() {
               className="h-auto w-64 xl:w-72"
             />
           </div>
-          <div className="max-w-lg motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-700 motion-safe:delay-150 motion-safe:fill-mode-both">
-            <h1 className="font-display text-[clamp(2rem,3.2vw,3rem)] leading-[1.12] font-semibold">
-              Kasir, stok, dan servis AC dalam satu layar.
+          <div className="max-w-2xl motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-700 motion-safe:delay-150 motion-safe:fill-mode-both">
+            <h1 className="font-display text-[clamp(2.25rem,3.6vw,3.5rem)] leading-[1.08] font-semibold tracking-tight">
+              Kasir, stok, dan servis AC <span className="text-[#6df5e1]">dalam satu layar.</span>
             </h1>
+            <p className="mt-5 max-w-md text-base leading-relaxed text-white/70">
+              Dari penjualan unit sampai teknisi pulang dari lokasi, semuanya tercatat rapi di sini.
+            </p>
           </div>
         </div>
-        <ul className="relative flex flex-wrap gap-x-8 gap-y-3 border-t border-white/15 pt-6 text-sm text-white/75">
-          {FEATURES.map((f) => (
-            <li key={f.text} className="flex items-center gap-2">
-              <f.icon className="size-4 text-[#6df5e1]" />
+        <ul className="relative grid grid-cols-3 gap-3">
+          {FEATURES.map((f, i) => (
+            <li
+              key={f.text}
+              style={{ animationDelay: `${300 + i * 120}ms` }}
+              className="rounded-2xl border border-white/15 bg-white/[0.07] p-4 text-sm text-white/90 backdrop-blur-md transition duration-500 hover:-translate-y-1 hover:bg-white/[0.12] motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:fill-mode-both"
+            >
+              <f.icon className="mb-3 size-5 text-[#6df5e1]" />
               {f.text}
             </li>
           ))}
         </ul>
       </BrandPanel>
 
-      <section className="relative flex flex-col bg-[#f3f7f7] px-5 py-8 sm:px-12">
-        <div className="flex flex-1 items-center justify-center">
-          <div className="w-full max-w-md rounded-3xl border border-border/70 bg-white p-8 shadow-[0_24px_48px_-24px_rgba(11,107,98,0.25)] sm:p-10 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-4 motion-safe:duration-700">
+      <section className="relative flex flex-col overflow-hidden bg-[#f3f7f7] px-5 py-8 sm:px-12">
+        <div aria-hidden className="pointer-events-none absolute -top-40 -right-32 size-[26rem] rounded-full bg-[#0d7a70]/15 blur-[100px]" />
+        <div aria-hidden className="pointer-events-none absolute -bottom-40 -left-24 size-[22rem] rounded-full bg-[#6df5e1]/25 blur-[100px]" />
+        <div className="relative flex flex-1 items-center justify-center">
+          <div className="w-full max-w-md rounded-3xl border border-white/80 bg-white/85 p-8 shadow-[0_30px_60px_-24px_rgba(11,107,98,0.35)] ring-1 ring-[#0b6b62]/10 backdrop-blur-xl sm:p-10 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-4 motion-safe:duration-700">
             <Image
               src="/logo-apr-hd.png"
               alt="AYUB AC"
@@ -61,7 +70,7 @@ export default function LoginPage() {
             </Suspense>
           </div>
         </div>
-        <p className="mt-6 text-center text-xs text-muted-foreground">Ayub Podo Rukun</p>
+        <p className="relative mt-6 text-center text-xs text-muted-foreground">Ayub Podo Rukun</p>
       </section>
     </main>
   );

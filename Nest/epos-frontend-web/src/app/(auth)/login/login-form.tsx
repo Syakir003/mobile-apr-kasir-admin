@@ -166,7 +166,7 @@ export function LoginForm() {
           type="submit"
           disabled={submitting}
           size="lg"
-          className="group/btn mt-1 h-12 w-full text-[15px] shadow-md shadow-primary/25 transition-shadow hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98]"
+          className="group/btn mt-1 h-12 w-full bg-gradient-to-b from-[#0d7a70] to-[#0b6b62] text-[15px] text-white shadow-md shadow-primary/25 transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/30 active:translate-y-0 active:scale-[0.98]"
         >
           {submitting && <Loader2 className="size-4 animate-spin" />}
           {submitting ? 'Memeriksa...' : 'Masuk'}
