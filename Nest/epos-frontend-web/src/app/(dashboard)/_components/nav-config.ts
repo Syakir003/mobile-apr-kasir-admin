@@ -10,6 +10,7 @@ import {
   Database,
   FileBarChart2,
   FilePlus2,
+  Gauge,
   HeartHandshake,
   History,
   Inbox,
@@ -92,6 +93,7 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
         // Approval sparepart tambahan yang diajukan teknisi saat servis
         // on-site (backend: material-requests module).
         { href: '/material-requests', label: 'Permintaan Material', icon: Inbox },
+        { href: '/laporan/teknisi', label: 'Performa Teknisi', icon: Gauge },
       ],
     },
     {
