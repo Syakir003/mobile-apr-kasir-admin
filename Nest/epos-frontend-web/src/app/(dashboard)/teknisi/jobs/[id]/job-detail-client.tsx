@@ -5,7 +5,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, ScanLine, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Minus, Plus, ScanLine, Search, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
@@ -1058,6 +1058,7 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
     { sparepart: null, search: '', qty: '1' },
   ]);
   const [note, setNote] = React.useState('');
+  const [openRow, setOpenRow] = React.useState<number | null>(null);
 
   const submitMutation = useMutation({
     mutationFn: () =>
@@ -1098,16 +1099,23 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
         const q = row.search.trim().toLowerCase();
         const suggestions = row.sparepart
           ? []
-          : (sparepartsQuery.data ?? []).filter((s) => s.name.toLowerCase().includes(q)).slice(0, 8);
+          : (sparepartsQuery.data ?? []).filter((s) => s.name.toLowerCase().includes(q));
         return (
-          <div key={i} className="flex items-start gap-2">
-            <div className="relative flex-1">
+          <div key={i} className="flex flex-wrap items-start gap-2">
+            <div className="relative w-full sm:w-auto sm:flex-1">
               <Input
-                placeholder="Cari sparepart..."
+                placeholder="Pilih / cari sparepart..."
                 value={row.sparepart ? row.sparepart.name : row.search}
                 onChange={(e) => updateRow(i, { sparepart: null, search: e.target.value })}
+                onFocus={() => setOpenRow(i)}
+                onBlur={() => setOpenRow(null)}
               />
-              {row.search.trim() && !row.sparepart && (
+              {row.sparepart && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Stok {row.sparepart.stock} {row.sparepart.unit} • {formatRupiah(row.sparepart.sellPrice)}
+                </p>
+              )}
+              {openRow === i && !row.sparepart && (
                 <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
                   {suggestions.length === 0 && (
                     <p className="p-2 text-xs text-muted-foreground">Gak ketemu.</p>
@@ -1116,7 +1124,11 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
                     <button
                       type="button"
                       key={s.id}
-                      onClick={() => updateRow(i, { sparepart: s, search: s.name })}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        updateRow(i, { sparepart: s, search: s.name });
+                        setOpenRow(null);
+                      }}
                       className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
                     >
                       <p>{s.name}</p>
@@ -1128,16 +1140,37 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
                 </div>
               )}
             </div>
-            <Input
-              type="number"
-              inputMode="decimal"
-              min="0.01"
-              step="any"
-              placeholder="Qty"
-              className="w-20 shrink-0"
-              value={row.qty}
-              onChange={(e) => updateRow(i, { qty: e.target.value })}
-            />
+            <div className="flex shrink-0 items-center rounded-md border">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-9 rounded-r-none"
+                disabled={Number(row.qty) <= 1}
+                onClick={() => updateRow(i, { qty: String(Math.max(1, Number(row.qty) - 1)) })}
+              >
+                <Minus className="size-4" />
+              </Button>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                step="any"
+                aria-label="Jumlah"
+                className="h-9 w-14 [appearance:textfield] rounded-none border-0 px-1 text-center shadow-none focus-visible:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                value={row.qty}
+                onChange={(e) => updateRow(i, { qty: e.target.value })}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-9 rounded-l-none"
+                onClick={() => updateRow(i, { qty: String((Number(row.qty) || 0) + 1) })}
+              >
+                <Plus className="size-4" />
+              </Button>
+            </div>
             <Button
               type="button"
               variant="ghost"
