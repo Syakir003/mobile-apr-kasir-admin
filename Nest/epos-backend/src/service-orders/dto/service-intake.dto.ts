@@ -6,7 +6,9 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -15,6 +17,8 @@ export class IntakeCustomerDto {
   @IsString() @IsNotEmpty() name: string;
   @IsString() @IsNotEmpty() phone: string;
   @IsOptional() @IsString() address?: string;
+  // Link Google Maps lokasi pelanggan; kalau diisi, ikut disimpan/diperbarui di member.
+  @IsOptional() @IsString() @MaxLength(500) @Matches(/^https?:\/\/\S+$/i, { message: 'Link lokasi harus diawali http:// atau https://' }) mapsUrl?: string;
   // Diisi kalau admin/kasir milih member LAMA lewat pencarian di form intake
   // (bukan ngetik manual) -> pakai persis member itu, SKIP pencocokan
   // by-phone di MembersService.findOrCreate(). Sama pola persis kayak

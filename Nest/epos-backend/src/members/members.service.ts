@@ -28,6 +28,7 @@ export class MembersService {
     // Tipe pembeli buat member BARU saja (2026-10-13). Member yang sudah ada
     // (ketemu lewat nomor HP) TIDAK diubah tipenya dari sini.
     priceTier: PriceTierName = 'retail',
+    mapsUrl?: string,
   ): Promise<{ member: Member; isNew: boolean }> {
     const phone = this.normalizePhone(rawPhone);
 
@@ -54,6 +55,7 @@ export class MembersService {
           name,
           phone,
           address: address ?? null,
+          mapsUrl: mapsUrl ?? null,
           priceTier,
           memberSince: new Date(),
           totalAcUnits: 0,
@@ -73,6 +75,7 @@ export class MembersService {
         name,
         phone,
         address: address ?? null,
+        mapsUrl: mapsUrl ?? null,
         priceTier,
         memberSince: new Date(),
         totalAcUnits: 0,
@@ -119,6 +122,7 @@ export class MembersService {
           name: dto.name,
           phone,
           address: dto.address ?? null,
+          mapsUrl: dto.mapsUrl ?? null,
           customerType: dto.customerType ?? null,
           priceTier: dto.priceTier ?? 'retail',
           memberSince: new Date(),
