@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { Boxes, ChevronDown, ChevronRight, PackagePlus, Pencil, Plus, RotateCcw, Tags, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
@@ -20,6 +20,7 @@ import {
   numberOrNull,
 } from '@/lib/form-number';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
 import { PAGE_SIZE, PaginationFooter, SearchBox } from '@/components/master-data/list-controls';
@@ -273,6 +274,18 @@ function buildDeactivateWarning(product: Product, allProducts: Product[] | undef
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 
+function Step({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <div className="mt-0.5 text-muted-foreground">{icon}</div>
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="mt-0.5 text-sm text-muted-foreground">{children}</p>
+      </div>
+    </div>
+  );
+}
+
 /** Pilih produk yang SUDAH ADA buat dipasangkan (Indoor <-> Outdoor): kolom cari
  * + daftar saran. Dipakai di Edit Produk — produk yang diinput terpisah (atau
  * lewat SQL) bisa dipasangkan tanpa harus mengetik/membuat ulang. */
@@ -368,6 +381,8 @@ export default function ProdukPage() {
   // Produk yang SUDAH ADA yang dipilih buat dipasangkan (Edit Produk). Untuk
   // sisi Indoor = Outdoor-nya; untuk sisi Outdoor = Indoor-nya.
   const [pairPick, setPairPick] = React.useState<Product | null>(null);
+  // Panduan singkat di atas tabel (bisa disembunyikan selama halaman terbuka).
+  const [showGuide, setShowGuide] = React.useState(true);
   // Harga jual lama Indoor sebelum dipasangkan (buat dikembalikan kalau batal pilih).
   const prePairPrice = React.useRef<{ sell: string; movedToSingle: boolean }>({ sell: '', movedToSingle: false });
 
@@ -758,6 +773,50 @@ export default function ProdukPage() {
         </div>
       </div>
 
+      {showGuide ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between gap-2 text-base">
+              Cara kerjanya
+              <Button type="button" variant="ghost" size="sm" onClick={() => setShowGuide(false)}>
+                Sembunyikan
+              </Button>
+            </CardTitle>
+            <CardDescription>
+              Satu produk AC bisa dijual sebagai paket Split (Indoor + Outdoor) atau sebagai unit tunggal.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Step icon={<PackagePlus className="size-5" />} title="1. Tambah produk">
+                Klik Tambah Produk, lalu pilih jenisnya: Indoor, Outdoor, atau Split (Indoor + Outdoor
+                sekaligus, otomatis berpasangan).
+              </Step>
+              <Step icon={<Tags className="size-5" />} title="2. Isi harga">
+                Harga Jual = harga satu unit lengkap (paket). Harga Indoor/Outdoor satuan, Installer, dan
+                Reseller boleh dikosongkan.
+              </Step>
+              <Step icon={<Boxes className="size-5" />} title="3. Isi stok">
+                Klik barisnya di tabel, lalu tambah stok (barang masuk). Stok paket mengikuti sisi yang paling
+                sedikit.
+              </Step>
+            </div>
+            <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Cara membaca tabel: tulisan hijau &ldquo;Outdoor: ...&rdquo; di bawah nama adalah pasangan
+              Outdoor produk itu. Harga Jual Rp 0 berarti harga paket belum diisi - klik ikon pensil untuk
+              mengisinya. Kalau Indoor dan Outdoor sudah ada sebagai produk terpisah, pasangkan lewat ikon
+              pensil di Indoor-nya.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setShowGuide(true)}>
+            Tampilkan panduan
+          </Button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <SearchBox value={search} onChange={setSearch} placeholder="Cari nama, SKU, merek, atau model..." />
         <Select value={brand} onValueChange={setBrand}>
@@ -796,6 +855,25 @@ export default function ProdukPage() {
                 : 'Isi identitas, spesifikasi & harga jual produk baru. Stok awal (opsional) bisa langsung diisi di bagian bawah - stok berikutnya lewat halaman detail (klik baris di tabel).'}
             </DialogDescription>
           </DialogHeader>
+          <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            {editing ? (
+              <>
+                <p className="font-medium text-foreground">Yang diubah di sini</p>
+                <p className="mt-0.5">
+                  Nama, spesifikasi, harga, dan pasangan Outdoor. Stok tidak diubah di sini - klik baris
+                  produk di tabel untuk menambah stok.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-medium text-foreground">Langkahnya</p>
+                <p className="mt-0.5">
+                  1) Pilih Jenis Input. 2) Isi nama dan harga jual. 3) Untuk Split, isi nama Outdoor
+                  pasangannya. 4) Stok awal boleh diisi sekarang atau nanti.
+                </p>
+              </>
+            )}
+          </div>
           <Form {...form}>
             <form className="grid gap-4" onSubmit={form.handleSubmit(onSubmit)}>
               {!editing && (
@@ -828,6 +906,9 @@ export default function ProdukPage() {
                     <FormControl>
                       <Input placeholder="Contoh: AC Split 1 PK Inverter" {...field} />
                     </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Terisi otomatis dari Merek + Model + PK, boleh diubah sendiri.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -901,6 +982,13 @@ export default function ProdukPage() {
                     <FormControl>
                       <CurrencyInput {...field} />
                     </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      {(!editing && mode === 'split') ||
+                      editing?.pairedProductId ||
+                      (pairPick && roleDraft !== 'outdoor')
+                        ? 'Harga satu unit lengkap (Indoor + Outdoor) untuk pembeli biasa. Ini yang dipakai kasir saat menjual sepasang.'
+                        : 'Harga untuk pembeli biasa (Ritel). Wajib diisi.'}
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -908,6 +996,10 @@ export default function ProdukPage() {
               {/* Harga per tipe pembeli (2026-10-13) — opsional. Kosong =
                   member tipe itu tidak bisa membeli produk ini dengan harga
                   otomatis (kasir harus isi harga manual). */}
+              <p className="-mb-2 text-xs text-muted-foreground">
+                Harga khusus untuk pembeli bertipe Installer atau Reseller. Kosongkan kalau tidak ada - kasir
+                lalu mengisi harganya sendiri saat checkout.
+              </p>
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
@@ -966,6 +1058,9 @@ export default function ProdukPage() {
                   )}
                 />
               )}
+              <p className="-mb-2 text-xs text-muted-foreground">
+                PK = ukuran daya AC (mis. 0.5, 1, 1.5, 2). BTU dan Watt boleh dikosongkan.
+              </p>
               <div className="grid grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
