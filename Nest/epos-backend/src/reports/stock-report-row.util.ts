@@ -43,6 +43,11 @@ export interface StockReportRow {
   modalTersisa: number;
   omzetTerjual: number;
   untungTerjual: number;
+  // Pihak di balik angka Masuk/Keluar dalam range tanggal, mis.
+  // "PT Maju (7), Opname (2)". Kosong = tak ada mutasi.
+  masukDari?: string;
+  // Rincian keluar per (tanggal WIB, pihak), terbaru dulu, maks 4 baris + "+N lainnya".
+  keluarDetail?: { tanggal: string; pihak: string; qty: number }[];
   // Cuma keisi kalau `item` ini sisi Indoor (products.paired_product_id
   // keisi) — Point 4, spec "3 baris terpisah": baris Indoor (row ini
   // sendiri), baris Outdoor (row terpisah lain di array `items`, gak

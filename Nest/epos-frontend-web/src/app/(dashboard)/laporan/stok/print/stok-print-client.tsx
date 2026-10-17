@@ -19,6 +19,8 @@ interface StockReportRow {
   stokMasuk: number;
   stokKeluar: number;
   sisaStok: number;
+  masukDari?: string;
+  keluarDetail?: { tanggal: string; pihak: string; qty: number }[];
   // Opsional: backend membuangnya untuk role gudang.
   modalTersisa?: number;
   omzetTerjual?: number;
@@ -63,17 +65,27 @@ export function StokPrintClient({
   const scoped = data.items.filter((r) => !brand || groupLabel(r) === brand);
   const { shown, hiddenCount } = showEmpty ? { shown: scoped, hiddenCount: 0 } : hideEmptyRows(scoped);
   const groups = groupStockRows(shown);
-  // Kolom angka sempit & seragam supaya Nama dapat sisa lebar terbesar.
-  const num = 'border border-black p-1 text-right';
+  const cell = 'border border-black px-1.5 py-1 align-top';
+  const num = `${cell} text-right tabular-nums`;
+  const head = 'border border-black bg-gray-200 px-1 py-1.5 text-center align-middle text-[11px] font-bold leading-tight';
   const jenisLabel = (r: StockReportRow) =>
     r.pairRole === 'indoor' ? 'Indoor' : r.pairRole === 'outdoor' ? 'Outdoor' : r.itemKind === 'sparepart' ? 'Sparepart' : 'Produk';
+  // Lebar kolom tetap (px @96dpi, A4 landscape ~1047px) — Nama dapat sisa lebar.
+  const widths = showMoney
+    ? [30, undefined, 66, 52, 56, 110, 56, 66, 110, 72, 84, 84, 84]
+    : [30, undefined, 66, 52, 56, 130, 56, 66, 140, 72, 62, 62];
+  const printedAt = new Date().toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' });
+  // Kolom sebelum "Stok Sekarang": No, Nama, Jenis, Awal, Masuk, Masuk dari, Keluar, Tgl, Keluar ke.
+  const colsBeforeSisa = 9;
 
   return (
-    <div className={showMoney ? 'mx-auto max-w-[297mm]' : 'mx-auto max-w-[210mm]'}>
-      {/* Versi admin punya kolom Rupiah (Modal/Omzet/Untung) -> A4 landscape biar
-          semua kolom muat. Versi gudang (tanpa Rupiah, 8 kolom) -> A4 portrait,
-          seperti kartu stok kertas. */}
-      <style>{`@page { size: A4 ${showMoney ? 'landscape' : 'portrait'}; margin: 10mm; }`}</style>
+    <div className="mx-auto max-w-[297mm]">
+      {/* A4 landscape untuk semua peran: lebar cukup buat huruf besar (gudang) maupun kolom Rupiah (admin).
+          Header kolom diulang di tiap halaman & baris tidak terpotong di tengah. */}
+      <style>{`@page { size: A4 landscape; margin: 10mm; }
+        .stok-print { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .stok-print thead { display: table-header-group; }
+        .stok-print tr { break-inside: avoid; }`}</style>
 
       <div className="mb-4 flex items-center justify-end print:hidden">
         <Button onClick={() => window.print()}>
@@ -88,43 +100,57 @@ export function StokPrintClient({
           di-crosscheck per rak/merk. Lembar terakhir tanpa break. */}
       {groups.map((g, gi) => {
         const isLast = gi === groups.length - 1;
+        let no = 0;
         return (
           <div
             key={g.label}
-            className="bg-white p-2 text-black"
+            className="stok-print bg-white p-2 text-black"
             style={isLast ? undefined : { breakAfter: 'page', pageBreakAfter: 'always' }}
           >
-            <div className="text-center">
-              <p className="text-lg font-bold">AYUB AC</p>
-              <p className="text-sm font-semibold">Laporan Stok - {g.label}</p>
-              <p className="text-xs">
-                {formatDate(from)} - {formatDate(to)}
+            <div className="border-b-2 border-black pb-2 text-center">
+              <p className="text-xl font-bold tracking-wide">AYUB AC</p>
+              <p className="text-base font-semibold">Laporan Stok - {g.label}</p>
+            </div>
+            <div className="mt-1.5 flex justify-between text-[11px]">
+              <p>
+                Periode:{' '}
+                <b>
+                  {formatDate(from)} - {formatDate(to)}
+                </b>
+                {gi === 0 && hiddenCount > 0 && <i className="ml-3">({hiddenCount} barang tanpa stok tidak dicetak)</i>}
               </p>
-              {gi === 0 && hiddenCount > 0 && (
-                <p className="text-[9px] italic">{hiddenCount} barang tanpa stok tidak dicetak.</p>
-              )}
+              <p>Dicetak: {printedAt}</p>
             </div>
 
-            <table className={`mt-3 w-full border-collapse border border-black ${showMoney ? 'text-[9px]' : 'text-[10px]'}`}>
+            <table className={`mt-2 w-full table-fixed border-collapse border border-black ${showMoney ? 'text-[11px]' : 'text-[13px]'}`}>
+              <colgroup>
+                {widths.map((w, ci) => (
+                  <col key={ci} style={w ? { width: `${w}px` } : undefined} />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
-                  <th className="border border-black p-1 text-left">Nama</th>
-                  <th className="w-16 border border-black p-1">Jenis</th>
-                  <th className="w-14 border border-black p-1">Stok Awal</th>
-                  <th className="w-14 border border-black p-1">Masuk</th>
-                  <th className="w-14 border border-black p-1">Keluar</th>
-                  <th className="w-16 border border-black p-1">Stok Sekarang</th>
+                  <th className={head}>No</th>
+                  <th className={`${head} text-left`}>Nama</th>
+                  <th className={head}>Jenis</th>
+                  <th className={head}>Stok Awal</th>
+                  <th className={head}>Masuk</th>
+                  <th className={head}>Masuk dari</th>
+                  <th className={head}>Keluar</th>
+                  <th className={head}>Tgl Keluar</th>
+                  <th className={head}>Keluar ke</th>
+                  <th className={head}>Stok Sekarang</th>
                   {!showMoney && (
                     <>
-                      <th className="w-16 border border-black p-1">Fisik</th>
-                      <th className="w-16 border border-black p-1">Selisih</th>
+                      <th className={head}>Fisik</th>
+                      <th className={head}>Selisih</th>
                     </>
                   )}
                   {showMoney && (
                     <>
-                      <th className="border border-black p-1">Modal Tersisa</th>
-                      <th className="border border-black p-1">Omzet</th>
-                      <th className="border border-black p-1">Untung</th>
+                      <th className={head}>Modal Tersisa</th>
+                      <th className={head}>Omzet</th>
+                      <th className={head}>Untung</th>
                     </>
                   )}
                 </tr>
@@ -132,40 +158,64 @@ export function StokPrintClient({
               <tbody>
                 {g.rows.map((row, i, rows) => {
                   // Paket AC Split (2026-09-30) — Outdoor sebuah paket tampil
-                  // sekali, menjorok tepat di bawah Indoor-nya.
+                  // sekali, menjorok tepat di bawah Indoor-nya (tanpa nomor sendiri).
                   const isPackageOutdoor = row.pairRole === 'outdoor' && rows[i - 1]?.unitGabungan?.namaPasangan === row.name;
+                  if (!isPackageOutdoor) no += 1;
+                  const keluar = row.keluarDetail ?? [];
                   return (
                     <tr key={`${row.itemKind}-${row.refId}`}>
-                      <td className={`border border-black p-1${isPackageOutdoor ? ' pl-4' : ''}`}>
+                      <td className={`${cell} text-center`}>{isPackageOutdoor ? '' : no}</td>
+                      <td className={`${cell}${isPackageOutdoor ? ' pl-5' : ''}`}>
                         {isPackageOutdoor ? '↳ ' : ''}
                         {row.name}
                         {row.unitGabungan && (
-                          <div className="text-[8px] italic">
+                          <div className="text-[10px] italic">
                             Set lengkap siap jual: {row.unitGabungan.sisaStok}
                           </div>
                         )}
                         {row.jualSatuanTanpaModal ? (
-                          <div className="text-[8px] italic">
+                          <div className="text-[10px] italic">
                             {row.jualSatuanTanpaModal} unit dijual satuan - modal tidak dialokasikan
                           </div>
                         ) : null}
                       </td>
-                      <td className="border border-black p-1 text-center">{jenisLabel(row)}</td>
+                      <td className={`${cell} text-center`}>{jenisLabel(row)}</td>
                       <td className={num}>{row.stokAwal}</td>
                       <td className={num}>{row.stokMasuk}</td>
+                      <td className={`${cell} text-[11px] leading-tight`}>{row.masukDari || '-'}</td>
                       <td className={num}>{row.stokKeluar}</td>
-                      <td className={`${num} font-semibold`}>{row.sisaStok}</td>
+                      {/* Tgl & Keluar ke dirender per baris setinggi sama (satu baris, tanpa wrap)
+                          supaya tanggal sejajar dengan pihaknya. */}
+                      <td className={`${cell} text-center text-[11px] leading-tight`}>
+                        {keluar.length
+                          ? keluar.map((k, ki) => (
+                              <div key={ki} className="h-[16px] whitespace-nowrap leading-[16px]">
+                                {k.tanggal}
+                              </div>
+                            ))
+                          : '-'}
+                      </td>
+                      <td className={`${cell} text-[11px] leading-tight`}>
+                        {keluar.length
+                          ? keluar.map((k, ki) => (
+                              <div key={ki} className="h-[16px] truncate leading-[16px]">
+                                {k.qty ? `${k.pihak} (${k.qty})` : k.pihak}
+                              </div>
+                            ))
+                          : '-'}
+                      </td>
+                      <td className={`${num} font-bold`}>{row.sisaStok}</td>
                       {!showMoney && (
                         <>
-                          <td className="border border-black p-1" />
-                          <td className="border border-black p-1" />
+                          <td className={cell} />
+                          <td className={cell} />
                         </>
                       )}
                       {showMoney && (
                         <>
-                          <td className="border border-black p-1 text-right">{formatRupiah(row.modalTersisa ?? 0)}</td>
-                          <td className="border border-black p-1 text-right">{formatRupiah(row.omzetTerjual ?? 0)}</td>
-                          <td className="border border-black p-1 text-right">{formatRupiah(row.untungTerjual ?? 0)}</td>
+                          <td className={num}>{formatRupiah(row.modalTersisa ?? 0)}</td>
+                          <td className={num}>{formatRupiah(row.omzetTerjual ?? 0)}</td>
+                          <td className={num}>{formatRupiah(row.untungTerjual ?? 0)}</td>
                         </>
                       )}
                     </tr>
@@ -173,38 +223,43 @@ export function StokPrintClient({
                 })}
                 {/* Subtotal sisa per merk (sparepart gak dijumlah: satuan campur). */}
                 <tr className="bg-gray-200 font-bold">
-                  <td className="border border-black p-1" colSpan={5}>
+                  <td className={cell} colSpan={colsBeforeSisa}>
                     Total {g.label} ({g.rows.length} item)
                   </td>
-                  <td className="border border-black p-1 text-right">{g.label === SPAREPART_GROUP ? '' : g.totalSisa}</td>
-                  <td className="border border-black p-1" colSpan={showMoney ? 3 : 2} />
+                  <td className={num}>{g.label === SPAREPART_GROUP ? '' : g.totalSisa}</td>
+                  <td className={cell} colSpan={showMoney ? 3 : 2} />
                 </tr>
               </tbody>
             </table>
 
             {!showMoney && (
-              <div className="mt-8 flex justify-between text-[10px]">
-                <p>Dicek oleh: ______________________</p>
-                <p>Tanggal cek: ____ / ____ / ________</p>
-                <p>Mengetahui: ______________________</p>
+              <div className="mt-8 grid grid-cols-3 gap-10 text-center text-[12px]">
+                {['Dicek oleh', 'Tanggal cek', 'Mengetahui'].map((label) => (
+                  <div key={label}>
+                    <p>{label}</p>
+                    <p className="mt-10 border-t border-black pt-0.5">
+                      {label === 'Tanggal cek' ? '____ / ____ / ________' : '( ........................................ )'}
+                    </p>
+                  </div>
+                ))}
               </div>
             )}
 
             {/* Ringkasan keuangan (admin) cuma di lembar terakhir. */}
             {isLast && data.ringkasan && (
-              <table className="mt-2 w-64 border-collapse border border-black text-[9px]">
+              <table className="mt-3 w-72 border-collapse border border-black text-[11px]">
                 <tbody>
                   <tr>
-                    <td className="border border-black p-1 font-bold">Total Modal Tersisa</td>
-                    <td className="border border-black p-1 text-right">{formatRupiah(data.ringkasan.totalModalTersisa)}</td>
+                    <td className={`${cell} font-bold`}>Total Modal Tersisa</td>
+                    <td className={num}>{formatRupiah(data.ringkasan.totalModalTersisa)}</td>
                   </tr>
                   <tr>
-                    <td className="border border-black p-1 font-bold">Total Omzet Terjual</td>
-                    <td className="border border-black p-1 text-right">{formatRupiah(data.ringkasan.totalOmzetTerjual)}</td>
+                    <td className={`${cell} font-bold`}>Total Omzet Terjual</td>
+                    <td className={num}>{formatRupiah(data.ringkasan.totalOmzetTerjual)}</td>
                   </tr>
                   <tr>
-                    <td className="border border-black p-1 font-bold">Total Untung Terjual</td>
-                    <td className="border border-black p-1 text-right">{formatRupiah(data.ringkasan.totalUntungTerjual)}</td>
+                    <td className={`${cell} font-bold`}>Total Untung Terjual</td>
+                    <td className={num}>{formatRupiah(data.ringkasan.totalUntungTerjual)}</td>
                   </tr>
                 </tbody>
               </table>
