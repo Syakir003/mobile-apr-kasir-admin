@@ -408,6 +408,8 @@ model Member {
   name          String
   phone         String?
   address       String?
+  // Link lokasi Google Maps (http/https), terpisah dari alamat teks.
+  mapsUrl       String?  @map("maps_url")
   customerType  String?  @map("customer_type") // 'rumah' | 'perusahaan' | 'toko'
   memberSince   DateTime? @map("member_since")
   totalAcUnits  Int      @default(0) @map("total_ac_units")

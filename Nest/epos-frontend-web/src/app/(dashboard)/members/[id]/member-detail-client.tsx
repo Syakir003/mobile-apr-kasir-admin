@@ -63,6 +63,7 @@ interface MemberDetail {
   name: string;
   phone: string | null;
   address: string | null;
+  mapsUrl?: string | null;
   customerType: string | null;
   priceTier: PriceTier;
   memberSince: string | null;
@@ -158,6 +159,17 @@ export function MemberDetailClient({
           <CardContent className="grid gap-2 text-sm">
             <DetailRow label="No. HP" value={data.phone || '-'} />
             <DetailRow label="Alamat" value={data.address || '-'} />
+            <DetailRow
+              label="Lokasi Maps"
+              value={data.mapsUrl || '-'}
+              valueNode={
+                data.mapsUrl ? (
+                  <a href={data.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                    Buka di Maps
+                  </a>
+                ) : undefined
+              }
+            />
             <DetailRow label="Tipe" value={data.customerType || '-'} />
             {/* Tipe pembeli (2026-10-13) — menentukan harga & hak beli di POS.
                 Berlaku ke transaksi berikutnya; invoice lama tidak berubah. */}
@@ -324,11 +336,11 @@ export function MemberDetailClient({
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value, valueNode }: { label: string; value: string; valueNode?: React.ReactNode }) {
   return (
     <div className="flex justify-between gap-4 border-b py-1.5 last:border-b-0">
       <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium">{value}</span>
+      <span className="text-right font-medium">{valueNode ?? value}</span>
     </div>
   );
 }

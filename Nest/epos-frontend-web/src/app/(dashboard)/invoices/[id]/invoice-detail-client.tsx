@@ -160,7 +160,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
   const sendWaMutation = useMutation({
     mutationFn: () => apiClient.post(`/invoices/${invoiceId}/send-whatsapp`),
     onSuccess: () => {
-      toast.success('Invoice terkirim lewat WhatsApp.');
+      toast.success('Struk terkirim lewat WhatsApp.');
       setWaDialogOpen(false);
     },
     onError: (err) => {
@@ -354,12 +354,11 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
               Fonnte). "Cetak Struk" dipenuhi PrintMenu yang sudah ada. */}
           <div className="grid gap-2">
             {canPay && <Button onClick={() => setPayDialogOpen(true)}>Catat Pembayaran</Button>}
-            {waPhone && (
-              <Button variant="outline" onClick={() => setWaDialogOpen(true)}>
-                <MessageCircle className="size-4" />
-                Kirim WA
-              </Button>
-            )}
+            <Button variant="outline" disabled={!waPhone} onClick={() => setWaDialogOpen(true)}>
+              <MessageCircle className="size-4" />
+              Kirim WA
+            </Button>
+            {!waPhone && <p className="-mt-1 text-xs text-muted-foreground">Isi nomor HP pelanggan dulu untuk kirim WA.</p>}
             <PrintMenu
               invoiceId={data.id}
               serviceOrders={data.serviceOrders}
@@ -511,10 +510,10 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
       <Dialog open={waDialogOpen} onOpenChange={setWaDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Kirim Invoice lewat WhatsApp</DialogTitle>
+            <DialogTitle>Kirim Struk lewat WhatsApp</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Invoice {data.number} akan dikirim ke <span className="font-medium text-foreground">{waPhone}</span>.
+            Struk {data.number} akan dikirim ke <span className="font-medium text-foreground">{waPhone}</span>.
           </p>
           <DialogFooter>
             <Button

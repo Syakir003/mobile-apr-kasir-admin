@@ -5,7 +5,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Minus, Plus, ScanLine, Trash2, X } from 'lucide-react';
+import { ArrowLeft, MapPin, Minus, Plus, ScanLine, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
@@ -100,7 +100,7 @@ interface JobDetail {
   reviewNote: string | null;
   startedAt: string | null;
   completedAt: string | null;
-  member: { id: string; name: string; phone: string | null; address: string | null } | null;
+  member: { id: string; name: string; phone: string | null; address: string | null; mapsUrl?: string | null } | null;
   unit: {
     id: string;
     brand: string | null;
@@ -303,6 +303,11 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
               />
               <DetailRow label="Nomor HP" value={job.member?.phone || '-'} />
               <DetailRow label="Alamat" value={job.member?.address || '-'} />
+              <DetailRow
+                label="Lokasi"
+                value="-"
+                valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
+              />
               <DetailRow
                 label="Unit AC"
                 value={
@@ -628,6 +633,23 @@ function PhotoThumb({ src, label }: { src: string; label: string }) {
         onError={() => setFailed(true)}
         className="size-24 rounded border object-cover transition hover:ring-2 hover:ring-primary/40"
       />
+    </a>
+  );
+}
+
+// Link lokasi: pakai link Google Maps yang diisi admin/kasir (member.mapsUrl, hanya http/https);
+// kalau belum diisi, cari alamat teksnya di Google Maps.
+function MapsLink({ mapsUrl, address }: { mapsUrl: string | null | undefined; address: string | null | undefined }) {
+  const href = mapsUrl && /^https?:\/\//i.test(mapsUrl)
+    ? mapsUrl
+    : address
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
+      : null;
+  if (!href) return <>-</>;
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary underline">
+      <MapPin className="size-3.5" />
+      Buka di Maps
     </a>
   );
 }

@@ -101,9 +101,15 @@ export class ServiceOrdersService {
               dto.customer.name,
               dto.customer.phone,
               dto.customer.address,
+              'retail',
+              dto.customer.mapsUrl,
             )
           ).member;
       if (!member) throw new NotFoundException('Member yang dipilih tidak ditemukan');
+      // Member lama (dipilih / ketemu via HP) belum tentu punya link lokasi: perbarui kalau kasir mengisinya.
+      if (dto.customer.mapsUrl && member.mapsUrl !== dto.customer.mapsUrl) {
+        await tx.member.update({ where: { id: member.id }, data: { mapsUrl: dto.customer.mapsUrl } });
+      }
 
       let unit: { id: string; barcodeValue: string; memberId: string };
       if (dto.existingUnitId) {

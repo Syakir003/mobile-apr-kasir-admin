@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { PRICE_TIERS } from '../../common/price-tier.util';
 import type { PriceTierName } from '../../common/price-tier.util';
 
@@ -19,6 +19,12 @@ export class CreateMemberDto {
   @IsOptional()
   @IsString()
   address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^https?:\/\/\S+$/i, { message: 'Link lokasi harus diawali http:// atau https://' })
+  mapsUrl?: string;
 
   @IsOptional()
   @IsIn(['rumah', 'perusahaan', 'toko'])

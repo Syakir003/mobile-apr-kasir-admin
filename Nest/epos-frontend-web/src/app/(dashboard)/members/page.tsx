@@ -59,6 +59,7 @@ interface MemberRow {
   name: string;
   phone: string | null;
   address: string | null;
+  mapsUrl?: string | null;
   customerType: string | null;
   priceTier: PriceTier;
   memberSince: string | null;
@@ -87,6 +88,10 @@ const createMemberSchema = z.object({
   name: z.string().min(1, 'Nama wajib diisi'),
   phone: z.string().optional(),
   address: z.string().optional(),
+  mapsUrl: z
+    .string()
+    .optional()
+    .refine((v) => !v?.trim() || /^https?:\/\/\S+$/i.test(v.trim()), 'Harus diawali http:// atau https://'),
   customerType: z.enum(['rumah', 'perusahaan', 'toko', '']).optional(),
   // Tipe pembeli (2026-10-13) — menentukan harga & hak beli di POS.
   priceTier: z.enum(['retail', 'installer', 'reseller']),
@@ -96,6 +101,7 @@ const emptyCreateValues: CreateMemberValues = {
   name: '',
   phone: '',
   address: '',
+  mapsUrl: '',
   customerType: '',
   priceTier: 'retail',
 };
@@ -144,6 +150,7 @@ export default function MembersPage() {
         name: values.name.trim(),
         phone: values.phone?.trim() || undefined,
         address: values.address?.trim() || undefined,
+        mapsUrl: values.mapsUrl?.trim() || undefined,
         customerType: values.customerType || undefined,
         priceTier: values.priceTier,
         confirmOverride: values.confirmOverride,
@@ -305,6 +312,19 @@ export default function MembersPage() {
                     <FormLabel>Alamat</FormLabel>
                     <FormControl>
                       <Input placeholder="Opsional" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={createForm.control}
+                name="mapsUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Link Lokasi (Google Maps)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Opsional - tempel link dari Google Maps" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -48,6 +48,7 @@ interface MemberSearchResult {
   name: string;
   phone: string | null;
   address: string | null;
+  mapsUrl?: string | null;
 }
 interface AcUnitRow {
   id: string;
@@ -80,6 +81,10 @@ const intakeSchema = z.object({
   name: z.string().min(1, 'Wajib diisi'),
   phone: z.string().min(1, 'Wajib diisi'),
   address: z.string().optional(),
+  mapsUrl: z
+    .string()
+    .optional()
+    .refine((v) => !v?.trim() || /^https?:\/\/\S+$/i.test(v.trim()), 'Harus diawali http:// atau https://'),
   complaint: z.string().min(1, 'Keluhan wajib diisi'),
   newBrand: z.string().optional(),
   newModel: z.string().optional(),
@@ -125,6 +130,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
     form.setValue('name', m.name, { shouldValidate: true });
     form.setValue('phone', m.phone ?? '', { shouldValidate: true });
     form.setValue('address', m.address ?? '');
+    form.setValue('mapsUrl', m.mapsUrl ?? '');
     setExistingUnitId(undefined);
     setUnitMode('new');
   }
@@ -136,6 +142,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
     form.setValue('name', '');
     form.setValue('phone', '');
     form.setValue('address', '');
+    form.setValue('mapsUrl', '');
   }
 
   const form = useForm<IntakeFormValues>({
@@ -144,6 +151,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
       name: '',
       phone: '',
       address: '',
+      mapsUrl: '',
       complaint: '',
       newBrand: '',
       newModel: '',
@@ -161,6 +169,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
           name: values.name.trim(),
           phone: values.phone.trim(),
           address: trimmedOrUndefined(values.address),
+          mapsUrl: trimmedOrUndefined(values.mapsUrl),
           memberId: selectedMember?.id,
         },
         complaint: values.complaint.trim(),
@@ -252,6 +261,19 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                     <FormLabel>Alamat</FormLabel>
                     <FormControl>
                       <Textarea rows={2} placeholder="Opsional" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="mapsUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Link Lokasi (Google Maps)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Opsional - tempel link dari Google Maps" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -328,6 +328,65 @@ export class ReportsService {
   }
 
   /**
+   * "Masuk dari siapa / keluar ke siapa" per item dalam range tanggal.
+   * Masuk: pemasok batch (barang_masuk) atau alasan mutasi (Opname, dst),
+   * dijumlah per pihak. Keluar: per (tanggal WIB, pihak) — pembeli invoice
+   * (penjualan/instalasi), "Servis: <pelapor>" untuk pemakaian servis, atau
+   * alasan mutasinya. Satu invoice per transaksi (DISTINCT ON) supaya baris
+   * tidak berlipat.
+   */
+  private async movementParties(
+    kind: 'product' | 'sparepart',
+    start: Date,
+    end: Date,
+  ): Promise<Map<string, { masukDari: string; keluarDetail: { tanggal: string; pihak: string; qty: number }[] }>> {
+    const rows = await this.prisma.$queryRaw<{ ref_id: string; masuk: boolean; tgl: string | null; pihak: string; qty: string }[]>`
+      SELECT sm.ref_id, sm.qty_change > 0 AS masuk,
+        CASE WHEN sm.qty_change < 0
+          THEN to_char((sm.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD') END AS tgl,
+        CASE
+          WHEN sm.qty_change > 0 AND sm.reason = 'barang_masuk' THEN COALESCE(NULLIF(ic.supplier_name, ''), 'Tanpa pemasok')
+          WHEN sm.reason IN ('penjualan', 'pemakaian_instalasi') THEN COALESCE(m.name, i.customer_name, 'Umum')
+          WHEN sm.reason IN ('pemakaian_servis', 'selisih_pemakaian', 'pengajuan_tambahan') THEN 'Servis: ' || u.display_name
+          WHEN sm.reason = 'opname' THEN 'Opname'
+          WHEN sm.reason = 'pembatalan_job' THEN 'Pembatalan job'
+          ELSE sm.reason
+        END AS pihak,
+        SUM(ABS(sm.qty_change)) AS qty
+      FROM stock_movements sm
+      LEFT JOIN item_costs ic ON ic.id = sm.item_cost_id
+      LEFT JOIN (SELECT DISTINCT ON (transaction_id) transaction_id, member_id, customer_name
+                 FROM invoices WHERE transaction_id IS NOT NULL ORDER BY transaction_id, created_at) i
+        ON i.transaction_id = sm.transaction_id
+      LEFT JOIN members m ON m.id = i.member_id
+      LEFT JOIN users u ON u.id = sm.created_by
+      WHERE sm.item_kind = ${kind} AND sm.created_at BETWEEN ${start} AND ${end}
+      GROUP BY sm.ref_id, masuk, tgl, pihak
+      ORDER BY tgl DESC NULLS LAST, qty DESC
+    `;
+    const out = new Map<string, { masuk: string[]; keluar: { tgl: string; pihak: string; qty: number }[] }>();
+    for (const r of rows) {
+      const e = out.get(r.ref_id) ?? { masuk: [], keluar: [] };
+      if (r.masuk) e.masuk.push(`${r.pihak} (${Number(r.qty)})`);
+      else e.keluar.push({ tgl: r.tgl ?? '', pihak: r.pihak, qty: Number(r.qty) });
+      out.set(r.ref_id, e);
+    }
+    // Dibatasi supaya baris tabel cetak tidak membengkak untuk item yang laris:
+    // masuk maks 3 pihak, keluar maks 4 baris terbaru, sisanya "+N lainnya".
+    const cap = <T,>(a: T[], n: number) => ({ shown: a.slice(0, n), more: Math.max(0, a.length - n) });
+    const ddmmyy = (iso: string) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}` : '');
+    return new Map(
+      [...out].map(([k, v]) => {
+        const m = cap(v.masuk, 3);
+        const x = cap(v.keluar, 4);
+        const keluarDetail = x.shown.map((e) => ({ tanggal: ddmmyy(e.tgl), pihak: e.pihak, qty: e.qty }));
+        if (x.more) keluarDetail.push({ tanggal: '', pihak: `+${x.more} lainnya`, qty: 0 });
+        return [k, { masukDari: [...m.shown, ...(m.more ? [`+${m.more} lainnya`] : [])].join(', '), keluarDetail }];
+      }),
+    );
+  }
+
+  /**
    * Satu baris per Product AKTIF. Produk sisi Indoor (`pairedProductId`
    * keisi, Point 2) dapet tambahan `unitGabungan` dari `buildStockReportRow`
    * — nama pasangan diambil dari query `pairInfoRows` yang GAK ikut kena
@@ -381,6 +440,7 @@ export class ReportsService {
       GROUP BY su.ref_id
     `;
     const currentMap = new Map(currentRows.map((r) => [r.ref_id, r]));
+    const parties = await this.movementParties('product', start, end);
 
     const salesRows = await this.prisma.$queryRaw<
       { ref_id: string; omzet: string; cogs: string; qty_satuan: string | null }[]
@@ -458,6 +518,8 @@ export class ReportsService {
       );
       // Paket AC Split (2026-09-30) — peran unit + jumlah yang dijual
       // satuan (modal gak dialokasikan), buat ditampilin di laporan.
+      row.masukDari = parties.get(c.id)?.masukDari;
+      row.keluarDetail = parties.get(c.id)?.keluarDetail;
       row.pairRole = c.ac_role === 'indoor' || c.ac_role === 'outdoor' ? c.ac_role : undefined;
       const qtySatuan = Number(sales?.qty_satuan ?? 0);
       if (qtySatuan > 0) row.jualSatuanTanpaModal = qtySatuan;
@@ -543,6 +605,7 @@ export class ReportsService {
       GROUP BY ii.ref_id
     `;
     const salesMap = new Map(salesRows.map((r) => [r.ref_id, r]));
+    const parties = await this.movementParties('sparepart', start, end);
 
     return catalog.map((c) => {
       const agg = movementMap.get(c.id);
@@ -552,7 +615,7 @@ export class ReportsService {
         ? Number(batchAggMap.get(c.id)?.modal ?? 0)
         : Number(c.stock) * Number(avgPriceMap.get(c.id)?.avg_price ?? 0);
 
-      return buildStockReportRow(
+      const row = buildStockReportRow(
         { itemKind: 'sparepart', refId: c.id, name: c.name, unit: c.unit, category: c.category },
         {
           opening: agg?.opening,
@@ -564,6 +627,9 @@ export class ReportsService {
           cogs: sales?.cogs,
         },
       );
+      row.masukDari = parties.get(c.id)?.masukDari;
+      row.keluarDetail = parties.get(c.id)?.keluarDetail;
+      return row;
     });
   }
 }
