@@ -3,10 +3,12 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Printer } from 'lucide-react';
+import { ArrowLeft, Printer, Usb } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { apiClient } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
+import { buildReceiptBytes, printToSerial } from '@/lib/escpos';
 import { Button } from '@/components/ui/button';
 
 interface InvoiceItem {
@@ -56,14 +58,14 @@ const Dash = () => <div className="my-3 border-t border-dashed border-black" />;
 
 function Line({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
   return (
-    <div className="flex justify-between gap-3 py-px">
+    <div className="flex flex-wrap justify-between gap-x-3 py-px">
       <span>{left}</span>
-      <span className="whitespace-nowrap text-right">{right}</span>
+      <span className="ml-auto text-right">{right}</span>
     </div>
   );
 }
 
-// Struk kasir (printer thermal 80mm). Dulu halaman ini replika formulir invoice A4 bercetak.
+// Struk kasir (printer thermal 58mm, area cetak ~48mm). Dulu halaman ini replika formulir invoice A4 bercetak.
 export function InvoicePrintClient({ invoiceId }: { invoiceId: string }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['invoices', invoiceId],
@@ -94,12 +96,57 @@ export function InvoicePrintClient({ invoiceId }: { invoiceId: string }) {
   if (transport > 0) extras.push({ key: 'transport', label: 'Biaya transport', value: formatRupiah(transport) });
   if (tambahan !== 0) extras.push({ key: 'tambahan', label: 'Tambahan sparepart', value: formatRupiah(tambahan) });
 
-  return (
-    <div className="mx-auto w-[80mm] max-w-full">
-      {/* Kertas thermal 80mm, tinggi mengikuti isi. Untuk printer 58mm ganti 80mm -> 58mm. */}
-      <style>{'@page { size: 80mm auto; margin: 3mm; } @media print { body { background: #fff; } }'}</style>
+  // Cetak langsung ke printer thermal (ESC/POS lewat Web Serial), tanpa dialog cetak/driver Windows.
+  async function printThermal() {
+    if (!data) return;
+    try {
+      const bytes = buildReceiptBytes({
+        header: [
+          'Penjualan - Service - Spare Part - Rental AC',
+          'JL. GUNUNG ANYAR RT. 01 RW. 06',
+          'KEL. GUNUNG GEDANGAN - MOJOKERTO',
+          'Telp. 0857 332 7112 - 0822 3388 9990',
+          '0321 - 325831',
+        ],
+        meta: [
+          ['No', data.number],
+          ['Tanggal', formatDateTime(data.createdAt)],
+          ...(data.customerName ? [['Pelanggan', data.customerName] as [string, string]] : []),
+          ...(data.customerPhone ? [['Telp', data.customerPhone] as [string, string]] : []),
+        ],
+        alamat: data.member?.address ?? undefined,
+        items: data.items.map((item) => ({
+          name: `${item.name}${item.kind === 'product' && Number(item.lineTotal) === 0 ? ' (termasuk paket)' : ''}`,
+          qty: `${trimZero(item.qty)}${item.unit ? ` ${item.unit}` : ''} x ${formatRupiah(item.unitPrice)}`,
+          total: formatRupiah(item.lineTotal),
+        })),
+        extras: extras.map((e) => [e.label, e.value]),
+        total: formatRupiah(grand),
+        lunas: data.status === 'lunas',
+        pembayaran: paid > 0 ? [[data.status === 'dp' ? 'DP' : 'Dibayar', formatRupiah(paid)], ['SISA TAGIHAN', formatRupiah(sisa)]] : [],
+        notes: data.notes ?? undefined,
+        footer: [
+          '* Barang yang sudah dibeli tidak dapat ditukar atau dikembalikan.',
+          '* Transfer ke Rek. ANDRIAS WARDOYO BCA 0501826391',
+          '* Jangan memberi tip kepada petugas kami.',
+          '* Suara Konsumen 082233889990.',
+          'TERIMA KASIH',
+        ],
+      });
+      await printToSerial(bytes);
+      toast.success('Struk dikirim ke printer.');
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'NotFoundError') return; // dialog pilih port dibatalkan
+      toast.error(err instanceof Error ? err.message : 'Gagal mencetak ke printer thermal.');
+    }
+  }
 
-      <div className="mb-4 flex items-center justify-between print:hidden">
+  return (
+    <div className="mx-auto max-w-full">
+      {/* Kertas thermal 58mm (area cetak ~48mm, margin kiri-kanan 5mm), tinggi mengikuti isi. Untuk printer 80mm: lebar 72mm, margin 3mm. */}
+      <style>{'@page { size: 58mm auto; margin: 3mm 5mm; } @media print { body { background: #fff; } .struk-sheet { zoom: 1 !important; } }'}</style>
+
+      <div className="mx-auto mb-4 flex max-w-md flex-wrap items-center justify-between gap-2 print:hidden">
         <Button variant="ghost" asChild>
           <Link href="/pos">
             <ArrowLeft className="size-4" />
@@ -110,16 +157,24 @@ export function InvoicePrintClient({ invoiceId }: { invoiceId: string }) {
           <Printer className="size-4" />
           Cetak Struk
         </Button>
+        <Button variant="outline" onClick={printThermal}>
+          <Usb className="size-4" />
+          Cetak ke Thermal
+        </Button>
       </div>
 
-      <div className="bg-white p-2 font-mono text-[12px] leading-relaxed text-black shadow print:p-0 print:shadow-none">
+      {/* Di layar diperbesar 1.5x supaya terbaca; saat cetak kembali ke ukuran asli 48mm. */}
+      <div
+        className="struk-sheet mx-auto w-[48mm] max-w-full bg-white p-2 font-mono text-[11px] leading-relaxed text-black shadow print:p-0 print:shadow-none"
+        style={{ zoom: 1.5 }}
+      >
         <div className="space-y-0.5 text-center">
           {/* Logo diproses hitam-putih berkontras supaya tegas di printer thermal. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/logo-apr-hd.png"
             alt="APR"
-            className="mx-auto mb-2 h-auto w-[30mm]"
+            className="mx-auto mb-2 h-auto w-[24mm]"
             style={{ filter: 'grayscale(1) contrast(1.8)' }}
           />
           <p className="text-lg tracking-wide">AYUB AC</p>
@@ -146,10 +201,11 @@ export function InvoicePrintClient({ invoiceId }: { invoiceId: string }) {
                 {item.name}
                 {included ? ' (termasuk paket)' : ''}
               </p>
-              <Line
-                left={`${trimZero(item.qty)}${item.unit ? ` ${item.unit}` : ''} x ${formatRupiah(item.unitPrice)}`}
-                right={formatRupiah(item.lineTotal)}
-              />
+              <p>
+                {trimZero(item.qty)}
+                {item.unit ? ` ${item.unit}` : ''} x {formatRupiah(item.unitPrice)}
+              </p>
+              <p className="text-right">{formatRupiah(item.lineTotal)}</p>
             </div>
           );
         })}
