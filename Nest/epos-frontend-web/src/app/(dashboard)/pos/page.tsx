@@ -78,6 +78,9 @@ interface Product {
   // BARU (Paket AC Split, 2026-09-30) — peran unit AC, nentuin tab Indoor/
   // Outdoor. Null = belum ditentukan (produk lama), tampil di tab Semua.
   acRole: 'indoor' | 'outdoor' | null;
+  // Harga Ritel saat Indoor/Outdoor dijual SATUAN dari paket (opsional, Master
+  // Produk). null/0 = belum diisi -> kasir wajib mengetik.
+  priceSingle: string | null;
 }
 interface Sparepart {
   id: string;
@@ -170,6 +173,9 @@ interface CartLine {
   // selama unitPrice masih 0, dan buat validasi blokir submit checkout
   // (lihat hasUnpricedLine).
   priceNeedsInput?: boolean;
+  // Unit satuan dari paket (Indoor saja / Outdoor saja): harga awal dari Harga
+  // Satuan Ritel produk (kalau ada); Installer/Reseller selalu diisi kasir.
+  singleUnit?: boolean;
   // Tipe pembeli (2026-10-13) — true = harga baris ini dari katalog (ikut
   // berubah kalau tipe pembeli berganti). false/kosong = harga manual murni
   // (unit satuan dari paket, Outdoor pasangan Split).
@@ -357,6 +363,10 @@ export default function PosPage() {
   }
   // Produk: harga tipe kosong = kasir wajib isi manual. Unit ber-peran tanpa
   // harga jual (mis. Outdoor yang Indoor-nya nonaktif) juga wajib diisi.
+  function singleUnitPrice(p: Product, t: PriceTier = tier): number | null {
+    const v = Number(p.priceSingle);
+    return t === 'retail' && Number.isFinite(v) && v > 0 ? v : null;
+  }
   function productNeedsInput(p: Product, price: number | null): true | undefined {
     return price === null || (p.acRole != null && price <= 0) ? true : undefined;
   }
@@ -382,7 +392,14 @@ export default function PosPage() {
       }
       let line: CartLine =
         next !== 'retail' ? { ...l, withInstallation: false, packageId: undefined, roomLocation: '' } : l;
-      if (line.catalogPriced && line.kind === 'product') {
+      if (line.singleUnit && line.kind === 'product') {
+        // Harga satuan cuma untuk Ritel: ganti tipe -> isi ulang / kosongkan,
+        // kecuali kasir sudah mengubah harganya sendiri.
+        if (!line.priceEdited) {
+          const p = products.find((x) => x.id === line.refId);
+          line = { ...line, unitPrice: p ? (singleUnitPrice(p, next) ?? 0) : 0 };
+        }
+      } else if (line.catalogPriced && line.kind === 'product') {
         const p = products.find((x) => x.id === line.refId);
         if (p) {
           const price = productPrice(p, next);
@@ -530,13 +547,14 @@ export default function PosPage() {
       refId: outdoorProduct.id,
       name: outdoorProduct.name,
       unit: 'unit',
-      unitPrice: 0,
+      unitPrice: singleUnitPrice(outdoorProduct) ?? 0,
       qty: 1,
       availableStock: outdoorProduct.stock,
       withInstallation: false,
       roomLocation: '',
       packageId: undefined,
       priceNeedsInput: true,
+      singleUnit: true,
     });
   }
 
@@ -555,13 +573,14 @@ export default function PosPage() {
       refId: indoorProduct.id,
       name: indoorProduct.name,
       unit: 'unit',
-      unitPrice: 0,
+      unitPrice: singleUnitPrice(indoorProduct) ?? 0,
       qty: 1,
       availableStock: indoorProduct.stock,
       withInstallation: false,
       roomLocation: '',
       packageId: undefined,
       priceNeedsInput: true,
+      singleUnit: true,
     });
   }
 

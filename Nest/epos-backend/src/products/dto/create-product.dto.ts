@@ -34,4 +34,8 @@ export class CreateProductDto {
   // kosongkan (tipe itu jadi tidak bisa membeli produk ini).
   @IsOptional() @IsNumber() @Min(0) priceInstaller?: number | null;
   @IsOptional() @IsNumber() @Min(0) priceReseller?: number | null;
+
+  // Harga Ritel saat dijual SATUAN dari paket AC (Indoor saja / Outdoor saja).
+  // Opsional; `null` = kosongkan (kasir wajib mengetik harga di POS).
+  @IsOptional() @IsNumber() @Min(0) priceSingle?: number | null;
 }

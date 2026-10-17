@@ -206,10 +206,18 @@ export class PosService {
         const productRefIds = [...new Set(dto.items.filter((i) => i.kind === 'product').map((i) => i.refId))];
         const pairInfo = new Map<string, ProductPairInfo>();
         const productNames = new Map<string, string>();
+        // Harga satuan Ritel (Master Produk) buat Indoor/Outdoor yang dijual sendiri.
+        const singlePriceById = new Map<string, number>();
         if (productRefIds.length > 0) {
           const selfRows = await tx.product.findMany({
             where: { id: { in: productRefIds } },
-            select: { id: true, name: true, pairedProductId: true, pairedProduct: { select: { name: true } } },
+            select: {
+              id: true,
+              name: true,
+              pairedProductId: true,
+              priceSingle: true,
+              pairedProduct: { select: { name: true } },
+            },
           });
           const indoorOfRows = await tx.product.findMany({
             where: { pairedProductId: { in: productRefIds } },
@@ -217,6 +225,7 @@ export class PosService {
           });
           for (const r of selfRows) {
             productNames.set(r.id, r.name);
+            if (r.priceSingle !== null && Number(r.priceSingle) > 0) singlePriceById.set(r.id, Number(r.priceSingle));
             if (r.pairedProductId && r.pairedProduct) productNames.set(r.pairedProductId, r.pairedProduct.name);
             pairInfo.set(r.id, { pairedProductId: r.pairedProductId, pairedIndoorId: null });
           }
@@ -255,16 +264,22 @@ export class PosService {
         });
 
         const singleUnitIndexes = new Set(findSingleUnitLineIndexes(dto.items, pairInfo));
-        // Unit satuan dari paket gak punya harga baku: harga WAJIB diisi
-        // eksplisit (> 0). Tanpa ini, Indoor saja bisa kejual pakai harga
-        // paket penuh atau Outdoor saja Rp0 kalau client gak ngirim override.
+        // Unit satuan dari paket: harga WAJIB jelas (> 0), dari kasir
+        // (override) ATAU dari Harga Satuan Ritel di Master Produk. Tanpa ini,
+        // Indoor saja bisa kejual pakai harga paket penuh atau Outdoor saja
+        // Rp0. Harga Satuan cuma ada untuk Ritel; Installer/Reseller tetap
+        // diisi kasir.
+        const singleDbPrice = new Map<number, number>();
         for (const idx of singleUnitIndexes) {
           const it = dto.items[idx];
-          if (!(it.unitPriceOverride !== undefined && it.unitPriceOverride > 0)) {
+          if (it.unitPriceOverride !== undefined && it.unitPriceOverride > 0) continue;
+          const dbPrice = isNonRetail(tier) ? undefined : singlePriceById.get(it.refId);
+          if (dbPrice === undefined) {
             throw new BadRequestException(
-              `Harga jual ${productNames.get(it.refId) ?? 'unit satuan'} wajib diisi (unit satuan dari paket tidak punya harga baku)`,
+              `Harga jual ${productNames.get(it.refId) ?? 'unit satuan'} wajib diisi (belum ada Harga Satuan di Master Produk)`,
             );
           }
+          singleDbPrice.set(idx, dbPrice);
         }
 
         const priced = new Map<
@@ -285,7 +300,9 @@ export class PosService {
             // Harga dasar: Ritel = Product.sellPrice; Installer/Reseller =
             // tier_prices (wajib sudah diisi, kecuali harganya di-override).
             let unitPrice: number;
+            const itemIdx = dto.items.indexOf(item);
             if (item.pairedWithItemIndex !== undefined) unitPrice = 0;
+            else if (singleDbPrice.has(itemIdx)) unitPrice = singleDbPrice.get(itemIdx)!;
             else if (item.unitPriceOverride !== undefined) unitPrice = item.unitPriceOverride;
             else if (isNonRetail(tier)) {
               unitPrice = resolveTierUnitPrice(

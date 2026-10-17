@@ -170,6 +170,10 @@ model Product {
   // kayak `kind='sparepart'` yang emang dari awal gak pernah pakai kolom
   // itu (lihat komentar di model ItemCost).
   sellPrice   Decimal  @map("sell_price") @db.Decimal(14, 2)
+  // Harga jual Ritel kalau unit ini dijual SATUAN dari paket AC (Indoor saja /
+  // Outdoor saja). Opsional: NULL/0 = belum diisi, kasir wajib mengetik harga.
+  // Untuk Indoor berpasangan, sellPrice = harga PAKET (1 unit lengkap).
+  priceSingle Decimal? @map("price_single") @db.Decimal(14, 2)
   photoUrl    String?  @map("photo_url")
   description String?
   category    String?
