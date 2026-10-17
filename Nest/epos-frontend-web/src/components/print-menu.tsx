@@ -43,7 +43,7 @@ export function PrintMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem asChild>
-          <Link href={`/invoices/${invoiceId}/print`}>Cetak Invoice</Link>
+          <Link href={`/invoices/${invoiceId}/print`}>Cetak Struk</Link>
         </DropdownMenuItem>
         {order && (
           <DropdownMenuItem asChild>

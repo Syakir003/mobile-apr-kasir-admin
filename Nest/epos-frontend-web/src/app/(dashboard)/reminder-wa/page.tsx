@@ -22,7 +22,7 @@ interface WaTemplateRow {
 }
 
 const TEMPLATE_META: Record<string, { title: string; hint: string }> = {
-  invoice: { title: 'Invoice', hint: 'Dikirim saat tombol "Kirim WA" di halaman detail invoice diklik.' },
+  invoice: { title: 'Struk', hint: 'Dikirim saat tombol "Kirim WA" di halaman detail invoice diklik.' },
   selesai_servis: { title: 'Selesai servis', hint: 'Dikirim otomatis begitu admin menyetujui job servis selesai.' },
   reminder_h3: { title: 'Pengingat 3 hari sebelum jatuh tempo', hint: 'Dikirim otomatis pukul 09.00 WIB.' },
   reminder_h7: { title: 'Pengingat 7 hari setelah jatuh tempo', hint: 'Dikirim otomatis pukul 09.00 WIB bila AC belum diservis.' },
