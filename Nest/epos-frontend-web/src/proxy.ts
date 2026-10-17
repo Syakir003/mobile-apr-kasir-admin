@@ -38,7 +38,8 @@ const ROLE_PREFIXES: Array<{ prefix: string; roles: Role[] }> = [
   { prefix: '/stock', roles: ['admin', 'gudang'] },
 ];
 
-const PUBLIC_PATHS = ['/login'];
+// '/struk' = tautan struk untuk pelanggan (halaman publik berbasis token acak, tanpa login).
+const PUBLIC_PATHS = ['/login', '/struk'];
 
 // Next.js 16: file & fungsi ini WAJIB bernama 'proxy' (bukan 'middleware'
 // lagi) — nama lama masih jalan tapi deprecated. Isinya tetap sama persis:

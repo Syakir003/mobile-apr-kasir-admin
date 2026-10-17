@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
 import { InvoicesController } from './invoices.controller';
+import { PublicReceiptController } from './public-receipt.controller';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { RemindersModule } from '../reminders/reminders.module';
 
@@ -9,7 +10,7 @@ import { RemindersModule } from '../reminders/reminders.module';
   // RemindersModule: RemindersService.renderTemplate() — redaksi pesan
   // invoice sekarang ikut bisa diedit admin lewat template ke-4 ('invoice').
   imports: [WhatsappModule, RemindersModule],
-  controllers: [InvoicesController],
+  controllers: [InvoicesController, PublicReceiptController],
   providers: [InvoicesService],
   exports: [InvoicesService],
 })
