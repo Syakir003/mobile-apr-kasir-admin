@@ -231,6 +231,64 @@ export class ProductsService {
   }
 
   /**
+   * Daftar unit fisik (StockUnit) produk — satu baris per unit dengan kode &
+   * token QR-nya, plus supplier & tanggal masuk dari batch asalnya. Dipakai
+   * tampilan "Per Unit" di halaman detail produk. `includePair` ikut
+   * menyertakan unit produk pasangannya (Indoor <-> Outdoor), sama seperti
+   * findBatches. Default hanya unit yang masih di gudang.
+   */
+  async findUnits(
+    productId: string,
+    includePair = false,
+    status: 'di_gudang' | 'reserved' | 'keluar' | 'semua' = 'di_gudang',
+  ) {
+    const product = await this.prisma.product.findUnique({ where: { id: productId } });
+    if (!product) throw new NotFoundException('Produk tidak ditemukan');
+
+    const refIds = [productId];
+    if (includePair) {
+      if (product.pairedProductId) {
+        refIds.push(product.pairedProductId);
+      } else {
+        const indoor = await this.prisma.product.findFirst({
+          where: { pairedProductId: productId },
+          select: { id: true },
+        });
+        if (indoor) refIds.push(indoor.id);
+      }
+    }
+
+    const units = await this.prisma.stockUnit.findMany({
+      where: { refId: { in: refIds }, ...(status === 'semua' ? {} : { status }) },
+      select: {
+        id: true,
+        unitCode: true,
+        qrToken: true,
+        status: true,
+        refId: true,
+        itemCostId: true,
+        product: { select: { name: true, acRole: true } },
+        itemCost: { select: { supplierName: true, createdAt: true, pairGroupId: true } },
+      },
+      orderBy: [{ itemCost: { createdAt: 'asc' } }, { unitCode: 'asc' }],
+    });
+
+    return units.map((u) => ({
+      id: u.id,
+      unitCode: u.unitCode,
+      qrToken: u.qrToken,
+      status: u.status,
+      refId: u.refId,
+      unitName: u.product.name,
+      unitRole: u.product.acRole,
+      batchId: u.itemCostId,
+      pairGroupId: u.itemCost.pairGroupId,
+      supplierName: u.itemCost.supplierName,
+      receivedAt: u.itemCost.createdAt,
+    }));
+  }
+
+  /**
    * Edit produk setelah dibuat — gap yang ditemukan di audit migrasi (dulu
    * sama sekali gak ada endpoint update, harga salah ketik gak bisa
    * dibetulin). `stock`/`sellPrice` sengaja bukan bagian dari

@@ -43,6 +43,20 @@ export class ProductsController {
     return this.products.findBatches(id, includePair === '1' || includePair === 'true', user.role === 'admin');
   }
 
+  // Daftar unit fisik + QR (tampilan "Per Unit" di detail produk). Token QR
+  // hanya untuk admin & gudang, sama seperti cetak label.
+  @Roles('admin', 'gudang')
+  @Get(':id/units')
+  findUnits(
+    @Param('id') id: string,
+    @Query('includePair') includePair?: string,
+    @Query('status') status?: string,
+  ) {
+    const allowed = ['di_gudang', 'reserved', 'keluar', 'semua'] as const;
+    const picked = allowed.find((s) => s === status) ?? 'di_gudang';
+    return this.products.findUnits(id, includePair === '1' || includePair === 'true', picked);
+  }
+
   @Roles('admin')
   @Patch(':id')
   update(

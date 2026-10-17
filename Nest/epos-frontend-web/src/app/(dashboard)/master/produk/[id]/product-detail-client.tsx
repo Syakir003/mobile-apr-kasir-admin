@@ -15,6 +15,15 @@ import { formatDate, formatRupiah } from '@/lib/format';
 import { requiredNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { BarcodeQr } from '@/components/barcode-qr';
+import { PaginationFooter, SearchBox, useListView } from '@/components/master-data/list-controls';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
 import { Textarea } from '@/components/ui/textarea';
@@ -79,6 +88,27 @@ interface ProductBatch {
   stock: number;
   createdAt: string;
 }
+
+// Satu unit fisik (StockUnit) — dari GET /products/:id/units, buat tampilan "Per Unit".
+interface ProductUnit {
+  id: string;
+  unitCode: string;
+  qrToken: string;
+  status: 'di_gudang' | 'reserved' | 'keluar';
+  refId: string;
+  unitName: string;
+  unitRole: 'indoor' | 'outdoor' | null;
+  batchId: string;
+  pairGroupId: string | null;
+  supplierName: string | null;
+  receivedAt: string;
+}
+
+const UNIT_STATUS_LABEL: Record<ProductUnit['status'], string> = {
+  di_gudang: 'Di gudang',
+  reserved: 'Dipesan invoice',
+  keluar: 'Sudah keluar',
+};
 
 // Bentuk respons POST /stock/in — HTTP 200 walaupun butuh konfirmasi
 // (below-cost), bukan error.
@@ -179,6 +209,9 @@ export function ProductDetailClient({ productId }: { productId: string }) {
     queryFn: () => apiClient.get<Product>(`/products/${product!.pairedProductId}`),
     enabled: !!product?.pairedProductId,
   });
+
+  // Tampilan stok: per batch (bawaan, dikelompokkan per barang masuk) atau per unit (daftar tiap QR).
+  const [view, setView] = React.useState<'batch' | 'unit'>('batch');
 
   const batchesQuery = useQuery({
     queryKey: ['product-batches', productId],
@@ -360,15 +393,41 @@ export function ProductDetailClient({ productId }: { productId: string }) {
       <div className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Batch Aktif</CardTitle>
-            <CardDescription>
-              {isPackage || packageIndoor
-                ? 'Stok per unit dari tiap barang masuk. Barang masuk paket nampil sekelompok (Indoor & Outdoor), modalnya 1 angka per paket. Tiap unit punya QR sendiri buat stok gudang.'
-                : 'Daftar batch aktif (stok > 0). Tiap batch punya harga modal sendiri - harga jual udah seragam (lihat badge di atas), diatur lewat Master Data Produk.'}
-            </CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-base">{view === 'unit' ? 'Daftar Unit (per QR)' : 'Batch Aktif'}</CardTitle>
+                <CardDescription>
+                  {view === 'unit'
+                    ? 'Satu baris = satu unit fisik, lengkap dengan QR, kode unit, supplier, dan tanggal masuknya. Cocok untuk mencari atau mencetak satu unit tertentu.'
+                    : isPackage || packageIndoor
+                      ? 'Stok per unit dari tiap barang masuk. Barang masuk paket nampil sekelompok (Indoor & Outdoor), modalnya 1 angka per paket. Tiap unit punya QR sendiri buat stok gudang.'
+                      : 'Daftar batch aktif (stok > 0). Tiap batch punya harga modal sendiri - harga jual udah seragam (lihat badge di atas), diatur lewat Master Data Produk.'}
+                </CardDescription>
+              </div>
+              <div className="flex shrink-0 rounded-md border p-0.5" role="group" aria-label="Tampilan stok">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={view === 'batch' ? 'default' : 'ghost'}
+                  onClick={() => setView('batch')}
+                >
+                  Per Batch
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={view === 'unit' ? 'default' : 'ghost'}
+                  onClick={() => setView('unit')}
+                >
+                  Per Unit
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            {batchesQuery.isLoading ? (
+            {view === 'unit' ? (
+              <UnitStockList productId={productId} showRole={isPackage || !!packageIndoor} />
+            ) : batchesQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Memuat batch...</p>
             ) : batchGroups.length === 0 ? (
               <p className="text-sm text-muted-foreground">
@@ -624,6 +683,123 @@ export function ProductDetailClient({ productId }: { productId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/** Tampilan "Per Unit": tabel semua unit fisik (QR, kode, unit, supplier, tanggal masuk, status),
+ * bisa dicari, disaring per jenis unit & status, dan dibagi per halaman (25 baris). */
+function UnitStockList({ productId, showRole }: { productId: string; showRole: boolean }) {
+  const [status, setStatus] = React.useState<'di_gudang' | 'reserved' | 'keluar' | 'semua'>('di_gudang');
+  const [role, setRole] = React.useState<'all' | 'indoor' | 'outdoor'>('all');
+
+  const unitsQuery = useQuery({
+    queryKey: ['product-units', productId, status],
+    queryFn: () => apiClient.get<ProductUnit[]>(`/products/${productId}/units?includePair=1&status=${status}`),
+  });
+
+  const byRole = React.useMemo(
+    () => (unitsQuery.data ?? []).filter((u) => role === 'all' || u.unitRole === role),
+    [unitsQuery.data, role],
+  );
+  const list = useListView(byRole, (u) => `${u.unitCode} ${u.unitName} ${u.supplierName ?? ''}`);
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchBox value={list.search} onChange={list.setSearch} placeholder="Cari kode unit atau supplier..." />
+        <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
+          <SelectTrigger className="w-44" aria-label="Filter status unit">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="di_gudang">Di gudang</SelectItem>
+            <SelectItem value="reserved">Dipesan invoice</SelectItem>
+            <SelectItem value="keluar">Sudah keluar</SelectItem>
+            <SelectItem value="semua">Semua status</SelectItem>
+          </SelectContent>
+        </Select>
+        {showRole && (
+          <Select value={role} onValueChange={(v) => setRole(v as typeof role)}>
+            <SelectTrigger className="w-36" aria-label="Filter jenis unit">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Indoor + Outdoor</SelectItem>
+              <SelectItem value="indoor">Indoor saja</SelectItem>
+              <SelectItem value="outdoor">Outdoor saja</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      {unitsQuery.isLoading ? (
+        <p className="text-sm text-muted-foreground">Memuat unit...</p>
+      ) : unitsQuery.isError ? (
+        <p className="text-sm text-destructive">Gagal memuat daftar unit.</p>
+      ) : list.total === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {list.search ? 'Tidak ada unit yang cocok dengan pencarian.' : 'Belum ada unit dengan status ini.'}
+        </p>
+      ) : (
+        <>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>QR</TableHead>
+                  <TableHead>Kode Unit</TableHead>
+                  {showRole && <TableHead>Unit</TableHead>}
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Masuk</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Label</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {list.pageItems.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell>
+                      <BarcodeQr value={u.qrToken} size={48} />
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{u.unitCode}</TableCell>
+                    {showRole && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{roleLabel(u.unitRole)}</Badge>
+                          <span className="text-sm">{u.unitName}</span>
+                        </div>
+                      </TableCell>
+                    )}
+                    <TableCell className="text-muted-foreground">{u.supplierName || '-'}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(u.receivedAt)}</TableCell>
+                    <TableCell>
+                      <Badge variant={u.status === 'di_gudang' ? 'success' : u.status === 'reserved' ? 'warning' : 'secondary'}>
+                        {UNIT_STATUS_LABEL[u.status]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href={`/stock/batches/${u.batchId}/print-labels`}>
+                          <QrCode className="size-4" />
+                          Cetak
+                        </Link>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <PaginationFooter
+            page={list.page}
+            totalPages={list.totalPages}
+            total={list.total}
+            noun="unit"
+            onPage={list.setPage}
+          />
+        </>
+      )}
     </div>
   );
 }
