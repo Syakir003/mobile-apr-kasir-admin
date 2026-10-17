@@ -780,9 +780,9 @@ function UnitStockList({ productId, showRole }: { productId: string; showRole: b
                     </TableCell>
                     <TableCell className="text-right">
                       <Button variant="outline" size="sm" asChild>
-                        <Link href={`/stock/batches/${u.batchId}/print-labels`}>
+                        <Link href={`/stock/batches/${u.batchId}/print-labels?unit=${u.id}`}>
                           <QrCode className="size-4" />
-                          Cetak
+                          Cetak unit ini
                         </Link>
                       </Button>
                     </TableCell>
