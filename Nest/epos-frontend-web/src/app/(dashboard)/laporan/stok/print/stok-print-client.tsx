@@ -107,10 +107,19 @@ export function StokPrintClient({
             className="stok-print bg-white p-2 text-black"
             style={isLast ? undefined : { breakAfter: 'page', pageBreakAfter: 'always' }}
           >
-            <div className="border-b-2 border-black pb-2 text-center">
-              <p className="text-xl font-bold tracking-wide">AYUB AC</p>
-              <p className="text-base font-semibold">Laporan Stok - {g.label}</p>
+            {/* Kop surat: logo + identitas toko, garis tebal, lalu judul laporan. */}
+            <div className="flex items-center gap-4 border-b-2 border-black pb-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-apr-hd.png" alt="APR" className="h-auto w-24 shrink-0" />
+              <div className="flex-1 text-center">
+                <p className="text-2xl font-bold tracking-wide">AYUB AC</p>
+                <p className="text-[11px]">Penjualan • Service • Spare Part • Rental AC</p>
+                <p className="text-[11px]">JL. GUNUNG ANYAR RT. 01 RW. 06, KEL. GUNUNG GEDANGAN - MOJOKERTO</p>
+                <p className="text-[11px]">Telp. 0857 332 7112 - 0822 3388 9990 - 0321 - 325831</p>
+              </div>
+              <div className="w-24 shrink-0" aria-hidden />
             </div>
+            <p className="mt-2 text-center text-lg font-bold uppercase tracking-wide">Laporan Stok - {g.label}</p>
             <div className="mt-1.5 flex justify-between text-[11px]">
               <p>
                 Periode:{' '}
