@@ -513,7 +513,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
             <DialogTitle>Kirim Struk lewat WhatsApp</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Struk {data.number} akan dikirim ke <span className="font-medium text-foreground">{waPhone}</span>.
+            Pesan berisi tautan untuk melihat struk {data.number} akan dikirim ke <span className="font-medium text-foreground">{waPhone}</span>.
           </p>
           <DialogFooter>
             <Button

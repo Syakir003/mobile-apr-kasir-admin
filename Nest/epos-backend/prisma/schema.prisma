@@ -588,6 +588,8 @@ enum InvoiceStatus {
 model Invoice {
   id            String        @id @default(uuid())
   number        String        @unique
+  // Token acak untuk tautan struk publik /struk/<token> (diisi saat pertama kali dikirim lewat WA).
+  publicToken   String?       @unique @map("public_token")
   transactionId String?       @map("transaction_id")
   transaction   Transaction?  @relation(fields: [transactionId], references: [id])
   memberId      String?       @map("member_id")

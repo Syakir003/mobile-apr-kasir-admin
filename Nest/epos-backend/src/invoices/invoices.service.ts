@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
@@ -155,14 +156,24 @@ export class InvoicesService {
       .join('\n');
     // Redaksi udah bisa diedit admin lewat halaman "Pengingat WA" -> tab
     // "Template Pesan" (kind='invoice') — lihat RemindersService.renderTemplate().
-    const message = await this.reminders.renderTemplate('invoice', {
+    const base = process.env.PUBLIC_APP_URL?.trim().replace(/\/+$/, '');
+    if (!base) {
+      throw new BadRequestException(
+        'PUBLIC_APP_URL belum diisi di .env backend (alamat web, mis. https://app.contoh.com), dibutuhkan untuk tautan struk',
+      );
+    }
+    const link = `${base}/struk/${await this.ensurePublicToken(invoice.id)}`;
+    let message = await this.reminders.renderTemplate('invoice', {
       nama,
       nomor: invoice.number,
       tanggal: formatTanggalId(wibDateOnly(invoice.createdAt)),
       item: itemLines,
       total: formatRupiah(invoice.grandTotal),
       status: invoiceStatusLabel(invoice.status),
+      link,
     });
+    // Template yang pernah diedit admin bisa tanpa {link}: tautan tetap harus ikut terkirim.
+    if (!message.includes(link)) message += `\n\nLihat struk: ${link}`;
 
     return this.whatsapp.sendInvoiceMessage({
       invoiceId: invoice.id,
@@ -171,6 +182,47 @@ export class InvoicesService {
       message,
       actorId,
     });
+  }
+
+  /** Token tautan struk publik; dibuat sekali, dipakai ulang di kirim berikutnya. */
+  async ensurePublicToken(invoiceId: string): Promise<string> {
+    const read = () => this.prisma.invoice.findUnique({ where: { id: invoiceId }, select: { publicToken: true } });
+    const existing = (await read())?.publicToken;
+    if (existing) return existing;
+    const token = randomBytes(24).toString('base64url'); // 192 bit, 32 karakter
+    const claimed = await this.prisma.invoice.updateMany({
+      where: { id: invoiceId, publicToken: null },
+      data: { publicToken: token },
+    });
+    return claimed.count === 1 ? token : (await read())!.publicToken!;
+  }
+
+  /**
+   * Struk untuk halaman publik /struk/<token> (tanpa login). Sengaja HANYA field yang tampil di struk:
+   * tanpa nomor HP, alamat, catatan internal, id, atau harga beli. Token salah/format aneh = 404 yang sama.
+   */
+  async findPublicReceipt(token: string) {
+    if (!/^[A-Za-z0-9_-]{32}$/.test(token)) throw new NotFoundException('Struk tidak ditemukan');
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { publicToken: token },
+      select: {
+        number: true,
+        customerName: true,
+        subtotal: true,
+        discount: true,
+        taxPercent: true,
+        taxAmount: true,
+        transportFee: true,
+        grandTotal: true,
+        totalPaid: true,
+        status: true,
+        createdAt: true,
+        items: { select: { kind: true, name: true, unit: true, qty: true, unitPrice: true, lineTotal: true } },
+        adjustments: { select: { reason: true, requestId: true } },
+      },
+    });
+    if (!invoice) throw new NotFoundException('Struk tidak ditemukan');
+    return invoice;
   }
 
   /**

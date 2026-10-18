@@ -27,7 +27,7 @@ type TemplateKind = (typeof TEMPLATE_KINDS)[number];
 // {item}/{total}/{status} (belum tentu ada invoice yang relevan). Validasi
 // saveTemplates() nolak placeholder yang gak ada di daftar kind-nya sendiri.
 const PLACEHOLDERS_BY_KIND: Record<TemplateKind, string[]> = {
-  invoice: ['nama', 'nomor', 'tanggal', 'item', 'total', 'status'],
+  invoice: ['nama', 'nomor', 'tanggal', 'item', 'total', 'status', 'link'],
   selesai_servis: ['nama', 'unit', 'tanggal'],
   reminder_h3: ['nama', 'unit', 'tanggal'],
   reminder_h7: ['nama', 'unit', 'tanggal'],
@@ -46,6 +46,7 @@ const DEFAULT_TEMPLATES: Record<TemplateKind, string> = {
     '{item}\n\n' +
     'Total: {total}\n' +
     'Status: {status}\n\n' +
+    'Lihat struk Anda di sini:\n{link}\n\n' +
     'Terima kasih sudah mempercayakan AC Anda kepada kami.\n\n— Ayub Podo Rukun',
   selesai_servis:
     'Halo {nama}, pekerjaan AC Anda sudah selesai:\n{unit}\n\n' +
