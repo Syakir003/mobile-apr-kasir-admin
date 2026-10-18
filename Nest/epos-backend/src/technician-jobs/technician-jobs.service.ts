@@ -648,6 +648,47 @@ export class TechnicianJobsService {
   }
 
   /**
+   * "Kirim Temuan" (teknisi): menandai temuan sudah diinput, supaya kasir & admin
+   * segera menetapkan tindakan + harga jasa. Notifikasi dikirim controller.
+   * Boleh dikirim ulang (mis. setelah menambah temuan baru).
+   */
+  async sendFindings(jobId: string, actorId: string, role: Role) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
+      const job = await tx.technicianJob.findUnique({
+        where: { id: jobId },
+        include: {
+          member: { select: { name: true } },
+          technician: { select: { displayName: true } },
+          _count: { select: { findings: true } },
+        },
+      });
+      if (!job) throw new NotFoundException('Job tidak ditemukan');
+      this.assertOwnerOrAdmin(job, actorId, role);
+      if (
+        !(
+          [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]
+        ).includes(job.status)
+      ) {
+        throw new BadRequestException('Temuan hanya bisa dikirim selama job aktif');
+      }
+      if (job._count.findings === 0) {
+        throw new BadRequestException('Tambah minimal 1 temuan dulu sebelum dikirim');
+      }
+      const updated = await tx.technicianJob.update({
+        where: { id: jobId },
+        data: { findingsSentAt: new Date() },
+      });
+      return {
+        job: updated,
+        findingCount: job._count.findings,
+        customerName: job.member?.name ?? null,
+        technicianName: job.technician?.displayName ?? null,
+      };
+    });
+  }
+
+  /**
    * Aksi "Ajukan Selesai" (teknisi) — pengganti sebagian peran complete()
    * lama. Gate: job harus 'sedang_dikerjakan', minimal 1 JobFinding ada,
    * SETIAP JobFinding minimal punya 1 foto 'sebelum' DAN 1 foto 'sesudah',
@@ -706,6 +747,18 @@ export class TechnicianJobsService {
       if (pendingRequests > 0) {
         throw new BadRequestException(
           'Masih ada pengajuan tambahan yang belum diputuskan',
+        );
+      }
+      // Harga jasa harus sudah ditetapkan kasir/admin: servis mandiri baru punya
+      // invoice setelah harga jasanya diisi (order.invoiceId). Tanpa ini servis
+      // bisa selesai tanpa tagihan. Servis gratis/garansi = harga Rp 0 eksplisit.
+      const order = await tx.serviceOrder.findUnique({
+        where: { id: job.orderId },
+        select: { invoiceId: true },
+      });
+      if (order && !order.invoiceId) {
+        throw new BadRequestException(
+          'Harga jasa belum ditetapkan kasir/admin. Kirim temuan lebih dulu, lalu tunggu konfirmasi harganya.',
         );
       }
       const unusedApproved = await tx.materialRequest.count({

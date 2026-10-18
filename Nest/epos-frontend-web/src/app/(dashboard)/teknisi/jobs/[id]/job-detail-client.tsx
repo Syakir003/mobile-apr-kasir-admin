@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { statusBadgeVariant } from '../../queue/queue-client';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { BarcodeQr } from '@/components/barcode-qr';
+import { SendFindingsBar, ServicePricingCard } from './service-pricing-card';
 import { ReminderScheduleFields, intervalError } from '@/components/reminder-schedule-fields';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -119,7 +120,13 @@ interface JobDetail {
   // maupun servis mandiri, lihat komentar TechnicianJobsService.createForOrder),
   // dipakai buat link "Cetak Label" ke halaman print-labels yang sudah ada
   // (per service order, bukan per job — 1 order bisa punya banyak unit).
-  order: { id: string } | null;
+  order: {
+    id: string;
+    // Ada setelah harga jasa ditetapkan (servis mandiri) atau dari invoice POS (pemasangan).
+    invoice?: { id: string; number: string; status: string; grandTotal: string; totalPaid: string } | null;
+  } | null;
+  // Kapan teknisi menekan "Kirim Temuan" (kasir & admin dinotifikasi).
+  findingsSentAt: string | null;
 }
 interface UserRow {
   id: string;
@@ -246,11 +253,15 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
       !f.photos.some((p) => p.kind === 'sebelum') ||
       !f.photos.some((p) => p.kind === 'sesudah'),
   );
-  const submitForReviewReady = job.findings.length > 0 && findingsMissingPhotos.length === 0;
+  // Harga jasa harus sudah ditetapkan kasir/admin (invoice ada) sebelum servis bisa diajukan selesai.
+  const priced = !!job.order?.invoice;
+  const submitForReviewReady = job.findings.length > 0 && findingsMissingPhotos.length === 0 && priced;
   const submitForReviewBlockedReason =
     job.findings.length === 0
       ? 'Tambah minimal 1 temuan dulu sebelum bisa mengajukan selesai.'
-      : `${findingsMissingPhotos.length} temuan belum lengkap foto sebelum/sesudahnya.`;
+      : findingsMissingPhotos.length > 0
+        ? `${findingsMissingPhotos.length} temuan belum lengkap foto sebelum/sesudahnya.`
+        : 'Harga jasa belum ditetapkan kasir/admin. Kirim temuan dan tunggu konfirmasi harganya.';
 
   return (
     <div className="grid gap-6">
@@ -379,8 +390,18 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                 />
               ))}
               {canEditFindings && <AddFindingForm jobId={job.id} />}
+              {canEditFindings && (
+                <SendFindingsBar
+                  jobId={job.id}
+                  findingCount={job.findings.length}
+                  findingsSentAt={job.findingsSentAt}
+                  priced={priced}
+                />
+              )}
             </CardContent>
           </Card>
+
+          {(isAdmin || role === 'kasir') && <ServicePricingCard jobId={job.id} />}
 
           {/* Pengajuan sparepart tambahan — backend (material-requests
               module) udah lama ada & dipakai app mobile teknisi lama,

@@ -664,7 +664,12 @@ model InvoiceItem {
   // qty = jumlah packUnit, unit = packUnit, unitPrice = harga utuh,
   // buyPriceSnapshot = modal per packUnit (modal per satuan kecil x packSize).
   saleKind String? @map("sale_kind")
+  // Baris Jasa yang ditetapkan kasir/admin dari halaman job teknisi (harga jasa
+  // servis setelah temuan). Dipakai untuk mengganti/menyunting baris jasa PER JOB
+  // tanpa menyentuh baris lain di invoice yang sama. Null = baris biasa (POS dll).
+  jobId String? @map("job_id")
 
+  @@index([jobId])
   @@map("invoice_items")
 }
 
@@ -816,6 +821,9 @@ model TechnicianJob {
   // ulang, biar gak nyangkut catatan lama. Lihat plan
   // 2026-08-22-siklus-checklist-servis-review.md.
   reviewNote    String?   @map("review_note")
+  // Diisi saat teknisi menekan "Kirim Temuan" (admin & kasir dinotifikasi buat
+  // menetapkan tindakan + harga jasa). Boleh dikirim ulang (nilainya diperbarui).
+  findingsSentAt DateTime? @map("findings_sent_at")
 
   photos           JobPhoto[]
   findings         JobFinding[]

@@ -65,6 +65,9 @@ export interface TechnicianJob {
   // teknisi buat nandain job 'assigned' yang masih kena gate "foto sebelum"
   // sebelum bisa start(). findAll() (dipakai admin) gak ngirim field ini.
   hasBeforePhoto?: boolean;
+  // Teknisi sudah menekan "Kirim Temuan" (kasir/admin perlu menetapkan harga jasa).
+  findingsSentAt?: string | null;
+  order?: { invoiceId: string | null } | null;
 }
 interface UserRow {
   id: string;
@@ -126,7 +129,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const jobs = jobsQuery.data ?? [];
   // Query teknisi (/queue) sudah difilter aktif dari server — toggle
   // Aktif/Selesai cuma relevan buat admin (findAll ngembaliin semua status).
-  const filtered = isAdmin
+  const filtered = !isTeknisi
     ? jobs.filter((j) => (showDone ? !ACTIVE_JOB_STATUSES.includes(j.status) : ACTIVE_JOB_STATUSES.includes(j.status)))
     : jobs;
 
@@ -148,7 +151,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
         </Button>
       </div>
 
-      {isAdmin && (
+      {!isTeknisi && (
         <div className="flex gap-2">
           <Button
             size="sm"
@@ -174,7 +177,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           <CardContent className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
             <Wrench className="size-8" />
             <p className="text-sm">
-              {isAdmin && showDone ? 'Belum ada job selesai.' : 'Belum ada job aktif.'}
+              {!isTeknisi && showDone ? 'Belum ada job selesai.' : 'Belum ada job aktif.'}
             </p>
           </CardContent>
         </Card>
@@ -207,6 +210,11 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 <p className="truncate text-xs text-muted-foreground">
                   Masuk {formatDateTime(job.createdAt)}
                 </p>
+                {!isTeknisi && job.findingsSentAt && !job.order?.invoiceId && (
+                  <p className="truncate text-xs font-medium text-status-warning-foreground dark:text-status-warning">
+                    Temuan terkirim - tentukan harga jasa
+                  </p>
+                )}
               </Link>
               <div className="flex shrink-0 items-center gap-2">
                 {isAdmin && ['menunggu_penugasan', 'assigned'].includes(job.status) && (

@@ -49,6 +49,8 @@ function notificationHref(n: { type: string; target: string | null }): string | 
   switch (n.type) {
     case 'job_review':
     case 'job_assigned':
+    case 'findings_sent':
+    case 'service_priced':
       return n.target ? `/teknisi/jobs/${n.target}` : '/teknisi/queue';
     case 'request_submitted':
       return '/material-requests';
