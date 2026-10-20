@@ -8,7 +8,6 @@ import '../../core/utils/error_message.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/material_request.dart';
 import '../../data/models/technician_job.dart';
-import '../master/master_providers.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import 'job_providers.dart';
 import '../../core/widgets/form_field.dart';
@@ -707,29 +706,17 @@ class _ItemPickerSheetState extends ConsumerState<_ItemPickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final spareparts = ref.watch(sparepartListProvider);
-    final products = ref.watch(productListProvider);
+    final spareparts = ref.watch(requestableSparepartsProvider);
     final q = _query.trim().toLowerCase();
 
     final lines = <_DraftLine>[];
-    for (final s in spareparts.value ?? const []) {
-      if (!s.active) continue;
+    for (final s in spareparts.value ?? const <RequestableSparepart>[]) {
       lines.add(_DraftLine(
         kind: 'sparepart',
         refId: s.id,
         name: s.name,
         unit: s.unit,
-        price: s.sellPrice,
-      ));
-    }
-    for (final p in products.value ?? const []) {
-      if (!p.active) continue;
-      lines.add(_DraftLine(
-        kind: 'product',
-        refId: p.id,
-        name: p.name,
-        unit: 'unit',
-        price: p.sellPrice,
+        price: s.price,
       ));
     }
     final filtered = q.isEmpty
@@ -750,7 +737,7 @@ class _ItemPickerSheetState extends ConsumerState<_ItemPickerSheet> {
           const SizedBox(height: 10),
           TextField(
             decoration: const InputDecoration(
-              hintText: 'Cari sparepart/produk…',
+              hintText: 'Cari sparepart…',
               prefixIcon: Icon(Icons.search),
               isDense: true,
             ),
@@ -773,8 +760,7 @@ class _ItemPickerSheetState extends ConsumerState<_ItemPickerSheet> {
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(l.name),
-                        subtitle: Text(
-                            '${l.kind == 'product' ? 'Produk' : 'Sparepart'} · ${formatRupiah(l.price)}'),
+                        subtitle: Text('Sparepart · ${formatRupiah(l.price)}'),
                         onTap: () => Navigator.of(context).pop(l),
                       );
                     },

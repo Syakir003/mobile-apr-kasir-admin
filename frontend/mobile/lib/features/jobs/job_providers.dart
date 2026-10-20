@@ -4,7 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/router/app_router.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/invoice.dart';
-import '../../data/models/job_photo.dart';
+import '../../data/models/job_finding.dart';
 import '../../data/models/material_request.dart';
 import '../../data/models/service_order.dart';
 import '../../data/models/technician_job.dart';
@@ -54,11 +54,11 @@ final jobProvider = FutureProvider.autoDispose.family<TechnicianJob?, String>(
   (ref, id) => ref.watch(jobRepositoryProvider).fetchJobById(id),
 );
 
-/// Foto bukti (sebelum/sesudah) untuk satu job. Segarkan dengan
-/// `ref.invalidate(jobPhotosProvider(jobId))` setelah unggah.
-final jobPhotosProvider =
-    FutureProvider.autoDispose.family<List<JobPhoto>, String>(
-  (ref, jobId) => ref.watch(jobRepositoryProvider).fetchPhotos(jobId),
+/// Temuan masalah + foto bukti (sebelum/sesudah) satu job. Segarkan dengan
+/// `ref.invalidate(jobFindingsProvider(jobId))` setelah tambah temuan/foto.
+final jobFindingsProvider =
+    FutureProvider.autoDispose.family<List<JobFinding>, String>(
+  (ref, jobId) => ref.watch(jobRepositoryProvider).fetchFindings(jobId),
 );
 
 /// Signed URL sementara untuk menampilkan foto pada object [path].
@@ -67,12 +67,39 @@ final signedPhotoUrlProvider =
   (ref, path) => ref.watch(jobRepositoryProvider).signedPhotoUrl(path),
 );
 
-// `add_job_photo` RPC DIHAPUS (bukan cuma dipindah) — `NestJobRepository
-// .uploadPhoto` di atas sudah melakukan upload BINER + catat metadata dalam
-// SATU panggilan multipart (`POST /technician-jobs/:id/photos`), jadi tak
-// ada lagi langkah "catat metadata" terpisah setelah upload. Lihat
-// job_detail_screen.dart `_PhotosSectionState._add` yang sudah disesuaikan
-// (tidak lagi memanggil provider kedua setelah `uploadPhoto`).
+/// `POST /technician-jobs/:jobId/findings` — tambah temuan (kategori diketik
+/// bebas; kategori baru otomatis dibuat server).
+Future<void> addFinding(String jobId, {required String categoryName, String? note}) =>
+    _api.post('/technician-jobs/$jobId/findings', body: {
+      'categoryName': categoryName,
+      if (note != null && note.isNotEmpty) 'note': note,
+    });
+
+/// Sparepart aktif untuk pemilih pengajuan material (`GET /spareparts`, Nest).
+/// Backend hanya menerima `kind: 'sparepart'`; `available` = stok dikurangi yang
+/// sudah disetujui tapi belum dipakai.
+final requestableSparepartsProvider =
+    FutureProvider.autoDispose<List<RequestableSparepart>>((ref) async {
+  final json = await _api.get('/spareparts') as List;
+  return [
+    for (final r in json)
+      (
+        id: '${(r as Map)['id']}',
+        name: (r['name'] as String?) ?? '',
+        unit: (r['unit'] as String?) ?? '',
+        price: numFromNest(r['sellPrice'])?.toInt() ?? 0,
+        available: (numFromNest(r['stock']) ?? 0) - (numFromNest(r['reserved']) ?? 0),
+      ),
+  ];
+});
+
+typedef RequestableSparepart = ({
+  String id,
+  String name,
+  String unit,
+  int price,
+  num available,
+});
 
 /// Pengajuan tambahan untuk satu job. Segarkan dengan
 /// `ref.invalidate(jobRequestsProvider(jobId))` setelah submit/putusan.
@@ -244,31 +271,10 @@ final jobPaymentInfoProvider =
   ),
 );
 
-/// Pengganti RPC `update_technician_job_status` — tiap `action` dulunya satu
-/// RPC dengan payload `{jobId, action, notes?, scannedBarcode?}`, sekarang
-/// rute Nest terpisah per aksi. Murni (tanpa Riverpod) supaya routing-nya
-/// bisa diuji tanpa mock HTTP, pola sama seperti `acUnitRowFromNest`.
-///
-/// GAP NYATA (lihat laporan migrasi untuk detail):
-/// - `'start'`: Nest (`StartJobDto` + `TechnicianJobsService.start`) SELALU
-///   mewajibkan `scannedBarcode` cocok dengan unit job ini, walau unit itu
-///   tak punya `barcodeValue` sama sekali. RPC lama hanya mewajibkan scan
-///   KALAU unit punya barcode. `job_detail_screen.dart._start` punya jalur
-///   "job tanpa unit/barcode: mulai langsung tanpa scan" yang PATAH oleh gap
-///   ini (Nest akan menolak 400 "Scan barcode unit diperlukan").
-/// - `'complete'`: dipetakan ke `submit-for-review` (SATU-SATUNYA rute
-///   Nest yang analog "teknisi menuntaskan job dari sisi teknisi") — TAPI
-///   `submit-for-review` mewajibkan minimal 1 `JobFinding` (checklist temuan)
-///   dengan foto sebelum+sesudah PER TEMUAN. App mobile ini tidak punya UI
-///   temuan sama sekali (masih model flat job-level `job_photos`), jadi
-///   endpoint ini akan SELALU menolak 400 "Minimal 1 temuan masalah harus
-///   diisi..." untuk job manapun yang dikerjakan lewat UI saat ini. Ini
-///   BUKAN bug migrasi — ini kesenjangan arsitektur nyata antara backend
-///   (sudah pindah ke model checklist+review) dan app mobile (belum). Tidak
-///   dipaksa-tambal di sini (menambal = menulis ulang businesslogic gate
-///   submit-for-review di Flutter, yang dilarang) — diserahkan ke keputusan
-///   produk: app mobile perlu UI temuan, atau `submit-for-review` perlu jalur
-///   kompatibel model lama (di luar scope "endpoint kecil" sesi ini).
+/// Aksi status job lewat rute Nest terpisah per aksi (`start`, `submit-for-review`,
+/// dst). Murni (tanpa Riverpod) supaya routing-nya bisa diuji tanpa mock HTTP.
+/// Aturan bisnis (foto sebelum, barcode cocok, tiap temuan berfoto sebelum+sesudah)
+/// dijaga server; pesan 400-nya ditampilkan apa adanya ke teknisi.
 Future<void> callUpdateJobStatus(
   Map<String, dynamic> payload, {
   required Future<dynamic> Function(String path, {Object? body}) patch,

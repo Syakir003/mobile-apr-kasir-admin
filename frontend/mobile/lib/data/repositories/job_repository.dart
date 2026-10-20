@@ -1,8 +1,9 @@
 import 'package:flutter/foundation.dart';
 
 import '../../core/api/api_client.dart';
+import '../models/job_finding.dart';
 import '../models/job_history_extra.dart';
-import '../models/job_photo.dart';
+import '../models/job_photo.dart' show PhotoKind;
 import '../models/material_request.dart';
 import '../models/service_order.dart';
 import '../models/technician_job.dart';
@@ -28,18 +29,21 @@ abstract interface class JobRepository {
 
   Future<List<ServiceOrder>> fetchOrders();
 
-  /// Foto bukti untuk satu job (urut terlama → terbaru).
-  Future<List<JobPhoto>> fetchPhotos(String jobId);
+  /// Temuan masalah satu job beserta foto sebelum/sesudahnya (terlama → terbaru).
+  Future<List<JobFinding>> fetchFindings(String jobId);
 
-  /// Unggah biner foto ke bucket `job-photos`; kembalikan object path yang
-  /// dicatat lewat RPC `add_job_photo`. Path unik per timestamp.
-  Future<String> uploadPhoto({
+  /// Unggah foto ke satu temuan; kembalikan path file di server.
+  Future<String> uploadFindingPhoto({
     required String jobId,
+    required String findingId,
     required PhotoKind kind,
     required Uint8List bytes,
     required String ext,
     required String contentType,
   });
+
+  /// Autocomplete kategori temuan (nama-nama yang sudah ada).
+  Future<List<String>> searchCategories(String query);
 
   /// Signed URL sementara (privat) untuk menampilkan foto pada [path].
   Future<String> signedPhotoUrl(String path, {int expiresInSeconds = 3600});
@@ -74,6 +78,7 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
     'status': j['status'],
     'scheduled_date': j['scheduledDate'],
     'notes': j['notes'],
+    'review_note': j['reviewNote'],
     'started_at': j['startedAt'],
     'completed_at': j['completedAt'],
     'created_at': j['createdAt'],
@@ -94,15 +99,6 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
     if (technician != null) 'technician_name': technician['displayName'],
   };
 }
-
-/// Baris `photos` (model lama, level-job) bersarang di respons
-/// `GET /technician-jobs/:id` -> bentuk yang dibaca [JobPhoto.fromMap].
-Map<String, dynamic> jobPhotoRowFromNest(Map<String, dynamic> p) => {
-      'job_id': p['jobId'],
-      'kind': p['kind'],
-      'path': p['path'],
-      'created_at': p['createdAt'],
-    };
 
 /// Baris `materialRequests` (+ `items`) bersarang di respons
 /// `GET /technician-jobs/:id` -> bentuk yang dibaca [MaterialRequest.fromMap].
@@ -183,7 +179,7 @@ JobHistoryExtra jobHistoryExtraFromNest(Map<String, dynamic> j) => JobHistoryExt
 ///
 /// Semua field enrichment (member/unit/teknisi/foto/material) SUDAH datang
 /// bersarang dari `GET /technician-jobs/:id` (findOne Nest sengaja dibuat
-/// lebih kaya dari PostgREST) — [fetchPhotos]/[fetchRequests] jadi cukup 1
+/// lebih kaya dari PostgREST) — [fetchFindings]/[fetchRequests] jadi cukup 1
 /// panggilan yang sama, tidak perlu endpoint terpisah.
 class NestJobRepository implements JobRepository {
   NestJobRepository(ApiClient api)
@@ -276,32 +272,26 @@ class NestJobRepository implements JobRepository {
   }
 
   @override
-  Future<List<JobPhoto>> fetchPhotos(String jobId) async {
+  Future<List<JobFinding>> fetchFindings(String jobId) async {
     final json = await _jobDetailOrNull(jobId);
     if (json == null) return const [];
-    final photos = (json['photos'] as List?) ?? const [];
     return [
-      for (final p in photos)
-        JobPhoto.fromMap(
-          (p as Map)['id'] as String,
-          jobPhotoRowFromNest(Map<String, dynamic>.from(p)),
-        ),
+      for (final f in (json['findings'] as List? ?? const []))
+        JobFinding.fromNest(Map<String, dynamic>.from(f as Map)),
     ];
   }
 
   @override
-  Future<String> uploadPhoto({
+  Future<String> uploadFindingPhoto({
     required String jobId,
+    required String findingId,
     required PhotoKind kind,
     required Uint8List bytes,
     required String ext,
     required String contentType,
   }) async {
-    // Satu panggilan multipart melakukan KEDUANYA (simpan file + catat baris
-    // job_photos) — beda dari alur Supabase lama (upload Storage lalu RPC
-    // `add_job_photo` terpisah). Lihat POST /technician-jobs/:id/photos.
     final json = await _postMultipart(
-      '$_path/$jobId/photos',
+      '$_path/$jobId/findings/$findingId/photos',
       fileField: 'photo',
       bytes: bytes,
       filename: 'photo.$ext',
@@ -309,6 +299,12 @@ class NestJobRepository implements JobRepository {
       fields: {'kind': kind.value},
     ) as Map;
     return json['path'] as String;
+  }
+
+  @override
+  Future<List<String>> searchCategories(String query) async {
+    final json = await _get('$_path/categories/search?q=${Uri.encodeQueryComponent(query)}') as List;
+    return [for (final c in json) (c as Map)['name'] as String];
   }
 
   @override

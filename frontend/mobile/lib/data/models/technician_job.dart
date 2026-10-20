@@ -4,6 +4,7 @@ enum JobStatus {
   menungguPenugasan('menunggu_penugasan', 'Menunggu Penugasan'),
   assigned('assigned', 'Ditugaskan'),
   sedangDikerjakan('sedang_dikerjakan', 'Sedang Dikerjakan'),
+  menungguReview('menunggu_review', 'Menunggu Review'),
   selesai('selesai', 'Selesai'),
   dibatalkan('dibatalkan', 'Dibatalkan');
 
@@ -20,7 +21,10 @@ enum JobStatus {
       );
 
   bool get isActive =>
-      this == assigned || this == sedangDikerjakan || this == menungguPenugasan;
+      this == assigned ||
+      this == sedangDikerjakan ||
+      this == menungguReview ||
+      this == menungguPenugasan;
 }
 
 /// Jenis pekerjaan. Nilai bebas (checkout hanya membuat 'pemasangan'); label
@@ -56,6 +60,7 @@ class TechnicianJob {
     required this.status,
     this.scheduledDate,
     this.notes,
+    this.reviewNote,
     this.startedAt,
     this.completedAt,
     this.createdAt,
@@ -79,6 +84,9 @@ class TechnicianJob {
   final JobStatus status;
   final DateTime? scheduledDate;
   final String? notes;
+
+  /// Catatan admin saat mengembalikan job dari review (kosong bila tak pernah dikembalikan).
+  final String? reviewNote;
   final DateTime? startedAt;
   final DateTime? completedAt;
   final DateTime? createdAt;
@@ -112,6 +120,7 @@ class TechnicianJob {
       status: JobStatus.fromValue(data['status']),
       scheduledDate: _toDate(data['scheduled_date']),
       notes: data['notes'] as String?,
+      reviewNote: data['review_note'] as String?,
       startedAt: _toDate(data['started_at']),
       completedAt: _toDate(data['completed_at']),
       createdAt: _toDate(data['created_at']),

@@ -1,3 +1,5 @@
+import 'package:epos_ac/data/models/job_finding.dart';
+import 'package:epos_ac/data/models/technician_job.dart';
 import 'package:epos_ac/data/repositories/job_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:epos_ac/core/utils/num_parse.dart';
@@ -66,17 +68,39 @@ void main() {
     });
   });
 
-  group('jobPhotoRowFromNest', () {
-    test('field dipetakan ke snake_case', () {
-      final row = jobPhotoRowFromNest({
-        'jobId': 'j1',
-        'kind': 'sebelum',
-        'path': '/uploads/job-photos/x.jpg',
-        'createdAt': '2026-09-18T00:00:00.000Z',
+  group('JobFinding.fromNest', () {
+    test('temuan + foto bersarang diparse; hasBefore/hasAfter dihitung per temuan', () {
+      final f = JobFinding.fromNest({
+        'id': 'f1',
+        'title': 'Freon kurang',
+        'note': 'bocor di pipa',
+        'photos': [
+          {'id': 'p1', 'kind': 'sebelum', 'path': '/uploads/job-photos/a.jpg'},
+        ],
       });
-      expect(row['job_id'], 'j1');
-      expect(row['kind'], 'sebelum');
-      expect(row['path'], '/uploads/job-photos/x.jpg');
+      expect(f.title, 'Freon kurang');
+      expect(f.photos.single.path, '/uploads/job-photos/a.jpg');
+      expect(f.hasBefore, true);
+      expect(f.hasAfter, false);
+    });
+
+    test('tanpa photos -> list kosong (bukan error)', () {
+      final f = JobFinding.fromNest({'id': 'f2', 'title': 'Filter kotor'});
+      expect(f.photos, isEmpty);
+      expect(f.hasBefore, false);
+    });
+  });
+
+  group('status menunggu_review', () {
+    test('dipetakan (bukan jatuh ke menunggu_penugasan) dan review_note terbawa', () {
+      final row = technicianJobRowFromNest({
+        'status': 'menunggu_review',
+        'reviewNote': 'foto sesudah kurang jelas',
+      });
+      final job = TechnicianJob.fromMap('j1', row);
+      expect(job.status, JobStatus.menungguReview);
+      expect(job.status.isActive, true);
+      expect(job.reviewNote, 'foto sesudah kurang jelas');
     });
   });
 

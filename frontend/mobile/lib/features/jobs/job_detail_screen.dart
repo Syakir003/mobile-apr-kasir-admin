@@ -11,7 +11,8 @@ import '../../core/widgets/notice_panel.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../core/utils/error_message.dart';
 import '../../data/models/app_user.dart';
-import '../../data/models/job_photo.dart';
+import '../../data/models/job_finding.dart';
+import '../../data/models/job_photo.dart' show PhotoKind;
 import '../../data/models/material_request.dart';
 import '../../data/models/technician_job.dart';
 import '../pos/cart_state.dart' show formatRupiah;
@@ -70,14 +71,6 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
 
   Future<void> _start(TechnicianJob job) async {
     final caller = ref.read(updateJobStatusCallerProvider);
-    // Tanpa unit terkait: mulai langsung. Dengan unit: wajib scan cocok.
-    if (job.unitId == null || job.unitBarcode.isEmpty) {
-      await _run(
-        () => caller({'jobId': job.id, 'action': 'start'}),
-        'Pekerjaan dimulai.',
-      );
-      return;
-    }
     final scanned = await _scanBarcode(
       job.unitBarcode,
       unitLabel: job.unitTitle.isEmpty ? 'unit pada job ini' : job.unitTitle,
@@ -90,16 +83,17 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     );
   }
 
-  Future<void> _complete(TechnicianJob job) async {
+  Future<void> _submitReview(TechnicianJob job) async {
     final caller = ref.read(updateJobStatusCallerProvider);
     await _run(
       () => caller({
         'jobId': job.id,
-        'action': 'complete',
+        'action': 'submit_review',
         'notes': _notes.text.trim(),
       }),
-      'Pekerjaan selesai.',
+      'Pekerjaan diajukan, menunggu review admin.',
     );
+    ref.invalidate(jobFindingsProvider(job.id));
   }
 
   Future<void> _cancel(TechnicianJob job) async {
@@ -226,10 +220,9 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             _notes.text = job.notes!;
             _notesInit = true;
           }
-          // Foto SEBELUM menentukan boleh-tidaknya memulai (rule 8.3).
-          final photos = ref.watch(jobPhotosProvider(job.id)).value;
-          final hasBefore =
-              photos?.any((p) => p.kind == PhotoKind.sebelum) ?? false;
+          // Minimal satu temuan berfoto SEBELUM menentukan boleh-tidaknya memulai.
+          final findings = ref.watch(jobFindingsProvider(job.id)).value;
+          final hasBefore = findings?.any((f) => f.hasBefore) ?? false;
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -237,6 +230,16 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               const SizedBox(height: 12),
               _InfoCard(job: job),
               _PaymentBanner(jobId: job.id),
+              if (role == UserRole.teknisi &&
+                  job.status == JobStatus.sedangDikerjakan &&
+                  (job.reviewNote ?? '').isNotEmpty) ...[
+                const SizedBox(height: 12),
+                NoticePanel(
+                  tone: NoticeTone.warning,
+                  icon: Icons.undo,
+                  text: 'Dikembalikan admin: ${job.reviewNote}',
+                ),
+              ],
               if (job.status == JobStatus.sedangDikerjakan &&
                   role == UserRole.teknisi) ...[
                 const SizedBox(height: 12),
@@ -246,7 +249,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
                 _NotesCard(notes: job.notes!),
               ],
               const SizedBox(height: 12),
-              _PhotosSection(
+              _FindingsSection(
                 job: job,
                 canUpload: role == UserRole.teknisi &&
                     (job.status == JobStatus.assigned ||
@@ -272,25 +275,33 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     // Teknisi: mulai / selesaikan job miliknya.
     if (isTeknisi) {
       if (job.status == JobStatus.assigned) {
-        // Foto SEBELUM wajib sebelum memulai (rule 8.3) — tombol dikunci.
-        if (!hasBefore) {
+        // Server mewajibkan: unit ber-barcode, minimal satu foto SEBELUM pada temuan.
+        final noBarcode = job.unitId == null || job.unitBarcode.isEmpty;
+        if (noBarcode) {
           widgets.add(const NoticePanel(
             tone: NoticeTone.warning,
             icon: Icons.lock_outline,
-            text: 'Unggah foto SEBELUM dulu untuk memulai pekerjaan.',
+            text: 'Unit pada job ini belum punya barcode. Hubungi admin.',
+          ));
+          widgets.add(const SizedBox(height: 10));
+        } else if (!hasBefore) {
+          widgets.add(const NoticePanel(
+            tone: NoticeTone.warning,
+            icon: Icons.lock_outline,
+            text: 'Tambah temuan dan unggah foto SEBELUM dulu untuk memulai pekerjaan.',
           ));
           widgets.add(const SizedBox(height: 10));
         }
         widgets.add(_primaryButton(
           icon: Icons.qr_code_scanner,
           label: 'Mulai Pekerjaan',
-          onPressed: hasBefore ? () => _start(job) : null,
+          onPressed: (hasBefore && !noBarcode) ? () => _start(job) : null,
         ));
       } else if (job.status == JobStatus.sedangDikerjakan) {
         widgets.add(_primaryButton(
           icon: Icons.check_circle_outline,
-          label: 'Selesaikan Pekerjaan',
-          onPressed: () => _complete(job),
+          label: 'Ajukan Selesai',
+          onPressed: () => _submitReview(job),
         ));
       }
     }
@@ -613,6 +624,7 @@ class _StatusHint extends StatelessWidget {
       JobStatus.menungguPenugasan => 'Menunggu penugasan teknisi oleh Admin.',
       JobStatus.assigned => 'Menunggu teknisi memulai pekerjaan.',
       JobStatus.sedangDikerjakan => 'Sedang dikerjakan teknisi.',
+      JobStatus.menungguReview => 'Menunggu review admin.',
       JobStatus.selesai => 'Pekerjaan telah selesai.',
       JobStatus.dibatalkan => 'Job dibatalkan.',
     };
@@ -897,54 +909,29 @@ class _ManualEntryState extends State<_ManualEntry> {
   }
 }
 
-/// Kartu foto bukti: dua bagian (Sebelum / Sesudah). Teknisi pemilik job bisa
-/// menambah foto dari kamera/galeri selama job aktif; peran lain hanya melihat.
-class _PhotosSection extends ConsumerStatefulWidget {
-  const _PhotosSection({required this.job, required this.canUpload});
+/// Kartu temuan: tiap temuan punya foto Sebelum dan Sesudah. Teknisi pemilik
+/// job bisa menambah temuan + foto selama job aktif; peran lain hanya melihat.
+class _FindingsSection extends ConsumerStatefulWidget {
+  const _FindingsSection({required this.job, required this.canUpload});
 
   final TechnicianJob job;
   final bool canUpload;
 
   @override
-  ConsumerState<_PhotosSection> createState() => _PhotosSectionState();
+  ConsumerState<_FindingsSection> createState() => _FindingsSectionState();
 }
 
-class _PhotosSectionState extends ConsumerState<_PhotosSection> {
+class _FindingsSectionState extends ConsumerState<_FindingsSection> {
   bool _busy = false;
 
-  Future<void> _add(PhotoKind kind) async {
-    final source = await _pickSource();
-    if (source == null) return;
-
-    final picker = ImagePicker();
-    final XFile? file = await picker.pickImage(
-      source: source,
-      maxWidth: 1600,
-      imageQuality: 80,
-    );
-    if (file == null || !mounted) return;
-
+  Future<void> _guard(Future<void> Function() action, String okMessage) async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final bytes = await file.readAsBytes();
-      final ext = file.name.contains('.') ? file.name.split('.').last : 'jpg';
-      final repo = ref.read(jobRepositoryProvider);
-      // Nest: satu panggilan multipart sudah menyimpan file DAN mencatat
-      // barisnya sekaligus (lihat NestJobRepository.uploadPhoto) — tidak ada
-      // lagi langkah pencatatan metadata terpisah setelah ini.
-      await repo.uploadPhoto(
-        jobId: widget.job.id,
-        kind: kind,
-        bytes: bytes,
-        ext: ext,
-        contentType: file.mimeType ?? 'image/jpeg',
-      );
-      ref.invalidate(jobPhotosProvider(widget.job.id));
+      await action();
+      ref.invalidate(jobFindingsProvider(widget.job.id));
       if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Foto ${kind.label.toLowerCase()} tersimpan.')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text(okMessage)));
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
@@ -954,6 +941,42 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _addFinding() async {
+    final result = await showModalBottomSheet<({String name, String note})>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _AddFindingSheet(),
+    );
+    if (result == null) return;
+    await _guard(
+      () => addFinding(widget.job.id, categoryName: result.name, note: result.note),
+      'Temuan ditambahkan.',
+    );
+  }
+
+  Future<void> _addPhoto(JobFinding finding, PhotoKind kind) async {
+    final source = await _pickSource();
+    if (source == null) return;
+    final file = await ImagePicker().pickImage(
+      source: source,
+      maxWidth: 1600,
+      imageQuality: 80,
+    );
+    if (file == null || !mounted) return;
+    await _guard(() async {
+      final bytes = await file.readAsBytes();
+      final ext = file.name.contains('.') ? file.name.split('.').last : 'jpg';
+      await ref.read(jobRepositoryProvider).uploadFindingPhoto(
+            jobId: widget.job.id,
+            findingId: finding.id,
+            kind: kind,
+            bytes: bytes,
+            ext: ext,
+            contentType: file.mimeType ?? 'image/jpeg',
+          );
+    }, 'Foto ${kind.label.toLowerCase()} tersimpan.');
   }
 
   Future<ImageSource?> _pickSource() {
@@ -981,44 +1004,210 @@ class _PhotosSectionState extends ConsumerState<_PhotosSection> {
 
   @override
   Widget build(BuildContext context) {
-    final photosAsync = ref.watch(jobPhotosProvider(widget.job.id));
+    final findingsAsync = ref.watch(jobFindingsProvider(widget.job.id));
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Foto Bukti',
-                style: TextStyle(
-                    fontWeight: FontWeight.w600, color: AppColors.slate900)),
-            const SizedBox(height: 10),
-            photosAsync.when(
+            Row(
+              children: [
+                const Expanded(
+                  child: Text('Temuan & Foto Bukti',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600, color: AppColors.slate900)),
+                ),
+                if (widget.canUpload)
+                  TextButton.icon(
+                    key: const Key('add-finding'),
+                    onPressed: _busy ? null : _addFinding,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Tambah Temuan'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            findingsAsync.when(
               loading: () => const Padding(
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: LinearProgressIndicator(),
               ),
-              error: (e, _) => Text('Gagal memuat foto: ${errorMessage(e)}',
+              error: (e, _) => Text('Gagal memuat temuan: ${errorMessage(e)}',
                   style: const TextStyle(color: AppColors.slate500)),
-              data: (photos) {
-                Widget group(PhotoKind kind) => _PhotoGroup(
-                      kind: kind,
-                      photos:
-                          photos.where((p) => p.kind == kind).toList(),
-                      canUpload: widget.canUpload,
-                      busy: _busy,
-                      onAdd: () => _add(kind),
-                    );
+              data: (findings) {
+                if (findings.isEmpty) {
+                  return Text(
+                    widget.canUpload
+                        ? 'Belum ada temuan. Tambahkan minimal satu temuan, lalu unggah foto sebelum & sesudah.'
+                        : 'Belum ada temuan.',
+                    style: const TextStyle(color: AppColors.slate500),
+                  );
+                }
                 return Column(
                   children: [
-                    group(PhotoKind.sebelum),
-                    const SizedBox(height: 14),
-                    group(PhotoKind.sesudah),
+                    for (final f in findings) ...[
+                      _FindingTile(
+                        finding: f,
+                        canUpload: widget.canUpload,
+                        busy: _busy,
+                        onAdd: (kind) => _addPhoto(f, kind),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                   ],
                 );
               },
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Sheet tambah temuan: kategori (ketik bebas, dengan saran dari yang sudah ada) + catatan.
+class _AddFindingSheet extends ConsumerStatefulWidget {
+  const _AddFindingSheet();
+
+  @override
+  ConsumerState<_AddFindingSheet> createState() => _AddFindingSheetState();
+}
+
+class _AddFindingSheetState extends ConsumerState<_AddFindingSheet> {
+  final _name = TextEditingController();
+  final _note = TextEditingController();
+  List<String> _suggestions = const [];
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _suggest(String q) async {
+    if (q.trim().isEmpty) {
+      setState(() => _suggestions = const []);
+      return;
+    }
+    try {
+      final r = await ref.read(jobRepositoryProvider).searchCategories(q.trim());
+      if (mounted && q == _name.text) setState(() => _suggestions = r);
+    } catch (_) {
+      // Saran hanya bantuan; ketik bebas tetap bisa disimpan.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+          20, 16, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Tambah Temuan',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('finding-name'),
+            controller: _name,
+            onChanged: _suggest,
+            decoration: const InputDecoration(
+              labelText: 'Masalah / kategori',
+              hintText: 'mis. Freon kurang, Filter kotor',
+            ),
+          ),
+          if (_suggestions.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final s in _suggestions)
+                  ActionChip(
+                    label: Text(s),
+                    onPressed: () => setState(() {
+                      _name.text = s;
+                      _suggestions = const [];
+                    }),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('finding-note'),
+            controller: _note,
+            maxLines: 2,
+            decoration: const InputDecoration(labelText: 'Catatan (opsional)'),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: FilledButton(
+              key: const Key('finding-save'),
+              onPressed: () {
+                final name = _name.text.trim();
+                if (name.isEmpty) return;
+                Navigator.of(context).pop((name: name, note: _note.text.trim()));
+              },
+              child: const Text('Simpan Temuan'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Satu temuan: judul, catatan, lalu dua baris foto (sebelum/sesudah).
+class _FindingTile extends StatelessWidget {
+  const _FindingTile({
+    required this.finding,
+    required this.canUpload,
+    required this.busy,
+    required this.onAdd,
+  });
+
+  final JobFinding finding;
+  final bool canUpload;
+  final bool busy;
+  final ValueChanged<PhotoKind> onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.slate300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(finding.title,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600, color: AppColors.slate900)),
+          if ((finding.note ?? '').isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(finding.note!,
+                style: const TextStyle(color: AppColors.slate600, fontSize: 13)),
+          ],
+          const SizedBox(height: 10),
+          for (final kind in PhotoKind.values) ...[
+            _PhotoGroup(
+              kind: kind,
+              photos: finding.photos.where((p) => p.kind == kind).toList(),
+              canUpload: canUpload,
+              busy: busy,
+              onAdd: () => onAdd(kind),
+            ),
+            if (kind != PhotoKind.values.last) const SizedBox(height: 10),
+          ],
+        ],
       ),
     );
   }
@@ -1035,7 +1224,7 @@ class _PhotoGroup extends StatelessWidget {
   });
 
   final PhotoKind kind;
-  final List<JobPhoto> photos;
+  final List<JobFindingPhoto> photos;
   final bool canUpload;
   final bool busy;
   final VoidCallback onAdd;
@@ -1070,7 +1259,7 @@ class _PhotoGroup extends StatelessWidget {
 
 class _Thumb extends ConsumerWidget {
   const _Thumb({required this.photo});
-  final JobPhoto photo;
+  final JobFindingPhoto photo;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

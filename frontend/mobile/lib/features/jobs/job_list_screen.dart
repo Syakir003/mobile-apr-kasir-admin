@@ -18,6 +18,7 @@ Color jobStatusColor(JobStatus status) => switch (status) {
       JobStatus.menungguPenugasan => AppColors.slate500,
       JobStatus.assigned => AppColors.blue600,
       JobStatus.sedangDikerjakan => AppColors.warning,
+      JobStatus.menungguReview => AppColors.blue600,
       JobStatus.selesai => AppColors.success,
       JobStatus.dibatalkan => AppColors.textSecondary,
     };
