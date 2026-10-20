@@ -2,15 +2,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/router/app_router.dart';
-import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/invoice.dart';
-import '../../data/models/job_history_extra.dart';
 import '../../data/models/job_photo.dart';
 import '../../data/models/material_request.dart';
 import '../../data/models/service_order.dart';
 import '../../data/models/technician_job.dart';
 import '../../data/repositories/job_repository.dart';
+import '../../core/utils/num_parse.dart';
 
 const _api = ApiClient();
 
@@ -35,25 +34,19 @@ final jobsForCurrentUserProvider =
 /// Semua peran boleh membaca (RLS `technician_jobs` = semua user login).
 final unitJobHistoryProvider =
     FutureProvider.autoDispose.family<List<TechnicianJob>, String>(
-  (ref, unitId) => ref.watch(jobRepositoryProvider).fetchJobsByUnit(unitId),
+  (ref, unitId) async =>
+      (await ref.watch(jobRepositoryProvider).fetchUnitHistory(unitId)).jobs,
 );
 
 /// Riwayat satu unit AC, lengkap dengan ringkasan foto & material per entri.
 ///
 /// Digabung dalam satu provider (bukan satu provider per job) supaya layar
 /// riwayat cukup menunggu sekali dan tidak menembakkan dua query per baris.
-typedef UnitHistory = ({
-  List<TechnicianJob> jobs,
-  Map<String, JobHistoryExtra> extras,
-});
+// UnitHistory: lihat job_repository.dart.
 
 final unitHistoryProvider =
     FutureProvider.autoDispose.family<UnitHistory, String>((ref, unitId) async {
-  final repo = ref.watch(jobRepositoryProvider);
-  final jobs = await repo.fetchJobsByUnit(unitId);
-  final extras =
-      await repo.fetchHistoryExtras([for (final j in jobs) j.id]);
-  return (jobs: jobs, extras: extras);
+  return ref.watch(jobRepositoryProvider).fetchUnitHistory(unitId);
 });
 
 /// Satu job by id (family). Null bila tidak ada.
@@ -180,10 +173,9 @@ final ordersProvider =
 /// diperluas menerima banyak unit dari member yang sudah ada.
 final createServiceOrderCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
+  // POST /service-orders — payload sama persis dengan RPC create_service_order.
   return (payload) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('create_service_order', params: {'payload': payload});
+    await _api.post('/service-orders', body: payload);
   };
 });
 
@@ -216,37 +208,40 @@ typedef JobPaymentInfo = ({
   int outstanding,
 });
 
+/// `order.invoice` dari GET /technician-jobs/:id -> [JobPaymentInfo]
+/// (pengganti RPC job_payment_info). Murni supaya bisa diuji tanpa HTTP.
+JobPaymentInfo jobPaymentInfoFromJobDetail(Map<String, dynamic> job) {
+  final order = job['order'];
+  final inv = order is Map ? order['invoice'] : null;
+  if (inv is! Map) {
+    return (
+      hasInvoice: false,
+      invoiceId: '',
+      number: '',
+      status: InvoiceStatus.belumDibayar,
+      grandTotal: 0,
+      totalPaid: 0,
+      outstanding: 0,
+    );
+  }
+  final grand = numFromNest(inv['grandTotal'])?.toInt() ?? 0;
+  final paid = numFromNest(inv['totalPaid'])?.toInt() ?? 0;
+  return (
+    hasInvoice: true,
+    invoiceId: '${inv['id']}',
+    number: '${inv['number']}',
+    status: InvoiceStatus.fromValue(inv['status']),
+    grandTotal: grand,
+    totalPaid: paid,
+    outstanding: grand - paid > 0 ? grand - paid : 0,
+  );
+}
+
 final jobPaymentInfoProvider =
     FutureProvider.autoDispose.family<JobPaymentInfo, String>(
-  (ref, jobId) async {
-    final res = await ref.read(supabaseProvider).rpc(
-      'job_payment_info',
-      params: {
-        'payload': {'jobId': jobId},
-      },
-    );
-    final m = (res as Map).cast<String, dynamic>();
-    if (m['hasInvoice'] != true) {
-      return (
-        hasInvoice: false,
-        invoiceId: '',
-        number: '',
-        status: InvoiceStatus.belumDibayar,
-        grandTotal: 0,
-        totalPaid: 0,
-        outstanding: 0,
-      );
-    }
-    return (
-      hasInvoice: true,
-      invoiceId: '${m['invoiceId']}',
-      number: '${m['number']}',
-      status: InvoiceStatus.fromValue(m['status']),
-      grandTotal: (m['grandTotal'] as num?)?.toInt() ?? 0,
-      totalPaid: (m['totalPaid'] as num?)?.toInt() ?? 0,
-      outstanding: (m['outstanding'] as num?)?.toInt() ?? 0,
-    );
-  },
+  (ref, jobId) async => jobPaymentInfoFromJobDetail(
+    Map<String, dynamic>.from(await _api.get('/technician-jobs/$jobId') as Map),
+  ),
 );
 
 /// Pengganti RPC `update_technician_job_status` — tiap `action` dulunya satu

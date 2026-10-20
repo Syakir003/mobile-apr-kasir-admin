@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Member } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
+import { UpdateMemberDto } from './dto/update-member.dto';
 import { MemberListQueryDto } from './dto/member-list-query.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import type { PriceTierName } from '../common/price-tier.util';
@@ -124,6 +125,7 @@ export class MembersService {
           address: dto.address ?? null,
           mapsUrl: dto.mapsUrl ?? null,
           customerType: dto.customerType ?? null,
+          notes: dto.notes ?? null,
           priceTier: dto.priceTier ?? 'retail',
           memberSince: new Date(),
           totalAcUnits: 0,
@@ -142,6 +144,22 @@ export class MembersService {
 
       return { status: 'ok' as const, member };
     });
+  }
+
+  /** Edit data member. Nomor HP dinormalisasi sama seperti saat buat. */
+  async update(id: string, dto: UpdateMemberDto, actorId: string) {
+    const existing = await this.prisma.member.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Member tidak ditemukan');
+
+    const { phone, ...rest } = dto;
+    const member = await this.prisma.member.update({
+      where: { id },
+      data: { ...rest, ...(phone !== undefined ? { phone: this.normalizePhone(phone) } : {}) },
+    });
+    await this.prisma.auditLog.create({
+      data: { actorUid: actorId, action: 'member.update', target: id, detail: { fields: Object.keys(dto) } },
+    });
+    return member;
   }
 
   /** Cari member by nama atau nomor HP (autocomplete) — dibutuhin Siklus 6

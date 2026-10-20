@@ -1,7 +1,8 @@
+import '../api/api_client.dart';
+import '../auth/session_store.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/models/ac_unit.dart';
 import '../../data/models/app_user.dart';
@@ -57,7 +58,7 @@ import '../widgets/adaptive_scaffold.dart';
 import 'redirect.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>(
-  (ref) => SupabaseAuthRepository(Supabase.instance.client.auth),
+  (ref) => NestAuthRepository(const ApiClient(), SessionStore.instance),
 );
 
 final currentUserProvider = StreamProvider<AppUser?>(

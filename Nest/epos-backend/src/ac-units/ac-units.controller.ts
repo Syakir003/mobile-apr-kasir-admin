@@ -25,6 +25,13 @@ export class AcUnitsController {
     return this.acUnits.lookupByBarcode(barcodeValue);
   }
 
+  /** Semua job di unit + ringkasan foto/material (layar riwayat unit mobile). */
+  @Roles('admin', 'kasir', 'teknisi')
+  @Get(':id/jobs')
+  unitJobs(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.acUnits.unitJobs(id, user);
+  }
+
   /** Detail unit AC + riwayat servis by id — dipakai halaman Member. */
   @Roles('admin', 'kasir', 'teknisi')
   @Get(':id')

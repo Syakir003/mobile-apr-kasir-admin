@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/utils/currency.dart';
+import '../../core/utils/num_parse.dart';
 
 /// Label Indonesia untuk `audit_logs.action`. Nilai tak dikenal ditampilkan
 /// apa adanya supaya aksi baru tetap terbaca sebelum dipetakan di sini.
@@ -285,7 +286,7 @@ final auditLogsProvider =
   final uri = Uri(path: '/audit-logs', queryParameters: query);
   final json = await const ApiClient().get('$uri') as Map;
   final items = (json['items'] as List?) ?? const [];
-  final total = (json['total'] as num?)?.toInt() ?? items.length;
+  final total = numFromNest(json['total'])?.toInt() ?? items.length;
 
   return (
     entries: [

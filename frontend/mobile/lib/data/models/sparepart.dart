@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 /// Kategori sparepart/material untuk dropdown form.
 const kSparepartCategories = <String>[
   'sparepart',
@@ -50,10 +51,10 @@ class Sparepart {
       sku: (data['sku'] as String?) ?? '',
       category: (data['category'] as String?) ?? '',
       unit: (data['unit'] as String?) ?? '',
-      buyPrice: (data['buy_price'] as num?)?.toInt() ?? 0,
-      sellPrice: (data['sell_price'] as num?)?.toInt() ?? 0,
-      stock: (data['stock'] as num?) ?? 0,
-      minStock: (data['min_stock'] as num?) ?? 0,
+      buyPrice: numFromNest(data['buy_price'])?.toInt() ?? 0,
+      sellPrice: numFromNest(data['sell_price'])?.toInt() ?? 0,
+      stock: numFromNest(data['stock']) ?? 0,
+      minStock: numFromNest(data['min_stock']) ?? 0,
       active: (data['active'] as bool?) ?? true,
     );
   }

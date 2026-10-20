@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 /// Status order service (text di Postgres). Nilai dari checkout: 'terjadwal';
 /// berubah 'selesai' saat semua unit selesai, 'dibatalkan' bila dibatalkan.
 enum OrderStatus {
@@ -71,8 +72,8 @@ class ServiceOrder {
       status: OrderStatus.fromValue(data['status']),
       createdAt: _toDate(data['created_at']),
       memberName: (member?['name'] as String?) ?? '',
-      unitCount: (data['unit_count'] as num?)?.toInt() ?? 0,
-      doneCount: (data['done_count'] as num?)?.toInt() ?? 0,
+      unitCount: numFromNest(data['unit_count'])?.toInt() ?? 0,
+      doneCount: numFromNest(data['done_count'])?.toInt() ?? 0,
     );
   }
 }

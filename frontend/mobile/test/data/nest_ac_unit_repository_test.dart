@@ -3,7 +3,6 @@ import 'package:epos_ac/data/models/ac_unit.dart';
 import 'package:epos_ac/data/repositories/ac_unit_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../support/fake_ac_unit_repository.dart';
 
 /// Body `{ unit, member, activeJob, serviceHistory }` seperti dibalas
 /// `GET /ac-units/lookup/:x` & `GET /ac-units/:id` — `pk` sengaja string,
@@ -99,7 +98,6 @@ void main() {
         },
         (path, {body}) async => null,
         (path, {body}) async => null,
-        FakeAcUnitRepository(),
       );
       final unit = await repo.findByBarcode('ACUNIT-1');
       expect(unit?.brand, 'Daikin');
@@ -111,7 +109,6 @@ void main() {
         (path) async => throw NestApiException(404, 'Unit AC tidak ditemukan'),
         (path, {body}) async => null,
         (path, {body}) async => null,
-        FakeAcUnitRepository(),
       );
       expect(await repo.findById('tidak-ada'), isNull);
     });
@@ -121,7 +118,6 @@ void main() {
         (path) async => throw NestApiException(500, 'Server error'),
         (path, {body}) async => null,
         (path, {body}) async => null,
-        FakeAcUnitRepository(),
       );
       expect(
         () => repo.findById('u1'),
@@ -134,7 +130,6 @@ void main() {
         (path) async => throw NestApiException(401, 'Belum login.'),
         (path, {body}) async => null,
         (path, {body}) async => null,
-        FakeAcUnitRepository(),
       );
       expect(
         () => repo.findByBarcode('X'),
@@ -152,17 +147,15 @@ void main() {
           calledPath = path;
           calledBody = body;
         },
-        FakeAcUnitRepository(),
       );
       await repo.update('u1', _unit(serialNumber: 'SN-1'));
       expect(calledPath, '/ac-units/u1');
       expect((calledBody as Map)['serialNumber'], 'SN-1');
     });
 
-    test('create: memanggil POST /ac-units dengan body yang sudah dipetakan (bukan fallback)', () async {
+    test('create: memanggil POST /ac-units dengan body yang sudah dipetakan', () async {
       String? calledPath;
       Object? calledBody;
-      final fallback = FakeAcUnitRepository();
       final repo = NestAcUnitRepository.forTest(
         (path) async => null,
         (path, {body}) async {
@@ -171,29 +164,29 @@ void main() {
           return {'id': 'u-baru'};
         },
         (path, {body}) async => null,
-        fallback,
       );
       final id = await repo.create(_unit(status: AcUnitStatus.aktif));
       expect(calledPath, '/ac-units');
       expect((calledBody as Map)['status'], 'aktif');
       expect(id, 'u-baru');
-      expect(fallback.created, isEmpty); // TIDAK lagi lewat fallback
     });
 
-    test('watchByMember tetap didelegasikan ke fallback (Realtime Supabase)', () async {
-      final fallback = FakeAcUnitRepository();
+    test('watchByMember: unit diambil dari GET /members/:id', () async {
       final repo = NestAcUnitRepository.forTest(
-        (path) async => null,
+        (path) async {
+          expect(path, '/members/m1');
+          return {
+            'acUnits': [
+              {'id': 'u1', 'memberId': 'm1', 'brand': 'Daikin', 'pk': '1.5', 'status': 'aktif'},
+            ],
+          };
+        },
         (path, {body}) async => null,
         (path, {body}) async => null,
-        fallback,
       );
-      final id = await fallback.create(_unit());
-
-      final stream = repo.watchByMember('m1');
-      final first = await stream.first;
-      expect(first.single.id, id);
-      fallback.dispose();
+      final units = await repo.watchByMember('m1').first;
+      expect(units.single.id, 'u1');
+      expect(units.single.brand, 'Daikin');
     });
   });
 }

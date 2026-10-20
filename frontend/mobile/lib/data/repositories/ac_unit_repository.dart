@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/api/api_client.dart';
 import '../models/ac_unit.dart';
@@ -15,67 +14,6 @@ abstract interface class AcUnitRepository {
   Future<AcUnit?> findById(String id);
   Future<String> create(AcUnit u);
   Future<void> update(String id, AcUnit u);
-}
-
-/// Implementasi [AcUnitRepository] di atas Supabase.
-class SupabaseAcUnitRepository implements AcUnitRepository {
-  SupabaseAcUnitRepository(this._client);
-
-  final SupabaseClient _client;
-
-  static const _table = 'member_ac_units';
-
-  @override
-  Stream<List<AcUnit>> watchByMember(String memberId) {
-    return _client
-        .from(_table)
-        .stream(primaryKey: ['id'])
-        .eq('member_id', memberId)
-        .map(
-          (rows) => rows
-              .map((row) => AcUnit.fromMap(row['id'] as String, row))
-              .toList(growable: false),
-        );
-  }
-
-  @override
-  Future<AcUnit?> findByBarcode(String value) async {
-    final row = await _client
-        .from(_table)
-        .select()
-        .eq('barcode_value', value)
-        .limit(1)
-        .maybeSingle();
-    if (row == null) return null;
-    return AcUnit.fromMap(row['id'] as String, row);
-  }
-
-  @override
-  Future<AcUnit?> findById(String id) async {
-    final row =
-        await _client.from(_table).select().eq('id', id).maybeSingle();
-    if (row == null) return null;
-    return AcUnit.fromMap(row['id'] as String, row);
-  }
-
-  @override
-  Future<String> create(AcUnit u) async {
-    final row =
-        await _client.from(_table).insert(_toRow(u)).select('id').single();
-    return row['id'] as String;
-  }
-
-  @override
-  Future<void> update(String id, AcUnit u) =>
-      _client.from(_table).update(_toRow(u)).eq('id', id);
-
-  /// `barcode_value` kosong disimpan NULL supaya UNIQUE constraint tidak
-  /// menabrak antar unit yang belum punya barcode.
-  static Map<String, dynamic> _toRow(AcUnit u) {
-    final row = u.toMap();
-    if ((row['barcode_value'] as String).isEmpty) row['barcode_value'] = null;
-    return row;
-  }
 }
 
 /// Konversi body JSON Nest (`GET /ac-units/lookup/:x` & `GET /ac-units/:id`,
@@ -151,49 +89,38 @@ Map<String, dynamic> acUnitUpdateBodyForNest(AcUnit u) {
   return body;
 }
 
-/// Implementasi [AcUnitRepository] lewat backend NestJS — pengganti
-/// [SupabaseAcUnitRepository] pada migrasi Flutter -> Nest (dibiarkan ada di
-/// atas untuk rollback cepat).
+/// Implementasi [AcUnitRepository] lewat backend NestJS.
 ///
-/// TIDAK semuanya pindah:
-/// - [watchByMember] tetap Supabase Realtime (`.stream(...)`) — prinsip sesi
-///   ini: realtime belum ada penggantinya di Nest, jangan diubah jadi
-///   one-shot diam-diam. Didelegasikan ke [_fallback] (instance
-///   [SupabaseAcUnitRepository] asli lewat konstruktor utama, atau apa pun
-///   yang disuntik lewat [NestAcUnitRepository.forTest]).
+/// [watchByMember] dimuat sekali dari `GET /members/:id` (backend tidak
+/// memancarkan event realtime untuk unit AC); pemanggil me-refetch lewat
+/// `ref.invalidate(memberUnitsProvider(...))` setelah create/update.
 ///
-/// [create] SEKARANG pindah ke `POST /ac-units` — dua blokir lamanya sudah
-/// ditambal di backend (`CreateAcUnitDto.status` + `registerExisting`
-/// `generateBarcode: false`, opsional & additive, TIDAK mengubah perilaku
-/// `ServiceOrdersService.intake` yang dipakai web — lihat komentarnya):
-/// status dropdown admin kekirim beneran, dan barcode SENGAJA tidak
-/// digenerate di sini (form `unit_form_screen.dart._submit` tetap manggil
-/// RPC `generate_ac_unit_barcode` sendiri sesudahnya, sama seperti alur lama).
+/// [create] memakai `POST /ac-units`; backend selalu menggenerate barcode
+/// dan menerapkan `status` pilihan admin sesudahnya.
 class NestAcUnitRepository implements AcUnitRepository {
-  NestAcUnitRepository(ApiClient api, SupabaseClient client)
+  NestAcUnitRepository(ApiClient api)
       : _get = api.get,
         _post = api.post,
-        _patch = api.patch,
-        _fallback = SupabaseAcUnitRepository(client);
+        _patch = api.patch;
 
-  /// Konstruktor uji: suntik langsung fungsi HTTP + fallback tanpa perlu
-  /// mem-fork [ApiClient] atau membuat interface baru — pola sama dengan
-  /// [mapErrorResponse] yang diuji lepas dari [ApiClient] di
-  /// `api_client_test.dart`. [fallback] bisa diisi `FakeAcUnitRepository`.
+  /// Konstruktor uji: suntik langsung fungsi HTTP tanpa mem-fork [ApiClient].
   @visibleForTesting
-  NestAcUnitRepository.forTest(this._get, this._post, this._patch, AcUnitRepository fallback)
-      : _fallback = fallback;
+  NestAcUnitRepository.forTest(this._get, this._post, this._patch);
 
   final Future<dynamic> Function(String path) _get;
   final Future<dynamic> Function(String path, {Object? body}) _post;
   final Future<dynamic> Function(String path, {Object? body}) _patch;
-  final AcUnitRepository _fallback;
 
   static const _path = '/ac-units';
 
   @override
-  Stream<List<AcUnit>> watchByMember(String memberId) =>
-      _fallback.watchByMember(memberId);
+  Stream<List<AcUnit>> watchByMember(String memberId) async* {
+    final member = await _get('/members/${Uri.encodeComponent(memberId)}') as Map;
+    yield [
+      for (final u in member['acUnits'] as List)
+        AcUnit.fromMap((u as Map)['id'] as String, acUnitRowFromNest(u)),
+    ];
+  }
 
   @override
   Future<String> create(AcUnit u) async {

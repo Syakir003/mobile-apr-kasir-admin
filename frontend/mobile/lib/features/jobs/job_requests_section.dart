@@ -12,6 +12,7 @@ import '../master/master_providers.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import 'job_providers.dart';
 import '../../core/widgets/form_field.dart';
+import '../../core/utils/num_parse.dart';
 
 /// Warna badge status pengajuan.
 Color requestStatusColor(RequestStatus s) => switch (s) {
@@ -182,7 +183,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
 
     final items = <Map<String, dynamic>>[];
     for (final e in result) {
-      final qty = e['qty'] as num;
+      final qty = numFromNest(e['qty']) ?? 0;
       if (qty <= 0) continue; // dihapus lewat dialog -> tidak ikut dikirim
       final original =
           widget.request.items.firstWhere((it) => it.id == e['itemId']);

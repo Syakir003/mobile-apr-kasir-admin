@@ -1,3 +1,4 @@
+import '../../data/repositories/auth_repository.dart' show validateStrongPassword;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -119,7 +120,7 @@ class _UserFormScreenState extends ConsumerState<UserFormScreen> {
           child: AppPasswordField(
             label: 'Password baru',
             required: true,
-            hint: 'Minimal 6 karakter',
+            hint: 'Minimal 8 karakter, huruf & angka',
             controller: controller,
           ),
         ),
@@ -140,9 +141,10 @@ class _UserFormScreenState extends ConsumerState<UserFormScreen> {
     if (newPassword == null || !mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
-    if (newPassword.length < 6) {
-      messenger.showSnackBar(const SnackBar(
-        content: Text('Password minimal 6 karakter'),
+    final passwordError = validateStrongPassword(newPassword);
+    if (passwordError != null) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(passwordError),
         backgroundColor: AppColors.danger,
       ));
       return;
@@ -234,12 +236,10 @@ class _UserFormScreenState extends ConsumerState<UserFormScreen> {
                 fieldKey: const Key('user-password'),
                 label: 'Password',
                 required: true,
-                hint: 'Minimal 6 karakter',
+                hint: 'Minimal 8 karakter, huruf & angka',
                 controller: _password,
                 enabled: !_busy,
-                validator: (v) => (v ?? '').length < 6
-                    ? 'Password minimal 6 karakter'
-                    : null,
+                validator: validateStrongPassword,
               ),
             ],
           ],

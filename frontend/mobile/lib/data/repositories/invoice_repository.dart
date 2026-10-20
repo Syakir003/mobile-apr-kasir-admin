@@ -1,67 +1,60 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../../core/api/api_client.dart';
+import '../../core/utils/snake_keys.dart';
 import '../models/invoice.dart';
 import '../models/manual_payment.dart';
 
-/// Kontrak akses invoice & pembayaran manual (tabel `invoices`,
-/// `invoice_items`, dan `manual_payments`). Ditulis hanya oleh RPC Postgres
-/// (`checkout_transaction`, `record_payment`); repositori ini murni membaca.
+/// Kontrak akses invoice & pembayaran manual. Murni membaca; penulisan lewat
+/// `POST /pos/checkout` dan `POST /invoices/:id/payments`.
 abstract interface class InvoiceRepository {
   Stream<List<Invoice>> watchAll();
   Stream<Invoice?> watchById(String id);
   Stream<List<ManualPayment>> watchPayments(String invoiceId);
 }
 
-/// Implementasi [InvoiceRepository] di atas Supabase.
-class SupabaseInvoiceRepository implements InvoiceRepository {
-  SupabaseInvoiceRepository(this._client);
+/// [InvoiceRepository] lewat backend Nest. Dimuat sekali per pembacaan
+/// (event `invoice.updated` backend hanya sampai ke room admin); pemanggil
+/// me-refetch lewat `ref.invalidate(...)` setelah pembayaran.
+class NestInvoiceRepository implements InvoiceRepository {
+  const NestInvoiceRepository(this._api);
 
-  final SupabaseClient _client;
+  final ApiClient _api;
 
   @override
-  Stream<List<Invoice>> watchAll() {
-    // Daftar tidak butuh item — layar list hanya menampilkan ringkasan.
-    return _client
-        .from('invoices')
-        .stream(primaryKey: ['id'])
-        .order('created_at', ascending: false)
-        .limit(100)
-        .map(
-          (rows) => rows
-              .map((row) => Invoice.fromMap(row['id'] as String, row))
-              .toList(growable: false),
-        );
+  Stream<List<Invoice>> watchAll() async* {
+    final res = await _api.get('/invoices?pageSize=100') as Map;
+    yield [
+      for (final r in res['items'] as List)
+        Invoice.fromMap((r as Map)['id'] as String, snakeKeys(r)),
+    ];
   }
 
   @override
-  Stream<Invoice?> watchById(String id) {
-    // Baris invoice di-stream (total_paid/status berubah saat pembayaran);
-    // item diambil ulang tiap emisi — snapshot item tidak pernah berubah
-    // setelah checkout, jadi fetch ulang murah dan selalu konsisten.
-    return _client
-        .from('invoices')
-        .stream(primaryKey: ['id'])
-        .eq('id', id)
-        .asyncMap((rows) async {
-          if (rows.isEmpty) return null;
-          final row = Map<String, dynamic>.from(rows.first);
-          row['items'] =
-              await _client.from('invoice_items').select().eq('invoice_id', id);
-          return Invoice.fromMap(row['id'] as String, row);
-        });
+  Stream<Invoice?> watchById(String id) async* {
+    final res = await _fetch(id);
+    if (res == null) {
+      yield null;
+      return;
+    }
+    final row = snakeKeys(res);
+    row['items'] = [for (final i in res['items'] as List) snakeKeys(i as Map)];
+    yield Invoice.fromMap(id, row);
   }
 
   @override
-  Stream<List<ManualPayment>> watchPayments(String invoiceId) {
-    return _client
-        .from('manual_payments')
-        .stream(primaryKey: ['id'])
-        .eq('invoice_id', invoiceId)
-        .order('created_at', ascending: true)
-        .map(
-          (rows) => rows
-              .map((row) => ManualPayment.fromMap(row['id'] as String, row))
-              .toList(growable: false),
-        );
+  Stream<List<ManualPayment>> watchPayments(String invoiceId) async* {
+    final res = await _fetch(invoiceId);
+    yield [
+      for (final p in (res?['manualPayments'] as List?) ?? const [])
+        ManualPayment.fromMap((p as Map)['id'] as String, snakeKeys(p)),
+    ];
+  }
+
+  Future<Map<dynamic, dynamic>?> _fetch(String id) async {
+    try {
+      return await _api.get('/invoices/${Uri.encodeComponent(id)}') as Map;
+    } on NestApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
   }
 }

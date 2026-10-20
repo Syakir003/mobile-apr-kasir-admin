@@ -757,6 +757,7 @@ export class PosService {
 
         let serviceOrderId: string | null = null;
         const installedUnits: { unitId: string; barcodeValue: string; roomLocation: string | null }[] = [];
+        const assignedJobs: { jobId: string; technicianId: string | null }[] = [];
         if (dto.installations?.length) {
           const order = await tx.serviceOrder.create({
             data: { memberId: member.id, transactionId: transaction.id, invoiceId: invoice.id, type: 'pemasangan', status: 'terjadwal', createdById: actorId },
@@ -781,7 +782,7 @@ export class PosService {
             const unit = await this.acUnits.createForInstallation(tx, member.id, products, inst.roomLocation);
             installedUnits.push({ unitId: unit.id, barcodeValue: unit.barcodeValue, roomLocation: unit.roomLocation });
             await tx.serviceOrderUnit.create({ data: { orderId: order.id, unitId: unit.id, status: 'menunggu_pemasangan' } });
-            await this.technicianJobs.createForOrder(tx, {
+            const job = await this.technicianJobs.createForOrder(tx, {
               orderId: order.id,
               memberId: member.id,
               unitId: unit.id,
@@ -789,6 +790,7 @@ export class PosService {
               type: 'pemasangan',
               actorId,
             });
+            assignedJobs.push({ jobId: job.id, technicianId: job.technicianId });
           }
           await tx.member.update({ where: { id: member.id }, data: { totalAcUnits: { increment: dto.installations.length } } });
         }
@@ -816,6 +818,7 @@ export class PosService {
           memberId: member.id,
           serviceOrderId,
           installedUnits,
+          assignedJobs,
           voucherDiscountAmount: appliedVoucher ? voucherDiscountAmount : undefined,
           // Ditambah buat POS pay-immediately (frontend auto-panggil
           // POST /invoices/:id/payments abis checkout sukses) — grandTotal

@@ -9,6 +9,7 @@ import { SetWaOptOutDto } from './dto/set-wa-opt-out.dto';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { MemberListQueryDto } from './dto/member-list-query.dto';
 import { SetPriceTierDto } from './dto/set-price-tier.dto';
+import { UpdateMemberDto } from './dto/update-member.dto';
 
 /** Baru ditambah Siklus 6 — sebelumnya MembersService murni internal
  * (findOrCreate dipanggil dari POS/ServiceOrders), gak ada endpoint REST
@@ -48,6 +49,13 @@ export class MembersController {
   @Post()
   create(@Body() dto: CreateMemberDto, @CurrentUser() user: CurrentUserPayload) {
     return this.members.create(dto, user.sub);
+  }
+
+  /** Edit data member (form Member di mobile). */
+  @Roles('admin', 'kasir')
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateMemberDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.members.update(id, dto, user.sub);
   }
 
   /** Ubah tipe pembeli (Ritel/Installer/Reseller) — admin saja, karena

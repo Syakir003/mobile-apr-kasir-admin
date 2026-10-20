@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 /// Kategori AC yang tersedia untuk dropdown form produk.
 const kProductCategories = <String>[
   'AC 1/2 PK',
@@ -55,14 +56,14 @@ class Product {
       name: (data['name'] as String?) ?? '',
       brand: (data['brand'] as String?) ?? '',
       type: (data['type'] as String?) ?? '',
-      pk: (data['pk'] as num?)?.toDouble() ?? 0,
+      pk: numFromNest(data['pk'])?.toDouble() ?? 0,
       inverter: (data['inverter'] as bool?) ?? false,
-      btu: (data['btu'] as num?)?.toInt(),
-      watt: (data['watt'] as num?)?.toInt(),
+      btu: numFromNest(data['btu'])?.toInt(),
+      watt: numFromNest(data['watt'])?.toInt(),
       warranty: data['warranty'] as String?,
-      buyPrice: (data['buy_price'] as num?)?.toInt() ?? 0,
-      sellPrice: (data['sell_price'] as num?)?.toInt() ?? 0,
-      stock: (data['stock'] as num?)?.toInt() ?? 0,
+      buyPrice: numFromNest(data['buy_price'])?.toInt() ?? 0,
+      sellPrice: numFromNest(data['sell_price'])?.toInt() ?? 0,
+      stock: numFromNest(data['stock'])?.toInt() ?? 0,
       photoUrl: data['photo_url'] as String?,
       description: data['description'] as String?,
       category: (data['category'] as String?) ?? '',

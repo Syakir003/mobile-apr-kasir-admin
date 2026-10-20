@@ -1,4 +1,4 @@
-// Kolom timestamptz Postgres tiba sebagai string ISO-8601 lewat PostgREST.
+// Timestamp tiba sebagai string ISO-8601 (REST/Socket.IO Nest: `createdAt`).
 DateTime? _toDate(Object? v) => switch (v) {
       String s => DateTime.tryParse(s)?.toLocal(),
       DateTime d => d,
@@ -38,6 +38,6 @@ class AppNotification {
         type: (data['type'] as String?) ?? 'info',
         target: data['target'] as String?,
         read: (data['read'] as bool?) ?? false,
-        createdAt: _toDate(data['created_at']),
+        createdAt: _toDate(data['created_at'] ?? data['createdAt']),
       );
 }

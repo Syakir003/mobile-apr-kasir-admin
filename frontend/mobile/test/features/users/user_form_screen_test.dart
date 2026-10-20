@@ -96,7 +96,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Email wajib diisi'), findsOneWidget);
-    expect(find.text('Password minimal 6 karakter'), findsOneWidget);
+    expect(find.text('Password minimal 8 karakter'), findsOneWidget);
     expect(find.text('Nama wajib diisi'), findsOneWidget);
     expect(created, isEmpty);
   });
@@ -116,7 +116,24 @@ void main() {
     await tester.tap(find.byKey(const Key('user-submit')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Password minimal 6 karakter'), findsOneWidget);
+    expect(find.text('Password minimal 8 karakter'), findsOneWidget);
+    expect(created, isEmpty);
+  });
+
+  testWidgets('buat akun: password tanpa angka ditolak (aturan backend)',
+      (tester) async {
+    _useTallViewport(tester);
+    final created = <Map<String, dynamic>>[];
+    await tester.pumpWidget(
+      _wrap(location: '/users/new', created: created),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('user-email')), 'tek@x.id');
+    await tester.enterText(find.byKey(const Key('user-password')), 'rahasiasaja');
+    await tester.enterText(find.byKey(const Key('user-name')), 'Teknisi A');
+    await tester.tap(find.byKey(const Key('user-submit')));
+    await tester.pumpAndSettle();
+    expect(find.text('Password wajib kombinasi huruf dan angka'), findsOneWidget);
     expect(created, isEmpty);
   });
 

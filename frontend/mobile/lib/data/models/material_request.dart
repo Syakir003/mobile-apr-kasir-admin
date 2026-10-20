@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 /// Status pengajuan tambahan sparepart/material.
 enum RequestStatus {
   pending('pending', 'Menunggu'),
@@ -51,9 +52,9 @@ class MaterialRequestItem {
         refId: (data['ref_id'] as String?) ?? '',
         name: (data['name'] as String?) ?? '',
         unit: (data['unit'] as String?) ?? '',
-        qty: (data['qty'] as num?) ?? 0,
-        unitPrice: (data['unit_price'] as num?)?.toInt() ?? 0,
-        lineTotal: (data['line_total'] as num?)?.toInt() ?? 0,
+        qty: numFromNest(data['qty']) ?? 0,
+        unitPrice: numFromNest(data['unit_price'])?.toInt() ?? 0,
+        lineTotal: numFromNest(data['line_total'])?.toInt() ?? 0,
       );
 }
 
@@ -98,7 +99,7 @@ class MaterialRequest {
         id: id,
         jobId: (data['job_id'] as String?) ?? '',
         status: RequestStatus.fromValue(data['status']),
-        total: (data['total'] as num?)?.toInt() ?? 0,
+        total: numFromNest(data['total'])?.toInt() ?? 0,
         invoiceId: data['invoice_id'] as String?,
         note: data['note'] as String?,
         decisionNote: data['decision_note'] as String?,

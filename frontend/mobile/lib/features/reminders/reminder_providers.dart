@@ -5,6 +5,7 @@ import '../../core/api/api_client.dart';
 import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/wa_message.dart';
 import '../members/member_providers.dart';
+import '../../core/utils/num_parse.dart';
 
 /// Baris `wa_outbox` dari Nest (camelCase Prisma) -> bentuk yang dibaca
 /// [WaMessage.fromMap].
@@ -114,7 +115,7 @@ class ReminderSetting {
 
   factory ReminderSetting.fromMap(Map<String, dynamic> data) => ReminderSetting(
         jobType: (data['job_type'] as String?) ?? '',
-        intervalDays: (data['interval_days'] as num?)?.toInt() ?? 0,
+        intervalDays: numFromNest(data['interval_days'])?.toInt() ?? 0,
         active: (data['active'] as bool?) ?? false,
       );
 }

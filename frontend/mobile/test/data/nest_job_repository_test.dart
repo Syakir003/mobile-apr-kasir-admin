@@ -1,5 +1,6 @@
 import 'package:epos_ac/data/repositories/job_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:epos_ac/core/utils/num_parse.dart';
 
 /// Fungsi murni camelCase(Nest)->snake_case(fromMap) di job_repository.dart —
 /// pola sama seperti nest_ac_unit_repository_test.dart.

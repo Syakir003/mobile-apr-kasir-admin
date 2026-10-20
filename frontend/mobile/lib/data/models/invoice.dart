@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 /// Status invoice (disimpan sebagai enum snake_case di Postgres).
 enum InvoiceStatus {
   belumDibayar('belum_dibayar', 'Belum Dibayar'),
@@ -73,9 +74,9 @@ class InvoiceItem {
       refId: (data['ref_id'] as String?) ?? '',
       name: (data['name'] as String?) ?? '',
       unit: (data['unit'] as String?) ?? '',
-      qty: (data['qty'] as num?) ?? 0,
-      unitPrice: (data['unit_price'] as num?)?.toInt() ?? 0,
-      lineTotal: (data['line_total'] as num?)?.toInt() ?? 0,
+      qty: numFromNest(data['qty']) ?? 0,
+      unitPrice: numFromNest(data['unit_price'])?.toInt() ?? 0,
+      lineTotal: numFromNest(data['line_total'])?.toInt() ?? 0,
     );
   }
 
@@ -151,13 +152,13 @@ class Invoice {
             (e) => InvoiceItem.fromMap(Map<String, dynamic>.from(e as Map)),
           )
           .toList(growable: false),
-      subtotal: (data['subtotal'] as num?)?.toInt() ?? 0,
-      discount: (data['discount'] as num?)?.toInt() ?? 0,
-      taxPercent: (data['tax_percent'] as num?)?.toDouble() ?? 0,
-      taxAmount: (data['tax_amount'] as num?)?.toInt() ?? 0,
-      transportFee: (data['transport_fee'] as num?)?.toInt() ?? 0,
-      grandTotal: (data['grand_total'] as num?)?.toInt() ?? 0,
-      totalPaid: (data['total_paid'] as num?)?.toInt() ?? 0,
+      subtotal: numFromNest(data['subtotal'])?.toInt() ?? 0,
+      discount: numFromNest(data['discount'])?.toInt() ?? 0,
+      taxPercent: numFromNest(data['tax_percent'])?.toDouble() ?? 0,
+      taxAmount: numFromNest(data['tax_amount'])?.toInt() ?? 0,
+      transportFee: numFromNest(data['transport_fee'])?.toInt() ?? 0,
+      grandTotal: numFromNest(data['grand_total'])?.toInt() ?? 0,
+      totalPaid: numFromNest(data['total_paid'])?.toInt() ?? 0,
       status: InvoiceStatus.fromValue(data['status']),
       notes: data['notes'] as String?,
       createdAt: _toDate(data['created_at']),

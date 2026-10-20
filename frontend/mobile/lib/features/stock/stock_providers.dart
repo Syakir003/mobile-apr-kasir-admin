@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/utils/num_parse.dart';
 
 /// Alasan mutasi stok yang boleh dipilih manual. Sengaja TIDAK memuat
 /// 'penjualan' & 'pemakaian' — keduanya milik sistem (checkout & pemakaian
@@ -51,14 +52,8 @@ typedef StockOverview = ({
   List<MovementRow> movements,
 });
 
-/// Angka Prisma `Decimal` (mis. `qtyChange` sparepart) di-serialize sebagai
-/// STRING (`Decimal.toJSON()`), bukan number — lihat pola sama di
-/// `numFromNest` (`job_repository.dart`).
-num _numFromNest(Object? v) => switch (v) {
-      num n => n,
-      String s => num.tryParse(s) ?? 0,
-      _ => 0,
-    };
+/// [numFromNest] dengan default 0 (Decimal Prisma = string).
+num _numFromNest(Object? v) => numFromNest(v) ?? 0;
 
 /// Ringkasan stok (produk + sparepart) & mutasi terakhir — pengganti query
 /// Supabase langsung pada migrasi Flutter -> Nest (`GET /products`,

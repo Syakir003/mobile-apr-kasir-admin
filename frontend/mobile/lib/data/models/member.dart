@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 /// Jenis pelanggan untuk dropdown form member.
 const kCustomerTypes = <String>[
   'rumah',
@@ -48,7 +49,7 @@ class Member {
       address: (data['address'] as String?) ?? '',
       customerType: (data['customer_type'] as String?) ?? 'lainnya',
       memberSince: _toDate(data['member_since']),
-      totalAcUnits: (data['total_ac_units'] as num?)?.toInt() ?? 0,
+      totalAcUnits: numFromNest(data['total_ac_units'])?.toInt() ?? 0,
       notes: data['notes'] as String?,
       active: (data['active'] as bool?) ?? true,
     );

@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 /// Jasa master (mis. pasang, cuci, servis). Uang dalam rupiah (int).
 class ServiceItem {
   const ServiceItem({
@@ -23,8 +24,8 @@ class ServiceItem {
       id: id,
       name: (data['name'] as String?) ?? '',
       category: (data['category'] as String?) ?? '',
-      basePrice: (data['base_price'] as num?)?.toInt() ?? 0,
-      durationMinutes: (data['duration_minutes'] as num?)?.toInt(),
+      basePrice: numFromNest(data['base_price'])?.toInt() ?? 0,
+      durationMinutes: numFromNest(data['duration_minutes'])?.toInt(),
       description: data['description'] as String?,
       active: (data['active'] as bool?) ?? true,
     );

@@ -23,6 +23,12 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<void> signOut() async {}
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<void> changePassword({required String currentPassword, required String newPassword}) async {}
 }
 
 Widget host(FakeAuthRepository fake) => ProviderScope(

@@ -30,6 +30,10 @@ export class CreateMemberDto {
   @IsIn(['rumah', 'perusahaan', 'toko'])
   customerType?: string;
 
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
   // Tipe pembeli (2026-10-13) — kosong = Ritel. Boleh diisi kasir SAAT
   // membuat member; mengubahnya belakangan khusus admin (PATCH price-tier).
   @IsOptional()

@@ -40,6 +40,8 @@ export class PosController {
         });
       }
       void this.notifications.notifyLowStock(dto.items.filter((i) => i.kind === 'sparepart').map((i) => i.refId));
+      // Teknisi yang dipilih di baris pemasangan langsung dikabari.
+      await this.notifications.notifyJobsAssigned(result.assignedJobs);
     }
     return result;
   }

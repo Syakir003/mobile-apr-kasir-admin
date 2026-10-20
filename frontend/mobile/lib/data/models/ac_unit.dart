@@ -1,3 +1,4 @@
+import '../../core/utils/num_parse.dart';
 /// Status unit AC (disimpan sebagai enum snake_case di Postgres).
 enum AcUnitStatus {
   menungguPemasangan('menunggu_pemasangan', 'Menunggu Pemasangan'),
@@ -71,14 +72,14 @@ class AcUnit {
       memberId: (data['member_id'] as String?) ?? '',
       brand: (data['brand'] as String?) ?? '',
       model: (data['model'] as String?) ?? '',
-      pk: (data['pk'] as num?)?.toDouble() ?? 0,
+      pk: numFromNest(data['pk'])?.toDouble() ?? 0,
       roomLocation: (data['room_location'] as String?) ?? '',
       barcodeValue: (data['barcode_value'] as String?) ?? '',
       serialNumber: data['serial_number'] as String?,
       installationDate: _toDate(data['installation_date']),
       lastServiceDate: _toDate(data['last_service_date']),
       nextServiceDate: _toDate(data['next_service_date']),
-      serviceIntervalDays: (data['service_interval_days'] as num?)?.toInt(),
+      serviceIntervalDays: numFromNest(data['service_interval_days'])?.toInt(),
       status: AcUnitStatus.fromValue(data['status']),
     );
   }
