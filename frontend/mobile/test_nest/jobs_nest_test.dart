@@ -96,10 +96,10 @@ void main() {
       expect(h.jobs.length, int.parse(await sql("select count(*) from technician_jobs where unit_id='$unit'")));
     });
 
-    test('fetchPhotos tidak error', () async {
+    test('fetchFindings tidak error', () async {
       final tech = await sql("select id from users where role='teknisi' limit 1");
       final job = await sql("select id from technician_jobs where technician_id='$tech' limit 1");
-      await repo.fetchPhotos(job);
+      await repo.fetchFindings(job);
     });
   });
 }
