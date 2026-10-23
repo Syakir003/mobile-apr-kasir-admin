@@ -10,6 +10,7 @@ import { formatTanggalId } from '../whatsapp/wa-format.util';
 import { wibDateOnly } from '../common/wib-date.util';
 import { computeTotals, formatInvoiceNumber } from '../pos/pos-calc.util';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
+import { buildInvoiceWaValues } from './invoice-wa.util';
 import { InvoiceHistoryQueryDto } from './dto/invoice-history-query.dto';
 import { CreateManualInvoiceDto } from './dto/create-manual-invoice.dto';
 
@@ -139,7 +140,7 @@ export class InvoicesService {
   async sendWhatsapp(invoiceId: string, actorId: string) {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
-      include: { items: true, member: true },
+      include: { items: true, member: true, adjustments: { select: { reason: true, requestId: true } } },
     });
     if (!invoice) throw new NotFoundException('Invoice tidak ditemukan');
 
@@ -151,9 +152,6 @@ export class InvoicesService {
     }
 
     const nama = invoice.customerName || invoice.member?.name || 'Pelanggan';
-    const itemLines = invoice.items
-      .map((item) => `- ${item.name} x${trimZero(item.qty)} = ${formatRupiah(item.lineTotal)}`)
-      .join('\n');
     // Redaksi udah bisa diedit admin lewat halaman "Pengingat WA" -> tab
     // "Template Pesan" (kind='invoice') — lihat RemindersService.renderTemplate().
     const base = process.env.PUBLIC_APP_URL?.trim().replace(/\/+$/, '');
@@ -165,12 +163,8 @@ export class InvoicesService {
     const link = `${base}/struk/${await this.ensurePublicToken(invoice.id)}`;
     let message = await this.reminders.renderTemplate('invoice', {
       nama,
-      nomor: invoice.number,
-      tanggal: formatTanggalId(wibDateOnly(invoice.createdAt)),
-      item: itemLines,
-      total: formatRupiah(invoice.grandTotal),
-      status: invoiceStatusLabel(invoice.status),
       link,
+      ...buildInvoiceWaValues(invoice),
     });
     // Template yang pernah diedit admin bisa tanpa {link}: tautan tetap harus ikut terkirim.
     if (!message.includes(link)) message += `\n\nLihat struk: ${link}`;
