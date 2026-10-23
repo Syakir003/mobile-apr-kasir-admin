@@ -44,6 +44,7 @@ export class SystemResetService {
         await del(tx, 'invoiceAdjustment', (t) => t.invoiceAdjustment.deleteMany());
         await del(tx, 'manualPayment', (t) => t.manualPayment.deleteMany());
         await del(tx, 'materialRequest', (t) => t.materialRequest.deleteMany());
+        await del(tx, 'jobServiceLine', (t) => t.jobServiceLine.deleteMany());
         await del(tx, 'technicianJob', (t) => t.technicianJob.deleteMany());
         await del(tx, 'serviceOrderUnit', (t) => t.serviceOrderUnit.deleteMany());
         await del(tx, 'serviceOrder', (t) => t.serviceOrder.deleteMany());

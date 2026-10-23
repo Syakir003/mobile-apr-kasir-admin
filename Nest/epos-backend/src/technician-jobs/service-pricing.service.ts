@@ -2,8 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InvoiceStatus, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CountersService } from '../counters/counters.service';
-import { computeInvoiceStatus } from '../common/invoice-status.util';
 import { formatInvoiceNumber } from '../pos/pos-calc.util';
+import { JobBillingService, TRANSPORT_STEP } from '../common/services/job-billing.service';
 import { SetServicePricingDto } from './dto/set-service-pricing.dto';
 
 interface MaterialRequestLike {
@@ -12,7 +12,7 @@ interface MaterialRequestLike {
   items: { qty: unknown; qtyUsed: unknown; unitPrice: unknown }[];
 }
 
-/** Nilai tagihan sebuah pengajuan sparepart: kalau sudah dilaporkan terpakai, hanya yang terpakai. */
+/** Nilai sebuah pengajuan sparepart: kalau sudah dilaporkan terpakai, hanya yang terpakai. */
 function requestAmount(r: MaterialRequestLike): number {
   if (!r.usedAt) return Number(r.total);
   return r.items.reduce((sum, i) => {
@@ -23,15 +23,17 @@ function requestAmount(r: MaterialRequestLike): number {
 
 /**
  * Harga jasa servis. Jasa servis tidak punya harga baku: teknisi mengirim temuan,
- * lalu kasir/admin menetapkan harga (sesuai tingkat kesulitan). Servis mandiri
- * baru punya invoice saat harga jasa pertama kali ditetapkan; sparepart yang
- * sudah disetujui sebelumnya ikut masuk ke tagihan yang sama.
+ * lalu kasir/admin menetapkan harga (sesuai tingkat kesulitan), dan boleh menambah
+ * transport (Transport 1-5 = Rp 100.000 x N) sebagai baris sendiri ATAU dibagi rata
+ * ke baris jasa + sparepart. Servis mandiri baru punya invoice saat harga pertama
+ * kali ditetapkan; tagihannya lalu dihitung ulang dari sumbernya (JobBillingService).
  */
 @Injectable()
 export class ServicePricingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly counters: CountersService,
+    private readonly billing: JobBillingService,
   ) {}
 
   /** Ringkasan untuk panel "Harga Jasa" di halaman job (admin & kasir). */
@@ -39,45 +41,72 @@ export class ServicePricingService {
     const job = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
       include: {
+        serviceLines: { orderBy: { position: 'asc' } },
         order: {
           select: {
             invoiceId: true,
             invoice: { select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true } },
           },
         },
-        materialRequests: { where: { status: 'approved' }, include: { items: true }, orderBy: { createdAt: 'asc' } },
+        materialRequests: {
+          where: { status: 'approved' },
+          include: { items: true, adjustments: { select: { id: true }, take: 1 } },
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
 
-    const lines = job.order.invoiceId
+    // Baris yang benar-benar tampil di tagihan/struk untuk job ini (sudah termasuk bagian transport).
+    const billed = job.order.invoiceId
       ? await this.prisma.invoiceItem.findMany({
-          where: { invoiceId: job.order.invoiceId, jobId, kind: 'service' },
-          select: { id: true, refId: true, name: true, unit: true, qty: true, unitPrice: true, lineTotal: true },
+          where: { invoiceId: job.order.invoiceId, jobId },
+          select: { id: true, kind: true, name: true, unit: true, qty: true, unitPrice: true, lineTotal: true },
           orderBy: { id: 'asc' },
         })
       : [];
-    const sparepartTotal = job.materialRequests.reduce((s, r) => s + requestAmount(r), 0);
     return {
       jobId: job.id,
       status: job.status,
       findingsSentAt: job.findingsSentAt,
       editable: !(['selesai', 'dibatalkan'] as string[]).includes(job.status),
-      priced: !!job.order.invoiceId,
+      priced: !!job.order.invoiceId && job.billingDerived,
       invoice: job.order.invoice,
-      lines,
-      jasaTotal: lines.reduce((s, l) => s + Number(l.lineTotal), 0),
+      lines: job.serviceLines.map((l) => ({
+        id: l.id,
+        serviceId: l.serviceId,
+        name: l.name,
+        qty: Number(l.qty),
+        unitPrice: Number(l.unitPrice),
+      })),
+      transport: {
+        level: job.transportLevel,
+        mode: job.transportMode,
+        amount: job.transportLevel * TRANSPORT_STEP,
+      },
+      billed: billed.map((b) => ({
+        id: b.id,
+        kind: b.kind,
+        name: b.name,
+        unit: b.unit,
+        qty: Number(b.qty),
+        unitPrice: Number(b.unitPrice),
+        lineTotal: Number(b.lineTotal),
+      })),
       sparepart: {
-        total: sparepartTotal,
+        total: job.materialRequests.reduce((s, r) => s + requestAmount(r), 0),
         requests: job.materialRequests.map((r) => ({
           id: r.id,
           amount: requestAmount(r),
           used: !!r.usedAt,
+          // true = ditagih lewat penyesuaian (jalur lama), tidak ikut baris tagihan job.
+          legacy: r.adjustments.length > 0,
           items: r.items.map((i) => ({
             name: i.name,
             qty: Number(i.qty),
             qtyUsed: i.qtyUsed === null ? null : Number(i.qtyUsed),
             unit: i.unit,
+            unitPrice: Number(i.unitPrice),
           })),
         })),
       },
@@ -101,20 +130,19 @@ export class ServicePricingService {
       if (!order) throw new NotFoundException('Order servis tidak ditemukan');
 
       // Susun baris jasa: katalog (harga bebas diubah) atau jasa bebas (nama wajib).
-      const built: { refId: string | null; name: string; unit: string; qty: number; unitPrice: number; lineTotal: number }[] = [];
+      const built: { serviceId: string | null; name: string; qty: number; unitPrice: number }[] = [];
       for (const l of dto.lines) {
         let name = l.name?.trim() || '';
-        let refId: string | null = null;
+        let serviceId: string | null = null;
         if (l.serviceId) {
           const svc = await tx.service.findUnique({ where: { id: l.serviceId } });
           if (!svc || !svc.active) throw new BadRequestException('Jasa tidak ditemukan atau sudah nonaktif');
-          refId = svc.id;
+          serviceId = svc.id;
           name = name || svc.name;
         }
         if (!name) throw new BadRequestException('Nama jasa wajib diisi untuk baris tanpa pilihan jasa');
-        built.push({ refId, name, unit: 'jasa', qty: l.qty, unitPrice: l.unitPrice, lineTotal: Math.round(l.qty * l.unitPrice) });
+        built.push({ serviceId, name, qty: l.qty, unitPrice: l.unitPrice });
       }
-      const newJasa = built.reduce((s, b) => s + b.lineTotal, 0);
 
       // Invoice: pakai yang sudah ada di order, atau buat baru (servis mandiri).
       let invoiceId = order.invoiceId;
@@ -141,59 +169,20 @@ export class ServicePricingService {
         await tx.serviceOrder.update({ where: { id: order.id }, data: { invoiceId } });
       }
 
-      const rows = await tx.$queryRaw<
-        { grand_total: string; subtotal: string; total_paid: string; status: InvoiceStatus }[]
-      >`SELECT grand_total, subtotal, total_paid, status FROM invoices WHERE id = ${invoiceId} FOR UPDATE`;
-      const inv = rows[0];
-
-      // Ganti baris jasa milik job ini saja (baris lain di invoice tidak disentuh).
-      const old = await tx.invoiceItem.findMany({ where: { invoiceId, jobId, kind: 'service' }, select: { lineTotal: true } });
-      const oldJasa = old.reduce((s, o) => s + Number(o.lineTotal), 0);
-      await tx.invoiceItem.deleteMany({ where: { invoiceId, jobId, kind: 'service' } });
-      for (const b of built) {
-        await tx.invoiceItem.create({
-          data: {
-            invoiceId,
-            jobId,
-            kind: 'service',
-            refId: b.refId,
-            name: b.name,
-            unit: b.unit,
-            qty: b.qty,
-            unitPrice: b.unitPrice,
-            lineTotal: b.lineTotal,
-          },
-        });
-      }
-
-      // Sparepart yang sudah disetujui SEBELUM invoice ada ikut ditagihkan sekarang
-      // (decide() hanya menambah tagihan kalau invoice sudah ada saat disetujui).
-      const pending = await tx.materialRequest.findMany({
-        where: { status: 'approved', invoiceId: null, job: { orderId: order.id } },
-        include: { items: true },
+      // Sumber penagihan: baris jasa + transport disimpan di job; tagihan dihitung ulang darinya.
+      await tx.jobServiceLine.deleteMany({ where: { jobId } });
+      await tx.jobServiceLine.createMany({
+        data: built.map((b, i) => ({ jobId, serviceId: b.serviceId, name: b.name, qty: b.qty, unitPrice: b.unitPrice, position: i })),
       });
-      let sparepartAdd = 0;
-      for (const r of pending) {
-        const amount = requestAmount(r);
-        if (amount !== 0) {
-          await tx.invoiceAdjustment.create({
-            data: { invoiceId, requestId: r.id, amount, reason: 'pengajuan_tambahan', createdById: actorId },
-          });
-        }
-        await tx.materialRequest.update({ where: { id: r.id }, data: { invoiceId } });
-        sparepartAdd += amount;
-      }
-
-      const delta = newJasa - oldJasa;
-      const newSubtotal = Number(inv.subtotal) + delta;
-      const newGrand = Number(inv.grand_total) + delta + sparepartAdd;
-      // Sudah lunas lalu tagihan naik -> kurang_bayar (sticky), sama aturan decide().
-      const baseline = inv.status === 'lunas' ? 'kurang_bayar' : inv.status;
-      const status = computeInvoiceStatus(newGrand, Number(inv.total_paid), baseline);
-      await tx.invoice.update({
-        where: { id: invoiceId },
-        data: { subtotal: newSubtotal, grandTotal: newGrand, status },
+      await tx.technicianJob.update({
+        where: { id: jobId },
+        data: {
+          billingDerived: true,
+          ...(dto.transportLevel !== undefined ? { transportLevel: dto.transportLevel } : {}),
+          ...(dto.transportMode !== undefined ? { transportMode: dto.transportMode } : {}),
+        },
       });
+      const result = await this.billing.rebuild(tx, jobId, actorId);
 
       await tx.auditLog.create({
         data: {
@@ -202,9 +191,9 @@ export class ServicePricingService {
           target: jobId,
           detail: {
             invoiceId,
-            before: oldJasa,
-            after: newJasa,
-            sparepartAdded: sparepartAdd,
+            transportLevel: dto.transportLevel ?? job.transportLevel,
+            transportMode: dto.transportMode ?? job.transportMode,
+            jobTotal: result?.newTotal ?? 0,
             lines: built.map((b) => ({ name: b.name, qty: b.qty, unitPrice: b.unitPrice })),
           },
         },
@@ -214,7 +203,7 @@ export class ServicePricingService {
         where: { id: invoiceId },
         select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true },
       });
-      return { ok: true, invoice, jasaTotal: newJasa, technicianId: job.technicianId };
+      return { ok: true, invoice, jobTotal: result?.newTotal ?? 0, technicianId: job.technicianId };
     });
   }
 }

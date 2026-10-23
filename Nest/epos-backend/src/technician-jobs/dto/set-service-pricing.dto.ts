@@ -2,10 +2,13 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
+  IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
   MaxLength,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -25,4 +28,9 @@ export class SetServicePricingDto {
   @ArrayMinSize(1)
   @ArrayMaxSize(30)
   lines: ServicePricingLineDto[];
+
+  // Transport opsional: 0 = tanpa, 1-5 = Transport N (N x Rp 100.000). Tidak dikirim = tidak diubah.
+  @IsOptional() @IsInt() @Min(0) @Max(5) transportLevel?: number;
+  // 'individu' = baris Biaya transport sendiri; 'dibagi' = dibagi rata ke jasa + sparepart.
+  @IsOptional() @IsIn(['individu', 'dibagi']) transportMode?: 'individu' | 'dibagi';
 }

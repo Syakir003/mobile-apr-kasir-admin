@@ -12,6 +12,7 @@ import {
   TechnicianJobStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { JobBillingService } from '../common/services/job-billing.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
 import { wibDayRange } from '../common/wib-date.util';
 import { RemindersService } from '../reminders/reminders.service';
@@ -47,6 +48,7 @@ export class TechnicianJobsService {
     private readonly reminders: RemindersService,
     private readonly whatsapp: WhatsappService,
     private readonly notifications: NotificationsService,
+    private readonly jobBilling: JobBillingService,
   ) {}
 
   private assertOwnerOrAdmin(
@@ -660,7 +662,7 @@ export class TechnicianJobsService {
         include: {
           member: { select: { name: true } },
           technician: { select: { displayName: true } },
-          _count: { select: { findings: true } },
+          findings: { select: { title: true, photos: { select: { kind: true } } } },
         },
       });
       if (!job) throw new NotFoundException('Job tidak ditemukan');
@@ -672,8 +674,15 @@ export class TechnicianJobsService {
       ) {
         throw new BadRequestException('Temuan hanya bisa dikirim selama job aktif');
       }
-      if (job._count.findings === 0) {
+      if (job.findings.length === 0) {
         throw new BadRequestException('Tambah minimal 1 temuan dulu sebelum dikirim');
+      }
+      // Kasir/admin menilai harga dari foto, jadi tiap temuan wajib punya foto SEBELUM dulu.
+      const tanpaFoto = job.findings.filter((f) => !f.photos.some((p) => p.kind === 'sebelum'));
+      if (tanpaFoto.length > 0) {
+        throw new BadRequestException(
+          `Isi foto sebelum dulu untuk temuan: ${tanpaFoto.map((f) => `"${f.title}"`).join(', ')}`,
+        );
       }
       const updated = await tx.technicianJob.update({
         where: { id: jobId },
@@ -681,7 +690,7 @@ export class TechnicianJobsService {
       });
       return {
         job: updated,
-        findingCount: job._count.findings,
+        findingCount: job.findings.length,
         customerName: job.member?.name ?? null,
         technicianName: job.technician?.displayName ?? null,
       };
@@ -1049,7 +1058,10 @@ export class TechnicianJobsService {
         where: { jobId, status: 'approved', usedAt: null },
       });
       for (const req of approvedUnused) {
-        if (req.invoiceId) {
+        // Hanya pengajuan yang ditagih lewat penyesuaian (jalur lama) yang perlu dibalikkan di sini;
+        // yang ditagih lewat baris job dihapus oleh rebuild() di bawah.
+        const billedByAdjustment = (await tx.invoiceAdjustment.count({ where: { requestId: req.id } })) > 0;
+        if (req.invoiceId && billedByAdjustment) {
           // Lock invoice row-nya dulu (pola sama kayak decide()/PaymentsService)
           // sebelum baca+update grandTotal, biar gak nubruk pembayaran/pengajuan
           // lain yang lagi jalan bersamaan di invoice yang sama.
@@ -1098,6 +1110,9 @@ export class TechnicianJobsService {
           },
         });
       }
+
+      // Tagihan job yang dihitung ulang: job dibatalkan -> semua baris job ini dihapus dari invoice.
+      if (job.billingDerived) await this.jobBilling.rebuild(tx, jobId, actorId);
 
       return updated;
     });
