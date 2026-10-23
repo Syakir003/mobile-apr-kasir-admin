@@ -27,7 +27,7 @@ type TemplateKind = (typeof TEMPLATE_KINDS)[number];
 // {item}/{total}/{status} (belum tentu ada invoice yang relevan). Validasi
 // saveTemplates() nolak placeholder yang gak ada di daftar kind-nya sendiri.
 const PLACEHOLDERS_BY_KIND: Record<TemplateKind, string[]> = {
-  invoice: ['nama', 'nomor', 'tanggal', 'item', 'total', 'status', 'link'],
+  invoice: ['nama', 'nomor', 'tanggal', 'waktu', 'item', 'rincian', 'pembayaran', 'total', 'status', 'link'],
   selesai_servis: ['nama', 'unit', 'tanggal'],
   reminder_h3: ['nama', 'unit', 'tanggal'],
   reminder_h7: ['nama', 'unit', 'tanggal'],
@@ -40,14 +40,28 @@ const PLACEHOLDERS_BY_KIND: Record<TemplateKind, string[]> = {
  * InvoicesService.sendWhatsapp. */
 const DEFAULT_TEMPLATES: Record<TemplateKind, string> = {
   invoice:
-    'Halo {nama}, berikut invoice pembelian Anda:\n\n' +
-    'No. Invoice: {nomor}\n' +
-    'Tanggal: {tanggal}\n\n' +
-    '{item}\n\n' +
-    'Total: {total}\n' +
+    '*FAKTUR ELEKTRONIK*\n' +
+    '*AYUB AC*\n' +
+    'Penjualan • Service • Spare Part • Rental AC\n' +
+    'Jl. Gunung Anyar RT. 01 RW. 06, Kel. Gunung Gedangan - Mojokerto\n' +
+    'Telp. 0857 332 7112 - 0822 3388 9990\n\n' +
+    'Nomor Nota :\n*{nomor}*\n\n' +
+    'Pelanggan Yth :\n{nama}\n\n' +
+    'Tanggal : {tanggal}, {waktu}\n\n' +
+    '======================\n' +
+    'Detail pesanan:\n{item}\n' +
+    '==============\n' +
+    'Detail biaya :\n{rincian}\n\n' +
+    'Pembayaran:\n{pembayaran}\n\n' +
     'Status: {status}\n\n' +
-    'Lihat struk Anda di sini:\n{link}\n\n' +
-    'Terima kasih sudah mempercayakan AC Anda kepada kami.\n\n— Ayub Podo Rukun',
+    '=================\n' +
+    'Syarat dan ketentuan:\n' +
+    '1. Barang yang sudah dibeli tidak dapat ditukar atau dikembalikan.\n' +
+    '2. Transfer ke Rek. ANDRIAS WARDOYO BCA 0501826391\n' +
+    '3. Jangan memberi tip kepada petugas kami. Bayarlah sesuai jumlah di atas.\n' +
+    '4. Suara Konsumen 082233889990.\n\n' +
+    'Lihat struk dan informasinya:\n{link}\n\n' +
+    'Terima kasih\nHormat kami, Ayub AC',
   selesai_servis:
     'Halo {nama}, pekerjaan AC Anda sudah selesai:\n{unit}\n\n' +
     'Terima kasih sudah mempercayakan perawatan AC Anda kepada kami. ' +
@@ -177,8 +191,10 @@ export class RemindersService {
       if (trimmed === '') {
         throw new BadRequestException(`Teks pesan tidak boleh kosong (${kind})`);
       }
-      if (trimmed.length > 1000) {
-        throw new BadRequestException(`Teks pesan maksimal 1000 karakter (${kind})`);
+      // Pesan nota (invoice) lebih panjang karena memuat rincian dan syarat ketentuan.
+      const maxLength = kind === 'invoice' ? 2500 : 1000;
+      if (trimmed.length > maxLength) {
+        throw new BadRequestException(`Teks pesan maksimal ${maxLength} karakter (${kind})`);
       }
       // Tolak placeholder salah ketik ({name}, {tgl}, {ac}, ...) ATAU
       // placeholder yang sah tapi bukan buat kind ini (mis. {unit} di

@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Minus, Package, Plus, Search, ShoppingCart, Ticket, Trash2, TriangleAlert } from 'lucide-react';
+import { Minus, Package, Plus, Search, ShoppingCart, Ticket, Trash2, TriangleAlert, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
@@ -78,6 +78,9 @@ interface Product {
   // BARU (Paket AC Split, 2026-09-30) — peran unit AC, nentuin tab Indoor/
   // Outdoor. Null = belum ditentukan (produk lama), tampil di tab Semua.
   acRole: 'indoor' | 'outdoor' | null;
+  // Harga Ritel saat Indoor/Outdoor dijual SATUAN dari paket (opsional, Master
+  // Produk). null/0 = belum diisi -> kasir wajib mengetik.
+  priceSingle: string | null;
 }
 interface Sparepart {
   id: string;
@@ -170,6 +173,9 @@ interface CartLine {
   // selama unitPrice masih 0, dan buat validasi blokir submit checkout
   // (lihat hasUnpricedLine).
   priceNeedsInput?: boolean;
+  // Unit satuan dari paket (Indoor saja / Outdoor saja): harga awal dari Harga
+  // Satuan Ritel produk (kalau ada); Installer/Reseller selalu diisi kasir.
+  singleUnit?: boolean;
   // Tipe pembeli (2026-10-13) — true = harga baris ini dari katalog (ikut
   // berubah kalau tipe pembeli berganti). false/kosong = harga manual murni
   // (unit satuan dari paket, Outdoor pasangan Split).
@@ -316,6 +322,105 @@ const CATEGORY_PILLS = [
 ] as const;
 type CategoryKey = (typeof CATEGORY_PILLS)[number]['key'];
 
+// Voucher dari GET /vouchers (admin & kasir boleh baca). Yang dipakai di POS cuma
+// yang masih aktif & belum kedaluwarsa; validasi sebenarnya tetap di server saat checkout.
+interface PosVoucher {
+  id: string;
+  code: string;
+  memberId: string;
+  member: { id: string; name: string; phone: string | null };
+  discountType: 'persen' | 'nominal';
+  discountValue: string;
+  maxDiscountCap: string | null;
+  minPurchase: string | null;
+  expiresAt: string;
+  status: 'aktif' | 'terpakai' | 'kadaluarsa' | 'dibatalkan';
+}
+
+function voucherDiscountLabel(v: PosVoucher): string {
+  return v.discountType === 'persen' ? `${Number(v.discountValue)}%` : formatRupiah(v.discountValue);
+}
+
+/** Kolom kode voucher + daftar pilihan: bisa diketik manual (seperti dulu) atau
+ * dipilih dari voucher aktif. Saring berdasarkan kode / nama pelanggan. */
+function VoucherPicker({
+  value,
+  onChange,
+  vouchers,
+  subtotal,
+  showMember,
+}: {
+  value: string;
+  onChange: (code: string, voucher?: PosVoucher) => void;
+  vouchers: PosVoucher[];
+  subtotal: number;
+  showMember: boolean;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const needle = value.trim().toLowerCase();
+  const shown = vouchers.filter(
+    (v) => !needle || v.code.toLowerCase().includes(needle) || v.member.name.toLowerCase().includes(needle),
+  );
+  return (
+    <div className="relative">
+      <Input
+        placeholder="Pilih voucher atau ketik kode, mis. VCR-AB12CD"
+        value={value}
+        onChange={(e) => onChange(e.target.value.toUpperCase())}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className="uppercase pr-9"
+      />
+      {value && (
+        <button
+          type="button"
+          aria-label="Hapus voucher"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onChange('')}
+          className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <X className="size-4" />
+        </button>
+      )}
+      {open && (
+        <div className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
+          {shown.length === 0 && (
+            <p className="p-2 text-sm text-muted-foreground">
+              {vouchers.length === 0 ? 'Tidak ada voucher aktif.' : 'Tidak ada voucher yang cocok.'}
+            </p>
+          )}
+          {shown.map((v) => {
+            const min = v.minPurchase ? Number(v.minPurchase) : 0;
+            const short = min > 0 && subtotal < min;
+            return (
+              <button
+                type="button"
+                key={v.id}
+                disabled={short}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onChange(v.code, v);
+                  setOpen(false);
+                }}
+                className="block w-full px-3 py-2 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+              >
+                <p className="font-medium">
+                  {v.code} <span className="font-normal text-muted-foreground">• potongan {voucherDiscountLabel(v)}</span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {showMember ? `${v.member.name} • ` : ''}
+                  berlaku s/d {new Date(v.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {min > 0 ? ` • min. belanja ${formatRupiah(min)}${short ? ' (belum terpenuhi)' : ''}` : ''}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PosPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -337,6 +442,13 @@ export default function PosPage() {
   // (kode cocok member yang mana) sepenuhnya di server saat checkout —
   // field ini gak digating oleh ada/tidaknya member yang dipilih.
   const [voucherCode, setVoucherCode] = React.useState('');
+  const vouchersQuery = useQuery({
+    queryKey: ['vouchers'],
+    queryFn: () => apiClient.get<PosVoucher[]>('/vouchers'),
+  });
+  // "Sekarang" diambil sekali saat halaman dibuka (cukup untuk saringan tampilan;
+  // server tetap yang memvalidasi kedaluwarsa saat checkout).
+  const [nowMs] = React.useState(() => Date.now());
 
   // Tipe pembeli (2026-10-13). Member lama: tipe dari datanya. Pelanggan
   // baru: dipilih kasir di bawah (default Ritel). Server tetap yang
@@ -357,6 +469,10 @@ export default function PosPage() {
   }
   // Produk: harga tipe kosong = kasir wajib isi manual. Unit ber-peran tanpa
   // harga jual (mis. Outdoor yang Indoor-nya nonaktif) juga wajib diisi.
+  function singleUnitPrice(p: Product, t: PriceTier = tier): number | null {
+    const v = Number(p.priceSingle);
+    return t === 'retail' && Number.isFinite(v) && v > 0 ? v : null;
+  }
   function productNeedsInput(p: Product, price: number | null): true | undefined {
     return price === null || (p.acRole != null && price <= 0) ? true : undefined;
   }
@@ -382,7 +498,14 @@ export default function PosPage() {
       }
       let line: CartLine =
         next !== 'retail' ? { ...l, withInstallation: false, packageId: undefined, roomLocation: '' } : l;
-      if (line.catalogPriced && line.kind === 'product') {
+      if (line.singleUnit && line.kind === 'product') {
+        // Harga satuan cuma untuk Ritel: ganti tipe -> isi ulang / kosongkan,
+        // kecuali kasir sudah mengubah harganya sendiri.
+        if (!line.priceEdited) {
+          const p = products.find((x) => x.id === line.refId);
+          line = { ...line, unitPrice: p ? (singleUnitPrice(p, next) ?? 0) : 0 };
+        }
+      } else if (line.catalogPriced && line.kind === 'product') {
         const p = products.find((x) => x.id === line.refId);
         if (p) {
           const price = productPrice(p, next);
@@ -530,13 +653,14 @@ export default function PosPage() {
       refId: outdoorProduct.id,
       name: outdoorProduct.name,
       unit: 'unit',
-      unitPrice: 0,
+      unitPrice: singleUnitPrice(outdoorProduct) ?? 0,
       qty: 1,
       availableStock: outdoorProduct.stock,
       withInstallation: false,
       roomLocation: '',
       packageId: undefined,
       priceNeedsInput: true,
+      singleUnit: true,
     });
   }
 
@@ -555,13 +679,14 @@ export default function PosPage() {
       refId: indoorProduct.id,
       name: indoorProduct.name,
       unit: 'unit',
-      unitPrice: 0,
+      unitPrice: singleUnitPrice(indoorProduct) ?? 0,
       qty: 1,
       availableStock: indoorProduct.stock,
       withInstallation: false,
       roomLocation: '',
       packageId: undefined,
       priceNeedsInput: true,
+      singleUnit: true,
     });
   }
 
@@ -686,6 +811,37 @@ export default function PosPage() {
     form.setValue('name', m.name, { shouldValidate: true });
     form.setValue('phone', m.phone ?? '', { shouldValidate: true });
     form.setValue('address', m.address ?? '');
+  }
+
+  // Voucher yang bisa dipilih: aktif, belum kedaluwarsa, dan kalau pelanggan sudah
+  // dipilih hanya milik pelanggan itu (voucher menempel ke satu member).
+  const usableVouchers = (vouchersQuery.data ?? []).filter(
+    (v) =>
+      v.status === 'aktif' &&
+      new Date(v.expiresAt).getTime() > nowMs &&
+      (!selectedMember || v.memberId === selectedMember.id),
+  );
+
+  // Memilih voucher dari daftar saat pelanggan belum dipilih: pilih juga pelanggan
+  // pemilik voucher (voucher cuma sah untuk dia), supaya checkout tidak ditolak.
+  async function pickVoucher(code: string, voucher?: PosVoucher) {
+    if (!voucher || selectedMember) {
+      setVoucherCode(code);
+      return;
+    }
+    try {
+      const found = await apiClient.get<MemberSearchResult[]>(
+        `/members/search?q=${encodeURIComponent(voucher.member.phone ?? voucher.member.name)}`,
+      );
+      const owner = found.find((m) => m.id === voucher.memberId);
+      if (owner) {
+        selectMember(owner);
+        toast.info(`Pelanggan diisi otomatis: ${owner.name} (pemilik voucher).`);
+      }
+    } catch {
+      toast.error('Voucher dipilih, tapi pelanggan pemiliknya gagal dimuat - pilih pelanggannya manual.');
+    }
+    setVoucherCode(code);
   }
 
   function clearSelectedMember() {
@@ -1453,11 +1609,12 @@ export default function PosPage() {
                     <Ticket className="size-4" />
                     Kode Voucher (opsional)
                   </FormLabel>
-                  <Input
-                    placeholder="Contoh: VCR-AB12CD"
+                  <VoucherPicker
                     value={voucherCode}
-                    onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
-                    className="uppercase"
+                    onChange={(code, v) => void pickVoucher(code, v)}
+                    vouchers={usableVouchers}
+                    subtotal={subtotal}
+                    showMember={!selectedMember}
                   />
                 </div>
 

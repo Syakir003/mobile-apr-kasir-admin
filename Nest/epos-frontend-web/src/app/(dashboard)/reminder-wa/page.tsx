@@ -22,7 +22,7 @@ interface WaTemplateRow {
 }
 
 const TEMPLATE_META: Record<string, { title: string; hint: string }> = {
-  invoice: { title: 'Struk', hint: 'Dikirim saat tombol "Kirim WA" di halaman detail invoice diklik.' },
+  invoice: { title: 'Struk', hint: 'Dikirim saat tombol "Kirim WA" di halaman detail invoice diklik. Bergaya nota: kop toko, rincian, status pembayaran, dan tautan struk. Maksimal 2.500 karakter.' },
   selesai_servis: { title: 'Selesai servis', hint: 'Dikirim otomatis begitu admin menyetujui job servis selesai.' },
   reminder_h3: { title: 'Pengingat 3 hari sebelum jatuh tempo', hint: 'Dikirim otomatis pukul 09.00 WIB.' },
   reminder_h7: { title: 'Pengingat 7 hari setelah jatuh tempo', hint: 'Dikirim otomatis pukul 09.00 WIB bila AC belum diservis.' },
@@ -33,7 +33,7 @@ const TEMPLATE_META: Record<string, { title: string; hint: string }> = {
 // produk/jasa/sparepart campur), reminder gak ada {nomor}/{item}/{total}/
 // {status} (belum tentu ada invoice yang relevan).
 const PLACEHOLDERS_BY_KIND: Record<string, string[]> = {
-  invoice: ['nama', 'nomor', 'tanggal', 'item', 'total', 'status'],
+  invoice: ['nama', 'nomor', 'tanggal', 'waktu', 'item', 'rincian', 'pembayaran', 'total', 'status', 'link'],
   selesai_servis: ['nama', 'unit', 'tanggal'],
   reminder_h3: ['nama', 'unit', 'tanggal'],
   reminder_h7: ['nama', 'unit', 'tanggal'],
@@ -47,9 +47,13 @@ const PREVIEW_SAMPLE: Record<string, string> = {
   unit: '- Daikin 1 PK (Ruang Tamu)',
   tanggal: '15 Agustus 2026',
   nomor: 'INV-20260915-0007',
-  item: '- Cuci AC 1 PK x1 = Rp150.000',
+  waktu: '13.39 WIB',
+  item: '✅ Cuci AC 1 PK\n   1 jasa x Rp150.000 = Rp150.000',
+  rincian: 'Total tagihan : Rp150.000\n*Grand total : Rp150.000*',
+  pembayaran: 'Sisa tagihan : *Rp150.000*',
+  link: 'https://contoh.web.id/struk/abc123',
   total: 'Rp150.000',
-  status: 'Lunas',
+  status: 'Belum lunas',
 };
 
 function previewText(body: string): string {
@@ -147,7 +151,7 @@ function TemplatePesanTab() {
             </CardHeader>
             <CardContent className="grid gap-3 xl:grid-cols-2">
               <Textarea
-                rows={8}
+                rows={tmpl.kind === 'invoice' ? 22 : 8}
                 className="h-full min-h-40 font-mono text-sm"
                 value={body}
                 onChange={(e) => setDrafts((prev) => ({ ...prev, [tmpl.kind]: e.target.value }))}

@@ -153,6 +153,8 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
   kasir: [
     { href: '/pos', label: 'Kasir (POS)', icon: CreditCard },
     { href: '/invoices', label: 'Riwayat Transaksi', icon: Receipt },
+    // Kasir menetapkan harga jasa servis setelah teknisi mengirim temuan.
+    { href: '/teknisi/queue', label: 'Antrian Servis', icon: ClipboardList },
     { href: '/service-orders/intake', label: 'Terima Servis Baru', icon: UserPlus },
     { href: '/members', label: 'Member', icon: Users },
     { href: '/profil', label: 'Profil', icon: UserCircle },

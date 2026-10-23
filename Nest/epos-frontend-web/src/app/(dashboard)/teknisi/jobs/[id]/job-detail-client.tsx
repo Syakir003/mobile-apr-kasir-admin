@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { statusBadgeVariant } from '../../queue/queue-client';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { BarcodeQr } from '@/components/barcode-qr';
+import { SendFindingsBar, ServicePricingCard } from './service-pricing-card';
 import { ReminderScheduleFields, intervalError } from '@/components/reminder-schedule-fields';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -119,7 +120,13 @@ interface JobDetail {
   // maupun servis mandiri, lihat komentar TechnicianJobsService.createForOrder),
   // dipakai buat link "Cetak Label" ke halaman print-labels yang sudah ada
   // (per service order, bukan per job — 1 order bisa punya banyak unit).
-  order: { id: string } | null;
+  order: {
+    id: string;
+    // Ada setelah harga jasa ditetapkan (servis mandiri) atau dari invoice POS (pemasangan).
+    invoice?: { id: string; number: string; status: string; grandTotal: string; totalPaid: string } | null;
+  } | null;
+  // Kapan teknisi menekan "Kirim Temuan" (kasir & admin dinotifikasi).
+  findingsSentAt: string | null;
 }
 interface UserRow {
   id: string;
@@ -215,9 +222,10 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
   // 'assigned'/'sedang_dikerjakan'. Kasir tetap bisa lihat (GET findOne
   // dia boleh), tapi kontrol tambah-temuan/upload-foto disembunyikan biar
   // gak nabrak 403 (POST findings/photos @Roles('admin','teknisi') doang).
-  const canEditFindings =
-    (isAdmin || isTeknisi) &&
-    ['assigned', 'sedang_dikerjakan'].includes(job.status);
+  // Input temuan, foto, kirim temuan, dan pengajuan sparepart adalah pekerjaan TEKNISI.
+  // Halaman ini untuk admin/kasir = memantau pekerjaan teknisi (read-only), jadi kontrolnya
+  // hanya tampil untuk teknisi pemilik job.
+  const canEditFindings = isTeknisi && ['assigned', 'sedang_dikerjakan'].includes(job.status);
   // Konsep "Diagnosa / Catatan Pengerjaan" niru app mobile teknisi (lama) —
   // field catatan bebas yang bisa diisi teknisi selama job aktif, dipisah
   // dari checklist temuan terstruktur. Backend-nya (PATCH :id/notes) masih
@@ -246,11 +254,15 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
       !f.photos.some((p) => p.kind === 'sebelum') ||
       !f.photos.some((p) => p.kind === 'sesudah'),
   );
-  const submitForReviewReady = job.findings.length > 0 && findingsMissingPhotos.length === 0;
+  // Harga jasa harus sudah ditetapkan kasir/admin (invoice ada) sebelum servis bisa diajukan selesai.
+  const priced = !!job.order?.invoice;
+  const submitForReviewReady = job.findings.length > 0 && findingsMissingPhotos.length === 0 && priced;
   const submitForReviewBlockedReason =
     job.findings.length === 0
       ? 'Tambah minimal 1 temuan dulu sebelum bisa mengajukan selesai.'
-      : `${findingsMissingPhotos.length} temuan belum lengkap foto sebelum/sesudahnya.`;
+      : findingsMissingPhotos.length > 0
+        ? `${findingsMissingPhotos.length} temuan belum lengkap foto sebelum/sesudahnya.`
+        : 'Harga jasa belum ditetapkan kasir/admin. Kirim temuan dan tunggu konfirmasi harganya.';
 
   return (
     <div className="grid gap-6">
@@ -379,8 +391,21 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                 />
               ))}
               {canEditFindings && <AddFindingForm jobId={job.id} />}
+              {canEditFindings && (
+                <SendFindingsBar
+                  jobId={job.id}
+                  findingCount={job.findings.length}
+                  withoutBeforePhoto={
+                    job.findings.filter((f) => !f.photos.some((p) => p.kind === 'sebelum')).length
+                  }
+                  findingsSentAt={job.findingsSentAt}
+                  priced={priced}
+                />
+              )}
             </CardContent>
           </Card>
+
+          {(isAdmin || role === 'kasir') && <ServicePricingCard jobId={job.id} />}
 
           {/* Pengajuan sparepart tambahan — backend (material-requests
               module) udah lama ada & dipakai app mobile teknisi lama,
@@ -598,7 +623,7 @@ function JobSteps({ status }: { status: string }) {
         <li key={key} className="flex items-center gap-2" aria-current={i === idx ? 'step' : undefined}>
           <span
             className={cn(
-              'flex size-5 items-center justify-center rounded-full border text-[10px]',
+              'flex size-5 items-center justify-center rounded-full border text-xs',
               i < idx && 'border-primary bg-primary text-primary-foreground',
               i === idx && 'border-primary font-semibold text-primary ring-2 ring-primary/20',
               i > idx && 'text-muted-foreground',
@@ -619,7 +644,7 @@ function PhotoThumb({ src, label }: { src: string; label: string }) {
   const [failed, setFailed] = React.useState(false);
   if (failed) {
     return (
-      <div className="flex size-24 items-center justify-center rounded border border-dashed p-1 text-center text-[10px] text-muted-foreground">
+      <div className="flex size-24 items-center justify-center rounded border border-dashed p-1 text-center text-xs text-muted-foreground">
         Foto tidak ditemukan
       </div>
     );
@@ -665,8 +690,8 @@ function DetailRow({
 }) {
   return (
     <div className="flex justify-between gap-4 border-b py-1.5 last:border-b-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium">{valueNode ?? value}</span>
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-words text-right font-medium">{valueNode ?? value}</span>
     </div>
   );
 }
@@ -1017,7 +1042,7 @@ function AddFindingForm({ jobId }: { jobId: string }) {
                 type="button"
                 aria-label={`Hapus ${p.name}`}
                 onClick={() => setPending((prev) => prev.filter((x) => x.name !== p.name))}
-                className="flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground"
+                className="flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <X className="size-3.5" />
               </button>
@@ -1049,7 +1074,7 @@ function AddFindingForm({ jobId }: { jobId: string }) {
               type="button"
               aria-label="Tutup daftar saran"
               onClick={() => setListClosed(true)}
-              className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="size-4" />
             </button>
@@ -1070,7 +1095,7 @@ function AddFindingForm({ jobId }: { jobId: string }) {
                   addPending([{ id: c.id, name: c.name }]);
                   setDraft('');
                 }}
-                className="block w-full px-3 py-2 pr-9 text-left text-sm hover:bg-accent"
+                className="block w-full px-3 py-2 pr-9 text-left text-sm hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 {c.name}
               </button>
@@ -1446,7 +1471,7 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
                         updateRow(i, { sparepart: s, search: s.name });
                         setOpenRow(null);
                       }}
-                      className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     >
                       <p>{s.name}</p>
                       <p className="text-xs text-muted-foreground">

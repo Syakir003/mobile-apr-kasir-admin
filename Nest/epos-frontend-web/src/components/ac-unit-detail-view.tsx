@@ -89,8 +89,9 @@ export function AcUnitDetailView({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
-        <Card className="h-fit">
-          <CardHeader className="flex flex-row items-center justify-between">
+        {/* Tiap section: panel dengan pita judul abu-abu dan bayangan tipis (sama dengan halaman detail Member). */}
+        <Card className="h-fit gap-0 overflow-hidden py-0 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/60 py-3">
             <CardTitle className="text-base">Data Unit</CardTitle>
             {onEdit && (
               <Button variant="ghost" size="icon" title="Edit" onClick={onEdit}>
@@ -98,7 +99,7 @@ export function AcUnitDetailView({
               </Button>
             )}
           </CardHeader>
-          <CardContent className="grid gap-2 text-sm">
+          <CardContent className="grid gap-2 py-5 text-sm">
             <DetailRow label="Pemilik" value={member?.name || '-'} />
             <DetailRow label="No. HP" value={member?.phone || '-'} />
             <DetailRow label="Barcode" value={unit.barcodeValue} />
@@ -150,11 +151,11 @@ export function AcUnitDetailView({
 
         <div className="grid gap-6">
           {activeJob && (
-            <Card>
-              <CardHeader>
+            <Card className="gap-0 overflow-hidden py-0 shadow-sm">
+              <CardHeader className="border-b bg-muted/60 py-4">
                 <CardTitle className="text-base">Job Servis Berjalan</CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-2 text-sm">
+              <CardContent className="grid gap-2 py-5 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">{activeJob.type}</span>
                   <Badge variant={statusBadgeVariant(activeJob.status)}>
@@ -172,21 +173,24 @@ export function AcUnitDetailView({
             </Card>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Riwayat Servis</CardTitle>
+          <Card className="gap-0 overflow-hidden py-0 shadow-sm">
+            <CardHeader className="border-b bg-muted/60 py-4">
+              <CardTitle className="flex items-center gap-2 text-base">
+                Riwayat Servis
+                <Badge variant="secondary">{serviceHistory.length}</Badge>
+              </CardTitle>
               <CardDescription>
                 Job servis yang sudah selesai di unit ini, beserta temuan teknisi.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="py-5">
               {serviceHistory.length === 0 && (
                 <p className="text-sm text-muted-foreground">Belum ada riwayat servis.</p>
               )}
               {serviceHistory.length > 0 && (
                 <div className="grid gap-3">
                   {serviceHistory.map((job) => (
-                    <div key={job.id} className="rounded-md border p-3">
+                    <div key={job.id} className="rounded-md border p-3 transition-colors hover:bg-muted/40">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-sm font-medium">{job.type}</span>
                         <span className="text-xs text-muted-foreground">

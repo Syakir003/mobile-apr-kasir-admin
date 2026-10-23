@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UploadedFile,
   UseGuards,
@@ -38,6 +39,8 @@ import { UpdateNotesDto } from './dto/update-notes.dto';
 import { HistoryQueryDto } from './dto/history-query.dto';
 import { FindAllJobsQueryDto } from './dto/find-all-jobs-query.dto';
 import { AddFindingDto } from './dto/add-finding.dto';
+import { SetServicePricingDto } from './dto/set-service-pricing.dto';
+import { ServicePricingService } from './service-pricing.service';
 import { SendBackDto } from './dto/send-back.dto';
 import { ApproveCompleteDto } from './dto/approve-complete.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -54,6 +57,7 @@ export class TechnicianJobsController {
     private readonly realtime: RealtimeGateway,
     private readonly offlineSync: OfflineSyncService,
     private readonly notifications: NotificationsService,
+    private readonly pricing: ServicePricingService,
   ) {}
 
   // technicianId diambil dari JWT `sub`, BUKAN dari query param — biar
@@ -290,6 +294,52 @@ export class TechnicianJobsController {
       await this.offlineSync.releasePhotoUpload(clientActionId);
       throw err;
     }
+  }
+
+  // Teknisi menandai temuan sudah diinput -> kasir & admin dinotifikasi buat
+  // menetapkan tindakan + harga jasa.
+  @Roles('admin', 'teknisi')
+  @Post(':id/send-findings')
+  async sendFindings(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    const r = await this.jobs.sendFindings(id, user.sub, user.role);
+    this.realtime.emitToAdmin('job.findings_sent', { jobId: id });
+    void this.notifications
+      .notifyRoles(['admin', 'kasir'], {
+        title: 'Temuan Servis Siap Ditinjau',
+        body: `${r.technicianName ?? 'Teknisi'} mengirim ${r.findingCount} temuan${r.customerName ? ` untuk ${r.customerName}` : ''}. Tentukan tindakan dan harga jasa.`,
+        type: 'findings_sent',
+        target: id,
+      })
+      .catch(() => undefined);
+    return r.job;
+  }
+
+  // Harga jasa servis (admin & kasir) — dilihat dan ditetapkan dari halaman job.
+  @Roles('admin', 'kasir')
+  @Get(':id/service-pricing')
+  getServicePricing(@Param('id') id: string) {
+    return this.pricing.get(id);
+  }
+
+  @Roles('admin', 'kasir')
+  @Put(':id/service-pricing')
+  async setServicePricing(
+    @Param('id') id: string,
+    @Body() dto: SetServicePricingDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const r = await this.pricing.set(id, dto, user.sub);
+    if (r.technicianId) {
+      void this.notifications
+        .notify(r.technicianId, {
+          title: 'Harga Jasa Ditetapkan',
+          body: 'Kasir/admin sudah menetapkan harga jasa untuk job kamu.',
+          type: 'service_priced',
+          target: id,
+        })
+        .catch(() => undefined);
+    }
+    return r;
   }
 
   @Roles('admin', 'teknisi')

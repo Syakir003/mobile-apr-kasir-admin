@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TechnicianJobsService } from './technician-jobs.service';
 import { TechnicianJobsController } from './technician-jobs.controller';
 import { OfflineSyncService } from './offline-sync.service';
+import { ServicePricingService } from './service-pricing.service';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { MaterialRequestsModule } from '../material-requests/material-requests.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -19,7 +20,7 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
   // siklus servis berikutnya + kirim pesan "selesai servis" otomatis.
   imports: [RealtimeModule, MaterialRequestsModule, NotificationsModule, RemindersModule, WhatsappModule],
   controllers: [TechnicianJobsController],
-  providers: [TechnicianJobsService, OfflineSyncService],
+  providers: [TechnicianJobsService, OfflineSyncService, ServicePricingService],
   exports: [TechnicianJobsService],
 })
 export class TechnicianJobsModule {}

@@ -152,11 +152,12 @@ export function MemberDetailClient({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
-        <Card className="h-fit">
-          <CardHeader>
+        {/* Tiap section: panel dengan pita judul abu-abu dan bayangan tipis, supaya terpisah dari latar halaman. */}
+        <Card className="h-fit gap-0 overflow-hidden py-0 shadow-sm">
+          <CardHeader className="border-b bg-muted/60 py-4">
             <CardTitle className="text-base">Data Member</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-2 text-sm">
+          <CardContent className="grid gap-2 py-5 text-sm">
             <DetailRow label="No. HP" value={data.phone || '-'} />
             <DetailRow label="Alamat" value={data.address || '-'} />
             <DetailRow
@@ -224,14 +225,17 @@ export function MemberDetailClient({
         </Card>
 
         <div className="grid gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Unit AC</CardTitle>
+          <Card className="gap-0 overflow-hidden py-0 shadow-sm">
+            <CardHeader className="border-b bg-muted/60 py-4">
+              <CardTitle className="flex items-center gap-2 text-base">
+                Unit AC
+                <Badge variant="secondary">{data.acUnits.length}</Badge>
+              </CardTitle>
               <CardDescription>
                 Unit yang tercatat atas nama member ini - klik untuk lihat riwayat servisnya.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="py-5">
               {data.acUnits.length === 0 && (
                 <p className="text-sm text-muted-foreground">Belum ada unit AC tercatat.</p>
               )}
@@ -285,21 +289,24 @@ export function MemberDetailClient({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Riwayat Pembelian</CardTitle>
+          <Card className="gap-0 overflow-hidden py-0 shadow-sm">
+            <CardHeader className="border-b bg-muted/60 py-4">
+              <CardTitle className="flex items-center gap-2 text-base">
+                Riwayat Pembelian
+                <Badge variant="secondary">{data.invoices.length}</Badge>
+              </CardTitle>
               <CardDescription>
                 Semua invoice member ini - unit AC, sparepart, maupun jasa.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="py-5">
               {data.invoices.length === 0 && (
                 <p className="text-sm text-muted-foreground">Belum ada transaksi.</p>
               )}
               {data.invoices.length > 0 && (
                 <div className="grid gap-3">
                   {data.invoices.map((inv) => (
-                    <div key={inv.id} className="rounded-md border p-3">
+                    <div key={inv.id} className="rounded-md border p-3 transition-colors hover:bg-muted/40">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="text-sm font-medium">{inv.number}</p>

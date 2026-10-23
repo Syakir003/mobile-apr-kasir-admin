@@ -170,6 +170,10 @@ model Product {
   // kayak `kind='sparepart'` yang emang dari awal gak pernah pakai kolom
   // itu (lihat komentar di model ItemCost).
   sellPrice   Decimal  @map("sell_price") @db.Decimal(14, 2)
+  // Harga jual Ritel kalau unit ini dijual SATUAN dari paket AC (Indoor saja /
+  // Outdoor saja). Opsional: NULL/0 = belum diisi, kasir wajib mengetik harga.
+  // Untuk Indoor berpasangan, sellPrice = harga PAKET (1 unit lengkap).
+  priceSingle Decimal? @map("price_single") @db.Decimal(14, 2)
   photoUrl    String?  @map("photo_url")
   description String?
   category    String?
@@ -662,7 +666,12 @@ model InvoiceItem {
   // qty = jumlah packUnit, unit = packUnit, unitPrice = harga utuh,
   // buyPriceSnapshot = modal per packUnit (modal per satuan kecil x packSize).
   saleKind String? @map("sale_kind")
+  // Baris Jasa yang ditetapkan kasir/admin dari halaman job teknisi (harga jasa
+  // servis setelah temuan). Dipakai untuk mengganti/menyunting baris jasa PER JOB
+  // tanpa menyentuh baris lain di invoice yang sama. Null = baris biasa (POS dll).
+  jobId String? @map("job_id")
 
+  @@index([jobId])
   @@map("invoice_items")
 }
 
@@ -814,6 +823,18 @@ model TechnicianJob {
   // ulang, biar gak nyangkut catatan lama. Lihat plan
   // 2026-08-22-siklus-checklist-servis-review.md.
   reviewNote    String?   @map("review_note")
+  // Diisi saat teknisi menekan "Kirim Temuan" (admin & kasir dinotifikasi buat
+  // menetapkan tindakan + harga jasa). Boleh dikirim ulang (nilainya diperbarui).
+  findingsSentAt DateTime? @map("findings_sent_at")
+  // Transport servis (diisi kasir/admin, opsional): 0 = tanpa, N = Transport N (N x Rp 100.000,
+  // maks 5). Mode 'individu' = baris "Biaya transport" sendiri; 'dibagi' = dibagi rata ke baris
+  // jasa + sparepart (struk tanpa baris transport).
+  transportLevel Int     @default(0) @map("transport_level")
+  transportMode  String  @default("individu") @map("transport_mode")
+  // true = tagihan job ini DIHITUNG ULANG dari sumbernya (JobBillingService) sejak harga jasa
+  // ditetapkan lewat halaman job. false = jalur lama (POS pemasangan / belum dihargai).
+  billingDerived Boolean @default(false) @map("billing_derived")
+  serviceLines   JobServiceLine[]
 
   photos           JobPhoto[]
   findings         JobFinding[]
@@ -895,6 +916,22 @@ model JobFindingPhoto {
   createdAt    DateTime   @default(now()) @map("created_at")
 
   @@map("job_finding_photos")
+}
+
+// Baris jasa yang ditetapkan kasir/admin untuk satu job (sumber penagihan; harga ASLI sebelum
+// transport dibagi). Invoice dihitung ulang dari sini oleh JobBillingService.
+model JobServiceLine {
+  id        String        @id @default(uuid())
+  jobId     String        @map("job_id")
+  job       TechnicianJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  serviceId String?       @map("service_id")
+  name      String
+  qty       Decimal       @db.Decimal(10, 2)
+  unitPrice Decimal       @map("unit_price") @db.Decimal(14, 2)
+  position  Int           @default(0)
+
+  @@index([jobId])
+  @@map("job_service_lines")
 }
 
 // Pengajuan sparepart tambahan dari teknisi saat servis on-site — perlu approval Admin

@@ -12,6 +12,7 @@ import {
   TechnicianJobStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { JobBillingService } from '../common/services/job-billing.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
 import { wibDayRange } from '../common/wib-date.util';
 import { RemindersService } from '../reminders/reminders.service';
@@ -47,6 +48,7 @@ export class TechnicianJobsService {
     private readonly reminders: RemindersService,
     private readonly whatsapp: WhatsappService,
     private readonly notifications: NotificationsService,
+    private readonly jobBilling: JobBillingService,
   ) {}
 
   private assertOwnerOrAdmin(
@@ -665,6 +667,54 @@ export class TechnicianJobsService {
   }
 
   /**
+   * "Kirim Temuan" (teknisi): menandai temuan sudah diinput, supaya kasir & admin
+   * segera menetapkan tindakan + harga jasa. Notifikasi dikirim controller.
+   * Boleh dikirim ulang (mis. setelah menambah temuan baru).
+   */
+  async sendFindings(jobId: string, actorId: string, role: Role) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
+      const job = await tx.technicianJob.findUnique({
+        where: { id: jobId },
+        include: {
+          member: { select: { name: true } },
+          technician: { select: { displayName: true } },
+          findings: { select: { title: true, photos: { select: { kind: true } } } },
+        },
+      });
+      if (!job) throw new NotFoundException('Job tidak ditemukan');
+      this.assertOwnerOrAdmin(job, actorId, role);
+      if (
+        !(
+          [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]
+        ).includes(job.status)
+      ) {
+        throw new BadRequestException('Temuan hanya bisa dikirim selama job aktif');
+      }
+      if (job.findings.length === 0) {
+        throw new BadRequestException('Tambah minimal 1 temuan dulu sebelum dikirim');
+      }
+      // Kasir/admin menilai harga dari foto, jadi tiap temuan wajib punya foto SEBELUM dulu.
+      const tanpaFoto = job.findings.filter((f) => !f.photos.some((p) => p.kind === 'sebelum'));
+      if (tanpaFoto.length > 0) {
+        throw new BadRequestException(
+          `Isi foto sebelum dulu untuk temuan: ${tanpaFoto.map((f) => `"${f.title}"`).join(', ')}`,
+        );
+      }
+      const updated = await tx.technicianJob.update({
+        where: { id: jobId },
+        data: { findingsSentAt: new Date() },
+      });
+      return {
+        job: updated,
+        findingCount: job.findings.length,
+        customerName: job.member?.name ?? null,
+        technicianName: job.technician?.displayName ?? null,
+      };
+    });
+  }
+
+  /**
    * Aksi "Ajukan Selesai" (teknisi) — pengganti sebagian peran complete()
    * lama. Gate: job harus 'sedang_dikerjakan', minimal 1 JobFinding ada,
    * SETIAP JobFinding minimal punya 1 foto 'sebelum' DAN 1 foto 'sesudah',
@@ -723,6 +773,18 @@ export class TechnicianJobsService {
       if (pendingRequests > 0) {
         throw new BadRequestException(
           'Masih ada pengajuan tambahan yang belum diputuskan',
+        );
+      }
+      // Harga jasa harus sudah ditetapkan kasir/admin: servis mandiri baru punya
+      // invoice setelah harga jasanya diisi (order.invoiceId). Tanpa ini servis
+      // bisa selesai tanpa tagihan. Servis gratis/garansi = harga Rp 0 eksplisit.
+      const order = await tx.serviceOrder.findUnique({
+        where: { id: job.orderId },
+        select: { invoiceId: true },
+      });
+      if (order && !order.invoiceId) {
+        throw new BadRequestException(
+          'Harga jasa belum ditetapkan kasir/admin. Kirim temuan lebih dulu, lalu tunggu konfirmasi harganya.',
         );
       }
       const unusedApproved = await tx.materialRequest.count({
@@ -1013,7 +1075,10 @@ export class TechnicianJobsService {
         where: { jobId, status: 'approved', usedAt: null },
       });
       for (const req of approvedUnused) {
-        if (req.invoiceId) {
+        // Hanya pengajuan yang ditagih lewat penyesuaian (jalur lama) yang perlu dibalikkan di sini;
+        // yang ditagih lewat baris job dihapus oleh rebuild() di bawah.
+        const billedByAdjustment = (await tx.invoiceAdjustment.count({ where: { requestId: req.id } })) > 0;
+        if (req.invoiceId && billedByAdjustment) {
           // Lock invoice row-nya dulu (pola sama kayak decide()/PaymentsService)
           // sebelum baca+update grandTotal, biar gak nubruk pembayaran/pengajuan
           // lain yang lagi jalan bersamaan di invoice yang sama.
@@ -1062,6 +1127,9 @@ export class TechnicianJobsService {
           },
         });
       }
+
+      // Tagihan job yang dihitung ulang: job dibatalkan -> semua baris job ini dihapus dari invoice.
+      if (job.billingDerived) await this.jobBilling.rebuild(tx, jobId, actorId);
 
       return updated;
     });

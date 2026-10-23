@@ -65,6 +65,9 @@ export interface TechnicianJob {
   // teknisi buat nandain job 'assigned' yang masih kena gate "foto sebelum"
   // sebelum bisa start(). findAll() (dipakai admin) gak ngirim field ini.
   hasBeforePhoto?: boolean;
+  // Teknisi sudah menekan "Kirim Temuan" (kasir/admin perlu menetapkan harga jasa).
+  findingsSentAt?: string | null;
+  order?: { invoiceId: string | null } | null;
 }
 interface UserRow {
   id: string;
@@ -126,7 +129,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const jobs = jobsQuery.data ?? [];
   // Query teknisi (/queue) sudah difilter aktif dari server — toggle
   // Aktif/Selesai cuma relevan buat admin (findAll ngembaliin semua status).
-  const filtered = isAdmin
+  const filtered = !isTeknisi
     ? jobs.filter((j) => (showDone ? !ACTIVE_JOB_STATUSES.includes(j.status) : ACTIVE_JOB_STATUSES.includes(j.status)))
     : jobs;
 
@@ -143,16 +146,17 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
               : 'Semua job servis & pemasangan - kelola penugasan teknisi di sini.'}
           </p>
         </div>
-        <Button variant="outline" size="icon" onClick={() => jobsQuery.refetch()}>
+        <Button variant="outline" size="icon" aria-label="Muat ulang daftar job" onClick={() => jobsQuery.refetch()}>
           <RefreshCw className="size-4" />
         </Button>
       </div>
 
-      {isAdmin && (
+      {!isTeknisi && (
         <div className="flex gap-2">
           <Button
             size="sm"
             variant={showDone ? 'outline' : 'default'}
+            aria-pressed={!showDone}
             onClick={() => setShowDone(false)}
           >
             Aktif
@@ -160,6 +164,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           <Button
             size="sm"
             variant={showDone ? 'default' : 'outline'}
+            aria-pressed={showDone}
             onClick={() => setShowDone(true)}
           >
             Selesai
@@ -168,13 +173,20 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
       )}
 
       {jobsQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat job...</p>}
-      {jobsQuery.isError && <p className="text-sm text-destructive">Gagal memuat data job.</p>}
+      {jobsQuery.isError && (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-destructive">Gagal memuat data job.</p>
+          <Button variant="outline" size="sm" onClick={() => jobsQuery.refetch()}>
+            Coba lagi
+          </Button>
+        </div>
+      )}
       {!jobsQuery.isLoading && !jobsQuery.isError && filtered.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
             <Wrench className="size-8" />
             <p className="text-sm">
-              {isAdmin && showDone ? 'Belum ada job selesai.' : 'Belum ada job aktif.'}
+              {!isTeknisi && showDone ? 'Belum ada job selesai.' : 'Belum ada job aktif.'}
             </p>
           </CardContent>
         </Card>
@@ -188,9 +200,12 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           // bikin kartu kelihatan gemuk & banyak ruang kosong sebelumnya).
           // Sempat dirapetin kebablasan (px-4 py-3 + teks text-xs) — dibalikin
           // sedikit lebih lega di sini.
-          <Card key={job.id} className="py-0">
+          <Card key={job.id} className="py-0 transition-colors hover:bg-muted/50">
             <CardContent className="flex flex-col gap-1.5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <Link href={`/teknisi/jobs/${job.id}`} className="flex-1 min-w-0">
+              <Link
+                href={`/teknisi/jobs/${job.id}`}
+                className="min-w-0 flex-1 rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
                 <p className="truncate text-[15px] font-medium">
                   {job.unit
                     ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'
@@ -207,6 +222,11 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 <p className="truncate text-xs text-muted-foreground">
                   Masuk {formatDateTime(job.createdAt)}
                 </p>
+                {!isTeknisi && job.findingsSentAt && !job.order?.invoiceId && (
+                  <p className="truncate text-xs font-medium text-status-warning-foreground dark:text-status-warning">
+                    Temuan terkirim - tentukan harga jasa
+                  </p>
+                )}
               </Link>
               <div className="flex shrink-0 items-center gap-2">
                 {isAdmin && ['menunggu_penugasan', 'assigned'].includes(job.status) && (

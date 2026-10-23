@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Boxes, ChevronDown, ChevronRight, PackagePlus, Pencil, Plus, RotateCcw, Tags, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
@@ -20,6 +20,7 @@ import {
   numberOrNull,
 } from '@/lib/form-number';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
 import { PAGE_SIZE, PaginationFooter, SearchBox } from '@/components/master-data/list-controls';
@@ -85,6 +86,9 @@ interface Product {
   // diisi (tipe itu tidak bisa membeli produk ini tanpa ganti harga manual).
   priceInstaller: number | null;
   priceReseller: number | null;
+  // Harga Ritel saat dijual SATUAN dari paket AC (Indoor saja / Outdoor saja).
+  // Opsional; null/0 = belum diisi (kasir wajib mengetik harga di POS).
+  priceSingle: string | null;
   description: string | null;
   category: string | null;
   active: boolean;
@@ -136,6 +140,7 @@ const productSchema = z.object({
   description: z.string().optional(),
   sellPrice: requiredNumberField('Harga jual wajib diisi'),
   priceInstaller: optionalNumberField,
+  priceSingle: optionalNumberField,
   priceReseller: optionalNumberField,
   active: z.boolean(),
 });
@@ -155,6 +160,7 @@ const emptyValues: ProductFormValues = {
   description: '',
   sellPrice: '',
   priceInstaller: '',
+  priceSingle: '',
   priceReseller: '',
   active: true,
 };
@@ -180,6 +186,7 @@ function toFormValues(p: Product): ProductFormValues {
     description: p.description ?? '',
     sellPrice: p.sellPrice,
     priceInstaller: p.priceInstaller?.toString() ?? '',
+    priceSingle: Number(p.priceSingle) > 0 ? String(Number(p.priceSingle)) : '',
     priceReseller: p.priceReseller?.toString() ?? '',
     active: p.active,
   };
@@ -206,8 +213,10 @@ interface OutdoorDraft {
   /** Id produk Outdoor kalau lagi edit produk yang UDAH punya pasangan (buat PATCH). undefined = pasangan baru/belum ada (buat POST). */
   id?: string;
   name: string;
+  /** Harga Ritel Outdoor saat dijual satuan (opsional, string kosong = belum diisi). */
+  priceSingle: string;
 }
-const emptyOutdoorDraft: OutdoorDraft = { id: undefined, name: '' };
+const emptyOutdoorDraft: OutdoorDraft = { id: undefined, name: '', priceSingle: '' };
 
 // FIX (audit 2026-09-29) — best-effort compensasi kalau Outdoor udah
 // kebuat (POST sukses) tapi langkah berikutnya (PATCH/POST Indoor) gagal.
@@ -265,6 +274,93 @@ function buildDeactivateWarning(product: Product, allProducts: Product[] | undef
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 
+function Step({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <div className="mt-0.5 text-muted-foreground">{icon}</div>
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="mt-0.5 text-sm text-muted-foreground">{children}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Pilih produk yang SUDAH ADA buat dipasangkan (Indoor <-> Outdoor): kolom cari
+ * + daftar saran. Dipakai di Edit Produk — produk yang diinput terpisah (atau
+ * lewat SQL) bisa dipasangkan tanpa harus mengetik/membuat ulang. */
+function PairPicker({
+  candidates,
+  value,
+  onChange,
+  placeholder,
+}: {
+  candidates: Product[];
+  value: Product | null;
+  onChange: (p: Product | null) => void;
+  placeholder: string;
+}) {
+  const [q, setQ] = React.useState('');
+  const [open, setOpen] = React.useState(false);
+  const needle = q.trim().toLowerCase();
+  const shown = candidates.filter((p) => p.name.toLowerCase().includes(needle)).slice(0, 30);
+
+  if (value) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-md border bg-accent px-3 py-2 text-sm">
+        <span className="min-w-0 truncate font-medium">{value.name}</span>
+        <button
+          type="button"
+          aria-label="Batal pilih"
+          onClick={() => onChange(null)}
+          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="relative">
+      <Input
+        placeholder={placeholder}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+      />
+      {open && (
+        <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
+          {shown.length === 0 && (
+            <p className="p-2 text-sm text-muted-foreground">
+              Tidak ada produk yang cocok / belum berpasangan.
+            </p>
+          )}
+          {shown.map((p) => (
+            <button
+              type="button"
+              key={p.id}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onChange(p);
+                setQ('');
+                setOpen(false);
+              }}
+              className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
+            >
+              <p>{p.name}</p>
+              <p className="text-xs text-muted-foreground">
+                Stok {p.stock}
+                {p.acRole === null ? ' • peran belum ditandai' : ''}
+              </p>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProdukPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -282,6 +378,13 @@ export default function ProdukPage() {
   const [initialStock, setInitialStock] = React.useState<InitialStockDraft>(emptyInitialStock);
   // Peran unit pas Edit — cuma bisa diubah buat produk yang GAK berpasangan.
   const [roleDraft, setRoleDraft] = React.useState<'indoor' | 'outdoor' | 'none'>('none');
+  // Produk yang SUDAH ADA yang dipilih buat dipasangkan (Edit Produk). Untuk
+  // sisi Indoor = Outdoor-nya; untuk sisi Outdoor = Indoor-nya.
+  const [pairPick, setPairPick] = React.useState<Product | null>(null);
+  // Panduan singkat di atas tabel (bisa disembunyikan selama halaman terbuka).
+  const [showGuide, setShowGuide] = React.useState(true);
+  // Harga jual lama Indoor sebelum dipasangkan (buat dikembalikan kalau batal pilih).
+  const prePairPrice = React.useRef<{ sell: string; movedToSingle: boolean }>({ sell: '', movedToSingle: false });
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['products', status],
@@ -295,6 +398,34 @@ export default function ProdukPage() {
       ),
     [data],
   );
+
+  // Indoor yang SUDAH punya harga sendiri lalu dipasangkan: harga lama itu BUKAN
+  // harga paket. Dipindah ke Harga Indoor Satuan, dan Harga Jual Paket
+  // dikosongkan supaya admin sengaja mengisinya (wajib).
+  function choosePair(p: Product | null) {
+    if (roleDraft !== 'outdoor') {
+      if (p && !pairPick) {
+        const oldSell = form.getValues('sellPrice');
+        const hadSingle = !!form.getValues('priceSingle');
+        prePairPrice.current = { sell: oldSell, movedToSingle: !hadSingle && !!oldSell };
+        if (!hadSingle && oldSell) form.setValue('priceSingle', oldSell);
+        form.setValue('sellPrice', '');
+        toast.info('Isi Harga Jual Paket (1 unit lengkap). Harga lama Indoor dipindah ke Harga Indoor Satuan.');
+      } else if (!p && pairPick) {
+        form.setValue('sellPrice', prePairPrice.current.sell);
+        if (prePairPrice.current.movedToSingle) form.setValue('priceSingle', '');
+      }
+    }
+    setPairPick(p);
+  }
+
+  // Daftar produk AKTIF (lepas dari filter status tabel) buat kandidat pasangan.
+  const [pickerEnabled, setPickerEnabled] = React.useState(false);
+  const activeProductsQuery = useQuery({
+    queryKey: ['products', 'active'],
+    queryFn: () => apiClient.get<Product[]>('/products?status=active'),
+    enabled: pickerEnabled,
+  });
 
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productSchema),
@@ -321,12 +452,30 @@ export default function ProdukPage() {
   const editingIsPairTarget = !!editing && (data ?? []).some((p) => p.pairedProductId === editing.id);
   const editingRoleEditable = !!editing && !editing.pairedProductId && !editingIsPairTarget;
 
+  // Kandidat pasangan: belum berpasangan (bukan Indoor sebuah paket, bukan
+  // Outdoor milik paket lain), bukan produk ini sendiri, dan berjenis LAWAN
+  // dari produk yang diedit. Produk tanpa peran (mis. dari SQL) ikut, dilabeli.
+  const editingIsOutdoorSide = roleDraft === 'outdoor';
+  const pairCandidates = React.useMemo(() => {
+    const all = activeProductsQuery.data ?? [];
+    const claimed = new Set(all.map((p) => p.pairedProductId).filter((x): x is string => !!x));
+    return all.filter(
+      (p) =>
+        p.id !== editing?.id &&
+        !p.pairedProductId &&
+        !claimed.has(p.id) &&
+        (editingIsOutdoorSide ? p.acRole !== 'outdoor' : p.acRole !== 'indoor'),
+    );
+  }, [activeProductsQuery.data, editing?.id, editingIsOutdoorSide]);
+
   function openCreate() {
     setEditing(null);
     form.reset(emptyValues);
     nameTouched.current = false;
     setMode('indoor');
     setOutdoorDraft(emptyOutdoorDraft);
+    setPairPick(null);
+    setPickerEnabled(false);
     setInitialStock(emptyInitialStock);
     setDialogOpen(true);
   }
@@ -339,13 +488,19 @@ export default function ProdukPage() {
     form.reset(toFormValues(p));
     nameTouched.current = p.name !== composeName(toFormValues(p));
     setRoleDraft(p.acRole ?? 'none');
+    setPairPick(null);
+    setPickerEnabled(!p.pairedProductId);
     setDialogOpen(true);
     if (p.pairedProductId) {
       setOutdoorLoading(true);
-      setOutdoorDraft({ id: p.pairedProductId, name: '' });
+      setOutdoorDraft({ id: p.pairedProductId, name: '', priceSingle: '' });
       try {
         const outdoor = await apiClient.get<Product>(`/products/${p.pairedProductId}`);
-        setOutdoorDraft({ id: outdoor.id, name: outdoor.name });
+        setOutdoorDraft({
+          id: outdoor.id,
+          name: outdoor.name,
+          priceSingle: Number(outdoor.priceSingle) > 0 ? String(Number(outdoor.priceSingle)) : '',
+        });
       } catch {
         toast.error('Gagal memuat data Outdoor pasangan.');
       } finally {
@@ -381,6 +536,7 @@ export default function ProdukPage() {
         sellPrice: Number(values.sellPrice),
         // Kosong = null = hapus harga tipe itu (bukan "biarkan apa adanya").
         priceInstaller: numberOrNull(values.priceInstaller),
+        priceSingle: numberOrNull(values.priceSingle),
         priceReseller: numberOrNull(values.priceReseller),
       };
 
@@ -399,12 +555,16 @@ export default function ProdukPage() {
         // kasus itu doang (PATCH ke Outdoor yang UDAH ada gak dianggap
         // "baru dibuat" — itu emang edit yang valid berdiri sendiri).
         let orphanCandidateId: string | undefined;
-        if (outdoorDraft.name.trim()) {
+        if (pairPick && !outdoorDraft.id && roleDraft !== 'outdoor') {
+          // Outdoor yang SUDAH ADA dipilih dari daftar — tidak bikin produk baru.
+          pairedProductId = pairPick.id;
+        } else if (outdoorDraft.name.trim()) {
           if (outdoorDraft.id) {
             // Outdoor UDAH ada — cuma update nama-nya, sellPrice existing
             // gak disentuh (form ini emang gak punya kolom harga lagi).
             await apiClient.patch<Product>(`/products/${outdoorDraft.id}`, {
               name: outdoorDraft.name.trim(),
+              priceSingle: numberOrNull(outdoorDraft.priceSingle),
             });
           } else {
             // Outdoor baru — sellPrice WAJIB dikirim (required di
@@ -413,6 +573,7 @@ export default function ProdukPage() {
             const createdOutdoor = await apiClient.post<Product>('/products', {
               name: outdoorDraft.name.trim(),
               sellPrice: 0,
+              priceSingle: numberOrNull(outdoorDraft.priceSingle),
             });
             pairedProductId = createdOutdoor.id;
             orphanCandidateId = createdOutdoor.id;
@@ -421,7 +582,7 @@ export default function ProdukPage() {
         try {
           // Stok TETAP gak dikirim di update — satu-satunya jalur ubah itu
           // StockService.stockIn() (halaman detail produk, klik baris tabel).
-          return await apiClient.patch<Product>(`/products/${editing.id}`, {
+          const saved = await apiClient.patch<Product>(`/products/${editing.id}`, {
             ...base,
             active: values.active,
             ...(pairedProductId ? { pairedProductId } : {}),
@@ -431,6 +592,20 @@ export default function ProdukPage() {
               ? { acRole: roleDraft === 'none' ? null : roleDraft }
               : {}),
           });
+          // Sisi Outdoor: pairing dicatat di sisi Indoor (relasi searah), jadi
+          // Indoor yang dipilih yang di-PATCH nunjuk ke produk ini.
+          if (pairPick && roleDraft === 'outdoor' && editingRoleEditable) {
+            try {
+              await apiClient.patch<Product>(`/products/${pairPick.id}`, {
+                pairedProductId: editing.id,
+              });
+            } catch (err) {
+              throw new Error(
+                `Perubahan produk tersimpan, tapi pairing gagal: ${err instanceof ApiError ? err.message : 'coba lagi'}`,
+              );
+            }
+          }
+          return saved;
         } catch (err) {
           if (orphanCandidateId) throw await withOrphanCleanup(orphanCandidateId, err);
           throw err;
@@ -444,6 +619,7 @@ export default function ProdukPage() {
         const outdoor = await apiClient.post<Product>('/products', {
           name: outdoorDraft.name.trim(),
           sellPrice: 0,
+          priceSingle: numberOrNull(outdoorDraft.priceSingle),
           acRole: 'outdoor',
         });
         let indoor: Product;
@@ -597,6 +773,50 @@ export default function ProdukPage() {
         </div>
       </div>
 
+      {showGuide ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between gap-2 text-base">
+              Cara kerjanya
+              <Button type="button" variant="ghost" size="sm" onClick={() => setShowGuide(false)}>
+                Sembunyikan
+              </Button>
+            </CardTitle>
+            <CardDescription>
+              Satu produk AC bisa dijual sebagai paket Split (Indoor + Outdoor) atau sebagai unit tunggal.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Step icon={<PackagePlus className="size-5" />} title="1. Tambah produk">
+                Klik Tambah Produk, lalu pilih jenisnya: Indoor, Outdoor, atau Split (Indoor + Outdoor
+                sekaligus, otomatis berpasangan).
+              </Step>
+              <Step icon={<Tags className="size-5" />} title="2. Isi harga">
+                Harga Jual = harga satu unit lengkap (paket). Harga Indoor/Outdoor satuan, Installer, dan
+                Reseller boleh dikosongkan.
+              </Step>
+              <Step icon={<Boxes className="size-5" />} title="3. Isi stok">
+                Klik barisnya di tabel, lalu tambah stok (barang masuk). Stok paket mengikuti sisi yang paling
+                sedikit.
+              </Step>
+            </div>
+            <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Cara membaca tabel: tulisan hijau &ldquo;Outdoor: ...&rdquo; di bawah nama adalah pasangan
+              Outdoor produk itu. Harga Jual Rp 0 berarti harga paket belum diisi - klik ikon pensil untuk
+              mengisinya. Kalau Indoor dan Outdoor sudah ada sebagai produk terpisah, pasangkan lewat ikon
+              pensil di Indoor-nya.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setShowGuide(true)}>
+            Tampilkan panduan
+          </Button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <SearchBox value={search} onChange={setSearch} placeholder="Cari nama, SKU, merek, atau model..." />
         <Select value={brand} onValueChange={setBrand}>
@@ -635,6 +855,25 @@ export default function ProdukPage() {
                 : 'Isi identitas, spesifikasi & harga jual produk baru. Stok awal (opsional) bisa langsung diisi di bagian bawah - stok berikutnya lewat halaman detail (klik baris di tabel).'}
             </DialogDescription>
           </DialogHeader>
+          <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            {editing ? (
+              <>
+                <p className="font-medium text-foreground">Yang diubah di sini</p>
+                <p className="mt-0.5">
+                  Nama, spesifikasi, harga, dan pasangan Outdoor. Stok tidak diubah di sini - klik baris
+                  produk di tabel untuk menambah stok.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-medium text-foreground">Langkahnya</p>
+                <p className="mt-0.5">
+                  1) Pilih Jenis Input. 2) Isi nama dan harga jual. 3) Untuk Split, isi nama Outdoor
+                  pasangannya. 4) Stok awal boleh diisi sekarang atau nanti.
+                </p>
+              </>
+            )}
+          </div>
           <Form {...form}>
             <form className="grid gap-4" onSubmit={form.handleSubmit(onSubmit)}>
               {!editing && (
@@ -667,6 +906,9 @@ export default function ProdukPage() {
                     <FormControl>
                       <Input placeholder="Contoh: AC Split 1 PK Inverter" {...field} />
                     </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Terisi otomatis dari Merek + Model + PK, boleh diubah sendiri.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -731,13 +973,22 @@ export default function ProdukPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      {(!editing && mode === 'split') || editing?.pairedProductId
+                      {(!editing && mode === 'split') ||
+                      editing?.pairedProductId ||
+                      (pairPick && roleDraft !== 'outdoor')
                         ? 'Harga Jual Paket (Split) - Ritel'
                         : 'Harga Jual Ritel'}
                     </FormLabel>
                     <FormControl>
                       <CurrencyInput {...field} />
                     </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      {(!editing && mode === 'split') ||
+                      editing?.pairedProductId ||
+                      (pairPick && roleDraft !== 'outdoor')
+                        ? 'Harga satu unit lengkap (Indoor + Outdoor) untuk pembeli biasa. Ini yang dipakai kasir saat menjual sepasang.'
+                        : 'Harga untuk pembeli biasa (Ritel). Wajib diisi.'}
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -745,6 +996,10 @@ export default function ProdukPage() {
               {/* Harga per tipe pembeli (2026-10-13) — opsional. Kosong =
                   member tipe itu tidak bisa membeli produk ini dengan harga
                   otomatis (kasir harus isi harga manual). */}
+              <p className="-mb-2 text-xs text-muted-foreground">
+                Harga khusus untuk pembeli bertipe Installer atau Reseller. Kosongkan kalau tidak ada - kasir
+                lalu mengisi harganya sendiri saat checkout.
+              </p>
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
@@ -773,6 +1028,39 @@ export default function ProdukPage() {
                   )}
                 />
               </div>
+              {/* Harga satuan (opsional): Indoor yang berpasangan = Harga Indoor
+                  Satuan; produk yang jadi Outdoor pasangan = Harga Outdoor Satuan.
+                  Dipakai kasir saat unit ini dijual sendiri (bukan sepaket);
+                  kosong = kasir wajib mengetik harga. Harga paket di atas tetap wajib. */}
+              {((!editing && mode === 'split') ||
+                editing?.pairedProductId ||
+                (pairPick && roleDraft !== 'outdoor') ||
+                editingIsPairTarget) && (
+                <FormField
+                  control={form.control}
+                  name="priceSingle"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {editingIsPairTarget
+                          ? 'Harga Outdoor Satuan - Ritel (opsional)'
+                          : 'Harga Indoor Satuan - Ritel (opsional)'}
+                      </FormLabel>
+                      <FormControl>
+                        <CurrencyInput {...field} placeholder="Belum diisi" />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Harga kalau unit ini dijual sendiri, bukan sepaket. Kosong = kasir mengetik
+                        harganya saat checkout.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+              <p className="-mb-2 text-xs text-muted-foreground">
+                PK = ukuran daya AC (mis. 0.5, 1, 1.5, 2). BTU dan Watt boleh dikosongkan.
+              </p>
               <div className="grid grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
@@ -857,7 +1145,26 @@ export default function ProdukPage() {
                   (form gabungan) - section ringkas ini yang nge-handle bikin
                   atau update pasangan Outdoor-nya, gak lagi milih dari
                   dropdown produk yang udah ada. */}
-              {((!editing && mode === 'split') || (editing && !editingIsPairTarget)) && (
+              {/* Sisi OUTDOOR (edit, belum berpasangan): pilih Indoor yang sudah ada. */}
+              {editing && editingRoleEditable && roleDraft === 'outdoor' && (
+                <div className="grid gap-3 rounded-md border p-3">
+                  <div>
+                    <p className="text-sm font-medium">Pasangkan dengan Indoor</p>
+                    <p className="text-xs text-muted-foreground">
+                      Pilih produk Indoor yang sudah ada. Pairing dicatat di sisi Indoor, dan harga
+                      jual satu paket mengikuti Harga Jual Indoor itu (atur lewat Edit produk Indoor).
+                    </p>
+                  </div>
+                  <PairPicker
+                    candidates={pairCandidates}
+                    value={pairPick}
+                    onChange={choosePair}
+                    placeholder="Cari produk Indoor..."
+                  />
+                </div>
+              )}
+              {((!editing && mode === 'split') ||
+                (editing && !editingIsPairTarget && !(editingRoleEditable && roleDraft === 'outdoor'))) && (
                 <div className="grid gap-3 rounded-md border p-3">
                   <div>
                     <p className="text-sm font-medium">Unit Outdoor Pasangan</p>
@@ -873,6 +1180,32 @@ export default function ProdukPage() {
                     <p className="text-sm text-muted-foreground">Memuat data Outdoor...</p>
                   ) : (
                     <div className="grid gap-2">
+                      {/* Edit produk yang BELUM berpasangan: boleh pilih Outdoor
+                          yang sudah ada (diinput terpisah/lewat SQL) ATAU ketik
+                          nama buat bikin Outdoor baru. */}
+                      {editing && !outdoorDraft.id && (
+                        <div className="grid gap-2">
+                          <Label>Pilih Outdoor yang sudah ada</Label>
+                          <PairPicker
+                            candidates={pairCandidates}
+                            value={pairPick}
+                            onChange={choosePair}
+                            placeholder="Cari produk Outdoor..."
+                          />
+                          {pairPick ? (
+                            <p className="text-xs text-muted-foreground">
+                              Harga jual Outdoor ini tidak dipakai saat dijual sepasang; harga satu
+                              paket ikut Harga Jual Indoor di atas.
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              Atau ketik nama di bawah untuk membuat Outdoor baru.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {!(editing && !outdoorDraft.id && pairPick) && (
+                        <>
                       <Label htmlFor="outdoor-name">Nama Outdoor</Label>
                       <Input
                         id="outdoor-name"
@@ -882,6 +1215,15 @@ export default function ProdukPage() {
                           setOutdoorDraft((prev) => ({ ...prev, name: e.target.value }))
                         }
                       />
+                      <Label htmlFor="outdoor-single-price">Harga Outdoor Satuan - Ritel (opsional)</Label>
+                      <CurrencyInput
+                        id="outdoor-single-price"
+                        placeholder="Belum diisi"
+                        value={outdoorDraft.priceSingle}
+                        onChange={(v) => setOutdoorDraft((prev) => ({ ...prev, priceSingle: v }))}
+                      />
+                        </>
+                      )}
                       {/* Klarifikasi harga (2026-09-25, disederhanakan
                           2026-09-29 - field Harga Jual Outdoor DIHAPUS dari
                           form ini, cuma 1x input harga sekarang: Harga Jual

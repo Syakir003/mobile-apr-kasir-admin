@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InvoiceStatus, Prisma, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { JobBillingService } from '../common/services/job-billing.service';
 import { SPAREPART_RESERVED_SQL, StockLockingService } from '../common/services/stock-locking.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
@@ -26,6 +27,7 @@ export class MaterialRequestsService {
     private readonly prisma: PrismaService,
     private readonly stockLocking: StockLockingService,
     private readonly notifications: NotificationsService,
+    private readonly jobBilling: JobBillingService,
   ) {}
 
   /**
@@ -273,7 +275,13 @@ export class MaterialRequestsService {
 
       const invoiceId = request.job.order?.invoiceId;
       let invoiceStatus: string | undefined;
-      if (invoiceId) {
+      if (invoiceId && request.job.billingDerived) {
+        // Tagihan job ini dihitung ulang dari sumbernya: sparepart yang disetujui jadi baris
+        // bernama (dan ikut dibagi kalau ada transport mode dibagi), bukan penyesuaian gabungan.
+        await this.jobBilling.rebuild(tx, request.jobId, actorId);
+        const invRow = await tx.invoice.findUnique({ where: { id: invoiceId }, select: { status: true } });
+        invoiceStatus = invRow?.status;
+      } else if (invoiceId) {
         // Lock invoice juga (FOR UPDATE, pola sama persis kayak
         // PaymentsService.record()) — biar approve pengajuan yang nambah
         // tagihan gak nubruk pembayaran yang direkam bersamaan di invoice
@@ -463,7 +471,11 @@ export class MaterialRequestsService {
 
       // Tagihan sudah naik sebesar total yang disetujui (decide()). Yang tidak
       // terpakai dikembalikan ke pelanggan lewat penyesuaian negatif.
-      if (shortfall > 0 && request.invoiceId) {
+      // Job dengan tagihan dihitung ulang: selisih pemakaian ikut terhitung otomatis (jumlah
+      // terpakai), tanpa penyesuaian. Pengajuan lama yang punya penyesuaian tetap jalur lama.
+      const derived =
+        request.job.billingDerived && (await tx.invoiceAdjustment.count({ where: { requestId } })) === 0;
+      if (!derived && shortfall > 0 && request.invoiceId) {
         const rows = await tx.$queryRaw<
           {
             id: string;
@@ -494,7 +506,7 @@ export class MaterialRequestsService {
         }
       }
 
-      return tx.materialRequest.update({
+      const done = await tx.materialRequest.update({
         where: { id: requestId },
         data: {
           usedAt: new Date(),
@@ -503,6 +515,8 @@ export class MaterialRequestsService {
         },
         include: { items: true },
       });
+      if (derived) await this.jobBilling.rebuild(tx, request.jobId, actorId);
+      return done;
     });
   }
 
