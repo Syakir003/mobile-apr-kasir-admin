@@ -63,6 +63,8 @@ class _NotificationTile extends StatelessWidget {
       'job_assigned' => (Icons.handyman_outlined, AppColors.teal600),
       'request_submitted' => (Icons.add_shopping_cart_outlined, AppColors.warning),
       'request_decided' => (Icons.fact_check_outlined, AppColors.success),
+      'service_priced' => (Icons.payments_outlined, AppColors.success),
+      'findings_sent' => (Icons.assignment_outlined, AppColors.warning),
       _ => (Icons.notifications_outlined, AppColors.slate500),
     };
     return ListTile(
@@ -99,7 +101,7 @@ class _NotificationTile extends StatelessWidget {
               ),
             ),
       onTap: () {
-        if (item.type == 'job_assigned' && item.target != null) {
+        if (item.isJob && item.target != null) {
           context.push('/jobs/${item.target}');
         } else if (item.isRequest) {
           context.push('/jobs');

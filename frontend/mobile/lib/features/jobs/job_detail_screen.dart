@@ -220,9 +220,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             _notes.text = job.notes!;
             _notesInit = true;
           }
-          // Minimal satu temuan berfoto SEBELUM menentukan boleh-tidaknya memulai.
           final findings = ref.watch(jobFindingsProvider(job.id)).value;
-          final hasBefore = findings?.any((f) => f.hasBefore) ?? false;
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -258,7 +256,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               const SizedBox(height: 12),
               JobRequestsSection(job: job),
               const SizedBox(height: 20),
-              ..._actions(job, role, hasBefore),
+              ..._actions(job, role, findings ?? const []),
             ],
           );
         },
@@ -266,7 +264,11 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     );
   }
 
-  List<Widget> _actions(TechnicianJob job, UserRole? role, bool hasBefore) {
+  List<Widget> _actions(TechnicianJob job, UserRole? role, List<JobFinding> findings) {
+    final hasBefore = findings.any((f) => f.hasBefore);
+    // Kirim Temuan: server mewajibkan >=1 temuan dan tiap temuan berfoto sebelum.
+    final canSendFindings =
+        findings.isNotEmpty && findings.every((f) => f.hasBefore);
     final isTeknisi = role == UserRole.teknisi;
     final isAdmin = role == UserRole.admin;
     final isKasir = role == UserRole.kasir;
@@ -292,16 +294,30 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           ));
           widgets.add(const SizedBox(height: 10));
         }
+        widgets.add(_sendFindingsButton(job, canSendFindings));
+        widgets.add(const SizedBox(height: 10));
         widgets.add(_primaryButton(
           icon: Icons.qr_code_scanner,
           label: 'Mulai Pekerjaan',
           onPressed: (hasBefore && !noBarcode) ? () => _start(job) : null,
         ));
       } else if (job.status == JobStatus.sedangDikerjakan) {
+        widgets.add(_sendFindingsButton(job, canSendFindings));
+        widgets.add(const SizedBox(height: 10));
+        if (!job.priced) {
+          widgets.add(NoticePanel(
+            tone: NoticeTone.warning,
+            icon: Icons.hourglass_empty,
+            text: job.findingsSentAt == null
+                ? 'Kirim temuan dulu, lalu tunggu kasir/admin menetapkan harga jasa sebelum bisa mengajukan selesai.'
+                : 'Temuan sudah terkirim. Menunggu kasir/admin menetapkan harga jasa.',
+          ));
+          widgets.add(const SizedBox(height: 10));
+        }
         widgets.add(_primaryButton(
           icon: Icons.check_circle_outline,
           label: 'Ajukan Selesai',
-          onPressed: () => _submitReview(job),
+          onPressed: job.priced ? () => _submitReview(job) : null,
         ));
       }
     }
@@ -333,6 +349,23 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       widgets.add(_StatusHint(status: job.status));
     }
     return widgets;
+  }
+
+  /// Tombol Kirim Temuan (boleh kirim ulang setelah menambah temuan baru).
+  Widget _sendFindingsButton(TechnicianJob job, bool enabled) {
+    final sent = job.findingsSentAt != null;
+    return SizedBox(
+      height: 48,
+      child: OutlinedButton.icon(
+        key: const Key('send-findings'),
+        onPressed: (_busy || !enabled)
+            ? null
+            : () => _run(() => sendFindings(job.id),
+                sent ? 'Temuan dikirim ulang.' : 'Temuan terkirim ke kasir/admin.'),
+        icon: const Icon(Icons.send_outlined),
+        label: Text(sent ? 'Kirim Ulang Temuan' : 'Kirim Temuan'),
+      ),
+    );
   }
 
   Widget _primaryButton({

@@ -26,7 +26,8 @@ class AppNotification {
   final bool read;
   final DateTime? createdAt;
 
-  bool get isJob => type == 'job_assigned';
+  bool get isJob =>
+      type == 'job_assigned' || type == 'service_priced' || type == 'findings_sent';
   bool get isRequest =>
       type == 'request_submitted' || type == 'request_decided';
 

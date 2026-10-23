@@ -1,6 +1,6 @@
 // Alur teknisi ujung ke ujung lewat kode mobile asli vs backend Nest sungguhan:
-// temuan -> foto sebelum -> mulai (scan) -> pengajuan material -> foto sesudah ->
-// ajukan selesai -> dikembalikan admin. Tanpa docker/psql: semua lewat API.
+// temuan -> foto sebelum -> kirim temuan -> mulai (scan) -> pengajuan material -> foto sesudah ->
+// admin tetapkan harga jasa -> ajukan selesai -> dikembalikan admin. Tanpa docker/psql: semua lewat API.
 //
 // Butuh DB KOSONG-AMAN (bukan produksi, tes menulis data) berisi: akun admin & teknisi
 // (password123), satu job 'assigned' milik teknisi pada unit ber-barcode, dan satu
@@ -90,6 +90,13 @@ void main() {
     expect(res.statusCode, 200);
   });
 
+  test('3b. kirim temuan -> findingsSentAt terisi; order belum punya invoice (priced=false)', () async {
+    expect((await job()).priced, isFalse);
+    expect((await job()).findingsSentAt, isNull);
+    await sendFindings(_jobId);
+    expect((await job()).findingsSentAt, isNotNull);
+  });
+
   test('4. mulai: barcode salah ditolak, barcode benar -> Sedang Dikerjakan', () async {
     await expectLater(
       callUpdateJobStatus({'jobId': _jobId, 'action': 'start', 'scannedBarcode': 'SALAH'}, patch: (p, {body}) => api.patch(p, body: body)),
@@ -137,7 +144,7 @@ void main() {
     expect(reqs.single.usedAt, isNotNull);
   });
 
-  test('7. foto sesudah -> ajukan selesai -> Menunggu Review', () async {
+  test('7. foto sesudah; ajukan selesai ditolak sampai harga jasa ditetapkan', () async {
     final f = (await repo.fetchFindings(_jobId)).single;
     await repo.uploadFindingPhoto(
       jobId: _jobId,
@@ -147,6 +154,25 @@ void main() {
       ext: 'png',
       contentType: 'image/png',
     );
+    await _expectApiError('harga jasa', () async {
+      await callUpdateJobStatus({'jobId': _jobId, 'action': 'submit_review'}, patch: (p, {body}) => api.patch(p, body: body));
+    })();
+
+    // Kasir/admin menetapkan harga jasa -> order punya invoice.
+    await loginAs('admin');
+    await api.put('/technician-jobs/$_jobId/service-pricing', body: {
+      'lines': [
+        {'name': 'Cuci AC E2E', 'qty': 1, 'unitPrice': 75000},
+      ],
+    });
+    await loginAs('teknisi');
+    expect((await job()).priced, isTrue);
+    final info = jobPaymentInfoFromJobDetail(
+        Map<String, dynamic>.from(await api.get('/technician-jobs/$_jobId') as Map));
+    expect(info.hasInvoice, isTrue);
+  });
+
+  test('7b. ajukan selesai -> Menunggu Review', () async {
     await callUpdateJobStatus({'jobId': _jobId, 'action': 'submit_review', 'notes': 'selesai, freon ditambah'},
         patch: (p, {body}) => api.patch(p, body: body));
     final j = await job();

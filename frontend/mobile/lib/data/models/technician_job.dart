@@ -61,6 +61,8 @@ class TechnicianJob {
     this.scheduledDate,
     this.notes,
     this.reviewNote,
+    this.findingsSentAt,
+    this.priced = true,
     this.startedAt,
     this.completedAt,
     this.createdAt,
@@ -87,6 +89,13 @@ class TechnicianJob {
 
   /// Catatan admin saat mengembalikan job dari review (kosong bila tak pernah dikembalikan).
   final String? reviewNote;
+
+  /// Kapan teknisi terakhir menekan Kirim Temuan (null = belum pernah).
+  final DateTime? findingsSentAt;
+
+  /// False bila order belum punya invoice: harga jasa belum ditetapkan kasir/admin,
+  /// dan server menolak Ajukan Selesai. Default true (daftar job tak membawa data order).
+  final bool priced;
   final DateTime? startedAt;
   final DateTime? completedAt;
   final DateTime? createdAt;
@@ -121,6 +130,8 @@ class TechnicianJob {
       scheduledDate: _toDate(data['scheduled_date']),
       notes: data['notes'] as String?,
       reviewNote: data['review_note'] as String?,
+      findingsSentAt: _toDate(data['findings_sent_at']),
+      priced: (data['priced'] as bool?) ?? true,
       startedAt: _toDate(data['started_at']),
       completedAt: _toDate(data['completed_at']),
       createdAt: _toDate(data['created_at']),

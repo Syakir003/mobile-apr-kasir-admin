@@ -91,6 +91,26 @@ void main() {
     });
   });
 
+  group('priced (harga jasa ditetapkan)', () {
+    TechnicianJob parse(Map<String, dynamic> j) =>
+        TechnicianJob.fromMap('j1', technicianJobRowFromNest(j));
+
+    test('order tanpa invoice -> belum priced; dengan invoice -> priced', () {
+      expect(parse({'status': 'sedang_dikerjakan', 'order': {'invoiceId': null}}).priced, false);
+      expect(parse({'status': 'sedang_dikerjakan', 'order': {'invoiceId': 'inv1'}}).priced, true);
+    });
+
+    test('tanpa data order (daftar job) -> dianggap priced, tombol tidak terkunci salah', () {
+      expect(parse({'status': 'assigned'}).priced, true);
+    });
+
+    test('findingsSentAt diparse', () {
+      final j = parse({'status': 'assigned', 'findingsSentAt': '2026-10-23T10:00:00.000Z'});
+      expect(j.findingsSentAt, isNotNull);
+      expect(parse({'status': 'assigned'}).findingsSentAt, isNull);
+    });
+  });
+
   group('status menunggu_review', () {
     test('dipetakan (bukan jatuh ke menunggu_penugasan) dan review_note terbawa', () {
       final row = technicianJobRowFromNest({

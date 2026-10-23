@@ -67,6 +67,10 @@ final signedPhotoUrlProvider =
   (ref, path) => ref.watch(jobRepositoryProvider).signedPhotoUrl(path),
 );
 
+/// `POST /technician-jobs/:id/send-findings` — teknisi menandai temuan sudah diinput;
+/// kasir/admin dinotifikasi untuk menetapkan harga jasa. Boleh dikirim ulang.
+Future<void> sendFindings(String jobId) => _api.post('/technician-jobs/$jobId/send-findings');
+
 /// `POST /technician-jobs/:jobId/findings` — tambah temuan (kategori diketik
 /// bebas; kategori baru otomatis dibuat server).
 Future<void> addFinding(String jobId, {required String categoryName, String? note}) =>
