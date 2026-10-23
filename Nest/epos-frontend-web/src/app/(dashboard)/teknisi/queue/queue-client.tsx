@@ -146,7 +146,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
               : 'Semua job servis & pemasangan - kelola penugasan teknisi di sini.'}
           </p>
         </div>
-        <Button variant="outline" size="icon" onClick={() => jobsQuery.refetch()}>
+        <Button variant="outline" size="icon" aria-label="Muat ulang daftar job" onClick={() => jobsQuery.refetch()}>
           <RefreshCw className="size-4" />
         </Button>
       </div>
@@ -156,6 +156,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           <Button
             size="sm"
             variant={showDone ? 'outline' : 'default'}
+            aria-pressed={!showDone}
             onClick={() => setShowDone(false)}
           >
             Aktif
@@ -163,6 +164,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           <Button
             size="sm"
             variant={showDone ? 'default' : 'outline'}
+            aria-pressed={showDone}
             onClick={() => setShowDone(true)}
           >
             Selesai
@@ -171,7 +173,14 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
       )}
 
       {jobsQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat job...</p>}
-      {jobsQuery.isError && <p className="text-sm text-destructive">Gagal memuat data job.</p>}
+      {jobsQuery.isError && (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-destructive">Gagal memuat data job.</p>
+          <Button variant="outline" size="sm" onClick={() => jobsQuery.refetch()}>
+            Coba lagi
+          </Button>
+        </div>
+      )}
       {!jobsQuery.isLoading && !jobsQuery.isError && filtered.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
@@ -191,9 +200,12 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           // bikin kartu kelihatan gemuk & banyak ruang kosong sebelumnya).
           // Sempat dirapetin kebablasan (px-4 py-3 + teks text-xs) — dibalikin
           // sedikit lebih lega di sini.
-          <Card key={job.id} className="py-0">
+          <Card key={job.id} className="py-0 transition-colors hover:bg-muted/50">
             <CardContent className="flex flex-col gap-1.5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <Link href={`/teknisi/jobs/${job.id}`} className="flex-1 min-w-0">
+              <Link
+                href={`/teknisi/jobs/${job.id}`}
+                className="min-w-0 flex-1 rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
                 <p className="truncate text-[15px] font-medium">
                   {job.unit
                     ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'

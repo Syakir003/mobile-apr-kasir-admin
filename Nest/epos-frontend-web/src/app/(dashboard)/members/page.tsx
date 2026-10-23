@@ -213,9 +213,9 @@ export default function MembersPage() {
       )}
       {!isLoading && !isError && data && data.items.length > 0 && (
         <>
-        <div className="rounded-md border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <Table>
-            <TableHeader>
+            <TableHeader className="bg-muted/60">
               <TableRow>
                 <TableHead>Nama</TableHead>
                 <TableHead>No. HP</TableHead>
