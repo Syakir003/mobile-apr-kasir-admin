@@ -12,6 +12,7 @@ import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/page_header.dart';
 import '../../data/models/app_user.dart';
 import '../jobs/job_providers.dart';
+import '../jobs/teknisi_dashboard_sections.dart';
 import '../notifications/notification_bell.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import '../reports/reports_providers.dart';
@@ -74,6 +75,10 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: AppSpacing.section),
                   AppRevealIn.at(1, child: _Metrics(role: role)),
+                  if (role == UserRole.teknisi) ...[
+                    const SizedBox(height: AppSpacing.section),
+                    AppRevealIn.at(2, child: const TeknisiDashboardSections()),
+                  ],
                   if (role != UserRole.teknisi) ...[
                     const SizedBox(height: AppSpacing.section),
                     AppRevealIn.at(2, child: const _SalesTrend()),
@@ -105,15 +110,15 @@ class _Metrics extends ConsumerWidget {
     if (role == null) return const SizedBox.shrink();
 
     if (role == UserRole.teknisi) {
-      final jobs = ref.watch(jobsForCurrentUserProvider).value ?? const [];
-      final aktif = jobs.where((j) => j.status.isActive).length;
-      final selesai = jobs.length - aktif;
+      // Sama seperti dashboard web: berjalan = antrean aktif, selesai = total riwayat.
+      final aktif = ref.watch(jobQueueProvider).value?.length ?? 0;
+      final selesai = ref.watch(jobHistoryProvider(1)).value?.total ?? 0;
       return _grid([
         MetricCard(
           label: 'Job Berjalan',
           value: '$aktif',
           icon: Icons.handyman_outlined,
-          sub: 'Dari ${jobs.length} job ditugaskan',
+          sub: 'Dari ${aktif + selesai} job ditugaskan',
           featured: true,
           onTap: () => context.go('/jobs'),
         ),
@@ -122,7 +127,7 @@ class _Metrics extends ConsumerWidget {
           value: '$selesai',
           icon: Icons.task_alt,
           sub: 'Total sepanjang waktu',
-          onTap: () => context.go('/jobs'),
+          onTap: () => context.go('/riwayat'),
         ),
       ]);
     }

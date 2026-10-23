@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
+import '../../core/utils/tanggal.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_filter_chip.dart';
 import '../../core/widgets/status_badge.dart';
@@ -55,6 +56,7 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
       ),
       body: Column(
         children: [
+          if (!isTeknisi)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Row(
@@ -78,8 +80,9 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
               loading: () => const AppSkeletonList(),
               error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat job'),
               data: (all) {
+                // Teknisi: Selesai ada di layar Riwayat sendiri (sama seperti web).
                 final jobs = all
-                    .where((j) => _showDone ? !j.status.isActive : j.status.isActive)
+                    .where((j) => (!isTeknisi && _showDone) ? !j.status.isActive : j.status.isActive)
                     .toList();
                 if (jobs.isEmpty) {
                   return _EmptyState(showDone: _showDone);
@@ -89,7 +92,7 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
                   itemCount: jobs.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (_, i) =>
-                      _JobCard(job: jobs[i], showTechnician: !isTeknisi),
+                      JobCard(job: jobs[i], showTechnician: !isTeknisi),
                 );
               },
             ),
@@ -100,8 +103,8 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
   }
 }
 
-class _JobCard extends StatelessWidget {
-  const _JobCard({required this.job, required this.showTechnician});
+class JobCard extends StatelessWidget {
+  const JobCard({super.key, required this.job, this.showTechnician = false});
 
   final TechnicianJob job;
   final bool showTechnician;
@@ -145,14 +148,33 @@ class _JobCard extends StatelessWidget {
                         color: AppColors.slate900,
                       ),
                     ),
+                    if (job.unitParts.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        job.unitParts,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 11.5, color: AppColors.slate400),
+                      ),
+                    ],
                     const SizedBox(height: 3),
                     Text(
-                      '${job.typeLabel} • ${job.memberName.isEmpty ? '-' : job.memberName}',
+                      '${job.typeLabel} • ${job.memberName.isEmpty ? '-' : job.memberName}'
+                      '${job.scheduledDate == null ? '' : ' • Jadwal ${formatTanggalSingkat(job.scheduledDate!)}'}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                           fontSize: 12.5, color: AppColors.slate500),
                     ),
+                    if (job.createdAt != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Masuk ${formatTanggalSingkat(job.createdAt!)}',
+                        style: const TextStyle(
+                            fontSize: 11.5, color: AppColors.slate400),
+                      ),
+                    ],
                     if (showTechnician) ...[
                       const SizedBox(height: 2),
                       Text(

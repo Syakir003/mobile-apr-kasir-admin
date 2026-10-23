@@ -18,7 +18,16 @@ typedef UnitHistory = ({
   Map<String, JobHistoryExtra> extras,
 });
 
+/// Satu halaman riwayat job selesai teknisi.
+typedef JobHistoryPage = ({List<TechnicianJob> items, int total, int totalPages});
+
 abstract interface class JobRepository {
+  /// Antrean teknisi login: job `assigned`/`sedang_dikerjakan`, urut jadwal (`/technician-jobs/queue`).
+  Future<List<TechnicianJob>> fetchQueue();
+
+  /// Riwayat job selesai teknisi login, per halaman 20 (`/technician-jobs/history`).
+  Future<JobHistoryPage> fetchHistory(int page);
+
   /// Job teknisi; bila [technicianId] diisi hanya job milik teknisi tsb.
   Future<List<TechnicianJob>> fetchJobs({String? technicianId});
   Future<TechnicianJob?> fetchJobById(String id);
@@ -63,6 +72,16 @@ abstract interface class JobRepository {
 // seperti `acUnitRowFromNest` di ac_unit_repository.dart.
 // =============================================================================
 
+/// `Indoor X · Outdoor Y` dari `indoorProduct`/`outdoorProduct` bersarang (kosong bila tak ada).
+String _unitParts(Map unit) {
+  final indoor = (unit['indoorProduct'] as Map?)?['name'];
+  final outdoor = (unit['outdoorProduct'] as Map?)?['name'];
+  return [
+    if (indoor != null) 'Indoor $indoor',
+    if (outdoor != null) 'Outdoor $outdoor',
+  ].join(' · ');
+}
+
 /// Baris `technician_jobs` dari Nest (relasi `member`/`unit`/`technician`
 /// bersarang) -> bentuk yang dibaca [TechnicianJob.fromMap].
 Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
@@ -80,6 +99,7 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
     'notes': j['notes'],
     'review_note': j['reviewNote'],
     'findings_sent_at': j['findingsSentAt'],
+    'has_before_photo': j['hasBeforePhoto'],
     // Hanya GET /technician-jobs/:id yang membawa `order`; di daftar dibiarkan true.
     if (j['order'] is Map) 'priced': (j['order'] as Map)['invoiceId'] != null,
     'started_at': j['startedAt'],
@@ -90,6 +110,7 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
         'name': member['name'],
         'phone': member['phone'],
         'address': member['address'],
+        'maps_url': member['mapsUrl'],
       },
     if (unit != null)
       'unit': {
@@ -98,6 +119,7 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
         'pk': numFromNest(unit['pk']),
         'room_location': unit['roomLocation'],
         'barcode_value': unit['barcodeValue'],
+        'parts': _unitParts(unit),
       },
     if (technician != null) 'technician_name': technician['displayName'],
   };
@@ -232,6 +254,34 @@ class NestJobRepository implements JobRepository {
           technicianJobRowFromNest(Map<String, dynamic>.from(r as Map)),
         ),
     ];
+  }
+
+  @override
+  Future<List<TechnicianJob>> fetchQueue() async {
+    final json = await _get('$_path/queue') as List;
+    return [
+      for (final r in json)
+        TechnicianJob.fromMap(
+          (r as Map)['id'] as String,
+          technicianJobRowFromNest(Map<String, dynamic>.from(r)),
+        ),
+    ];
+  }
+
+  @override
+  Future<JobHistoryPage> fetchHistory(int page) async {
+    final json = await _get('$_path/history?page=$page&pageSize=20') as Map;
+    return (
+      items: [
+        for (final r in (json['items'] as List? ?? const []))
+          TechnicianJob.fromMap(
+            (r as Map)['id'] as String,
+            technicianJobRowFromNest(Map<String, dynamic>.from(r)),
+          ),
+      ],
+      total: numFromNest(json['total'])?.toInt() ?? 0,
+      totalPages: numFromNest(json['totalPages'])?.toInt() ?? 1,
+    );
   }
 
   @override

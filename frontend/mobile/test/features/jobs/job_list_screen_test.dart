@@ -64,9 +64,24 @@ void main() {
     expect(find.text('Panasonic B'), findsNothing); // selesai disembunyikan
   });
 
-  testWidgets('teknisi: tab Selesai menampilkan job selesai', (tester) async {
+  testWidgets('teknisi: tanpa tab Selesai (ada di layar Riwayat), job selesai tak tampil', (tester) async {
     await tester.pumpWidget(_wrap(
       user: teknisi,
+      jobs: [
+        _job(id: 'j1', status: JobStatus.assigned, brand: 'LG', model: 'A'),
+        _job(id: 'j2', status: JobStatus.selesai, brand: 'Panasonic', model: 'B'),
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Selesai'), findsNothing);
+    expect(find.text('LG A'), findsOneWidget);
+    expect(find.text('Panasonic B'), findsNothing);
+  });
+
+  testWidgets('admin: tab Selesai menampilkan job selesai', (tester) async {
+    await tester.pumpWidget(_wrap(
+      user: admin,
       jobs: [
         _job(id: 'j1', status: JobStatus.assigned, brand: 'LG', model: 'A'),
         _job(id: 'j2', status: JobStatus.selesai, brand: 'Panasonic', model: 'B'),

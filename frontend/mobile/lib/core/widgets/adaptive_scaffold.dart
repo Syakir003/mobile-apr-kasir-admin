@@ -43,6 +43,11 @@ List<Destination> destinationsForRole(UserRole? role) {
     label: 'Job',
     route: '/jobs',
   );
+  const riwayatServis = (
+    icon: Icons.history,
+    label: 'Riwayat',
+    route: '/riwayat',
+  );
   const profile = (
     icon: Icons.person_outline,
     label: 'Profil',
@@ -94,7 +99,7 @@ List<Destination> destinationsForRole(UserRole? role) {
     return const [dashboard, pos, riwayat, order, pengingat, profile];
   }
   if (role == UserRole.teknisi) {
-    return const [dashboard, job, scan, profile];
+    return const [dashboard, job, riwayatServis, scan, profile];
   }
   return const [dashboard];
 }

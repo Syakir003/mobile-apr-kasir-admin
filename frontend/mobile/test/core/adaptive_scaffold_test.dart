@@ -53,10 +53,10 @@ void main() {
       expect(dests.map((d) => d.route), isNot(contains('/pengingat')));
     });
 
-    test('teknisi melihat Dashboard, Job, Scan, Profil', () {
+    test('teknisi melihat Dashboard, Job, Riwayat, Scan, Profil', () {
       final dests = destinationsForRole(UserRole.teknisi);
-      expect(dests.length, 4);
-      expect(dests.map((d) => d.route), ['/', '/jobs', '/scan', '/profile']);
+      expect(dests.length, 5);
+      expect(dests.map((d) => d.route), ['/', '/jobs', '/riwayat', '/scan', '/profile']);
     });
 
     test('null (belum ada role) hanya melihat Dashboard', () {

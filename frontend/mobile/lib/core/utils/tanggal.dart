@@ -34,3 +34,7 @@ String formatTanggalPanjang(DateTime d) =>
 
 /// `Sen`, `Sel`, … — label sumbu grafik harian.
 String singkatanHari(DateTime d) => _hari[d.weekday - 1].substring(0, 3);
+
+/// `23 Okt 2026` — tanggal ringkas untuk baris daftar.
+String formatTanggalSingkat(DateTime d) =>
+    '${d.day} ${_bulan[d.month - 1].substring(0, 3)} ${d.year}';

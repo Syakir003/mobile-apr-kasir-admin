@@ -63,17 +63,20 @@ class TechnicianJob {
     this.reviewNote,
     this.findingsSentAt,
     this.priced = true,
+    this.hasBeforePhoto,
     this.startedAt,
     this.completedAt,
     this.createdAt,
     this.memberName = '',
     this.memberPhone = '',
     this.memberAddress = '',
+    this.memberMapsUrl = '',
     this.unitBrand = '',
     this.unitModel = '',
     this.unitPk = 0,
     this.unitRoom = '',
     this.unitBarcode = '',
+    this.unitParts = '',
     this.technicianName = '',
   });
 
@@ -96,6 +99,9 @@ class TechnicianJob {
   /// False bila order belum punya invoice: harga jasa belum ditetapkan kasir/admin,
   /// dan server menolak Ajukan Selesai. Default true (daftar job tak membawa data order).
   final bool priced;
+
+  /// Hanya terisi dari `GET /technician-jobs/queue`: sudah ada foto sebelum di salah satu temuan?
+  final bool? hasBeforePhoto;
   final DateTime? startedAt;
   final DateTime? completedAt;
   final DateTime? createdAt;
@@ -104,11 +110,15 @@ class TechnicianJob {
   final String memberName;
   final String memberPhone;
   final String memberAddress;
+  final String memberMapsUrl;
   final String unitBrand;
   final String unitModel;
   final double unitPk;
   final String unitRoom;
   final String unitBarcode;
+
+  /// Paket unit, mis. `Indoor AC FT123 · Outdoor AC FK123` (kosong bila tak ada).
+  final String unitParts;
   final String technicianName;
 
   String get typeLabel => jobTypeLabel(type);
@@ -132,17 +142,20 @@ class TechnicianJob {
       reviewNote: data['review_note'] as String?,
       findingsSentAt: _toDate(data['findings_sent_at']),
       priced: (data['priced'] as bool?) ?? true,
+      hasBeforePhoto: data['has_before_photo'] as bool?,
       startedAt: _toDate(data['started_at']),
       completedAt: _toDate(data['completed_at']),
       createdAt: _toDate(data['created_at']),
       memberName: (member?['name'] as String?) ?? '',
       memberPhone: (member?['phone'] as String?) ?? '',
       memberAddress: (member?['address'] as String?) ?? '',
+      memberMapsUrl: (member?['maps_url'] as String?) ?? '',
       unitBrand: (unit?['brand'] as String?) ?? '',
       unitModel: (unit?['model'] as String?) ?? '',
       unitPk: numFromNest(unit?['pk'])?.toDouble() ?? 0,
       unitRoom: (unit?['room_location'] as String?) ?? '',
       unitBarcode: (unit?['barcode_value'] as String?) ?? '',
+      unitParts: (unit?['parts'] as String?) ?? '',
       technicianName: (data['technician_name'] as String?) ?? '',
     );
   }

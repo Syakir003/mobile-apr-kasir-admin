@@ -30,6 +30,16 @@ final jobsForCurrentUserProvider =
       : repo.fetchJobs();
 });
 
+/// Antrean teknisi (job aktif milik sendiri; memuat `hasBeforePhoto`). Dipakai dashboard.
+final jobQueueProvider = FutureProvider.autoDispose<List<TechnicianJob>>(
+  (ref) => ref.watch(jobRepositoryProvider).fetchQueue(),
+);
+
+/// Riwayat job selesai teknisi, per halaman (mulai 1).
+final jobHistoryProvider = FutureProvider.autoDispose.family<JobHistoryPage, int>(
+  (ref, page) => ref.watch(jobRepositoryProvider).fetchHistory(page),
+);
+
 /// Riwayat job untuk satu unit AC (terbaru dulu), lintas teknisi & order.
 /// Semua peran boleh membaca (RLS `technician_jobs` = semua user login).
 final unitJobHistoryProvider =

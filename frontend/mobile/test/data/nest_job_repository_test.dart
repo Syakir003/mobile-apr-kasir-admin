@@ -60,7 +60,7 @@ void main() {
         },
         'technician': {'displayName': 'Teknisi A'},
       });
-      expect(row['member'], {'name': 'Budi', 'phone': '0812', 'address': 'Jl. A'});
+      expect(row['member'], {'name': 'Budi', 'phone': '0812', 'address': 'Jl. A', 'maps_url': null});
       expect((row['unit'] as Map)['pk'], 1.5);
       expect((row['unit'] as Map)['room_location'], 'Kamar');
       expect((row['unit'] as Map)['barcode_value'], 'ACUNIT-1');
@@ -108,6 +108,36 @@ void main() {
       final j = parse({'status': 'assigned', 'findingsSentAt': '2026-10-23T10:00:00.000Z'});
       expect(j.findingsSentAt, isNotNull);
       expect(parse({'status': 'assigned'}).findingsSentAt, isNull);
+    });
+  });
+
+  group('data antrean ala web (paket unit, foto sebelum, Maps)', () {
+    test('paket indoor/outdoor jadi satu baris, hasBeforePhoto & mapsUrl terbawa', () {
+      final job = TechnicianJob.fromMap(
+        'j1',
+        technicianJobRowFromNest({
+          'status': 'assigned',
+          'hasBeforePhoto': false,
+          'member': {'name': 'Budi', 'mapsUrl': 'https://maps.app.goo.gl/x'},
+          'unit': {
+            'brand': 'Daikin',
+            'indoorProduct': {'name': 'AC FT123'},
+            'outdoorProduct': {'name': 'AC FK123'},
+          },
+        }),
+      );
+      expect(job.unitParts, 'Indoor AC FT123 · Outdoor AC FK123');
+      expect(job.hasBeforePhoto, false);
+      expect(job.memberMapsUrl, 'https://maps.app.goo.gl/x');
+    });
+
+    test('tanpa paket -> kosong; hasBeforePhoto null bila daftar tak membawanya', () {
+      final job = TechnicianJob.fromMap(
+        'j2',
+        technicianJobRowFromNest({'status': 'assigned', 'unit': {'brand': 'LG'}}),
+      );
+      expect(job.unitParts, '');
+      expect(job.hasBeforePhoto, isNull);
     });
   });
 
