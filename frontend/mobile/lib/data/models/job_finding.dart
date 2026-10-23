@@ -25,12 +25,16 @@ class JobFinding {
     required this.id,
     required this.title,
     this.note,
+    this.origin = 'ditambah_teknisi',
     this.photos = const [],
   });
 
   final String id;
   final String title;
   final String? note;
+
+  /// `komplain_awal` (dari keluhan pelanggan) atau `ditambah_teknisi`.
+  final String origin;
   final List<JobFindingPhoto> photos;
 
   bool get hasBefore => photos.any((p) => p.kind == PhotoKind.sebelum);
@@ -40,6 +44,7 @@ class JobFinding {
         id: '${j['id']}',
         title: (j['title'] as String?) ?? '',
         note: j['note'] as String?,
+        origin: (j['origin'] as String?) ?? 'ditambah_teknisi',
         photos: [
           for (final p in (j['photos'] as List? ?? const []))
             JobFindingPhoto.fromNest(Map<String, dynamic>.from(p as Map)),

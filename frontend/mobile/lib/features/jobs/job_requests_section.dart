@@ -193,11 +193,19 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
   }
 
   Future<void> _markUsed() async {
+    // Teknisi melaporkan jumlah yang BENAR-BENAR terpakai per item (sisanya kembali ke stok).
+    final used = await showDialog<({List<Map<String, dynamic>> items, String note})>(
+      context: context,
+      builder: (_) => _MarkUsedDialog(request: widget.request),
+    );
+    if (used == null || !mounted) return;
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
       await ref.read(markMaterialUsedCallerProvider)({
         'requestId': widget.request.id,
+        'items': used.items,
+        if (used.note.isNotEmpty) 'note': used.note,
       });
       ref.invalidate(jobRequestsProvider(widget.jobId));
       if (!mounted) return;
@@ -308,6 +316,14 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
                         fontWeight: FontWeight.w600)),
               ],
             ),
+            for (final it in r.items)
+              Text(
+                '${it.name}: terpakai ${_fmtQty(it.qtyUsed ?? it.qty)} dari ${_fmtQty(it.qty)}${it.unit.isEmpty ? '' : ' ${it.unit}'}',
+                style: const TextStyle(color: AppColors.slate500, fontSize: 12),
+              ),
+            if ((r.usedNote ?? '').isNotEmpty)
+              Text('Catatan pemakaian: ${r.usedNote}',
+                  style: const TextStyle(color: AppColors.slate500, fontSize: 12)),
           ],
           if (widget.canDecide && r.isPending) ...[
             const SizedBox(height: 10),
@@ -364,6 +380,125 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
           ],
         ],
       ),
+    );
+  }
+}
+
+String _fmtQty(num n) => n == n.roundToDouble() ? '${n.toInt()}' : '$n';
+
+/// Dialog lapor pemakaian: tiap item diisi jumlah terpakai (default = jumlah disetujui,
+/// boleh 0..disetujui). Stok dipotong sesuai yang terpakai dan tagihan turun sebesar selisihnya.
+class _MarkUsedDialog extends StatefulWidget {
+  const _MarkUsedDialog({required this.request});
+  final MaterialRequest request;
+
+  @override
+  State<_MarkUsedDialog> createState() => _MarkUsedDialogState();
+}
+
+class _MarkUsedDialogState extends State<_MarkUsedDialog> {
+  late final Map<String, TextEditingController> _used = {
+    for (final it in widget.request.items)
+      it.id: TextEditingController(text: _fmtQty(it.qty)),
+  };
+  final _note = TextEditingController();
+
+  @override
+  void dispose() {
+    for (final c in _used.values) {
+      c.dispose();
+    }
+    _note.dispose();
+    super.dispose();
+  }
+
+  double? _value(MaterialRequestItem it) =>
+      double.tryParse(_used[it.id]!.text.trim().replaceAll(',', '.'));
+
+  bool _invalid(MaterialRequestItem it) {
+    final n = _value(it);
+    return n == null || n < 0 || n > it.qty;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.request.items;
+    final anyInvalid = items.any(_invalid);
+    final refund = anyInvalid
+        ? 0
+        : items.fold<int>(
+            0, (sum, it) => sum + it.lineTotal - (_value(it)! * it.unitPrice).round());
+    return AlertDialog(
+      title: const Text('Sparepart yang terpakai'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Isi jumlah yang benar-benar dipakai. Yang tidak terpakai kembali ke stok.',
+                style: TextStyle(color: AppColors.slate500, fontSize: 13)),
+            const SizedBox(height: 12),
+            for (final it in items)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(it.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          Text('Disetujui ${_fmtQty(it.qty)} ${it.unit}',
+                              style: const TextStyle(color: AppColors.slate500, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      width: 84,
+                      child: TextField(
+                        key: Key('used-${it.id}'),
+                        controller: _used[it.id],
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        textAlign: TextAlign.center,
+                        onChanged: (_) => setState(() {}),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          errorText: _invalid(it) ? '0–${_fmtQty(it.qty)}' : null,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            TextField(
+              controller: _note,
+              decoration: const InputDecoration(
+                hintText: 'Catatan (opsional) - mis. sisa dibawa pulang',
+              ),
+            ),
+            if (!anyInvalid && refund > 0) ...[
+              const SizedBox(height: 10),
+              Text('Tagihan pelanggan turun ${formatRupiah(refund)} karena sebagian tidak terpakai.',
+                  style: const TextStyle(color: AppColors.slate500, fontSize: 12)),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Batal')),
+        FilledButton(
+          key: const Key('confirm-used'),
+          onPressed: anyInvalid
+              ? null
+              : () => Navigator.of(context).pop((
+                    items: [
+                      for (final it in items) {'itemId': it.id, 'qtyUsed': _value(it)},
+                    ],
+                    note: _note.text.trim(),
+                  )),
+          child: const Text('Konfirmasi'),
+        ),
+      ],
     );
   }
 }
@@ -482,6 +617,7 @@ class _DraftLine {
     required this.name,
     required this.unit,
     required this.price,
+    this.available = 0,
   });
 
   final String kind;
@@ -489,6 +625,7 @@ class _DraftLine {
   final String name;
   final String unit;
   final int price;
+  final num available;
   num qty = 1;
 }
 
@@ -717,6 +854,7 @@ class _ItemPickerSheetState extends ConsumerState<_ItemPickerSheet> {
         name: s.name,
         unit: s.unit,
         price: s.price,
+        available: s.available,
       ));
     }
     final filtered = q.isEmpty
@@ -760,7 +898,8 @@ class _ItemPickerSheetState extends ConsumerState<_ItemPickerSheet> {
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(l.name),
-                        subtitle: Text('Sparepart · ${formatRupiah(l.price)}'),
+                        subtitle: Text(
+                            'Sparepart · ${formatRupiah(l.price)} · Stok ${_fmtQty(l.available)}'),
                         onTap: () => Navigator.of(context).pop(l),
                       );
                     },

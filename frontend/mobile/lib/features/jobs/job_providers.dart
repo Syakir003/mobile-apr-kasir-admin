@@ -77,6 +77,26 @@ final signedPhotoUrlProvider =
   (ref, path) => ref.watch(jobRepositoryProvider).signedPhotoUrl(path),
 );
 
+/// `PATCH /technician-jobs/:id/notes` — simpan diagnosa/catatan pengerjaan (job aktif).
+Future<void> saveJobNotes(String jobId, String notes) =>
+    _api.patch('/technician-jobs/$jobId/notes', body: {'notes': notes});
+
+/// Kenapa Ajukan Selesai belum boleh (sama dengan gate `submitForReview` di server),
+/// atau null bila sudah siap. Murni supaya bisa diuji.
+String? submitBlockedReason(TechnicianJob job, List<JobFinding> findings) {
+  if (findings.isEmpty) {
+    return 'Tambah minimal 1 temuan dulu sebelum bisa mengajukan selesai.';
+  }
+  final missing = findings.where((f) => !f.hasBefore || !f.hasAfter).length;
+  if (missing > 0) return '$missing temuan belum lengkap foto sebelum/sesudahnya.';
+  if (!job.priced) {
+    return job.findingsSentAt == null
+        ? 'Harga jasa belum ditetapkan kasir/admin. Kirim temuan dan tunggu konfirmasi harganya.'
+        : 'Temuan sudah terkirim. Menunggu kasir/admin menetapkan harga jasa.';
+  }
+  return null;
+}
+
 /// `POST /technician-jobs/:id/send-findings` — teknisi menandai temuan sudah diinput;
 /// kasir/admin dinotifikasi untuk menetapkan harga jasa. Boleh dikirim ulang.
 Future<void> sendFindings(String jobId) => _api.post('/technician-jobs/$jobId/send-findings');
@@ -180,7 +200,12 @@ Future<void> callMarkMaterialUsed(
   Map<String, dynamic> payload, {
   required Future<dynamic> Function(String path, {Object? body}) patch,
 }) {
-  return patch('/material-requests/${payload['requestId']}/mark-used');
+  // `items` ({itemId, qtyUsed}) + `note` opsional; tanpa keduanya server menganggap terpakai penuh.
+  return patch('/material-requests/${payload['requestId']}/mark-used',
+      body: {
+        if (payload['items'] != null) 'items': payload['items'],
+        if (payload['note'] != null) 'note': payload['note'],
+      });
 }
 
 final markMaterialUsedCallerProvider =

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:printing/printing.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
@@ -82,6 +83,9 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       'Barcode cocok — pekerjaan dimulai.',
     );
   }
+
+  Future<void> _saveNotes(TechnicianJob job) =>
+      _run(() => saveJobNotes(job.id, _notes.text.trim()), 'Catatan disimpan.');
 
   Future<void> _submitReview(TechnicianJob job) async {
     final caller = ref.read(updateJobStatusCallerProvider);
@@ -238,10 +242,15 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
                   text: 'Dikembalikan admin: ${job.reviewNote}',
                 ),
               ],
-              if (job.status == JobStatus.sedangDikerjakan &&
+              if ((job.status == JobStatus.assigned ||
+                      job.status == JobStatus.sedangDikerjakan) &&
                   role == UserRole.teknisi) ...[
                 const SizedBox(height: 12),
-                _DiagnosisField(controller: _notes),
+                _DiagnosisField(
+                  controller: _notes,
+                  busy: _busy,
+                  onSave: () => _saveNotes(job),
+                ),
               ] else if (job.notes != null && job.notes!.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 _NotesCard(notes: job.notes!),
@@ -256,7 +265,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               const SizedBox(height: 12),
               JobRequestsSection(job: job),
               const SizedBox(height: 20),
-              ..._actions(job, role, findings ?? const []),
+              ..._actions(job, role, findings),
             ],
           );
         },
@@ -264,11 +273,9 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     );
   }
 
-  List<Widget> _actions(TechnicianJob job, UserRole? role, List<JobFinding> findings) {
+  List<Widget> _actions(TechnicianJob job, UserRole? role, List<JobFinding>? loaded) {
+    final findings = loaded ?? const <JobFinding>[];
     final hasBefore = findings.any((f) => f.hasBefore);
-    // Kirim Temuan: server mewajibkan >=1 temuan dan tiap temuan berfoto sebelum.
-    final canSendFindings =
-        findings.isNotEmpty && findings.every((f) => f.hasBefore);
     final isTeknisi = role == UserRole.teknisi;
     final isAdmin = role == UserRole.admin;
     final isKasir = role == UserRole.kasir;
@@ -294,30 +301,25 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           ));
           widgets.add(const SizedBox(height: 10));
         }
-        widgets.add(_sendFindingsButton(job, canSendFindings));
-        widgets.add(const SizedBox(height: 10));
         widgets.add(_primaryButton(
           icon: Icons.qr_code_scanner,
           label: 'Mulai Pekerjaan',
           onPressed: (hasBefore && !noBarcode) ? () => _start(job) : null,
         ));
       } else if (job.status == JobStatus.sedangDikerjakan) {
-        widgets.add(_sendFindingsButton(job, canSendFindings));
-        widgets.add(const SizedBox(height: 10));
-        if (!job.priced) {
+        final blocked = loaded == null ? null : submitBlockedReason(job, findings);
+        if (blocked != null) {
           widgets.add(NoticePanel(
             tone: NoticeTone.warning,
             icon: Icons.hourglass_empty,
-            text: job.findingsSentAt == null
-                ? 'Kirim temuan dulu, lalu tunggu kasir/admin menetapkan harga jasa sebelum bisa mengajukan selesai.'
-                : 'Temuan sudah terkirim. Menunggu kasir/admin menetapkan harga jasa.',
+            text: blocked,
           ));
           widgets.add(const SizedBox(height: 10));
         }
         widgets.add(_primaryButton(
           icon: Icons.check_circle_outline,
           label: 'Ajukan Selesai',
-          onPressed: job.priced ? () => _submitReview(job) : null,
+          onPressed: (loaded != null && blocked == null) ? () => _submitReview(job) : null,
         ));
       }
     }
@@ -349,23 +351,6 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       widgets.add(_StatusHint(status: job.status));
     }
     return widgets;
-  }
-
-  /// Tombol Kirim Temuan (boleh kirim ulang setelah menambah temuan baru).
-  Widget _sendFindingsButton(TechnicianJob job, bool enabled) {
-    final sent = job.findingsSentAt != null;
-    return SizedBox(
-      height: 48,
-      child: OutlinedButton.icon(
-        key: const Key('send-findings'),
-        onPressed: (_busy || !enabled)
-            ? null
-            : () => _run(() => sendFindings(job.id),
-                sent ? 'Temuan dikirim ulang.' : 'Temuan terkirim ke kasir/admin.'),
-        icon: const Icon(Icons.send_outlined),
-        label: Text(sent ? 'Kirim Ulang Temuan' : 'Kirim Temuan'),
-      ),
-    );
   }
 
   Widget _primaryButton({
@@ -475,46 +460,141 @@ class _HeaderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = jobStatusColor(job.status);
+    final title = job.memberName.isNotEmpty
+        ? job.memberName
+        : (job.unitTitle.isEmpty ? 'Job servis' : job.unitTitle);
+    final unit = job.unitTitle.isEmpty
+        ? ''
+        : ' · ${job.unitTitle}${job.unitRoom.isEmpty ? '' : ' (${job.unitRoom})'}';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: AppColors.teal50,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              child: const Icon(Icons.handyman_outlined,
-                  color: AppColors.teal700, size: 26),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    job.unitTitle.isEmpty ? 'Order ${job.typeLabel}' : job.unitTitle,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.slate900,
-                    ),
+            Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: AppColors.teal50,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                   ),
-                  const SizedBox(height: 4),
-                  Text(job.typeLabel,
-                      style: const TextStyle(color: AppColors.slate500)),
-                ],
-              ),
+                  child: const Icon(Icons.handyman_outlined,
+                      color: AppColors.teal700, size: 26),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.slate900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text('${job.typeLabel}$unit',
+                          style: const TextStyle(color: AppColors.slate500)),
+                    ],
+                  ),
+                ),
+                StatusBadge(label: job.status.label, color: color),
+              ],
             ),
-            StatusBadge(label: job.status.label, color: color),
+            const SizedBox(height: 12),
+            _JobSteps(status: job.status),
           ],
         ),
       ),
     );
   }
+}
+
+/// Posisi job di alurnya: Ditugaskan, Dikerjakan, Review admin, Selesai (seperti web).
+class _JobSteps extends StatelessWidget {
+  const _JobSteps({required this.status});
+  final JobStatus status;
+
+  static const _steps = [
+    (JobStatus.assigned, 'Ditugaskan'),
+    (JobStatus.sedangDikerjakan, 'Dikerjakan'),
+    (JobStatus.menungguReview, 'Review admin'),
+    (JobStatus.selesai, 'Selesai'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    if (status == JobStatus.dibatalkan) return const SizedBox.shrink();
+    final idx = status == JobStatus.menungguPenugasan
+        ? -1
+        : _steps.indexWhere((s) => s.$1 == status);
+    return Wrap(
+      key: const Key('job-steps'),
+      spacing: 8,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (final (i, step) in _steps.indexed)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 20,
+                height: 20,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: i < idx ? AppColors.teal700 : Colors.transparent,
+                  border: Border.all(
+                      color: i <= idx ? AppColors.teal700 : AppColors.slate300),
+                ),
+                child: Text(
+                  i < idx ? '✓' : '${i + 1}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: i == idx ? FontWeight.bold : FontWeight.normal,
+                    color: i < idx
+                        ? Colors.white
+                        : (i == idx ? AppColors.teal700 : AppColors.slate400),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                step.$2,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: i == idx ? FontWeight.w600 : FontWeight.normal,
+                  color: i == idx ? AppColors.slate900 : AppColors.slate500,
+                ),
+              ),
+              if (i < _steps.length - 1)
+                Container(
+                  width: 14,
+                  height: 1,
+                  margin: const EdgeInsets.only(left: 8),
+                  color: AppColors.slate300,
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+/// Link lokasi: link Google Maps yang diisi admin/kasir (hanya http/https); bila kosong,
+/// cari alamat teksnya di Google Maps; bila alamat juga kosong, tidak ada link.
+Uri? mapsUriFor(TechnicianJob job) {
+  final url = job.memberMapsUrl.trim();
+  if (RegExp(r'^https?://', caseSensitive: false).hasMatch(url)) return Uri.tryParse(url);
+  final address = job.memberAddress.trim();
+  if (address.isEmpty) return null;
+  return Uri.https('www.google.com', '/maps/search/', {'api': '1', 'query': address});
 }
 
 class _InfoCard extends StatelessWidget {
@@ -523,6 +603,7 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maps = mapsUriFor(job);
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -536,7 +617,32 @@ class _InfoCard extends StatelessWidget {
             const Divider(height: 1),
             _row(Icons.location_on_outlined, 'Alamat',
                 job.memberAddress.isEmpty ? '-' : job.memberAddress),
+            const Divider(height: 1),
+            _rowWidget(
+              Icons.map_outlined,
+              'Lokasi',
+              maps == null
+                  ? const Text('-',
+                      style: TextStyle(color: AppColors.slate900, fontSize: 14, fontWeight: FontWeight.w600))
+                  : InkWell(
+                      key: const Key('open-maps'),
+                      onTap: () => launchUrl(maps, mode: LaunchMode.externalApplication),
+                      child: const Text('Buka di Maps',
+                          style: TextStyle(
+                              color: AppColors.teal700,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              decoration: TextDecoration.underline)),
+                    ),
+            ),
             if (job.unitId != null) ...[
+              const Divider(height: 1),
+              _row(Icons.ac_unit, 'Unit AC',
+                  job.unitTitle.isEmpty ? '-' : job.unitTitle),
+              if (job.unitParts.isNotEmpty) ...[
+                const Divider(height: 1),
+                _row(Icons.inventory_2_outlined, 'Unit dalam paket', job.unitParts),
+              ],
               const Divider(height: 1),
               _row(Icons.meeting_room_outlined, 'Ruangan',
                   job.unitRoom.isEmpty ? '-' : job.unitRoom),
@@ -564,7 +670,21 @@ class _InfoCard extends StatelessWidget {
     );
   }
 
-  Widget _row(IconData icon, String label, String value) {
+  Widget _row(IconData icon, String label, String value) => _rowWidget(
+        icon,
+        label,
+        Text(
+          value,
+          textAlign: TextAlign.right,
+          style: const TextStyle(
+            color: AppColors.slate900,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+
+  Widget _rowWidget(IconData icon, String label, Widget value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 13),
       child: Row(
@@ -575,17 +695,7 @@ class _InfoCard extends StatelessWidget {
           Text(label,
               style: const TextStyle(color: AppColors.slate500, fontSize: 14)),
           const Spacer(),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                color: AppColors.slate900,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
+          Flexible(child: Align(alignment: Alignment.centerRight, child: value)),
         ],
       ),
     );
@@ -593,8 +703,14 @@ class _InfoCard extends StatelessWidget {
 }
 
 class _DiagnosisField extends StatelessWidget {
-  const _DiagnosisField({required this.controller});
+  const _DiagnosisField({
+    required this.controller,
+    required this.onSave,
+    required this.busy,
+  });
   final TextEditingController controller;
+  final VoidCallback onSave;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -614,6 +730,15 @@ class _DiagnosisField extends StatelessWidget {
               maxLines: 3,
               decoration: const InputDecoration(
                 hintText: 'Tuliskan hasil pengecekan atau tindakan…',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton(
+                key: const Key('save-notes'),
+                onPressed: busy ? null : onSave,
+                child: const Text('Simpan Catatan'),
               ),
             ),
           ],
@@ -963,9 +1088,11 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
     try {
       await action();
       ref.invalidate(jobFindingsProvider(widget.job.id));
+      ref.invalidate(jobProvider(widget.job.id));
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text(okMessage)));
     } catch (e) {
+      ref.invalidate(jobFindingsProvider(widget.job.id));
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
         content: Text(errorMessage(e)),
@@ -977,39 +1104,48 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
   }
 
   Future<void> _addFinding() async {
-    final result = await showModalBottomSheet<({String name, String note})>(
+    final result = await showModalBottomSheet<({List<String> names, String note})>(
       context: context,
       isScrollControlled: true,
       builder: (_) => const _AddFindingSheet(),
     );
     if (result == null) return;
-    await _guard(
-      () => addFinding(widget.job.id, categoryName: result.name, note: result.note),
-      'Temuan ditambahkan.',
-    );
+    await _guard(() async {
+      // Berurutan supaya urutan temuan sesuai urutan ketikan (sama seperti web).
+      for (final name in result.names) {
+        await addFinding(widget.job.id, categoryName: name, note: result.note);
+      }
+    }, result.names.length > 1 ? '${result.names.length} temuan ditambahkan.' : 'Temuan ditambahkan.');
   }
 
   Future<void> _addPhoto(JobFinding finding, PhotoKind kind) async {
     final source = await _pickSource();
     if (source == null) return;
-    final file = await ImagePicker().pickImage(
-      source: source,
-      maxWidth: 1600,
-      imageQuality: 80,
-    );
-    if (file == null || !mounted) return;
+    final picker = ImagePicker();
+    // Galeri boleh banyak foto sekaligus; kamera satu per jepretan.
+    final files = source == ImageSource.gallery
+        ? await picker.pickMultiImage(maxWidth: 1600, imageQuality: 80)
+        : [
+            if (await picker.pickImage(
+                    source: source, maxWidth: 1600, imageQuality: 80)
+                case final XFile f)
+              f,
+          ];
+    if (files.isEmpty || !mounted) return;
     await _guard(() async {
-      final bytes = await file.readAsBytes();
-      final ext = file.name.contains('.') ? file.name.split('.').last : 'jpg';
-      await ref.read(jobRepositoryProvider).uploadFindingPhoto(
-            jobId: widget.job.id,
-            findingId: finding.id,
-            kind: kind,
-            bytes: bytes,
-            ext: ext,
-            contentType: file.mimeType ?? 'image/jpeg',
-          );
-    }, 'Foto ${kind.label.toLowerCase()} tersimpan.');
+      for (final file in files) {
+        final bytes = await file.readAsBytes();
+        final ext = file.name.contains('.') ? file.name.split('.').last : 'jpg';
+        await ref.read(jobRepositoryProvider).uploadFindingPhoto(
+              jobId: widget.job.id,
+              findingId: finding.id,
+              kind: kind,
+              bytes: bytes,
+              ext: ext,
+              contentType: file.mimeType ?? 'image/jpeg',
+            );
+      }
+    }, files.length > 1 ? '${files.length} foto ${kind.label.toLowerCase()} tersimpan.' : 'Foto ${kind.label.toLowerCase()} tersimpan.');
   }
 
   Future<ImageSource?> _pickSource() {
@@ -1047,7 +1183,7 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
             Row(
               children: [
                 const Expanded(
-                  child: Text('Temuan & Foto Bukti',
+                  child: Text('Temuan & Foto Sebelum/Sesudah',
                       style: TextStyle(
                           fontWeight: FontWeight.w600, color: AppColors.slate900)),
                 ),
@@ -1069,16 +1205,16 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
               error: (e, _) => Text('Gagal memuat temuan: ${errorMessage(e)}',
                   style: const TextStyle(color: AppColors.slate500)),
               data: (findings) {
-                if (findings.isEmpty) {
-                  return Text(
-                    widget.canUpload
-                        ? 'Belum ada temuan. Tambahkan minimal satu temuan, lalu unggah foto sebelum & sesudah.'
-                        : 'Belum ada temuan.',
-                    style: const TextStyle(color: AppColors.slate500),
-                  );
-                }
                 return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (findings.isEmpty)
+                      Text(
+                        widget.canUpload
+                            ? 'Belum ada temuan. Tambahkan minimal satu temuan, lalu unggah foto sebelum & sesudah.'
+                            : 'Belum ada temuan dicatat.',
+                        style: const TextStyle(color: AppColors.slate500),
+                      ),
                     for (final f in findings) ...[
                       _FindingTile(
                         finding: f,
@@ -1088,6 +1224,18 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
                       ),
                       const SizedBox(height: 10),
                     ],
+                    if (widget.canUpload)
+                      _SendFindingsBar(
+                        job: widget.job,
+                        findings: findings,
+                        busy: _busy,
+                        onSend: () => _guard(
+                          () => sendFindings(widget.job.id),
+                          widget.job.findingsSentAt == null
+                              ? 'Temuan terkirim ke kasir dan admin.'
+                              : 'Temuan dikirim ulang.',
+                        ),
+                      ),
                   ],
                 );
               },
@@ -1099,7 +1247,84 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
   }
 }
 
-/// Sheet tambah temuan: kategori (ketik bebas, dengan saran dari yang sudah ada) + catatan.
+/// Bar "Sudah selesai mencatat temuan?": kirim ke kasir/admin supaya mereka menetapkan
+/// tindakan dan harga jasa. Tombol mati sampai ada temuan dan tiap temuan berfoto sebelum.
+class _SendFindingsBar extends StatelessWidget {
+  const _SendFindingsBar({
+    required this.job,
+    required this.findings,
+    required this.busy,
+    required this.onSend,
+  });
+
+  final TechnicianJob job;
+  final List<JobFinding> findings;
+  final bool busy;
+  final VoidCallback onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    final withoutBefore = findings.where((f) => !f.hasBefore).length;
+    final sentAt = job.findingsSentAt;
+    final enabled = findings.isNotEmpty && withoutBefore == 0 && !busy;
+    const hint = TextStyle(fontSize: 12, color: AppColors.slate500);
+    return Container(
+      key: const Key('send-findings-bar'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.slate50,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Sudah selesai mencatat temuan?',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          const SizedBox(height: 2),
+          const Text(
+              'Kirim ke kasir dan admin supaya mereka menentukan tindakan dan harga jasanya.',
+              style: hint),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton.icon(
+              key: const Key('send-findings'),
+              onPressed: enabled ? onSend : null,
+              icon: const Icon(Icons.send_outlined, size: 18),
+              label: Text(sentAt != null ? 'Kirim Ulang Temuan' : 'Kirim Temuan'),
+            ),
+          ),
+          if (findings.isEmpty) ...[
+            const SizedBox(height: 6),
+            const Text('Tambah minimal 1 temuan dulu.', style: hint),
+          ] else if (withoutBefore > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+                'Isi foto sebelum dulu: $withoutBefore dari ${findings.length} temuan belum punya foto sebelum.',
+                style: hint),
+          ],
+          if (sentAt != null && !job.priced) ...[
+            const SizedBox(height: 6),
+            Text(
+                'Temuan terkirim ${_formatDate(sentAt)}. Menunggu harga jasa dari kasir/admin.',
+                style: const TextStyle(fontSize: 12, color: AppColors.warning)),
+          ],
+          if (job.priced) ...[
+            const SizedBox(height: 6),
+            const Text('Harga jasa sudah ditetapkan.',
+                style: TextStyle(fontSize: 12, color: AppColors.success)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Sheet tambah temuan: ketik kategori (koma atau Enter memecahnya jadi beberapa temuan,
+/// tiap satu jadi chip), dengan saran dari kategori yang sudah ada, plus satu catatan bersama.
 class _AddFindingSheet extends ConsumerStatefulWidget {
   const _AddFindingSheet();
 
@@ -1110,6 +1335,7 @@ class _AddFindingSheet extends ConsumerStatefulWidget {
 class _AddFindingSheetState extends ConsumerState<_AddFindingSheet> {
   final _name = TextEditingController();
   final _note = TextEditingController();
+  final List<String> _pending = [];
   List<String> _suggestions = const [];
 
   @override
@@ -1117,6 +1343,31 @@ class _AddFindingSheetState extends ConsumerState<_AddFindingSheet> {
     _name.dispose();
     _note.dispose();
     super.dispose();
+  }
+
+  void _addPending(Iterable<String> names) {
+    for (final raw in names) {
+      final name = raw.trim();
+      if (name.isEmpty) continue;
+      if (_pending.any((p) => p.toLowerCase() == name.toLowerCase())) continue;
+      _pending.add(name);
+    }
+  }
+
+  void _onChanged(String value) {
+    if (value.contains(',')) {
+      // Semua bagian sebelum koma terakhir jadi chip (termasuk hasil paste "A, B, C").
+      final parts = value.split(',');
+      final rest = parts.removeLast();
+      setState(() {
+        _addPending(parts);
+        _name.text = rest.trimLeft();
+        _name.selection = TextSelection.collapsed(offset: _name.text.length);
+        _suggestions = const [];
+      });
+      return;
+    }
+    _suggest(value);
   }
 
   Future<void> _suggest(String q) async {
@@ -1132,71 +1383,107 @@ class _AddFindingSheetState extends ConsumerState<_AddFindingSheet> {
     }
   }
 
+  List<String> _all() {
+    final names = [..._pending];
+    final draft = _name.text.trim();
+    if (draft.isNotEmpty && !names.any((p) => p.toLowerCase() == draft.toLowerCase())) {
+      names.add(draft);
+    }
+    return names;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
           20, 16, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Tambah Temuan',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          TextField(
-            key: const Key('finding-name'),
-            controller: _name,
-            onChanged: _suggest,
-            decoration: const InputDecoration(
-              labelText: 'Masalah / kategori',
-              hintText: 'mis. Freon kurang, Filter kotor',
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Tambah Temuan',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            const Text('Pisahkan beberapa temuan dengan koma atau Enter.',
+                style: TextStyle(fontSize: 12, color: AppColors.slate500)),
+            const SizedBox(height: 12),
+            if (_pending.isNotEmpty) ...[
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final p in _pending)
+                    InputChip(
+                      label: Text(p),
+                      onDeleted: () => setState(() => _pending.remove(p)),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+            TextField(
+              key: const Key('finding-name'),
+              controller: _name,
+              onChanged: _onChanged,
+              onSubmitted: (_) => setState(() {
+                _addPending([_name.text]);
+                _name.clear();
+                _suggestions = const [];
+              }),
+              decoration: InputDecoration(
+                labelText: 'Masalah / kategori',
+                hintText: _pending.isEmpty
+                    ? 'mis. Freon kurang, Filter kotor'
+                    : 'Temuan berikutnya...',
+              ),
             ),
-          ),
-          if (_suggestions.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final s in _suggestions)
-                  ActionChip(
-                    label: Text(s),
-                    onPressed: () => setState(() {
-                      _name.text = s;
-                      _suggestions = const [];
-                    }),
-                  ),
-              ],
+            if (_suggestions.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final s in _suggestions)
+                    ActionChip(
+                      label: Text(s),
+                      onPressed: () => setState(() {
+                        _addPending([s]);
+                        _name.clear();
+                        _suggestions = const [];
+                      }),
+                    ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('finding-note'),
+              controller: _note,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'Catatan (opsional)'),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: FilledButton(
+                key: const Key('finding-save'),
+                onPressed: () {
+                  final names = _all();
+                  if (names.isEmpty) return;
+                  Navigator.of(context).pop((names: names, note: _note.text.trim()));
+                },
+                child: const Text('Simpan Temuan'),
+              ),
             ),
           ],
-          const SizedBox(height: 12),
-          TextField(
-            key: const Key('finding-note'),
-            controller: _note,
-            maxLines: 2,
-            decoration: const InputDecoration(labelText: 'Catatan (opsional)'),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: FilledButton(
-              key: const Key('finding-save'),
-              onPressed: () {
-                final name = _name.text.trim();
-                if (name.isEmpty) return;
-                Navigator.of(context).pop((name: name, note: _note.text.trim()));
-              },
-              child: const Text('Simpan Temuan'),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-/// Satu temuan: judul, catatan, lalu dua baris foto (sebelum/sesudah).
+/// Satu temuan: judul + badge asal, catatan, lalu dua baris foto (sebelum/sesudah).
 class _FindingTile extends StatelessWidget {
   const _FindingTile({
     required this.finding,
@@ -1212,6 +1499,7 @@ class _FindingTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final fromComplaint = finding.origin == 'komplain_awal';
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1221,9 +1509,21 @@ class _FindingTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(finding.title,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w600, color: AppColors.slate900)),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(finding.title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, color: AppColors.slate900)),
+              ),
+              const SizedBox(width: 8),
+              StatusBadge(
+                label: fromComplaint ? 'Keluhan Awal' : 'Ditambah Teknisi',
+                color: fromComplaint ? AppColors.blue600 : AppColors.slate500,
+              ),
+            ],
+          ),
           if ((finding.note ?? '').isNotEmpty) ...[
             const SizedBox(height: 2),
             Text(finding.note!,
@@ -1267,7 +1567,7 @@ class _PhotoGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(kind.label,
+        Text('${kind.label} (${photos.length})',
             style: const TextStyle(
                 color: AppColors.slate500,
                 fontSize: 13,

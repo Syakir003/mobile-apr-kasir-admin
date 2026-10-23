@@ -137,6 +137,7 @@ Map<String, dynamic> materialRequestRowFromNest(Map<String, dynamic> r) => {
       'created_at': r['createdAt'],
       'decided_at': r['decidedAt'],
       'used_at': r['usedAt'],
+      'used_note': r['usedNote'],
       'items': [
         for (final it in (r['items'] as List? ?? const []))
           _materialRequestItemRowFromNest(Map<String, dynamic>.from(it as Map)),
@@ -152,6 +153,7 @@ Map<String, dynamic> _materialRequestItemRowFromNest(Map<String, dynamic> it) =>
       'qty': numFromNest(it['qty']),
       'unit_price': it['unitPrice'],
       'line_total': it['lineTotal'],
+      'qty_used': it['qtyUsed'],
     };
 
 /// Baris `service_orders` dari Nest (`GET /service-orders`, relasi `member` +

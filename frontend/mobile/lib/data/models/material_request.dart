@@ -34,6 +34,7 @@ class MaterialRequestItem {
     required this.qty,
     required this.unitPrice,
     required this.lineTotal,
+    this.qtyUsed,
   });
 
   final String id;
@@ -45,6 +46,9 @@ class MaterialRequestItem {
   final int unitPrice;
   final int lineTotal;
 
+  /// Jumlah yang dilaporkan terpakai; null = belum dilaporkan / data lama (anggap penuh).
+  final num? qtyUsed;
+
   factory MaterialRequestItem.fromMap(Map<String, dynamic> data) =>
       MaterialRequestItem(
         id: (data['id'] as String?) ?? '',
@@ -55,6 +59,7 @@ class MaterialRequestItem {
         qty: numFromNest(data['qty']) ?? 0,
         unitPrice: numFromNest(data['unit_price'])?.toInt() ?? 0,
         lineTotal: numFromNest(data['line_total'])?.toInt() ?? 0,
+        qtyUsed: numFromNest(data['qty_used']),
       );
 }
 
@@ -72,6 +77,7 @@ class MaterialRequest {
     this.createdAt,
     this.decidedAt,
     this.usedAt,
+    this.usedNote,
     this.items = const [],
   });
 
@@ -85,6 +91,7 @@ class MaterialRequest {
   final DateTime? createdAt;
   final DateTime? decidedAt;
   final DateTime? usedAt;
+  final String? usedNote;
   final List<MaterialRequestItem> items;
 
   bool get isPending => status == RequestStatus.pending;
@@ -106,6 +113,7 @@ class MaterialRequest {
         createdAt: _toDate(data['created_at']),
         decidedAt: _toDate(data['decided_at']),
         usedAt: _toDate(data['used_at']),
+        usedNote: data['used_note'] as String?,
         items: [
           for (final it in (data['items'] as List? ?? const []))
             MaterialRequestItem.fromMap(Map<String, dynamic>.from(it as Map)),

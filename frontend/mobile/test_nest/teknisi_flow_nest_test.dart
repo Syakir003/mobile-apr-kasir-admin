@@ -90,6 +90,11 @@ void main() {
     expect(res.statusCode, 200);
   });
 
+  test('3a. simpan catatan pengerjaan (PATCH notes) terbaca di detail job', () async {
+    await saveJobNotes(_jobId, 'cek awal: filter kotor');
+    expect((await job()).notes, 'cek awal: filter kotor');
+  });
+
   test('3b. kirim temuan -> findingsSentAt terisi; order belum punya invoice (priced=false)', () async {
     expect((await job()).priced, isFalse);
     expect((await job()).findingsSentAt, isNull);
@@ -139,9 +144,18 @@ void main() {
     await callDecideMaterialRequest({'requestId': reqs.single.id, 'decision': 'approve'},
         patch: (p, {body}) => api.patch(p, body: body));
     await loginAs('teknisi');
-    await callMarkMaterialUsed({'requestId': reqs.single.id}, patch: (p, {body}) => api.patch(p));
+    // Lapor pemakaian: dari 2 disetujui, hanya 1 yang terpakai.
+    await callMarkMaterialUsed({
+      'requestId': reqs.single.id,
+      'items': [
+        {'itemId': reqs.single.items.single.id, 'qtyUsed': 1},
+      ],
+      'note': 'sisa 1 dibawa pulang',
+    }, patch: (p, {body}) => api.patch(p, body: body));
     reqs = await repo.fetchRequests(_jobId);
     expect(reqs.single.usedAt, isNotNull);
+    expect(reqs.single.items.single.qtyUsed, 1);
+    expect(reqs.single.usedNote, 'sisa 1 dibawa pulang');
   });
 
   test('7. foto sesudah; ajukan selesai ditolak sampai harga jasa ditetapkan', () async {
