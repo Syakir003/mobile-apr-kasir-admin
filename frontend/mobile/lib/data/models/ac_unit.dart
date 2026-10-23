@@ -2,6 +2,7 @@ import '../../core/utils/num_parse.dart';
 /// Status unit AC (disimpan sebagai enum snake_case di Postgres).
 enum AcUnitStatus {
   menungguPemasangan('menunggu_pemasangan', 'Menunggu Pemasangan'),
+  menungguData('menunggu_data', 'Menunggu Data'),
   aktif('aktif', 'Aktif'),
   dalamMaintenance('dalam_maintenance', 'Dalam Maintenance'),
   rusak('rusak', 'Rusak'),

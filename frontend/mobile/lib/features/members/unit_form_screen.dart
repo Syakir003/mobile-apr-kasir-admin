@@ -287,7 +287,9 @@ class _UnitFormScreenState extends ConsumerState<UnitFormScreen> {
                     value: _status,
                     enabled: !_busy,
                     items: [
-                      for (final s in AcUnitStatus.values)
+                      // menunggu_data diisi teknisi lewat layar Scan, bukan dipilih manual di form ini.
+                      for (final s in AcUnitStatus.values
+                          .where((s) => s != AcUnitStatus.menungguData))
                         DropdownMenuItem(value: s, child: Text(s.label)),
                     ],
                     onChanged: (v) => setState(() => _status = v ?? _status),

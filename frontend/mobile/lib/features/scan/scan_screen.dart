@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../data/models/ac_unit.dart';
 import '../../data/models/app_user.dart';
 import '../members/member_providers.dart';
+import 'unit_data_actions.dart';
 import '../../core/utils/error_message.dart';
 import '../../core/widgets/form_field.dart';
 
@@ -47,7 +48,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
           const SnackBar(content: Text('Barcode tidak ditemukan')),
         );
       } else {
-        await _showUnitSheet(unit);
+        // Sheet menutup dengan true setelah data unit dilengkapi -> muat ulang & tampilkan lagi.
+        final reload = await _showUnitSheet(unit);
+        if (reload == true && mounted) {
+          final fresh = await repo.findByBarcode(value);
+          if (fresh != null && mounted) await _showUnitSheet(fresh);
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -62,8 +68,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     }
   }
 
-  Future<void> _showUnitSheet(AcUnit unit) async {
-    await showModalBottomSheet<void>(
+  Future<bool?> _showUnitSheet(AcUnit unit) {
+    return showModalBottomSheet<bool>(
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -133,7 +139,17 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
+              if (unit.status == AcUnitStatus.menungguData)
+                CompleteUnitDataPanel(
+                  unit: unit,
+                  onDone: () => Navigator.pop(sheetContext, true),
+                )
+              else if (ref.read(currentUserProvider).value?.role == UserRole.teknisi) ...[
+                UnitCorrectionPanel(unit: unit),
+                const SizedBox(height: 10),
+              ],
+              const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
                 height: 50,

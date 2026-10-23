@@ -17,6 +17,7 @@ import 'package:epos_ac/data/models/job_photo.dart' show PhotoKind;
 import 'package:epos_ac/data/models/technician_job.dart';
 import 'package:epos_ac/data/repositories/job_repository.dart';
 import 'package:epos_ac/features/jobs/job_providers.dart';
+import 'package:epos_ac/features/scan/unit_data_actions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -25,6 +26,8 @@ import '_support.dart';
 const _jobId = String.fromEnvironment('JOB_ID');
 const _barcode = String.fromEnvironment('UNIT_BARCODE');
 const _sparepartId = String.fromEnvironment('SPAREPART_ID');
+const _unitId = String.fromEnvironment('UNIT_ID');
+const _pendingDataUnitId = String.fromEnvironment('MENUNGGU_DATA_UNIT_ID');
 
 // PNG 1x1 valid.
 const _png = <int>[
@@ -83,6 +86,10 @@ void main() {
     expect(path, startsWith('/uploads/job-photos/'));
     final after = await repo.fetchFindings(_jobId);
     expect(after.single.hasBefore, isTrue);
+
+    // Antrean ala web: job muncul dengan hasBeforePhoto = true setelah foto sebelum diunggah.
+    final q = (await repo.fetchQueue()).firstWhere((j) => j.id == _jobId);
+    expect(q.hasBeforePhoto, isTrue);
 
     // Foto bisa dilihat lewat URL bertanda tangan (dipakai Image.network di UI).
     final url = await repo.signedPhotoUrl(path);
@@ -203,5 +210,33 @@ void main() {
     final j = await job();
     expect(j.status, JobStatus.sedangDikerjakan);
     expect(j.reviewNote, 'foto sesudah kurang jelas');
+  });
+
+  test('9. riwayat (job selesai) kosong untuk job yang belum selesai', () async {
+    await loginAs('teknisi');
+    final h = await repo.fetchHistory(1);
+    expect(h.items.any((j) => j.id == _jobId), isFalse);
+    expect(h.total, 0);
+    expect(h.totalPages, 0); // backend: ceil(0/20) = 0; layar menampilkan "Belum ada job selesai" lebih dulu.
+  });
+
+  test('10. koreksi data unit: dikirim teknisi, lalu terdeteksi menunggu persetujuan',
+      skip: _unitId.isEmpty ? 'UNIT_ID tidak diisi' : null, () async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    expect(await container.read(unitPendingCorrectionProvider(_unitId).future), isFalse);
+    await api.post('/ac-units/$_unitId/corrections', body: {'roomLocation': 'Kamar Koreksi', 'note': 'salah input'});
+    container.invalidate(unitPendingCorrectionProvider(_unitId));
+    expect(await container.read(unitPendingCorrectionProvider(_unitId).future), isTrue);
+  });
+
+  test('11. lengkapi data unit menunggu_data: merk + PK tersimpan, status jadi aktif',
+      skip: _pendingDataUnitId.isEmpty ? 'MENUNGGU_DATA_UNIT_ID tidak diisi' : null, () async {
+    await completeUnitData(_pendingDataUnitId,
+        brand: 'Panasonic', pk: 1, model: 'CS-X', roomLocation: 'Ruang Tamu', installationDate: DateTime(2025, 5, 1));
+    final res = await api.get('/ac-units/$_pendingDataUnitId') as Map;
+    final unit = res['unit'] as Map;
+    expect(unit['brand'], 'Panasonic');
+    expect(unit['status'], isNot('menunggu_data'));
   });
 }
