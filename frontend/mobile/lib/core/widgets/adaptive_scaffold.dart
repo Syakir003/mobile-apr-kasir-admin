@@ -144,42 +144,51 @@ class AdaptiveScaffold extends ConsumerWidget {
       return Scaffold(body: child);
     }
 
-    final location = GoRouterState.of(context).matchedLocation;
-    final selectedIndex = selectedIndexFor(destinations, location);
+    // Menu dibuka lewat push, dan push TIDAK mengubah GoRouterState milik shell
+    // (selalu "/" dari halaman pertama). Lokasi dibaca dari route teratas router
+    // dan didengarkan, kalau tidak tab yang menyala tetap Dashboard.
+    final router = GoRouter.of(context);
+    return ListenableBuilder(
+      listenable: router.routerDelegate,
+      builder: (context, _) {
+        final location = router.state.matchedLocation;
+        final selectedIndex = selectedIndexFor(destinations, location);
 
-    // push (bukan go) supaya berpindah antar-menu tersusun di back stack —
-    // tombol back Android kembali ke menu sebelumnya sesuai urutan kunjungan,
-    // bukan langsung keluar app. Dijaga dari push duplikat kalau menu yang
-    // sama ditekan lagi saat sudah aktif.
-    void onSelected(int index) {
-      final route = destinations[index].route;
-      if (location != route) context.push(route);
-    }
+        // push (bukan go) supaya berpindah antar-menu tersusun di back stack —
+        // tombol back Android kembali ke menu sebelumnya sesuai urutan
+        // kunjungan, bukan langsung keluar app. Dijaga dari push duplikat
+        // kalau menu yang sama ditekan lagi saat sudah aktif.
+        void onSelected(int index) {
+          final route = destinations[index].route;
+          if (location != route) context.push(route);
+        }
 
-    final wide = MediaQuery.sizeOf(context).width >= 800;
-    if (wide) {
-      return Scaffold(
-        body: Row(
-          children: [
-            _Sidebar(
-              destinations: destinations,
-              selectedIndex: selectedIndex,
-              onSelected: onSelected,
-              user: user,
-              onLogout: () => ref.read(authRepositoryProvider).signOut(),
+        final wide = MediaQuery.sizeOf(context).width >= 800;
+        if (wide) {
+          return Scaffold(
+            body: Row(
+              children: [
+                _Sidebar(
+                  destinations: destinations,
+                  selectedIndex: selectedIndex,
+                  onSelected: onSelected,
+                  user: user,
+                  onLogout: () => ref.read(authRepositoryProvider).signOut(),
+                ),
+                Expanded(child: child),
+              ],
             ),
-            Expanded(child: child),
-          ],
-        ),
-      );
-    }
-    return Scaffold(
-      body: child,
-      bottomNavigationBar: _MobileNav(
-        destinations: destinations,
-        selectedIndex: selectedIndex,
-        onSelected: onSelected,
-      ),
+          );
+        }
+        return Scaffold(
+          body: child,
+          bottomNavigationBar: _MobileNav(
+            destinations: destinations,
+            selectedIndex: selectedIndex,
+            onSelected: onSelected,
+          ),
+        );
+      },
     );
   }
 }
