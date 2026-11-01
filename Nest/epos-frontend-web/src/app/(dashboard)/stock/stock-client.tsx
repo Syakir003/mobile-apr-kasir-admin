@@ -300,7 +300,7 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
   return (
     <>
       <div className="grid items-start gap-6 xl:grid-cols-[1fr_420px]">
-        <Card>
+        <Card panel>
           <CardHeader>
             <CardTitle className="text-base">Pilih Produk</CardTitle>
           </CardHeader>
@@ -331,7 +331,7 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
             </Card>
           ) : (
             <>
-              <Card>
+              <Card panel>
                 <CardHeader>
                   <CardTitle className="text-base">{selected.name}</CardTitle>
                   <CardDescription>Harga Jual (seragam): {formatRupiah(selected.sellPrice)}</CardDescription>
@@ -388,7 +388,7 @@ function ProductStockInTab({ initialProductId }: { initialProductId?: string }) 
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card panel>
                 <CardHeader>
                   <CardTitle className="text-base">Tambah Batch Baru</CardTitle>
                 </CardHeader>
@@ -540,7 +540,7 @@ function SparepartStockInTab() {
 
   return (
     <div className="grid items-start gap-6 xl:grid-cols-[1fr_420px]">
-      <Card>
+      <Card panel>
         <CardHeader>
           <CardTitle className="text-base">Pilih Sparepart</CardTitle>
         </CardHeader>
@@ -620,7 +620,7 @@ function SparepartFlatStockInForm({
   });
 
   return (
-    <Card>
+    <Card panel>
       <CardHeader>
         <CardTitle className="text-base">{sparepart.name}</CardTitle>
       </CardHeader>
@@ -734,7 +734,7 @@ function SparepartRollStockInForm({
   });
 
   return (
-    <Card>
+    <Card panel>
       <CardHeader>
         <CardTitle className="text-base">{sparepart.name}</CardTitle>
         <CardDescription>Per gulungan - panjang boleh beda-beda tiap gulungan.</CardDescription>

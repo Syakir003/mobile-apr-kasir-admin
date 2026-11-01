@@ -2,12 +2,18 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
-function Card({ className, ...props }: React.ComponentProps<'div'>) {
+/**
+ * `panel`: section dengan pita judul abu-abu muda (CardHeader) dan isi berpadding sendiri, supaya
+ * terpisah jelas dari latar halaman. Jangan dipakai bila CardContent sengaja `p-0` (tabel penuh).
+ */
+function Card({ className, panel, ...props }: React.ComponentProps<'div'> & { panel?: boolean }) {
   return (
     <div
       data-slot="card"
       className={cn(
-        'bg-card text-card-foreground flex flex-col gap-4 rounded-xl border py-5 shadow-none',
+        'bg-card text-card-foreground flex flex-col gap-4 rounded-xl border py-5 shadow-sm',
+        panel &&
+          'gap-0 overflow-hidden py-0 [&>[data-slot=card-header]]:border-b [&>[data-slot=card-header]]:bg-muted/60 [&>[data-slot=card-header]]:py-4 [&>[data-slot=card-content]]:py-5',
         className,
       )}
       {...props}

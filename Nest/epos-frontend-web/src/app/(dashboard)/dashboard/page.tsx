@@ -150,8 +150,8 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+        <Card className="gap-0 overflow-hidden py-0">
+          <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/60 py-4">
             <CardTitle className="text-base">Transaksi Terkini</CardTitle>
             <Link
               href="/invoices"
@@ -162,7 +162,7 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent className="p-0">
             {summary.recentInvoices.length === 0 && (
-              <p className="px-5 pb-5 text-sm text-muted-foreground">Belum ada transaksi.</p>
+              <p className="p-5 text-sm text-muted-foreground">Belum ada transaksi.</p>
             )}
             {summary.recentInvoices.length > 0 && (
               <div className="grid">

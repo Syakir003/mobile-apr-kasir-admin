@@ -44,6 +44,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PanelTitle } from '@/components/ui/panel';
 
 // Padanan model Service Prisma. `basePrice` Decimal -> string lewat JSON,
 // `durationMinutes` Int biasa -> number. Jasa gak punya kolom stok sama
@@ -190,7 +191,8 @@ export default function JasaPage() {
       )}
       {!isLoading && !isError && data && data.length > 0 && view.total > 0 && (
         <>
-        <div className="rounded-md border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <PanelTitle title="Daftar Jasa" count={view.total} />
           <Table>
             <TableHeader>
               <TableRow>

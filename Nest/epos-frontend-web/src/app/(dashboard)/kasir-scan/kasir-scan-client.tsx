@@ -129,7 +129,7 @@ export function KasirScanClient() {
           </p>
         </div>
 
-        <Card>
+        <Card panel>
           <CardHeader>
             <CardTitle className="text-base">Alurnya</CardTitle>
             <CardDescription>
@@ -153,27 +153,27 @@ export function KasirScanClient() {
           <h2 className="mb-3 text-base font-semibold">Menunggu dikeluarkan</h2>
           {pendingQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat...</p>}
           {pendingQuery.data?.length === 0 && (
-            <Card>
-              <CardContent className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+            <Card className="py-0">
+              <CardContent className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
                 <CheckCircle2 className="size-5 text-green-600" />
                 Tidak ada unit yang menunggu. Semua invoice sudah selesai dikeluarkan.
               </CardContent>
             </Card>
           )}
-          <div className="grid gap-3">
+          <div className="grid gap-2">
             {pendingQuery.data?.map((inv) => (
               <Card
                 key={inv.invoiceId}
-                className="cursor-pointer transition-colors hover:bg-accent"
+                className="cursor-pointer py-0 transition-colors hover:bg-accent"
                 onClick={() => {
                   setLastScan(null);
                   setSelectedInvoiceId(inv.invoiceId);
                 }}
               >
-                <CardContent className="flex items-center justify-between gap-3 py-4">
+                <CardContent className="flex items-center justify-between gap-3 py-3">
                   <div>
-                    <p className="font-medium">{inv.invoiceNumber}</p>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm font-medium">{inv.invoiceNumber}</p>
+                    <p className="text-xs text-muted-foreground">
                       {inv.customerName ?? '-'} · {formatDate(inv.createdAt)}
                     </p>
                   </div>
@@ -224,7 +224,7 @@ export function KasirScanClient() {
           </CardContent>
         </Card>
       ) : (
-        <Card>
+        <Card panel>
           <CardHeader>
             <CardTitle className="text-base">Scan unit</CardTitle>
             <CardDescription>

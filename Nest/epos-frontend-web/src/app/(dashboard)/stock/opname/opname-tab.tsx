@@ -156,7 +156,7 @@ function SparepartOpname() {
 
   return (
     <div className="grid items-start gap-6 xl:grid-cols-[360px_1fr]">
-      <Card>
+      <Card panel>
         <CardHeader>
           <CardTitle className="text-base">1. Pilih sparepart</CardTitle>
         </CardHeader>
@@ -198,7 +198,7 @@ function SparepartOpname() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card panel>
         <CardHeader>
           <CardTitle className="text-base">{selected ? `2. Hitung fisik: ${selected.name}` : '2. Hitung fisik'}</CardTitle>
           {selected && (

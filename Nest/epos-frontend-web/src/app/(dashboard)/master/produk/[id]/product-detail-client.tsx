@@ -391,7 +391,7 @@ export function ProductDetailClient({ productId }: { productId: string }) {
       </div>
 
       <div className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Card>
+        <Card panel>
           <CardHeader>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -499,7 +499,7 @@ export function ProductDetailClient({ productId }: { productId: string }) {
         </Card>
 
         {!isPackage && packageIndoor ? (
-          <Card>
+          <Card panel>
             <CardHeader>
               <CardTitle className="text-base">Restock Outdoor</CardTitle>
               <CardDescription>
@@ -515,7 +515,7 @@ export function ProductDetailClient({ productId }: { productId: string }) {
             </CardContent>
           </Card>
         ) : (
-        <Card>
+        <Card panel>
           <CardHeader>
             <CardTitle className="text-base">
               {isPackage ? 'Barang Masuk Paket' : 'Tambah Batch Baru'}

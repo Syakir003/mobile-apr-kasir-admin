@@ -136,7 +136,7 @@ function TemplatePesanTab() {
         const body = drafts[tmpl.kind] ?? tmpl.body;
         const placeholders = PLACEHOLDERS_BY_KIND[tmpl.kind] ?? [];
         return (
-          <Card key={tmpl.kind}>
+          <Card panel key={tmpl.kind}>
             <CardHeader>
               <CardTitle className="text-base">{TEMPLATE_META[tmpl.kind]?.title ?? tmpl.kind}</CardTitle>
               <CardDescription>{TEMPLATE_META[tmpl.kind]?.hint}</CardDescription>

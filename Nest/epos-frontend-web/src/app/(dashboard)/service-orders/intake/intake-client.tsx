@@ -220,7 +220,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-6 lg:max-w-2xl">
-          <Card>
+          <Card panel>
             <CardHeader>
               <CardTitle className="text-base">Data Pelanggan</CardTitle>
             </CardHeader>
@@ -282,7 +282,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card panel>
             <CardHeader>
               <CardTitle className="text-base">Unit AC</CardTitle>
             </CardHeader>
@@ -435,7 +435,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card panel>
             <CardHeader>
               <CardTitle className="text-base">Keluhan &amp; Penjadwalan</CardTitle>
             </CardHeader>

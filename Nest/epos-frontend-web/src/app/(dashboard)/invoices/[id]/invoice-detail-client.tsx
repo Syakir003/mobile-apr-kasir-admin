@@ -273,7 +273,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
 
       <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
         <div className="grid h-fit gap-6">
-          <Card>
+          <Card panel>
             <CardHeader>
               <CardTitle className="text-base">Data Pelanggan</CardTitle>
             </CardHeader>
@@ -299,7 +299,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card panel>
             <CardHeader>
               <CardTitle className="text-base">Ringkasan</CardTitle>
             </CardHeader>
@@ -370,7 +370,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
         </div>
 
         <div className="grid h-fit gap-6">
-          <Card>
+          <Card panel>
             <CardHeader>
               <CardTitle className="text-base">Item</CardTitle>
             </CardHeader>
@@ -395,7 +395,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card panel>
             <CardHeader>
               <CardTitle className="text-base">Riwayat Pembayaran</CardTitle>
             </CardHeader>

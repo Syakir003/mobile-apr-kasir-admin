@@ -51,6 +51,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PanelTitle } from '@/components/ui/panel';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 // Padanan hasil UsersService.findAll() — cuma field yang di-`select` di
@@ -278,7 +279,8 @@ export default function PenggunaPage() {
         </p>
       )}
       {!isLoading && !isError && filtered.length > 0 && (
-        <div className="rounded-md border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <PanelTitle title="Daftar Pengguna" count={filtered.length} />
           <Table>
             <TableHeader>
               <TableRow>

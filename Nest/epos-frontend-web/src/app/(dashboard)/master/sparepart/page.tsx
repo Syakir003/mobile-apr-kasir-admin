@@ -65,6 +65,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PanelTitle } from '@/components/ui/panel';
 
 // Padanan model Sparepart Prisma. `sellPrice`, `stock`, `minStock` semuanya
 // DECIMAL di Postgres -> Prisma Decimal -> string lewat JSON.
@@ -375,7 +376,8 @@ export default function SparepartPage() {
       )}
       {!isLoading && !isError && data && data.length > 0 && view.total > 0 && (
         <>
-        <div className="rounded-md border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <PanelTitle title="Daftar Sparepart" count={view.total} />
           <Table>
             <TableHeader>
               <TableRow>

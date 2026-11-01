@@ -114,7 +114,7 @@ export function KoreksiTab() {
       )}
 
       {data?.items.map((c) => (
-        <Card key={c.id}>
+        <Card panel key={c.id}>
           <CardHeader className="pb-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-base">

@@ -143,7 +143,7 @@ export function LabelTab() {
       </div>
       {picked.size > 100 && <p className="text-sm text-destructive">Maksimal 100 label sekali cetak.</p>}
 
-      <Card>
+      <Card className="gap-0 overflow-hidden py-0">
         <CardContent className="p-0">
           <Table>
             <TableHeader>

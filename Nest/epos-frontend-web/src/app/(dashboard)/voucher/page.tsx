@@ -47,6 +47,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PanelTitle } from '@/components/ui/panel';
 
 // Padanan model `Voucher` Prisma (rework 2026-09 — bukan lagi
 // VoucherCampaign+VoucherClaim). Satu baris = satu voucher ad-hoc, TERIKAT
@@ -170,7 +171,8 @@ export default function VoucherPage() {
         </p>
       )}
       {!isLoading && !isError && data && data.length > 0 && (
-        <div className="rounded-md border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <PanelTitle title="Daftar Voucher" count={data.length} />
           <Table>
             <TableHeader>
               <TableRow>

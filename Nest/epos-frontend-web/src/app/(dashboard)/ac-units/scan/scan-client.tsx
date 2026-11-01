@@ -50,7 +50,7 @@ export function ScanUnitClient({ role }: { role: Role }) {
         </p>
       </div>
 
-      <Card>
+      <Card panel>
         <CardHeader>
           <CardTitle className="text-base">Barcode Unit</CardTitle>
         </CardHeader>

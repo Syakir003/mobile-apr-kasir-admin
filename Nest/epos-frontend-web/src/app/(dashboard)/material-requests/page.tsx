@@ -29,6 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PanelTitle } from '@/components/ui/panel';
 
 // Halaman admin "Pengajuan Masuk" — padanan prototype "DealDeck E-POS AC":
 // daftar SEMUA pengajuan sparepart tambahan dari teknisi lintas job, bisa
@@ -167,7 +168,8 @@ export default function MaterialRequestsPage() {
       )}
 
       {data && data.items.length > 0 && (
-        <div className="rounded-md border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <PanelTitle title="Daftar Pengajuan" count={data.items.length} />
           <Table>
             <TableHeader>
               <TableRow>
