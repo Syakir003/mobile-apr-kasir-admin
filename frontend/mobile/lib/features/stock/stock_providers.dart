@@ -31,6 +31,32 @@ class StockRow {
   final num? min;
 
   bool get low => min == null ? stock <= 3 : stock <= min!;
+
+  StockLevel get level => stock <= 0
+      ? StockLevel.habis
+      : low
+          ? StockLevel.menipis
+          : StockLevel.aman;
+}
+
+/// Habis = stok 0; menipis = masih ada tapi di bawah/pada batas minimum.
+enum StockLevel { habis, menipis, aman }
+
+typedef StockCounts = ({int habis, int menipis, int aman});
+
+StockCounts stockCounts(Iterable<StockRow> rows) {
+  var habis = 0, menipis = 0, aman = 0;
+  for (final r in rows) {
+    switch (r.level) {
+      case StockLevel.habis:
+        habis++;
+      case StockLevel.menipis:
+        menipis++;
+      case StockLevel.aman:
+        aman++;
+    }
+  }
+  return (habis: habis, menipis: menipis, aman: aman);
 }
 
 class MovementRow {
@@ -65,10 +91,13 @@ num _numFromNest(Object? v) => numFromNest(v) ?? 0;
 final stockOverviewProvider =
     FutureProvider.autoDispose<StockOverview>((ref) async {
   const api = ApiClient();
+  // `api.get` bertipe Future<dynamic>; meng-cast Future-nya ke Future<List>
+  // gagal saat runtime (build rilis), jadi cast isinya setelah selesai.
+  Future<List> getList(String path) async => await api.get(path) as List;
   final results = await Future.wait([
-    api.get('/products') as Future<List>,
-    api.get('/spareparts') as Future<List>,
-    api.get('/stock/movements') as Future<List>,
+    getList('/products'),
+    getList('/spareparts'),
+    getList('/stock/movements'),
   ]);
   final productRows = results[0];
   final sparepartRows = results[1];

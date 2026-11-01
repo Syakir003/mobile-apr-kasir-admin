@@ -13,9 +13,11 @@ import '../../core/widgets/page_header.dart';
 import '../../data/models/app_user.dart';
 import '../jobs/job_providers.dart';
 import '../jobs/teknisi_dashboard_sections.dart';
+import '../keluar_gudang/keluar_gudang_providers.dart';
 import '../notifications/notification_bell.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import '../reports/reports_providers.dart';
+import '../stock/stock_providers.dart';
 import '../transactions/invoice_providers.dart';
 import 'metric_card.dart';
 import 'recent_transactions_card.dart';
@@ -64,7 +66,7 @@ class DashboardScreen extends ConsumerWidget {
                       title: 'Dashboard',
                       subtitle: formatTanggalPanjang(DateTime.now()),
                       subtitleIcon: Icons.calendar_today_outlined,
-                      action: role == UserRole.teknisi
+                      action: role == UserRole.teknisi || role == UserRole.gudang
                           ? null
                           : PageHeaderAction(
                               icon: Icons.download_outlined,
@@ -74,12 +76,14 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.section),
+                  // Gudang tidak boleh melihat angka penjualan/keuangan: hanya
+                  // angka stok & antrean keluar gudang.
                   AppRevealIn.at(1, child: _Metrics(role: role)),
                   if (role == UserRole.teknisi) ...[
                     const SizedBox(height: AppSpacing.section),
                     AppRevealIn.at(2, child: const TeknisiDashboardSections()),
                   ],
-                  if (role != UserRole.teknisi) ...[
+                  if (role != UserRole.teknisi && role != UserRole.gudang) ...[
                     const SizedBox(height: AppSpacing.section),
                     AppRevealIn.at(2, child: const _SalesTrend()),
                     const SizedBox(height: AppSpacing.section),
@@ -132,6 +136,8 @@ class _Metrics extends ConsumerWidget {
       ]);
     }
 
+    if (role == UserRole.gudang) return _gudangMetrics(context, ref);
+
     final async = ref.watch(analyticsProvider);
     return AppSwap(
       switchKey: async.hasValue ? 'data' : 'loading',
@@ -177,6 +183,48 @@ class _Metrics extends ConsumerWidget {
         ]),
       ),
     );
+  }
+
+  /// Angka kerja gudang: unit yang menunggu dikeluarkan + kondisi stok. Error
+  /// disembunyikan seperti metrik lain supaya dashboard tetap tampil.
+  Widget _gudangMetrics(BuildContext context, WidgetRef ref) {
+    final pending = ref.watch(pendingInvoicesProvider);
+    final stock = ref.watch(stockOverviewProvider);
+    if (!pending.hasValue || !stock.hasValue) {
+      return pending.hasError || stock.hasError
+          ? const SizedBox.shrink()
+          : const AppSkeletonCards();
+    }
+    final invoices = pending.value!;
+    final units = invoices.fold<int>(0, (a, i) => a + i.pendingUnits);
+    final c = stockCounts([...stock.value!.products, ...stock.value!.spareparts]);
+
+    return _grid([
+      MetricCard(
+        label: 'Menunggu Keluar',
+        value: '$units',
+        icon: Icons.outbox_outlined,
+        sub: units == 0 ? 'Semua sudah keluar' : 'Unit dari ${invoices.length} invoice',
+        featured: true,
+        badge: units > 0 ? const MetricAlertBadge() : null,
+        onTap: () => context.go('/keluar-gudang'),
+      ),
+      MetricCard(
+        label: 'Stok Habis',
+        value: '${c.habis}',
+        icon: Icons.remove_shopping_cart_outlined,
+        sub: 'Produk & sparepart',
+        onTap: () => context.go('/stok'),
+      ),
+      MetricCard(
+        label: 'Stok Menipis',
+        value: '${c.menipis}',
+        icon: Icons.inventory_outlined,
+        sub: 'Di bawah batas minimum',
+        badge: c.menipis > 0 ? const MetricAlertBadge(label: 'CEK STOK') : null,
+        onTap: () => context.go('/stok'),
+      ),
+    ]);
   }
 
   Widget _grid(List<Widget> tiles) {

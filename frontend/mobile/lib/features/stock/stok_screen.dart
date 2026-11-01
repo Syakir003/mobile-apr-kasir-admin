@@ -26,6 +26,7 @@ class StokScreen extends ConsumerStatefulWidget {
 
 class _StokScreenState extends ConsumerState<StokScreen> {
   int _tab = 0; // 0 = stok, 1 = mutasi
+  StockLevel? _level; // filter tab Stok; null = semua
 
   @override
   Widget build(BuildContext context) {
@@ -72,16 +73,56 @@ class _StokScreenState extends ConsumerState<StokScreen> {
   }
 
   Widget _stockList(StockOverview d) {
+    final c = stockCounts([...d.products, ...d.spareparts]);
+    bool keep(StockRow r) => _level == null || r.level == _level;
+    final products = d.products.where(keep).toList();
+    final spareparts = d.spareparts.where(keep).toList();
+    final nothing = products.isEmpty && spareparts.isEmpty;
+
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
       children: [
-        const _GroupLabel('Produk AC'),
-        for (final s in d.products) _StockTile(row: s),
-        if (d.products.isEmpty) const _Empty('Belum ada produk.'),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              AppFilterChip(
+                label: 'Semua ${c.habis + c.menipis + c.aman}',
+                selected: _level == null,
+                onTap: () => setState(() => _level = null),
+              ),
+              const SizedBox(width: 8),
+              AppFilterChip(
+                label: 'Habis ${c.habis}',
+                selected: _level == StockLevel.habis,
+                onTap: () => setState(() => _level = StockLevel.habis),
+              ),
+              const SizedBox(width: 8),
+              AppFilterChip(
+                label: 'Menipis ${c.menipis}',
+                selected: _level == StockLevel.menipis,
+                onTap: () => setState(() => _level = StockLevel.menipis),
+              ),
+              const SizedBox(width: 8),
+              AppFilterChip(
+                label: 'Aman ${c.aman}',
+                selected: _level == StockLevel.aman,
+                onTap: () => setState(() => _level = StockLevel.aman),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 16),
-        const _GroupLabel('Sparepart / Material'),
-        for (final s in d.spareparts) _StockTile(row: s),
-        if (d.spareparts.isEmpty) const _Empty('Belum ada sparepart.'),
+        if (nothing)
+          const _Empty('Tidak ada item pada filter ini.')
+        else ...[
+          if (products.isNotEmpty)
+            _StockGroup(title: 'Produk AC', rows: products),
+          if (products.isNotEmpty && spareparts.isNotEmpty)
+            const SizedBox(height: 20),
+          if (spareparts.isNotEmpty)
+            _StockGroup(title: 'Sparepart / Material', rows: spareparts),
+        ],
       ],
     );
   }
@@ -149,60 +190,113 @@ class _StokScreenState extends ConsumerState<StokScreen> {
   }
 }
 
-class _StockTile extends StatelessWidget {
-  const _StockTile({required this.row});
-  final StockRow row;
+/// Satu kartu per kelompok dengan pemisah tipis — jauh lebih tenang daripada
+/// puluhan kartu bergaris sendiri-sendiri, dan baris yang perlu perhatian
+/// langsung terbaca dari titik & angkanya.
+class _StockGroup extends StatelessWidget {
+  const _StockGroup({required this.title, required this.rows});
+  final String title;
+  final List<StockRow> rows;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(
-            color: row.low ? AppColors.amberBorder : AppColors.hairline),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(row.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600, color: AppColors.slate900)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Row(
+            children: [
+              Text(title,
+                  style: const TextStyle(
+                      fontFamily: AppFonts.display,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.slate900)),
+              const SizedBox(width: 8),
+              Text('${rows.length}',
+                  style: const TextStyle(
+                      fontSize: 13, color: AppColors.slate400)),
+            ],
           ),
-          if (row.low) ...[
-            const Icon(Icons.warning_amber_rounded,
-                size: 16, color: AppColors.warning),
-            const SizedBox(width: 6),
-          ],
-          Text(
-            'Stok ${_StokScreenState._n(row.stock)}',
-            style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: row.low ? AppColors.warning : AppColors.slate700),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            boxShadow: AppShadows.metric,
           ),
-        ],
-      ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (var i = 0; i < rows.length; i++) ...[
+                if (i > 0)
+                  const Divider(height: 1, indent: 40, color: AppColors.slate100),
+                _StockRowTile(row: rows[i]),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _GroupLabel extends StatelessWidget {
-  const _GroupLabel(this.text);
-  final String text;
+class _StockRowTile extends StatelessWidget {
+  const _StockRowTile({required this.row});
+  final StockRow row;
+
   @override
   Widget build(BuildContext context) {
+    final (color, label) = switch (row.level) {
+      StockLevel.habis => (AppColors.danger, 'Habis'),
+      StockLevel.menipis => (AppColors.warning, 'Menipis'),
+      StockLevel.aman => (AppColors.success, 'Aman'),
+    };
     return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 10),
-      child: Text(text.toUpperCase(),
-          style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.6,
-              color: AppColors.slate400)),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      child: Row(
+        children: [
+          Semantics(
+            label: label,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(row.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                    color: AppColors.slate900)),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                _StokScreenState._n(row.stock),
+                style: AppTextStyles.monoAmount.copyWith(
+                  fontSize: 16,
+                  height: 1.2,
+                  color: row.level == StockLevel.aman
+                      ? AppColors.slate900
+                      : color,
+                ),
+              ),
+              if (row.min != null)
+                Text('min ${_StokScreenState._n(row.min!)}',
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.slate400)),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
