@@ -200,8 +200,8 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
     'Job disetujui selesai.',
   );
   // Pengingat servis per unit AC (2026-09-30) — diisi admin saat menyetujui
-  // job cuci/maintenance/pemasangan. Null = belum disentuh (pakai siklus unit).
-  const [remindOn, setRemindOn] = React.useState(true);
+  // job cuci/maintenance/pemasangan. Null = belum disentuh (ikut kondisi pengingat unit, lihat remindOnValue).
+  const [remindOn, setRemindOn] = React.useState<boolean | null>(null);
   const [remindDays, setRemindDays] = React.useState<string | null>(null);
   const sendBackMutation = useJobAction<{ note: string }>(
     jobId,
@@ -242,6 +242,11 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
     !!job.unit && ['cuci', 'maintenance', 'pemasangan'].includes(job.type);
   const remindDaysValue =
     remindDays ?? (job.unit?.serviceIntervalDays != null ? String(job.unit.serviceIntervalDays) : '');
+  // Nilai awal saklar mengikuti kondisi unit: pengingat yang sengaja dimatikan admin (saklar mati padahal
+  // siklus pernah diisi, mis. AC dibongkar) tidak otomatis menyala lagi hanya karena job disetujui.
+  // Unit yang belum pernah punya siklus (data lampau, dll) tetap mulai dari Nyala.
+  const remindOnValue =
+    remindOn ?? !(job.unit?.reminderEnabled === false && job.unit.serviceIntervalDays != null);
   const hasBeforePhoto = job.findings.some((f) => f.photos.some((p) => p.kind === 'sebelum'));
 
   // Niru gate submitForReview() di backend biar teknisi gak nunggu round-trip
@@ -539,20 +544,20 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
               <div className="grid gap-3">
                 {needsSchedule && (
                   <ReminderScheduleFields
-                    enabled={remindOn}
+                    enabled={remindOnValue}
                     onEnabledChange={setRemindOn}
                     days={remindDaysValue}
                     onDaysChange={setRemindDays}
                   />
                 )}
                 <Button
-                  disabled={approveMutation.isPending || (needsSchedule && remindOn && !!intervalError(remindDaysValue))}
+                  disabled={approveMutation.isPending || (needsSchedule && remindOnValue && !!intervalError(remindDaysValue))}
                   onClick={() =>
                     approveMutation.mutate(
                       needsSchedule
                         ? {
-                            reminderEnabled: remindOn,
-                            ...(remindOn ? { serviceIntervalDays: Number(remindDaysValue) } : {}),
+                            reminderEnabled: remindOnValue,
+                            ...(remindOnValue ? { serviceIntervalDays: Number(remindDaysValue) } : {}),
                           }
                         : undefined,
                     )

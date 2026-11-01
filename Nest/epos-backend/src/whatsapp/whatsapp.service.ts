@@ -4,6 +4,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FonnteService } from './fonnte.service';
 import { waPhone } from './wa-format.util';
 
+/** Pesan yang dikirim sistem sendiri (bukan atas klik kasir) — tunduk pada opt-out pelanggan. */
+const AUTOMATED_KINDS: WhatsappMessageKind[] = [
+  WhatsappMessageKind.selesai_servis,
+  WhatsappMessageKind.reminder_h3,
+  WhatsappMessageKind.reminder_h7,
+];
+
 /**
  * Titik tunggal yang BENERAN manggil Fonnte + nulis WhatsappLog — dipakai
  * baik oleh alur manual (InvoicesService.sendWhatsapp, tombol "Kirim WA")
@@ -83,8 +90,32 @@ export class WhatsappService {
     return this.dispatch(logId, [WhatsappLogStatus.pending]);
   }
 
-  /** Admin klik "Kirim Ulang" di halaman Riwayat WA utk baris berstatus 'gagal'. */
+  /**
+   * Admin klik "Kirim Ulang" di halaman Riwayat WA utk baris berstatus 'gagal'.
+   *
+   * Pesan otomatis (pengingat & selesai servis) dicek lagi sebelum dikirim: kalau sejak pesan itu
+   * dibuat pelanggannya opt-out atau nonaktif, pesan dibatalkan (bukan dikirim). Pesan invoice
+   * dikirim manual kasir atas permintaan pelanggan, jadi tidak ikut dicek.
+   */
   async retry(logId: string) {
+    const log = await this.prisma.whatsappLog.findUnique({
+      where: { id: logId },
+      include: { member: { select: { active: true, waOptOut: true } } },
+    });
+    if (log && log.status === WhatsappLogStatus.gagal && AUTOMATED_KINDS.includes(log.kind) && log.member) {
+      const reason = log.member.waOptOut
+        ? 'Pelanggan meminta tidak dikirimi pesan WhatsApp'
+        : !log.member.active
+          ? 'Pelanggan sudah nonaktif'
+          : null;
+      if (reason) {
+        await this.prisma.whatsappLog.update({
+          where: { id: logId },
+          data: { status: WhatsappLogStatus.dibatalkan, error: reason },
+        });
+        throw new BadRequestException(`${reason}. Pesan dibatalkan, tidak dikirim ulang.`);
+      }
+    }
     return this.dispatch(logId, [WhatsappLogStatus.gagal]);
   }
 
