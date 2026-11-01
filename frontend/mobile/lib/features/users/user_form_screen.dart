@@ -18,6 +18,7 @@ const _roleLabels = {
   UserRole.admin: 'Admin — akses penuh',
   UserRole.kasir: 'Kasir — POS, transaksi & order',
   UserRole.teknisi: 'Teknisi — job & scan',
+  UserRole.gudang: 'Gudang — produk, sparepart & stok',
 };
 
 /// Form akun. Mode BUAT (`initial == null`) memanggil Edge Function

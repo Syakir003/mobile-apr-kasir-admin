@@ -14,6 +14,7 @@ String _roleLabel(UserRole role) => switch (role) {
       UserRole.admin => 'Admin',
       UserRole.kasir => 'Kasir',
       UserRole.teknisi => 'Teknisi',
+      UserRole.gudang => 'Gudang',
     };
 
 class ProfileScreen extends ConsumerWidget {

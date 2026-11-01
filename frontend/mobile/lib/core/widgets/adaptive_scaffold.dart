@@ -72,6 +72,13 @@ List<Destination> destinationsForRole(UserRole? role) {
     label: 'Undian',
     route: '/undian',
   );
+  // Unit AC yang sudah dijatah kasir dikeluarkan gudang dengan scan QR —
+  // admin & gudang saja (sama seperti backend `/kasir-scan`).
+  const keluarGudang = (
+    icon: Icons.outbox_outlined,
+    label: 'Keluar Gudang',
+    route: '/keluar-gudang',
+  );
   if (role == UserRole.admin) {
     return const [
       dashboard,
@@ -88,6 +95,7 @@ List<Destination> destinationsForRole(UserRole? role) {
       voucher,
       undian,
       (icon: Icons.inventory_outlined, label: 'Stok', route: '/stok'),
+      keluarGudang,
       (icon: Icons.bar_chart_outlined, label: 'Laporan', route: '/laporan'),
       (icon: Icons.manage_accounts_outlined, label: 'Akun', route: '/users'),
       (icon: Icons.history, label: 'Audit', route: '/audit'),
@@ -100,6 +108,16 @@ List<Destination> destinationsForRole(UserRole? role) {
   }
   if (role == UserRole.teknisi) {
     return const [dashboard, job, riwayatServis, scan, profile];
+  }
+  if (role == UserRole.gudang) {
+    return const [
+      dashboard,
+      (icon: Icons.ac_unit, label: 'Produk', route: '/products'),
+      (icon: Icons.build_outlined, label: 'Sparepart', route: '/spareparts'),
+      (icon: Icons.inventory_outlined, label: 'Stok', route: '/stok'),
+      keluarGudang,
+      profile,
+    ];
   }
   return const [dashboard];
 }
@@ -125,6 +143,7 @@ String _roleLabel(UserRole? role) => switch (role) {
       UserRole.admin => 'Admin',
       UserRole.kasir => 'Kasir',
       UserRole.teknisi => 'Teknisi',
+      UserRole.gudang => 'Gudang',
       null => 'Pengguna',
     };
 

@@ -1,12 +1,14 @@
 enum UserRole {
   admin,
   kasir,
-  teknisi;
+  teknisi,
+  gudang;
 
   static UserRole? fromClaim(Object? claim) => switch (claim) {
         'admin' => UserRole.admin,
         'kasir' => UserRole.kasir,
         'teknisi' => UserRole.teknisi,
+        'gudang' => UserRole.gudang,
         _ => null,
       };
 }

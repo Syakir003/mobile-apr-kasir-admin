@@ -34,6 +34,7 @@ class ManagedUser {
         UserRole.admin => 'Admin',
         UserRole.kasir => 'Kasir',
         UserRole.teknisi => 'Teknisi',
+        UserRole.gudang => 'Gudang',
         null => 'Tidak dikenal',
       };
 

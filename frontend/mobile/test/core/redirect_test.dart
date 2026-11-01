@@ -365,4 +365,69 @@ void main() {
       );
     }
   });
+
+  group('gudang', () {
+    const gudang =
+        AppUser(uid: 'g', email: 'e', displayName: 'd', role: UserRole.gudang);
+    String? redirect(String loc) => computeRedirect(
+        user: gudang, role: UserRole.gudang, loading: false, location: loc);
+
+    test('boleh buka dashboard, daftar produk/sparepart, stok, profil', () {
+      for (final loc in [
+        '/',
+        '/products',
+        '/spareparts',
+        '/stok',
+        '/stok/adjust',
+        '/keluar-gudang',
+        '/keluar-gudang/inv1',
+        '/notifications',
+        '/profile',
+      ]) {
+        expect(redirect(loc), isNull, reason: 'gudang harus boleh $loc');
+      }
+    });
+
+    test('Keluar Gudang: admin boleh; kasir & teknisi ditolak', () {
+      expect(
+        computeRedirect(
+            user: admin,
+            role: UserRole.admin,
+            loading: false,
+            location: '/keluar-gudang/inv1'),
+        isNull,
+      );
+      for (final role in [UserRole.kasir, UserRole.teknisi]) {
+        final user = AppUser(uid: 'x', email: 'e', displayName: 'd', role: role);
+        expect(
+          computeRedirect(
+              user: user, role: role, loading: false, location: '/keluar-gudang'),
+          '/',
+          reason: '$role tidak boleh ke Keluar Gudang',
+        );
+      }
+    });
+
+    test('tidak boleh tambah/ubah master, POS, order, job, laporan, akun', () {
+      for (final loc in [
+        '/products/new',
+        '/products/p1/edit',
+        '/spareparts/new',
+        '/spareparts/s1/edit',
+        '/pos',
+        '/transactions',
+        '/orders',
+        '/jobs',
+        '/riwayat',
+        '/pengingat',
+        '/members',
+        '/laporan',
+        '/users',
+        '/voucher',
+        '/scan',
+      ]) {
+        expect(redirect(loc), '/', reason: 'gudang harus ditolak dari $loc');
+      }
+    });
+  });
 }

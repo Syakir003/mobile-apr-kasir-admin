@@ -6,6 +6,7 @@ void main() {
     expect(UserRole.fromClaim('admin'), UserRole.admin);
     expect(UserRole.fromClaim('kasir'), UserRole.kasir);
     expect(UserRole.fromClaim('teknisi'), UserRole.teknisi);
+    expect(UserRole.fromClaim('gudang'), UserRole.gudang);
     expect(UserRole.fromClaim('lainnya'), isNull);
     expect(UserRole.fromClaim(null), isNull);
   });

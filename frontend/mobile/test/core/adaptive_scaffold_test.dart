@@ -5,10 +5,10 @@ import 'package:epos_ac/data/models/app_user.dart';
 void main() {
   group('destinationsForRole', () {
     test(
-        'admin melihat 19 destinasi termasuk Pengingat, Voucher, Undian, '
-        'Stok, Laporan, Akun, & Audit', () {
+        'admin melihat 20 destinasi termasuk Pengingat, Voucher, Undian, '
+        'Stok, Keluar Gudang, Laporan, Akun, & Audit', () {
       final dests = destinationsForRole(UserRole.admin);
-      expect(dests.length, 19);
+      expect(dests.length, 20);
       expect(dests.first.label, 'Dashboard');
       expect(dests.map((d) => d.route), [
         '/',
@@ -25,6 +25,7 @@ void main() {
         '/voucher',
         '/undian',
         '/stok',
+        '/keluar-gudang',
         '/laporan',
         '/users',
         '/audit',
@@ -57,6 +58,30 @@ void main() {
       final dests = destinationsForRole(UserRole.teknisi);
       expect(dests.length, 5);
       expect(dests.map((d) => d.route), ['/', '/jobs', '/riwayat', '/scan', '/profile']);
+    });
+
+    test('gudang melihat Dashboard, Produk, Sparepart, Stok, Keluar Gudang, Profil',
+        () {
+      final dests = destinationsForRole(UserRole.gudang);
+      expect(dests.map((d) => d.route), [
+        '/',
+        '/products',
+        '/spareparts',
+        '/stok',
+        '/keluar-gudang',
+        '/profile',
+      ]);
+    });
+
+    test('Keluar Gudang hanya untuk admin & gudang', () {
+      for (final role in [UserRole.admin, UserRole.gudang]) {
+        expect(destinationsForRole(role).map((d) => d.route),
+            contains('/keluar-gudang'));
+      }
+      for (final role in [UserRole.kasir, UserRole.teknisi]) {
+        expect(destinationsForRole(role).map((d) => d.route),
+            isNot(contains('/keluar-gudang')));
+      }
     });
 
     test('null (belum ada role) hanya melihat Dashboard', () {

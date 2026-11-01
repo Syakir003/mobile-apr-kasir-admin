@@ -29,8 +29,10 @@ class MasterListScaffold<T> extends StatefulWidget {
   final String Function(T item) subtitleOf;
   final bool Function(T item) isActive;
   final bool Function(T item, String query) matches;
-  final VoidCallback onAdd;
-  final void Function(T item) onEdit;
+  /// null = daftar hanya-baca (tanpa tombol Tambah, baris tidak bisa diketuk),
+  /// dipakai gudang yang boleh melihat tapi tidak mengubah master data.
+  final VoidCallback? onAdd;
+  final void Function(T item)? onEdit;
   final String searchHint;
 
   @override
@@ -51,13 +53,15 @@ class _MasterListScaffoldState<T> extends State<MasterListScaffold<T>> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
-      floatingActionButton: FloatingActionButton.extended(
-        key: const Key('master-add'),
-        onPressed: widget.onAdd,
-        tooltip: 'Tambah',
-        icon: const Icon(Icons.add),
-        label: const Text('Tambah'),
-      ),
+      floatingActionButton: widget.onAdd == null
+          ? null
+          : FloatingActionButton.extended(
+              key: const Key('master-add'),
+              onPressed: widget.onAdd,
+              tooltip: 'Tambah',
+              icon: const Icon(Icons.add),
+              label: const Text('Tambah'),
+            ),
       body: Column(
         children: [
           Padding(
@@ -120,7 +124,9 @@ class _MasterListScaffoldState<T> extends State<MasterListScaffold<T>> {
                 ? 'Belum ada data'
                 : 'Tidak ada yang cocok',
             message: _query.isEmpty
-                ? 'Tekan tombol Tambah untuk membuat entri pertama.'
+                ? (widget.onAdd == null
+                    ? 'Belum ada entri yang tercatat.'
+                    : 'Tekan tombol Tambah untuk membuat entri pertama.')
                 : 'Coba kata kunci lain, atau kosongkan kolom pencarian.',
           );
         }
@@ -137,7 +143,7 @@ class _MasterListScaffoldState<T> extends State<MasterListScaffold<T>> {
                 title: widget.titleOf(item),
                 subtitle: widget.subtitleOf(item),
                 active: widget.isActive(item),
-                onTap: () => widget.onEdit(item),
+                onTap: widget.onEdit == null ? null : () => widget.onEdit!(item),
               ),
             );
           },
@@ -158,7 +164,7 @@ class _MasterCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool active;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

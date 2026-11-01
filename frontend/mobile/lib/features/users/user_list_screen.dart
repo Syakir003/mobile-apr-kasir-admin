@@ -168,6 +168,7 @@ class _UserTile extends StatelessWidget {
       UserRole.admin => (AppColors.teal700, AppColors.teal50),
       UserRole.kasir => (AppColors.slate700, AppColors.slate100),
       UserRole.teknisi => (AppColors.warning, AppColors.amberSurface),
+      UserRole.gudang => (AppColors.teal700, AppColors.slate100),
       null => (AppColors.slate500, AppColors.slate100),
     };
 

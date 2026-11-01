@@ -32,6 +32,16 @@ const _kasirAdminPrefixes = [
   '/pengingat',
 ];
 
+/// Gudang (staf stok) hanya boleh melihat daftar Produk & Sparepart (tanpa
+/// tambah/ubah — admin-only di backend), Stok & mutasinya, notifikasi, profil.
+/// Daftar putih, bukan daftar tolak, supaya layar baru tidak otomatis terbuka.
+const _gudangExact = ['/', '/products', '/spareparts', '/notifications', '/profile'];
+const _gudangPrefixes = ['/stok', '/keluar-gudang'];
+
+/// Keluar Gudang (scan) — admin & gudang saja, sama seperti backend
+/// `/kasir-scan`. Kasir cukup checkout; teknisi tidak ada urusan di sini.
+const _adminGudangPrefixes = ['/keluar-gudang'];
+
 String? computeRedirect({
   required AppUser? user,
   required UserRole? role,
@@ -43,7 +53,16 @@ String? computeRedirect({
   final atLogin = location == '/login';
   if (!loggedIn) return atLogin ? null : '/login';
   if (atLogin) return '/';
+  if (role == UserRole.gudang) {
+    final ok =
+        _gudangExact.contains(location) || _hasPrefix(location, _gudangPrefixes);
+    return ok ? null : '/';
+  }
   if (role != UserRole.admin && _hasPrefix(location, _adminOnlyPrefixes)) {
+    return '/';
+  }
+  // Gudang sudah ditangani di atas (daftar putih); di sini sisa peran lain.
+  if (role != UserRole.admin && _hasPrefix(location, _adminGudangPrefixes)) {
     return '/';
   }
   if (role == UserRole.teknisi && _hasPrefix(location, _kasirAdminPrefixes)) {

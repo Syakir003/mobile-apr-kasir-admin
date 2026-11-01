@@ -22,6 +22,7 @@ import '../../features/jobs/job_list_screen.dart';
 import '../../features/jobs/service_order_create_screen.dart';
 import '../../features/jobs/service_order_list_screen.dart';
 import '../../features/reports/laporan_screen.dart';
+import '../../features/keluar_gudang/keluar_gudang_screen.dart';
 import '../../features/stock/stock_adjust_screen.dart';
 import '../../features/stock/stok_screen.dart';
 import '../../features/master/package/package_form_screen.dart';
@@ -280,6 +281,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
           GoRoute(path: '/scan', builder: (_, __) => const ScanScreen()),
+          GoRoute(
+            path: '/keluar-gudang',
+            builder: (_, __) => const KeluarGudangScreen(),
+            routes: [
+              GoRoute(
+                path: ':invoiceId',
+                builder: (_, state) => KeluarGudangDetailScreen(
+                  invoiceId: state.pathParameters['invoiceId']!,
+                ),
+              ),
+            ],
+          ),
           GoRoute(
             path: '/pengingat',
             builder: (_, __) => const WaOutboxScreen(),
