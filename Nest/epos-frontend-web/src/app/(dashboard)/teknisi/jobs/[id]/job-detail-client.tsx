@@ -5,7 +5,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, MapPin, Minus, Plus, ScanLine, Trash2, X } from 'lucide-react';
+import { ArrowLeft, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
@@ -279,6 +279,15 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
             {job.member?.name || (job.unit ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC' : 'Job servis')}
           </h1>
           <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
+          {/* Laporan Pekerjaan (kartu garansi): teknisi kapan saja, admin setelah job selesai. */}
+          {(isTeknisi || (isAdmin && job.status === 'selesai')) && (
+            <Button variant="outline" size="sm" asChild className="sm:ml-auto">
+              <Link href={`/teknisi/jobs/${job.id}/print`}>
+                <Printer className="size-4" />
+                Laporan Pekerjaan
+              </Link>
+            </Button>
+          )}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           {jobTypeLabel(job.type)}
