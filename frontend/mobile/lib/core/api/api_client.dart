@@ -5,14 +5,14 @@ import 'package:http_parser/http_parser.dart';
 import '../auth/session_store.dart';
 
 // =============================================================================
-// Base URL backend NestJS (Nest/epos-backend). Belum ada deployment produksi
-// yang terdokumentasi di repo ini — GANTI _cloudUrl begitu backend sudah
-// online. Override lewat `--dart-define=NEST_API_URL=...`, sama seperti pola
+// Base URL backend NestJS (Nest/epos-backend), produksi di VPS lewat Nginx +
+// HTTPS (lihat Nest/deploy-vps.sh). Build tanpa flag sudah menunjuk ke sini.
+// Override lewat `--dart-define=NEST_API_URL=...`, sama seperti pola
 // SUPABASE_URL di supabase_bootstrap.dart. Untuk dev lokal (`npm run
 // start:dev`, default port 3000): dari emulator Android pakai
 // `http://10.0.2.2:3000`, dari HP fisik pakai `http://<ip-lan>:3000`.
 // =============================================================================
-const _cloudUrl = 'https://api.epos-ac.example'; // TODO: isi URL deploy Nest yang sebenarnya
+const _cloudUrl = 'https://api.ayubpodorukun.com';
 const _defaultBaseUrl = String.fromEnvironment('NEST_API_URL', defaultValue: _cloudUrl);
 
 /// Error dari backend Nest, dibentuk dari body `{ statusCode, message, error }`
