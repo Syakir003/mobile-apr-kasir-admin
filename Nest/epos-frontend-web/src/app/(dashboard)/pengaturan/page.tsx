@@ -196,7 +196,7 @@ export default function PengaturanPage() {
       )}
 
       {configQuery.data && (
-        <Card>
+        <Card panel>
           <CardHeader>
             <CardTitle className="text-base">Umum</CardTitle>
             <CardDescription>

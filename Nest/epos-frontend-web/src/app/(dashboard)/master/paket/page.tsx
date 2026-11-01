@@ -56,6 +56,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PanelTitle } from '@/components/ui/panel';
 
 // Padanan model InstallationPackage(+Item) Prisma. `qty`/`extraPricePerUnit`
 // DECIMAL -> string lewat JSON, sama kayak Sparepart/Product.
@@ -255,7 +256,8 @@ export default function PaketInstalasiPage() {
       )}
       {!isLoading && !isError && data && data.length > 0 && view.total > 0 && (
         <>
-        <div className="rounded-md border">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <PanelTitle title="Daftar Paket Instalasi" count={view.total} />
           <Table>
             <TableHeader>
               <TableRow>

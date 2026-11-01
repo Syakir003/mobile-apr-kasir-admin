@@ -32,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PanelTitle } from '@/components/ui/panel';
 
 // Padanan audit_log_screen.dart di app mobile — bedanya, mobile baca
 // LANGSUNG dari Supabase (RLS), sedangkan web narik lewat endpoint baru
@@ -254,7 +255,8 @@ export default function AuditLogPage() {
 
       {data && data.items.length > 0 && (
         <>
-          <div className="rounded-md border">
+          <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+            <PanelTitle title="Log Audit" count={data.total} />
             <Table>
               <TableHeader>
                 <TableRow>

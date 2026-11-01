@@ -53,6 +53,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ReminderScheduleFields, intervalError } from '@/components/reminder-schedule-fields';
+import { PanelTitle } from '@/components/ui/panel';
 
 // Monitoring jadwal servis (2026-09-30). 1 baris = 1 set AC (indoor+outdoor)
 // = 1 pengingat. Sinkron dengan ScheduleStatus di backend
@@ -82,20 +83,16 @@ const STATUS_META: Record<
   menunggu_data: { label: 'Menunggu data teknisi', badge: 'outline' },
 };
 
-// tone: warna ikon + aksen atas kartu; row: garis aksen di sisi kiri baris tabel.
-const CARDS: { status: ScheduleStatus; title: string; icon: LucideIcon; tone: string; bar: string }[] = [
-  { status: 'terlambat', title: 'Terlambat', icon: AlarmClock, tone: 'bg-red-500/10 text-red-600 dark:text-red-400', bar: 'bg-red-500' },
-  { status: 'segera', title: '7 hari ke depan', icon: CalendarClock, tone: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', bar: 'bg-amber-500' },
-  { status: 'bulan_ini', title: '8–30 hari', icon: CalendarDays, tone: 'bg-sky-500/10 text-sky-600 dark:text-sky-400', bar: 'bg-sky-500' },
-  { status: 'siklus_kosong', title: 'Siklus belum diisi', icon: CircleHelp, tone: 'bg-slate-500/10 text-slate-600 dark:text-slate-400', bar: 'bg-slate-400' },
-  { status: 'mati', title: 'Pengingat mati', icon: BellOff, tone: 'bg-slate-500/10 text-slate-600 dark:text-slate-400', bar: 'bg-slate-400' },
-  { status: 'menunggu_data', title: 'Menunggu data', icon: Hourglass, tone: 'bg-violet-500/10 text-violet-600 dark:text-violet-400', bar: 'bg-violet-500' },
+// Ringkasan jadwal: satu deret sel netral, bukan enam kartu berwarna. Satu-satunya penekanan warna:
+// angka "Terlambat" memakai warna bahaya saat > 0, dan sel yang sedang jadi filter memakai warna utama.
+const CARDS: { status: ScheduleStatus; title: string; icon: LucideIcon }[] = [
+  { status: 'terlambat', title: 'Terlambat', icon: AlarmClock },
+  { status: 'segera', title: '7 hari ke depan', icon: CalendarClock },
+  { status: 'bulan_ini', title: '8–30 hari', icon: CalendarDays },
+  { status: 'siklus_kosong', title: 'Siklus belum diisi', icon: CircleHelp },
+  { status: 'mati', title: 'Pengingat mati', icon: BellOff },
+  { status: 'menunggu_data', title: 'Menunggu data teknisi', icon: Hourglass },
 ];
-
-const ROW_ACCENT: Partial<Record<ScheduleStatus, string>> = {
-  terlambat: 'shadow-[inset_3px_0_0_0_var(--color-red-500)]',
-  segera: 'shadow-[inset_3px_0_0_0_var(--color-amber-500)]',
-};
 
 // Selisih hari kalender (WIB) dari hari ini: negatif = sudah lewat.
 const wibDay = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
@@ -170,28 +167,33 @@ export function MonitoringTab() {
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 divide-x divide-y overflow-hidden rounded-xl border bg-card shadow-sm md:grid-cols-3 xl:grid-cols-6 xl:divide-y-0">
         {CARDS.map((c) => {
           const active = status === c.status;
+          const count = data?.counts[c.status];
           return (
             <button
               key={c.status}
               type="button"
+              aria-pressed={active}
               onClick={() => pickStatus(active ? 'semua' : c.status)}
               className={cn(
-                'relative flex items-center gap-3 overflow-hidden rounded-xl border bg-card p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md',
-                active && 'border-primary ring-2 ring-primary/30',
+                'grid gap-1.5 px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                active && 'bg-accent',
               )}
             >
-              <span className={cn('absolute inset-x-0 top-0 h-0.5', c.bar)} />
-              <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', c.tone)}>
-                <c.icon className="size-5" />
+              <span className="flex items-start gap-1.5 text-xs leading-tight text-muted-foreground">
+                <c.icon className="mt-px size-3.5 shrink-0" />
+                {c.title}
               </span>
-              <span className="min-w-0">
-                <span className="block text-2xl leading-none font-semibold tabular-nums">
-                  {data?.counts[c.status] ?? '–'}
-                </span>
-                <span className="mt-1 block truncate text-xs text-muted-foreground">{c.title}</span>
+              <span
+                className={cn(
+                  'text-2xl leading-none font-semibold tabular-nums',
+                  c.status === 'terlambat' && !!count && 'text-destructive',
+                  active && c.status !== 'terlambat' && 'text-primary',
+                )}
+              >
+                {count ?? '–'}
               </span>
             </button>
           );
@@ -235,12 +237,10 @@ export function MonitoringTab() {
             ))}
           </SelectContent>
         </Select>
-        {data && (
-          <span className="ml-auto text-sm text-muted-foreground">{data.total} set AC</span>
-        )}
       </div>
 
-      <Card className="overflow-hidden">
+      <Card className="gap-0 overflow-hidden py-0">
+        <PanelTitle title="Jadwal servis per set AC" count={data?.total} />
         <CardContent className="p-0">
           <Table>
             <TableHeader className="bg-muted/50">
@@ -281,7 +281,7 @@ export function MonitoringTab() {
                 const sameMember = data.items[i - 1]?.member.id === u.member.id;
                 const noPhone = !u.member.phone;
                 return (
-                <TableRow key={u.id} className={cn(ROW_ACCENT[u.status], u.status === 'mati' && 'opacity-60')}>
+                <TableRow key={u.id} className={cn(u.status === 'mati' && 'opacity-60')}>
                   <TableCell>
                     {sameMember ? (
                       <div className="pl-3 text-xs text-muted-foreground">↳ pelanggan yang sama</div>

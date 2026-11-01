@@ -54,6 +54,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PanelTitle } from '@/components/ui/panel';
 import {
   Select,
   SelectContent,
@@ -774,7 +775,7 @@ export default function ProdukPage() {
       </div>
 
       {showGuide ? (
-        <Card>
+        <Card panel>
           <CardHeader>
             <CardTitle className="flex items-center justify-between gap-2 text-base">
               Cara kerjanya
@@ -1461,7 +1462,8 @@ function ProductTable({
 
   return (
     <>
-    <div className="rounded-md border">
+    <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <PanelTitle title="Daftar Produk AC" count={topLevelProducts.length} />
       <Table>
         <TableHeader>
           <TableRow>

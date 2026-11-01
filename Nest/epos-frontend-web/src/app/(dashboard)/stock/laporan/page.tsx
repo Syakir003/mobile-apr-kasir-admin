@@ -83,7 +83,7 @@ export default function LaporanStokGudangPage() {
         </p>
       </div>
 
-      <Card>
+      <Card className="shadow-none">
         <CardContent className="flex flex-wrap items-end gap-3 pt-6">
           <div className="grid gap-1.5">
             <Label htmlFor="from">Dari</Label>
@@ -151,7 +151,7 @@ export default function LaporanStokGudangPage() {
       {isLoading && <p className="text-sm text-muted-foreground">Memuat...</p>}
       {isError && <p className="text-sm text-destructive">Gagal memuat laporan stok.</p>}
       {data && (
-        <Card>
+        <Card className="shadow-none">
           <CardHeader>
             <CardTitle className="text-base">Rincian per Merk</CardTitle>
             <CardDescription>

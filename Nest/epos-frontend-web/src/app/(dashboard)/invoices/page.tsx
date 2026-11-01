@@ -27,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PanelTitle } from '@/components/ui/panel';
 import { PrintMenu } from '@/components/print-menu';
 
 // Semua transaksi POS (bukan cuma punya 1 member kayak /members/[id]) —
@@ -171,7 +172,8 @@ export default function InvoicesPage() {
 
       {data && data.items.length > 0 && (
         <>
-          <div className="rounded-md border">
+          <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+            <PanelTitle title="Riwayat Transaksi" count={data.total} />
             <Table>
               <TableHeader>
                 <TableRow>

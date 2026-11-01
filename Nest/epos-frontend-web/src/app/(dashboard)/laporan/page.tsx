@@ -202,8 +202,8 @@ export default function LaporanPage() {
         </p>
       </div>
 
-      <Card>
-        <CardContent className="flex flex-wrap items-end gap-3 pt-6">
+      <Card className="py-0 shadow-none">
+        <CardContent className="flex flex-wrap items-end gap-3 py-4">
           <div className="grid gap-1.5">
             <Label htmlFor="from">Dari</Label>
             <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -251,7 +251,7 @@ export default function LaporanPage() {
                 <SummaryCard label="Total Pajak" value={formatRupiah(salesQuery.data.totalPajak)} />
               </div>
 
-              <Card>
+              <Card className="shadow-none">
                 <CardHeader>
                   <CardTitle className="text-base">Grafik Mingguan</CardTitle>
                   <CardDescription>Total penjualan per minggu (Senin sampai Minggu) dalam rentang yang dipilih.</CardDescription>
@@ -286,7 +286,7 @@ export default function LaporanPage() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="shadow-none">
                 <CardHeader>
                   <CardTitle className="text-base">Breakdown per Kategori</CardTitle>
                 </CardHeader>
@@ -319,7 +319,7 @@ export default function LaporanPage() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="shadow-none">
                 <CardHeader>
                   <CardTitle className="text-base">Penjualan per Tipe Pembeli</CardTitle>
                   <CardDescription>
@@ -371,7 +371,7 @@ export default function LaporanPage() {
                 />
               </div>
 
-              <Card>
+              <Card className="shadow-none">
                 <CardHeader>
                   <CardTitle className="text-base">Performa Teknisi</CardTitle>
                   <CardDescription>Jumlah job berstatus &quot;selesai&quot; per teknisi.</CardDescription>
@@ -456,7 +456,7 @@ export default function LaporanPage() {
                 </div>
               )}
 
-              <Card>
+              <Card className="shadow-none">
                 <CardHeader>
                   <CardTitle className="text-base">Detail per Item</CardTitle>
                   <CardDescription>
@@ -545,7 +545,7 @@ export default function LaporanPage() {
                 <SummaryCard label="Untung Terjual (rentang ini)" value={formatRupiah(stockQuery.data.ringkasan.totalUntungTerjual)} />
               </div>
 
-              <Card>
+              <Card className="shadow-none">
                 <CardHeader>
                   <CardTitle className="text-base">Rincian per Item</CardTitle>
                   <CardDescription>
@@ -623,8 +623,8 @@ export default function LaporanPage() {
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
-      <CardContent className="pt-6">
+    <Card className="py-0 shadow-none">
+      <CardContent className="py-4">
         <p className="text-sm text-muted-foreground">{label}</p>
         <p className="mt-1 text-xl font-semibold">{value}</p>
       </CardContent>

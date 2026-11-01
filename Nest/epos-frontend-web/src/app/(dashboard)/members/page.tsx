@@ -194,28 +194,36 @@ export default function MembersPage() {
         </Button>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Cari nama atau nomor HP..."
-          className="pl-9"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
+      {/* Daftar member: satu panel (pita judul + pencarian, isi, pagination) seperti section di halaman detail. */}
+      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/60 px-5 py-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold tracking-tight">Daftar Member</h2>
+            {data && <Badge variant="secondary">{data.total}</Badge>}
+          </div>
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              aria-label="Cari member"
+              placeholder="Cari nama atau nomor HP..."
+              className="bg-background pl-9"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat member...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat data member.</p>}
-      {!isLoading && !isError && (!data || data.items.length === 0) && (
-        <p className="text-sm text-muted-foreground">
-          {debounced ? 'Tidak ada member yang cocok.' : 'Belum ada member.'}
-        </p>
-      )}
-      {!isLoading && !isError && data && data.items.length > 0 && (
-        <>
-        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        {isLoading && <p className="px-5 py-6 text-sm text-muted-foreground">Memuat member...</p>}
+        {isError && <p className="px-5 py-6 text-sm text-destructive">Gagal memuat data member.</p>}
+        {!isLoading && !isError && (!data || data.items.length === 0) && (
+          <p className="px-5 py-6 text-sm text-muted-foreground">
+            {debounced ? 'Tidak ada member yang cocok.' : 'Belum ada member.'}
+          </p>
+        )}
+        {!isLoading && !isError && data && data.items.length > 0 && (
+          <>
           <Table>
-            <TableHeader className="bg-muted/60">
+            <TableHeader>
               <TableRow>
                 <TableHead>Nama</TableHead>
                 <TableHead>No. HP</TableHead>
@@ -259,10 +267,12 @@ export default function MembersPage() {
               ))}
             </TableBody>
           </Table>
-        </div>
-        <PaginationFooter page={data.page} totalPages={data.totalPages} total={data.total} noun="member" onPage={setPage} />
-        </>
-      )}
+            <div className="border-t px-5 py-3">
+              <PaginationFooter page={data.page} totalPages={data.totalPages} total={data.total} noun="member" onPage={setPage} />
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Tambah Member */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

@@ -12,7 +12,6 @@ import { formatDate, formatDateTime, statusLabel } from '@/lib/format';
 import type { Role } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -151,113 +150,115 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
         </Button>
       </div>
 
-      {!isTeknisi && (
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant={showDone ? 'outline' : 'default'}
-            aria-pressed={!showDone}
-            onClick={() => setShowDone(false)}
-          >
-            Aktif
-          </Button>
-          <Button
-            size="sm"
-            variant={showDone ? 'default' : 'outline'}
-            aria-pressed={showDone}
-            onClick={() => setShowDone(true)}
-          >
-            Selesai
-          </Button>
+      {/* Daftar job: satu panel (pita judul + filter, isi, baris job), seperti section di halaman detail. */}
+      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/60 px-5 py-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold tracking-tight">Daftar Job</h2>
+            {!jobsQuery.isLoading && !jobsQuery.isError && <Badge variant="secondary">{filtered.length}</Badge>}
+          </div>
+          {!isTeknisi && (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={showDone ? 'outline' : 'default'}
+                aria-pressed={!showDone}
+                onClick={() => setShowDone(false)}
+              >
+                Aktif
+              </Button>
+              <Button
+                size="sm"
+                variant={showDone ? 'default' : 'outline'}
+                aria-pressed={showDone}
+                onClick={() => setShowDone(true)}
+              >
+                Selesai
+              </Button>
+            </div>
+          )}
         </div>
-      )}
 
-      {jobsQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat job...</p>}
-      {jobsQuery.isError && (
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-sm text-destructive">Gagal memuat data job.</p>
-          <Button variant="outline" size="sm" onClick={() => jobsQuery.refetch()}>
-            Coba lagi
-          </Button>
-        </div>
-      )}
-      {!jobsQuery.isLoading && !jobsQuery.isError && filtered.length === 0 && (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
+        {jobsQuery.isLoading && <p className="px-5 py-6 text-sm text-muted-foreground">Memuat job...</p>}
+        {jobsQuery.isError && (
+          <div className="flex flex-wrap items-center gap-3 px-5 py-6">
+            <p className="text-sm text-destructive">Gagal memuat data job.</p>
+            <Button variant="outline" size="sm" onClick={() => jobsQuery.refetch()}>
+              Coba lagi
+            </Button>
+          </div>
+        )}
+        {!jobsQuery.isLoading && !jobsQuery.isError && filtered.length === 0 && (
+          <div className="flex flex-col items-center gap-2 px-5 py-10 text-center text-muted-foreground">
             <Wrench className="size-8" />
             <p className="text-sm">
               {!isTeknisi && showDone ? 'Belum ada job selesai.' : 'Belum ada job aktif.'}
             </p>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        )}
 
-      <div className="grid gap-2.5">
-        {filtered.map((job) => (
-          // className="py-0" di Card WAJIB — default shadcn Card sendiri udah
-          // bawa py-6 (lihat components/ui/card.tsx), jadi tanpa ini padding
-          // vertikalnya DOBEL sama py-* punya CardContent di bawah (itu yang
-          // bikin kartu kelihatan gemuk & banyak ruang kosong sebelumnya).
-          // Sempat dirapetin kebablasan (px-4 py-3 + teks text-xs) — dibalikin
-          // sedikit lebih lega di sini.
-          <Card key={job.id} className="py-0 transition-colors hover:bg-muted/50">
-            <CardContent className="flex flex-col gap-1.5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <Link
-                href={`/teknisi/jobs/${job.id}`}
-                className="min-w-0 flex-1 rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                <p className="truncate text-[15px] font-medium">
-                  {job.unit
-                    ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'
-                    : `Order ${job.type}`}
+        <ul className="divide-y">
+          {filtered.map((job) => (
+            <li
+              key={job.id}
+              className="flex flex-col gap-1.5 px-5 py-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
+            >
+            <Link
+              href={`/teknisi/jobs/${job.id}`}
+              className="min-w-0 flex-1 rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <p className="truncate text-[15px] font-medium">
+                {job.unit
+                  ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'
+                  : `Order ${job.type}`}
+              </p>
+              {job.unit && unitPartsText(job.unit) && (
+                <p className="truncate text-xs text-muted-foreground">{unitPartsText(job.unit)}</p>
+              )}
+              <p className="truncate text-sm text-muted-foreground">
+                {job.type} • {job.member?.name || '-'}
+                {job.scheduledDate && ` • Jadwal ${formatDate(job.scheduledDate)}`}
+                {isAdmin && ` • ${job.technician?.displayName || 'Belum ditugaskan'}`}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                Masuk {formatDateTime(job.createdAt)}
+              </p>
+              {!isTeknisi && job.findingsSentAt && !job.order?.invoiceId && (
+                <p className="truncate text-xs font-medium text-status-warning-foreground dark:text-status-warning">
+                  Temuan terkirim - tentukan harga jasa
                 </p>
-                {job.unit && unitPartsText(job.unit) && (
-                  <p className="truncate text-xs text-muted-foreground">{unitPartsText(job.unit)}</p>
-                )}
-                <p className="truncate text-sm text-muted-foreground">
-                  {job.type} • {job.member?.name || '-'}
-                  {job.scheduledDate && ` • Jadwal ${formatDate(job.scheduledDate)}`}
-                  {isAdmin && ` • ${job.technician?.displayName || 'Belum ditugaskan'}`}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  Masuk {formatDateTime(job.createdAt)}
-                </p>
-                {!isTeknisi && job.findingsSentAt && !job.order?.invoiceId && (
-                  <p className="truncate text-xs font-medium text-status-warning-foreground dark:text-status-warning">
-                    Temuan terkirim - tentukan harga jasa
-                  </p>
-                )}
-              </Link>
-              <div className="flex shrink-0 items-center gap-2">
-                {isAdmin && ['menunggu_penugasan', 'assigned'].includes(job.status) && (
-                  <Select
-                    value={job.technician?.id ?? undefined}
-                    onValueChange={(technicianId) =>
-                      assignMutation.mutate({ jobId: job.id, technicianId })
-                    }
-                  >
-                    <SelectTrigger size="sm" className="w-44">
-                      <SelectValue placeholder="Tugaskan teknisi" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {technicians.length === 0 && (
-                        <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                          Belum ada teknisi aktif
-                        </p>
-                      )}
-                      {technicians.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              )}
+            </Link>
+            <div className="flex shrink-0 items-center gap-2">
+              {isAdmin && ['menunggu_penugasan', 'assigned'].includes(job.status) && (
+                <Select
+                  value={job.technician?.id ?? undefined}
+                  onValueChange={(technicianId) =>
+                    assignMutation.mutate({ jobId: job.id, technicianId })
+                  }
+                >
+                  <SelectTrigger size="sm" className="w-44">
+                    <SelectValue placeholder="Tugaskan teknisi" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {technicians.length === 0 && (
+                      <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                        Belum ada teknisi aktif
+                      </p>
+                    )}
+                    {technicians.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
+            </div>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );

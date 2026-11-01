@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { PanelTitle } from '@/components/ui/panel';
 
 // Log histori semua mutasi stok (barang masuk, penjualan, opname, pemakaian
 // servis/instalasi, dst) dari tabel stock_movements — read-only, cuma
@@ -150,7 +151,8 @@ export function RiwayatTab() {
 
       {data && data.length > 0 && (
         <div className="grid gap-2">
-          <div className="rounded-md border">
+          <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+            <PanelTitle title="Riwayat Mutasi Stok" count={data.length} />
             <Table>
               <TableHeader>
                 <TableRow>

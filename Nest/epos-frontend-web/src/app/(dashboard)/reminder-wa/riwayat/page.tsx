@@ -159,7 +159,7 @@ export default function RiwayatWaPage() {
         </Select>
       </div>
 
-      <Card>
+      <Card className="gap-0 overflow-hidden py-0">
         <CardContent className="p-0">
           {query.isLoading && (
             <p className="p-4 text-sm text-muted-foreground">Memuat riwayat...</p>

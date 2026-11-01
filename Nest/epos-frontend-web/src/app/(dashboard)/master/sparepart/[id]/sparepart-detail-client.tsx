@@ -224,7 +224,7 @@ export function FlatStockIn({ sparepart }: { sparepart: StockInSparepart }) {
   });
 
   return (
-    <Card className="max-w-md">
+    <Card panel className="max-w-md">
       <CardHeader>
         <CardTitle className="text-base">Tambah Stok</CardTitle>
         <CardDescription>Catat kedatangan stok sparepart ini dari supplier.</CardDescription>
@@ -389,7 +389,7 @@ export function BatchTrackedStockIn({
   return (
     <div className={showBatches ? 'grid gap-6 lg:grid-cols-2' : 'grid gap-6'}>
       {showBatches && (
-      <Card>
+      <Card panel>
         <CardHeader>
           <CardTitle className="text-base">
             {isGabungan ? `${cap(sparepart.packUnit)} Aktif` : 'Gulungan Aktif'}
@@ -445,7 +445,7 @@ export function BatchTrackedStockIn({
       </Card>
       )}
 
-      <Card>
+      <Card panel>
         <CardHeader>
           <CardTitle className="text-base">
             {isGabungan ? `Tambah ${cap(sparepart.packUnit)} Baru` : 'Tambah Gulungan Baru'}

@@ -149,7 +149,7 @@ export function TeknisiDashboardClient({ role }: { role: Role; displayName: stri
         </Card>
       )}
 
-      <Card>
+      <Card panel>
         <CardHeader>
           <CardTitle className="text-base">Jadwal Hari Ini</CardTitle>
         </CardHeader>
@@ -168,7 +168,7 @@ export function TeknisiDashboardClient({ role }: { role: Role; displayName: stri
       </Card>
 
       {!loading && otherJobs.length > 0 && (
-        <Card>
+        <Card panel>
           <CardHeader>
             <CardTitle className="text-base">Job Aktif Lainnya</CardTitle>
           </CardHeader>

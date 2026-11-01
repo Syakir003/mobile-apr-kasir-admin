@@ -236,7 +236,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
   if (result) {
     const ids = result.units.map((u) => u.id).join(',');
     return (
-      <Card>
+      <Card panel>
         <CardHeader>
           <CardTitle className="text-base">Tersimpan: {result.member.name}</CardTitle>
           <CardDescription>
@@ -283,7 +283,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
   return (
     <div className="grid gap-6">
       {/* ===== Member */}
-      <Card>
+      <Card panel>
         <CardHeader>
           <CardTitle className="text-base">1. Member</CardTitle>
         </CardHeader>
@@ -366,7 +366,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
       </Card>
 
       {/* ===== Unit AC */}
-      <Card>
+      <Card panel>
         <CardHeader>
           <CardTitle className="text-base">2. Unit AC</CardTitle>
           <CardDescription>
