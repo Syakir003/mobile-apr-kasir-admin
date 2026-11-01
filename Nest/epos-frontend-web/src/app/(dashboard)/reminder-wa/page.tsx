@@ -82,7 +82,10 @@ export default function ReminderWaPage() {
           <TabsTrigger value="template">Template Pesan</TabsTrigger>
         </TabsList>
         <TabsContent value="monitoring" className="mt-4">
-          <MonitoringTab />
+          {/* MonitoringTab membaca pencarian/filter dari URL (useSearchParams) — wajib di dalam Suspense. */}
+          <React.Suspense fallback={<p className="text-sm text-muted-foreground">Memuat jadwal...</p>}>
+            <MonitoringTab />
+          </React.Suspense>
         </TabsContent>
         <TabsContent value="template" className="mt-4">
           <TemplatePesanTab />

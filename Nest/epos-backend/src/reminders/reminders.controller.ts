@@ -28,6 +28,13 @@ export class RemindersController {
     return this.schedule.schedule(query);
   }
 
+  // Monitoring jadwal servis per pelanggan: 1 baris = 1 member + ringkasan semua set AC-nya.
+  @Roles('admin', 'kasir')
+  @Get('schedule/members')
+  getScheduleByMember(@Query() query: ScheduleQueryDto) {
+    return this.schedule.scheduleByMember(query);
+  }
+
   // Kirim pengingat manual untuk 1 set AC (di luar cron), admin only.
   @Roles('admin')
   @Post('units/:unitId/send-now')
