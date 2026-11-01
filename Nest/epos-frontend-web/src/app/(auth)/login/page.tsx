@@ -1,4 +1,3 @@
-import { Suspense } from 'react';
 import Image from 'next/image';
 import { BarChart3, ReceiptText, Wrench } from 'lucide-react';
 import { BrandPanel } from './brand-panel';
@@ -21,7 +20,11 @@ export default function LoginPage() {
               alt="AYUB AC"
               width={1052}
               height={544}
-              priority
+              // sizes = lebar tampil (w-64 / xl:w-72); tanpa ini Next meminta
+              // varian 3840px. Hanya tampil di lg ke atas: di HP logo yang
+              // ber-priority adalah yang di kartu form (di bawah).
+              sizes="(min-width: 1280px) 288px, 256px"
+              fetchPriority="high"
               className="h-auto w-64 xl:w-72"
             />
           </div>
@@ -52,22 +55,22 @@ export default function LoginPage() {
         <div aria-hidden className="pointer-events-none absolute -top-40 -right-32 size-[26rem] rounded-full bg-[#0d7a70]/15 blur-[100px]" />
         <div aria-hidden className="pointer-events-none absolute -bottom-40 -left-24 size-[22rem] rounded-full bg-[#6df5e1]/25 blur-[100px]" />
         <div className="relative flex flex-1 items-center justify-center">
-          <div className="w-full max-w-md rounded-3xl border border-white/80 bg-white/85 p-8 shadow-[0_30px_60px_-24px_rgba(11,107,98,0.35)] ring-1 ring-[#0b6b62]/10 backdrop-blur-xl sm:p-10 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-4 motion-safe:duration-700">
+          <div className="w-full max-w-md rounded-3xl border border-white/80 bg-white/85 p-8 shadow-[0_30px_60px_-24px_rgba(11,107,98,0.35)] ring-1 ring-[#0b6b62]/10 backdrop-blur-xl sm:p-10 motion-safe:lg:animate-in motion-safe:lg:fade-in motion-safe:lg:slide-in-from-bottom-4 motion-safe:lg:duration-700">
             <Image
               src="/logo-apr-hd.png"
               alt="AYUB AC"
               width={1052}
               height={544}
+              // Elemen LCP di HP: dimuat paling awal dan dalam ukuran aslinya (w-36 = 144px).
+              priority
+              sizes="144px"
               className="mb-8 h-auto w-36 lg:hidden"
             />
             <h2 className="font-display text-2xl font-semibold sm:text-[1.75rem]">Masuk ke E-POS AC</h2>
             <p className="mt-2 mb-8 text-sm text-muted-foreground">
               Gunakan akun yang didaftarkan oleh admin toko.
             </p>
-            {/* useSearchParams butuh Suspense boundary di App Router */}
-            <Suspense>
-              <LoginForm />
-            </Suspense>
+            <LoginForm />
           </div>
         </div>
         <p className="relative mt-6 text-center text-xs text-muted-foreground">Ayub Podo Rukun</p>

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -30,7 +30,6 @@ type LoginValues = z.infer<typeof loginSchema>;
 
 export function LoginForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [submitting, setSubmitting] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
   const [capsLock, setCapsLock] = React.useState(false);
@@ -62,8 +61,12 @@ export function LoginForm() {
         return;
       }
       const role = data.user.role as Role;
-      const next = searchParams.get('next');
-      router.push(next && next !== '/' ? next : ROLE_HOME[role]);
+      // Dibaca saat submit (bukan useSearchParams) supaya form ikut di HTML
+      // awal tanpa Suspense. Hanya path internal; '//host' & URL absolut ditolak
+      // supaya ?next= tidak bisa dipakai untuk mengalihkan ke situs lain.
+      const next = new URLSearchParams(window.location.search).get('next');
+      const safeNext = next && next.startsWith('/') && !next.startsWith('//') && next !== '/' ? next : null;
+      router.push(safeNext ?? ROLE_HOME[role]);
       router.refresh();
     } catch {
       fail('Gagal menghubungi server. Coba lagi.');
