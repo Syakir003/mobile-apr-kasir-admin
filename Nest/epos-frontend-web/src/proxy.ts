@@ -4,9 +4,17 @@ import { SESSION_COOKIE_NAME, decodeSession, ROLE_HOME, type Role } from '@/lib/
 // Rute per-prefix yang cuma boleh diakses role tertentu. Prefix yang gak
 // disebut di sini (tapi tetap di dalam grup (dashboard)) berarti "semua role
 // yang login boleh masuk" (mis. /dashboard/notifikasi kalau ada nanti).
-const ROLE_PREFIXES: Array<{ prefix: string; roles: Role[] }> = [
+// `prefix` boleh string (cocok awalan path) atau RegExp (untuk rute yang perlu dikecualikan di dalam prefix lain).
+const ROLE_PREFIXES: Array<{ prefix: string | RegExp; roles: Role[] }> = [
   { prefix: '/pos', roles: ['kasir', 'admin'] },
   { prefix: '/kasir-scan', roles: ['gudang', 'admin'] },
+  // Kasir menetapkan harga jasa servis dari Antrian Servis -> halaman job (backend GET technician-jobs, :id, dan
+  // service-pricing memang terbuka untuk kasir). Hanya dua prefix itu; Dashboard/Riwayat/Scan Unit tetap
+  // khusus teknisi & admin. Urutan penting: yang spesifik di atas '/teknisi'.
+  // Laporan Pekerjaan cetak (kartu garansi) tidak untuk kasir, walau awalan path-nya sama dengan halaman job.
+  { prefix: /^\/teknisi\/jobs\/[^/]+\/print(\/|$)/, roles: ['teknisi', 'admin'] },
+  { prefix: '/teknisi/queue', roles: ['teknisi', 'admin', 'kasir'] },
+  { prefix: '/teknisi/jobs', roles: ['teknisi', 'admin', 'kasir'] },
   { prefix: '/teknisi', roles: ['teknisi', 'admin'] },
   // Cetak laporan stok juga untuk gudang (data keuangan dibuang backend).
   { prefix: '/laporan/stok/print', roles: ['admin', 'gudang'] },
@@ -61,7 +69,9 @@ export function proxy(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const restricted = ROLE_PREFIXES.find((r) => pathname.startsWith(r.prefix));
+  const restricted = ROLE_PREFIXES.find((r) =>
+    typeof r.prefix === 'string' ? pathname.startsWith(r.prefix) : r.prefix.test(pathname),
+  );
   if (restricted && !restricted.roles.includes(session.user.role)) {
     // Login tapi role gak cocok buat rute ini -> lempar ke "rumah" role-nya
     // sendiri, bukan ke /login (dia kan udah login).

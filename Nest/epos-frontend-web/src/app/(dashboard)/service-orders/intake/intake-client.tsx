@@ -192,10 +192,9 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
       return apiClient.post<IntakeResult>('/service-orders/intake', body);
     },
     onSuccess: (result) => {
-      // Unit yang sudah terlabel (ada riwayat servis) tidak perlu cetak label lagi: langsung ke halaman job.
-      // Hanya admin — /teknisi/* ditolak proxy.ts untuk kasir (kasir akan dipantulkan ke beranda), jadi kasir
-      // tetap ke halaman cetak label seperti sebelumnya.
-      if (result.unitLabeled && isAdmin) {
+      // Unit yang sudah terlabel (ada riwayat servis) tidak perlu cetak label lagi: langsung ke halaman job
+      // (admin maupun kasir; kasir dari sana menetapkan harga jasa).
+      if (result.unitLabeled) {
         toast.success('Job servis dibuat. Unit AC sudah terlabel, tidak perlu cetak label lagi.');
         router.push(`/teknisi/jobs/${result.jobId}`);
         return;
