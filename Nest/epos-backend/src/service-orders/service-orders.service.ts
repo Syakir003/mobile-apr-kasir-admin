@@ -5,6 +5,7 @@ import { AcUnitsService } from '../ac-units/ac-units.service';
 import { TechnicianJobsService } from '../technician-jobs/technician-jobs.service';
 import { ServiceIntakeDto } from './dto/service-intake.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
+import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
 
 /**
@@ -114,6 +115,9 @@ export class ServiceOrdersService {
       }
 
       let unit: { id: string; barcodeValue: string; memberId: string };
+      // Unit lama yang sudah pernah terlabel QR tidak perlu dicetak lagi — frontend melewati halaman cetak label.
+      // Dihitung SEBELUM job baru dibuat, supaya job ini sendiri tidak ikut dianggap "riwayat".
+      let unitLabeled = false;
       if (dto.existingUnitId) {
         const existing = await tx.memberAcUnit.findUnique({ where: { id: dto.existingUnitId } });
         if (!existing) throw new NotFoundException('Unit AC tidak ditemukan');
@@ -123,6 +127,7 @@ export class ServiceOrdersService {
           );
         }
         unit = existing;
+        unitLabeled = await isUnitLabeled(tx, existing);
       } else {
         unit = await this.acUnits.registerExisting(tx, member.id, dto.newUnit!);
         await tx.member.update({ where: { id: member.id }, data: { totalAcUnits: { increment: 1 } } });
@@ -174,6 +179,7 @@ export class ServiceOrdersService {
         memberId: member.id,
         unitId: unit.id,
         barcodeValue: unit.barcodeValue,
+        unitLabeled,
         jobId: job.id,
         jobStatus: job.status,
       };
