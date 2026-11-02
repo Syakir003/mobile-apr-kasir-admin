@@ -66,7 +66,7 @@ export class AcUnitsController {
     @Body() dto: CompleteAcUnitDataDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.acUnits.completeData(id, dto, user.sub);
+    return this.acUnits.completeData(id, dto, user.sub, user.role);
   }
 
   /** Teknisi mengajukan koreksi data unit aktif — admin yang menyetujui. */

@@ -3,6 +3,8 @@ import { Prisma, TechnicianJobStatus } from '@prisma/client';
 import { UNIT_PRODUCTS_SELECT } from './ac-unit-products.include';
 import { PrismaService } from '../prisma/prisma.service';
 import { CountersService } from '../counters/counters.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import type { Role } from '../auth/decorators/roles.decorator';
 import { UpdateAcUnitDto } from './dto/update-ac-unit.dto';
 import { CompleteAcUnitDataDto } from './dto/complete-ac-unit-data.dto';
 import { addDays } from '../reminders/service-schedule.util';
@@ -35,6 +37,7 @@ export class AcUnitsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly counters: CountersService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   formatBarcode(date: Date, seq: number): string {
@@ -220,7 +223,7 @@ export class AcUnitsService {
    * ditempel tapi tipe AC belum diketahui saat input). Merk + PK wajib.
    * Pengingat tetap OFF — siklus diatur admin di Monitoring Jadwal.
    */
-  async completeData(id: string, dto: CompleteAcUnitDataDto, actorId: string) {
+  async completeData(id: string, dto: CompleteAcUnitDataDto, actorId: string, actorRole?: Role) {
     const unit = await this.prisma.memberAcUnit.findUnique({ where: { id } });
     if (!unit) throw new NotFoundException('Unit AC tidak ditemukan');
     if (unit.status !== 'menunggu_data') {
@@ -250,7 +253,29 @@ export class AcUnitsService {
         detail: { brand: dto.brand, model: dto.model, pk: dto.pk },
       },
     });
+    // Unit ini baru aktif tapi pengingat WA-nya masih OFF — admin yang harus mengisi siklusnya.
+    // Hanya bila teknisi yang melengkapi (kalau admin sendiri, tidak perlu dikabari).
+    if (actorRole === 'teknisi') void this.notifyAdminsDataCompleted(updated, actorId).catch(() => undefined);
     return updated;
+  }
+
+  /** Notifikasi ke semua admin: data unit "QR dulu" sudah dilengkapi teknisi, siklus pengingat belum diatur. */
+  private async notifyAdminsDataCompleted(
+    unit: { memberId: string; brand: string | null; roomLocation: string | null; barcodeValue: string },
+    technicianId: string,
+  ) {
+    const [member, technician] = await Promise.all([
+      this.prisma.member.findUnique({ where: { id: unit.memberId }, select: { name: true } }),
+      this.prisma.user.findUnique({ where: { id: technicianId }, select: { displayName: true } }),
+    ]);
+    const unitLabel = [unit.brand, unit.roomLocation].filter(Boolean).join(' · ') || unit.barcodeValue;
+    await this.notifications.notifyRoles(['admin'], {
+      title: 'Data Unit AC Dilengkapi Teknisi',
+      body: `${technician?.displayName ?? 'Teknisi'} melengkapi data AC${member ? ` ${member.name}` : ''} (${unitLabel}). Atur siklus pengingat servisnya di Monitoring Jadwal.`,
+      type: 'unit_data_completed',
+      // target = id pelanggan: tautan lonceng membuka halaman AC pelanggan itu di Monitoring Jadwal.
+      target: unit.memberId,
+    });
   }
 
   /**

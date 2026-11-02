@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { SubmitCorrectionDto } from './dto/submit-correction.dto';
 
 const EDITABLE_STATUSES = ['aktif', 'dalam_maintenance'];
@@ -11,7 +12,10 @@ const EDITABLE_STATUSES = ['aktif', 'dalam_maintenance'];
  */
 @Injectable()
 export class AcUnitCorrectionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async submit(unitId: string, dto: SubmitCorrectionDto, userId: string) {
     const unit = await this.prisma.memberAcUnit.findUnique({ where: { id: unitId } });
@@ -55,7 +59,7 @@ export class AcUnitCorrectionsService {
       throw new BadRequestException('Tidak ada data yang berbeda dari data unit sekarang.');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       // Satu koreksi pending per unit — kunci per unit biar 2 submit bareng tidak lolos dua-duanya.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'unitcorr:' + unitId}))`;
       const pending = await tx.acUnitCorrection.findFirst({ where: { unitId, status: 'pending' } });
@@ -67,6 +71,28 @@ export class AcUnitCorrectionsService {
         data: { actorUid: userId, action: 'ac_unit.correction_submit', target: unitId, detail: { correctionId: created.id } },
       });
       return created;
+    });
+    // Kabari admin (lonceng web + push). Setelah commit dan tidak boleh menggagalkan pengajuan
+    // yang sudah tersimpan — gagal kirim cukup diabaikan (admin tetap melihat badge di tab Koreksi Data).
+    void this.notifyAdmins(created.id, unitId, userId).catch(() => undefined);
+    return created;
+  }
+
+  /** Notifikasi ke semua admin: ada koreksi data AC menunggu persetujuan. */
+  private async notifyAdmins(correctionId: string, unitId: string, technicianId: string) {
+    const [unit, technician] = await Promise.all([
+      this.prisma.memberAcUnit.findUnique({
+        where: { id: unitId },
+        select: { barcodeValue: true, brand: true, roomLocation: true, member: { select: { name: true } } },
+      }),
+      this.prisma.user.findUnique({ where: { id: technicianId }, select: { displayName: true } }),
+    ]);
+    const unitLabel = [unit?.brand, unit?.roomLocation].filter(Boolean).join(' · ') || unit?.barcodeValue;
+    await this.notifications.notifyRoles(['admin'], {
+      title: 'Koreksi Data AC Menunggu Persetujuan',
+      body: `${technician?.displayName ?? 'Teknisi'} mengajukan koreksi data AC${unit?.member ? ` ${unit.member.name}` : ''}${unitLabel ? ` (${unitLabel})` : ''}.`,
+      type: 'unit_correction',
+      target: correctionId,
     });
   }
 

@@ -4,8 +4,11 @@ import { AcUnitsController } from './ac-units.controller';
 import { AcUnitAdminController } from './ac-unit-admin.controller';
 import { AcUnitLabelsService } from './ac-unit-labels.service';
 import { AcUnitCorrectionsService } from './ac-unit-corrections.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
+  // NotificationsService: kabari admin saat teknisi mengajukan koreksi data unit.
+  imports: [NotificationsModule],
   controllers: [AcUnitsController, AcUnitAdminController],
   providers: [AcUnitsService, AcUnitLabelsService, AcUnitCorrectionsService],
   exports: [AcUnitsService],

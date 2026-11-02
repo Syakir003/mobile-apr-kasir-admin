@@ -49,6 +49,8 @@ function notificationHref(n: { type: string; target: string | null }): string | 
   switch (n.type) {
     case 'job_review':
     case 'job_assigned':
+    case 'job_returned':
+    case 'job_cancelled':
     case 'findings_sent':
     case 'service_priced':
       return n.target ? `/teknisi/jobs/${n.target}` : '/teknisi/queue';
@@ -62,6 +64,11 @@ function notificationHref(n: { type: string; target: string | null }): string | 
       return '/master/sparepart';
     case 'opname_selesai':
       return '/stock/opname';
+    case 'unit_correction':
+      return '/administrasi/data-lampau?tab=koreksi';
+    case 'unit_data_completed':
+      // target = id pelanggan: halaman AC pelanggan di Monitoring Jadwal, tempat siklus pengingat diatur.
+      return n.target ? `/reminder-wa/member/${n.target}` : '/reminder-wa';
     default:
       return null;
   }
@@ -94,6 +101,8 @@ export function NotificationBell() {
     function onNew(notif: NotificationItem) {
       toast(notif.title, { description: notif.body ?? undefined });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      // Badge & daftar tab Koreksi Data (Input Data Lampau) ikut segar tanpa menunggu polling 60 detik.
+      if (notif.type === 'unit_correction') queryClient.invalidateQueries({ queryKey: ['unit-corrections'] });
     }
 
     getSocket()

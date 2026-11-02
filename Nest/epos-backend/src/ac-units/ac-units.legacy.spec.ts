@@ -8,7 +8,7 @@ function setup() {
     product: { findUnique: jest.fn(async ({ where }) => (where.id === 'p-in' ? { id: 'p-in', brand: 'Daikin', type: 'Split', pk: 1, pairedProductId: 'p-out', acRole: 'indoor' } : null)) },
   };
   const counters: any = { dateKey: () => '20261001', nextSeq: jest.fn(async () => 7) };
-  const svc = new AcUnitsService({} as any, counters);
+  const svc = new AcUnitsService({} as any, counters, {} as any);
   return { svc, tx, created };
 }
 
