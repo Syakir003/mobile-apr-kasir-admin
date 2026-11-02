@@ -352,7 +352,8 @@ export class MaterialRequestsService {
     // dobel-tap tombol, atau retry) bisa dua-duanya lolos cek "belum
     // dipakai" dan dua-duanya motong stok — StockLockingService cuma
     // ngunci baris sparepart/product-nya, BUKAN baris material_requests ini.
-    return this.prisma.$transaction(async (tx) => {
+    const deductedSpareparts = new Set<string>();
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT id FROM material_requests WHERE id = ${requestId} FOR UPDATE`;
       const request = await tx.materialRequest.findUnique({
         where: { id: requestId },
@@ -431,6 +432,7 @@ export class MaterialRequestsService {
             // stok "dipesan" yang menghalangi pemotongannya.
             { ignoreReserved: true },
           );
+          deductedSpareparts.add(item.refId!);
 
           // Siklus sparepart-per-gulungan (2026-09-23) — kalau sparepart-nya
           // batchTracked, `locked.batchDeductions` keisi (FIFO lintas
@@ -518,6 +520,10 @@ export class MaterialRequestsService {
       if (derived) await this.jobBilling.rebuild(tx, request.jobId, actorId);
       return done;
     });
+    // Stok sparepart baru saja berkurang — kabari admin & gudang kalau sudah di bawah batas minimum
+    // (sama seperti penjualan POS dan stok manual). Setelah commit, tidak pernah melempar error.
+    if (deductedSpareparts.size > 0) void this.notifications.notifyLowStock([...deductedSpareparts]);
+    return result;
   }
 
   /**

@@ -16,10 +16,15 @@ function setup(unit: any, pending: any = null) {
   };
   const prisma: any = {
     memberAcUnit: { findUnique: jest.fn(async () => unit) },
+    user: { findUnique: jest.fn(async () => ({ displayName: 'Budi Teknisi' })) },
     $transaction: jest.fn(async (fn: any) => fn(tx)),
   };
-  return { svc: new AcUnitCorrectionsService(prisma), tx, prisma };
+  const notifications: any = { notifyRoles: jest.fn(async () => undefined) };
+  return { svc: new AcUnitCorrectionsService(prisma, notifications), tx, prisma, notifications };
 }
+
+// Notifikasi dikirim fire-and-forget setelah commit — beri kesempatan microtask selesai dulu.
+const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const aktif = { id: 'u1', status: 'aktif', brand: 'LG', model: 'X', pk: new Prisma.Decimal(1), roomLocation: 'Kamar', serialNumber: null, installationDate: null };
 
@@ -46,6 +51,32 @@ describe('AcUnitCorrectionsService.submit', () => {
   it('tolak kalau sudah ada koreksi pending', async () => {
     const { svc } = setup(aktif, { id: 'old' });
     await expect(svc.submit('u1', { brand: 'Sharp' }, 't1')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('kabari admin setelah koreksi tersimpan', async () => {
+    const { svc, notifications } = setup({ ...aktif, member: { name: 'Pak Andi' }, barcodeValue: 'ACUNIT-1' });
+    await svc.submit('u1', { brand: 'Sharp' }, 't1');
+    await flush();
+    expect(notifications.notifyRoles).toHaveBeenCalledTimes(1);
+    const [roles, params] = notifications.notifyRoles.mock.calls[0];
+    expect(roles).toEqual(['admin']);
+    expect(params).toMatchObject({ type: 'unit_correction', target: 'c1' });
+    expect(params.body).toContain('Budi Teknisi');
+    expect(params.body).toContain('Pak Andi');
+  });
+
+  it('pengajuan tetap berhasil walau notifikasi gagal', async () => {
+    const { svc, notifications } = setup(aktif);
+    notifications.notifyRoles.mockRejectedValue(new Error('push down'));
+    await expect(svc.submit('u1', { brand: 'Sharp' }, 't1')).resolves.toMatchObject({ id: 'c1' });
+    await flush();
+  });
+
+  it('tidak ada notifikasi kalau pengajuan ditolak', async () => {
+    const { svc, notifications } = setup(aktif, { id: 'old' });
+    await expect(svc.submit('u1', { brand: 'Sharp' }, 't1')).rejects.toBeInstanceOf(ConflictException);
+    await flush();
+    expect(notifications.notifyRoles).not.toHaveBeenCalled();
   });
 });
 

@@ -14,8 +14,8 @@ import { KoreksiTab } from './koreksi-tab';
 // "Input Transaksi Manual". Tiga tab: Input (member + unit AC + transaksi
 // opsional), Label QR (tracking cetak/tempel), Koreksi (usulan teknisi).
 // Spec: specs/2026-10-01-input-data-lampau-design.md
-export function DataLampauClient() {
-  const [tab, setTab] = React.useState('input');
+export function DataLampauClient({ initialTab = 'input' }: { initialTab?: string }) {
+  const [tab, setTab] = React.useState(initialTab);
   const pending = useQuery({
     queryKey: ['unit-corrections', 'pending-count'],
     queryFn: () => apiClient.get<{ pendingCount: number }>('/unit-corrections?status=pending&pageSize=1'),

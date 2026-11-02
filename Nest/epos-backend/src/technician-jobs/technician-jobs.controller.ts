@@ -396,6 +396,19 @@ export class TechnicianJobsController {
       jobId: id,
       status: result.status,
     });
+    // Kabari teknisi: tanpa ini job yang dikembalikan diam di antreannya tanpa ada yang tahu
+    // harus diperbaiki. Catatan admin ikut dikirim supaya langsung terbaca di lonceng.
+    if (result.technicianId) {
+      const note = dto.note.trim();
+      void this.notifications
+        .notify(result.technicianId, {
+          title: 'Job Dikembalikan untuk Direvisi',
+          body: `Admin meminta perbaikan: ${note.length > 140 ? `${note.slice(0, 137)}...` : note}`,
+          type: 'job_returned',
+          target: id,
+        })
+        .catch(() => undefined);
+    }
     return result;
   }
 
@@ -410,6 +423,17 @@ export class TechnicianJobsController {
       jobId: id,
       status: result.status,
     });
+    // Kabari teknisi supaya tidak berangkat ke job yang sudah dibatalkan.
+    if (result.technicianId) {
+      void this.notifications
+        .notify(result.technicianId, {
+          title: 'Job Dibatalkan',
+          body: 'Admin membatalkan job servis yang ditugaskan ke kamu.',
+          type: 'job_cancelled',
+          target: id,
+        })
+        .catch(() => undefined);
+    }
     return result;
   }
 }

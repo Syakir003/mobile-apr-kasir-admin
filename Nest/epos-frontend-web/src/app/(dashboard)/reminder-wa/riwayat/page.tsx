@@ -97,6 +97,8 @@ export default function RiwayatWaPage() {
     },
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : 'Gagal mengirim ulang.');
+      // Pesan ke pelanggan yang kini opt-out/nonaktif dibatalkan backend: muat ulang supaya statusnya ikut berubah.
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-logs'] });
     },
   });
 

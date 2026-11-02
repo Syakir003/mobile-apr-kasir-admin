@@ -18,6 +18,7 @@ import { wibDayRange } from '../common/wib-date.util';
 import { RemindersService } from '../reminders/reminders.service';
 import { addDays, resolveApproveSchedule } from '../reminders/service-schedule.util';
 import { ApproveCompleteDto } from './dto/approve-complete.dto';
+import { releaseUnitMaintenanceTx } from './unit-maintenance.util';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
@@ -912,6 +913,11 @@ export class TechnicianJobsService {
           data: unitData,
         });
 
+        // start() menaruh unit di 'dalam_maintenance' selama job non-pemasangan jalan; kembalikan ke
+        // 'aktif' di sini (semua jenis job, bukan hanya yang mengatur jadwal), kalau tidak cron
+        // pengingat (hanya unit 'aktif') melewati unit ini selamanya.
+        await releaseUnitMaintenanceTx(tx, job.unitId, jobId);
+
         if (schedule.touch && !schedule.enabled) {
           await this.reminders.cancelPendingForUnitTx(tx, job.unitId, 'Pengingat unit dimatikan');
         }
@@ -1054,6 +1060,8 @@ export class TechnicianJobsService {
           data: { status: 'dibatalkan' },
         });
       }
+      // Job dibatalkan = unit tidak lagi diservis; kembalikan dari 'dalam_maintenance' (kalau tak ada job lain).
+      if (job.unitId) await releaseUnitMaintenanceTx(tx, job.unitId, jobId);
 
       // (1) Pengajuan yang masih 'pending' — belum pernah nyentuh invoice
       // sama sekali (decide() yang nambah tagihan, bukan create()), jadi

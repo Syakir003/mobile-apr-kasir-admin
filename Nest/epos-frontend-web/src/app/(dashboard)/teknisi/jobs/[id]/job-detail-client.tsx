@@ -5,7 +5,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, MapPin, Minus, Plus, ScanLine, Trash2, X } from 'lucide-react';
+import { ArrowLeft, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
@@ -200,8 +200,8 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
     'Job disetujui selesai.',
   );
   // Pengingat servis per unit AC (2026-09-30) — diisi admin saat menyetujui
-  // job cuci/maintenance/pemasangan. Null = belum disentuh (pakai siklus unit).
-  const [remindOn, setRemindOn] = React.useState(true);
+  // job cuci/maintenance/pemasangan. Null = belum disentuh (ikut kondisi pengingat unit, lihat remindOnValue).
+  const [remindOn, setRemindOn] = React.useState<boolean | null>(null);
   const [remindDays, setRemindDays] = React.useState<string | null>(null);
   const sendBackMutation = useJobAction<{ note: string }>(
     jobId,
@@ -242,6 +242,11 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
     !!job.unit && ['cuci', 'maintenance', 'pemasangan'].includes(job.type);
   const remindDaysValue =
     remindDays ?? (job.unit?.serviceIntervalDays != null ? String(job.unit.serviceIntervalDays) : '');
+  // Nilai awal saklar mengikuti kondisi unit: pengingat yang sengaja dimatikan admin (saklar mati padahal
+  // siklus pernah diisi, mis. AC dibongkar) tidak otomatis menyala lagi hanya karena job disetujui.
+  // Unit yang belum pernah punya siklus (data lampau, dll) tetap mulai dari Nyala.
+  const remindOnValue =
+    remindOn ?? !(job.unit?.reminderEnabled === false && job.unit.serviceIntervalDays != null);
   const hasBeforePhoto = job.findings.some((f) => f.photos.some((p) => p.kind === 'sebelum'));
 
   // Niru gate submitForReview() di backend biar teknisi gak nunggu round-trip
@@ -279,6 +284,15 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
             {job.member?.name || (job.unit ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC' : 'Job servis')}
           </h1>
           <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
+          {/* Laporan Pekerjaan (kartu garansi): teknisi kapan saja, admin setelah job selesai. */}
+          {(isTeknisi || (isAdmin && job.status === 'selesai')) && (
+            <Button variant="outline" size="sm" asChild className="sm:ml-auto">
+              <Link href={`/teknisi/jobs/${job.id}/print`}>
+                <Printer className="size-4" />
+                Laporan Pekerjaan
+              </Link>
+            </Button>
+          )}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           {jobTypeLabel(job.type)}
@@ -530,20 +544,20 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
               <div className="grid gap-3">
                 {needsSchedule && (
                   <ReminderScheduleFields
-                    enabled={remindOn}
+                    enabled={remindOnValue}
                     onEnabledChange={setRemindOn}
                     days={remindDaysValue}
                     onDaysChange={setRemindDays}
                   />
                 )}
                 <Button
-                  disabled={approveMutation.isPending || (needsSchedule && remindOn && !!intervalError(remindDaysValue))}
+                  disabled={approveMutation.isPending || (needsSchedule && remindOnValue && !!intervalError(remindDaysValue))}
                   onClick={() =>
                     approveMutation.mutate(
                       needsSchedule
                         ? {
-                            reminderEnabled: remindOn,
-                            ...(remindOn ? { serviceIntervalDays: Number(remindDaysValue) } : {}),
+                            reminderEnabled: remindOnValue,
+                            ...(remindOnValue ? { serviceIntervalDays: Number(remindDaysValue) } : {}),
                           }
                         : undefined,
                     )

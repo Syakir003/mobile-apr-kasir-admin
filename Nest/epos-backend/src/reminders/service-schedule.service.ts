@@ -36,11 +36,12 @@ export class ServiceScheduleService {
   ) {}
 
   /** Filter dasar: set AC yang relevan buat dimonitor. */
-  private baseWhere(q?: string): Prisma.MemberAcUnitWhereInput {
+  private baseWhere(q?: string, memberId?: string): Prisma.MemberAcUnitWhereInput {
     const term = q?.trim();
     return {
       status: { not: 'menunggu_pemasangan' },
       member: { active: true },
+      ...(memberId ? { memberId } : {}),
       ...(term
         ? {
             OR: [
@@ -61,7 +62,7 @@ export class ServiceScheduleService {
     const now = new Date();
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    const base = this.baseWhere(query.q);
+    const base = this.baseWhere(query.q, query.memberId);
 
     const where: Prisma.MemberAcUnitWhereInput = query.status
       ? { AND: [base, scheduleStatusWhere(query.status, now)] }
@@ -125,12 +126,141 @@ export class ServiceScheduleService {
         serviceIntervalDays: u.serviceIntervalDays,
         nextServiceDate: u.nextServiceDate,
         reminderEnabled: u.reminderEnabled,
+        // Status unit (member_ac_units.status), terpisah dari `status` klasifikasi jadwal di bawah.
+        // Dipakai UI untuk menandai unit yang sedang diservis ('dalam_maintenance'): cron pengingat
+        // hanya memproses unit 'aktif'.
+        unitStatus: u.status,
         status: classifySchedule(u, now),
         adaJobBerjalan: busy.has(u.id),
         lastWa: lastLog
           ? { kind: lastLog.kind, status: lastLog.status, error: lastLog.error, at: lastLog.createdAt }
           : null,
       };
+    });
+
+    return { counts, items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+  }
+
+  /**
+   * Monitoring per PELANGGAN: 1 baris = 1 member + ringkasan semua set AC-nya, supaya member dengan banyak AC
+   * tidak berserakan di tabel. Daftar AC lengkap tiap member diambil lewat schedule({ memberId }).
+   *
+   * Pencarian & filter status hanya MEMILIH member (yang punya minimal 1 AC cocok); ringkasan tiap member
+   * selalu memuat SEMUA set AC-nya. Urutan: jadwal servis terdekat dulu, member tanpa jadwal di akhir.
+   * `counts` (untuk kartu ringkasan) tetap hitungan per set AC.
+   */
+  async scheduleByMember(query: ScheduleQueryDto) {
+    const now = new Date();
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 20;
+    const base = this.baseWhere(query.q);
+    const where: Prisma.MemberAcUnitWhereInput = query.status
+      ? { AND: [base, scheduleStatusWhere(query.status, now)] }
+      : base;
+
+    const [countsArr, total, groups] = await Promise.all([
+      Promise.all(
+        SCHEDULE_STATUSES.map((st) =>
+          this.prisma.memberAcUnit.count({ where: { AND: [base, scheduleStatusWhere(st, now)] } }),
+        ),
+      ),
+      this.prisma.member.count({ where: { acUnits: { some: where } } }),
+      this.prisma.memberAcUnit.groupBy({
+        by: ['memberId'],
+        where,
+        // Jadwal terdekat dulu (NULL = tanpa jadwal, otomatis terakhir di Postgres), lalu id supaya urutan stabil.
+        orderBy: [{ _min: { nextServiceDate: 'asc' } }, { memberId: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    const counts = Object.fromEntries(SCHEDULE_STATUSES.map((st, i) => [st, countsArr[i]])) as Record<
+      ScheduleStatus,
+      number
+    >;
+
+    const memberIds = groups.map((g) => g.memberId);
+    const units = memberIds.length
+      ? await this.prisma.memberAcUnit.findMany({
+          // Tanpa pencarian: ringkasan member memuat semua AC-nya, bukan hanya yang cocok dengan kata kunci.
+          where: { AND: [this.baseWhere(), { memberId: { in: memberIds } }] },
+          include: UNIT_INCLUDE,
+        })
+      : [];
+
+    const unitIds = units.map((u) => u.id);
+    const [logs, openJobs] = unitIds.length
+      ? await Promise.all([
+          // Terbaru per member (distinct mengambil baris pertama sesuai orderBy).
+          this.prisma.whatsappLog.findMany({
+            where: { kind: { in: [...REMINDER_LOG_KINDS] }, memberId: { in: memberIds } },
+            orderBy: { createdAt: 'desc' },
+            distinct: ['memberId'],
+            select: { memberId: true, kind: true, status: true, error: true, createdAt: true },
+          }),
+          this.prisma.technicianJob.findMany({
+            where: { unitId: { in: unitIds }, status: { notIn: ['selesai', 'dibatalkan'] } },
+            select: { unitId: true },
+          }),
+        ])
+      : [[], []];
+    const busy = new Set(openJobs.map((j) => j.unitId));
+    const lastLogByMember = new Map(logs.map((l) => [l.memberId, l]));
+
+    const unitsByMember = new Map<string, typeof units>();
+    for (const u of units) {
+      const list = unitsByMember.get(u.memberId);
+      if (list) list.push(u);
+      else unitsByMember.set(u.memberId, [u]);
+    }
+
+    const items = memberIds.flatMap((memberId) => {
+      const list = unitsByMember.get(memberId);
+      if (!list?.length) return [];
+
+      const memberCounts = Object.fromEntries(SCHEDULE_STATUSES.map((st) => [st, 0])) as Record<
+        ScheduleStatus,
+        number
+      >;
+      let nextService: { date: Date; status: ScheduleStatus } | null = null;
+      let jobBerjalanCount = 0;
+      let bukanAktifCount = 0;
+      for (const u of list) {
+        const st = classifySchedule(u, now);
+        memberCounts[st] += 1;
+        if (
+          u.reminderEnabled &&
+          u.nextServiceDate &&
+          st !== 'menunggu_data' &&
+          (!nextService || u.nextServiceDate < nextService.date)
+        ) {
+          nextService = { date: u.nextServiceDate, status: st };
+        }
+        const isBusy = busy.has(u.id);
+        if (isBusy) jobBerjalanCount += 1;
+        // 'dalam_maintenance' tanpa job berjalan = tersangkut; cron pengingat hanya memproses unit 'aktif'.
+        if (u.status === 'dalam_maintenance' && !isBusy) bukanAktifCount += 1;
+      }
+
+      const member = list[0].member;
+      const lastLog = lastLogByMember.get(memberId);
+      return [
+        {
+          memberId,
+          name: member.name,
+          phone: member.phone,
+          waOptOut: member.waOptOut,
+          unitCount: list.length,
+          counts: memberCounts,
+          nextService,
+          jobBerjalanCount,
+          bukanAktifCount,
+          lastWa: lastLog
+            ? { kind: lastLog.kind, status: lastLog.status, error: lastLog.error, at: lastLog.createdAt }
+            : null,
+        },
+      ];
     });
 
     return { counts, items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };

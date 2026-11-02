@@ -2,41 +2,27 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import {
   AlarmClock,
   BellOff,
   CalendarClock,
   CalendarDays,
+  ChevronRight,
   CircleHelp,
   Hourglass,
-  MoreHorizontal,
   Search,
   type LucideIcon,
 } from 'lucide-react';
 
-import { apiClient, ApiError } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -52,39 +38,26 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ReminderScheduleFields, intervalError } from '@/components/reminder-schedule-fields';
 import { PanelTitle } from '@/components/ui/panel';
+import {
+  BUKAN_AKTIF_HINT,
+  LastWaCell,
+  STATUS_META,
+  STATUS_ORDER,
+  STATUS_SHORT,
+  scheduleLabel,
+  type MemberScheduleItem,
+  type MemberScheduleResponse,
+  type ScheduleStatus,
+} from './schedule-shared';
 
-// Monitoring jadwal servis (2026-09-30). 1 baris = 1 set AC (indoor+outdoor)
-// = 1 pengingat. Sinkron dengan ScheduleStatus di backend
-// (reminders/service-schedule.util.ts).
-
-type ScheduleStatus =
-  | 'terlambat'
-  | 'segera'
-  | 'bulan_ini'
-  | 'aman'
-  | 'belum_terjadwal'
-  | 'siklus_kosong'
-  | 'mati'
-  | 'menunggu_data';
-
-const STATUS_META: Record<
-  ScheduleStatus,
-  { label: string; badge: 'destructive' | 'warning' | 'success' | 'secondary' | 'outline' }
-> = {
-  terlambat: { label: 'Terlambat', badge: 'destructive' },
-  segera: { label: 'Segera (≤7 hari)', badge: 'warning' },
-  bulan_ini: { label: '8–30 hari', badge: 'secondary' },
-  aman: { label: 'Aman', badge: 'success' },
-  belum_terjadwal: { label: 'Belum terjadwal', badge: 'outline' },
-  siklus_kosong: { label: 'Siklus belum diisi', badge: 'outline' },
-  mati: { label: 'Pengingat mati', badge: 'secondary' },
-  menunggu_data: { label: 'Menunggu data teknisi', badge: 'outline' },
-};
+// Monitoring jadwal servis. 1 baris = 1 PELANGGAN dengan ringkasan semua set AC-nya (1 set = indoor+outdoor
+// = 1 pengingat); klik baris untuk melihat dan mengatur tiap set AC di halaman pelanggan itu
+// (member/[id]). Sinkron dengan ScheduleStatus di backend (reminders/service-schedule.util.ts).
 
 // Ringkasan jadwal: satu deret sel netral, bukan enam kartu berwarna. Satu-satunya penekanan warna:
 // angka "Terlambat" memakai warna bahaya saat > 0, dan sel yang sedang jadi filter memakai warna utama.
+// Angka di kartu = jumlah SET AC (bukan jumlah pelanggan).
 const CARDS: { status: ScheduleStatus; title: string; icon: LucideIcon }[] = [
   { status: 'terlambat', title: 'Terlambat', icon: AlarmClock },
   { status: 'segera', title: '7 hari ke depan', icon: CalendarClock },
@@ -94,75 +67,44 @@ const CARDS: { status: ScheduleStatus; title: string; icon: LucideIcon }[] = [
   { status: 'menunggu_data', title: 'Menunggu data teknisi', icon: Hourglass },
 ];
 
-// Selisih hari kalender (WIB) dari hari ini: negatif = sudah lewat.
-const wibDay = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
-function daysUntil(iso: string): number {
-  const [y1, m1, d1] = wibDay(new Date(iso)).split('-').map(Number);
-  const [y2, m2, d2] = wibDay(new Date()).split('-').map(Number);
-  return Math.round((Date.UTC(y1, m1 - 1, d1) - Date.UTC(y2, m2 - 1, d2)) / 86400000);
-}
-// Label badge jadwal: "Terlambat 20 hari" / "3 hari lagi" menggantikan label kategori
-// yang kurang jelas ("Segera (≤7 hari)"). Status lain tetap memakai label bawaan.
-function scheduleLabel(u: { status: ScheduleStatus; nextServiceDate: string | null }): string {
-  const timed = u.status === 'terlambat' || u.status === 'segera' || u.status === 'bulan_ini' || u.status === 'aman';
-  if (!timed || !u.nextServiceDate) return STATUS_META[u.status].label;
-  const n = daysUntil(u.nextServiceDate);
-  return n < 0 ? `Terlambat ${-n} hari` : n === 0 ? 'Jatuh tempo hari ini' : `${n} hari lagi`;
-}
-
-const WA_STATUS_LABEL: Record<string, string> = {
-  pending: 'Menunggu',
-  terkirim: 'Terkirim',
-  gagal: 'Gagal',
-  dibatalkan: 'Dibatalkan',
-};
-
-interface ScheduleItem {
-  id: string;
-  label: string;
-  roomLocation: string | null;
-  pk: string | null;
-  member: { id: string; name: string; phone: string | null; waOptOut: boolean };
-  lastServiceDate: string | null;
-  serviceIntervalDays: number | null;
-  nextServiceDate: string | null;
-  reminderEnabled: boolean;
-  status: ScheduleStatus;
-  adaJobBerjalan: boolean;
-  lastWa: { kind: string; status: string; error: string | null; at: string } | null;
-}
-interface ScheduleResponse {
-  counts: Record<ScheduleStatus, number>;
-  items: ScheduleItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
+function parseStatus(value: string | null): ScheduleStatus | 'semua' {
+  return value && (STATUS_ORDER as string[]).includes(value) ? (value as ScheduleStatus) : 'semua';
 }
 
 export function MonitoringTab() {
-  const [status, setStatus] = React.useState<ScheduleStatus | 'semua'>('semua');
-  const [qInput, setQInput] = React.useState('');
-  const [q, setQ] = React.useState('');
-  const [page, setPage] = React.useState(1);
-  const [editing, setEditing] = React.useState<ScheduleItem | null>(null);
-  const [sending, setSending] = React.useState<ScheduleItem | null>(null);
+  // Pencarian, filter, dan halaman disimpan di URL: tombol Kembali dari halaman pelanggan membawa kembali ke
+  // daftar yang sama. replaceState tidak memicu navigasi/permintaan server dan useSearchParams ikut berubah.
+  const searchParams = useSearchParams();
+  const status = parseStatus(searchParams.get('status'));
+  const q = searchParams.get('q') ?? '';
+  const page = Math.max(1, Math.floor(Number(searchParams.get('page'))) || 1);
+  const [qInput, setQInput] = React.useState(q);
+
+  function setParams(next: { status?: ScheduleStatus | 'semua'; q?: string; page?: number }) {
+    const merged = { status, q, page, ...next };
+    const params = new URLSearchParams();
+    if (merged.status !== 'semua') params.set('status', merged.status);
+    if (merged.q) params.set('q', merged.q);
+    if (merged.page > 1) params.set('page', String(merged.page));
+    const qs = params.toString();
+    window.history.replaceState(null, '', qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }
 
   const query = useQuery({
-    queryKey: ['reminders', 'schedule', { status, q, page }],
+    // Prefix ['reminders', 'schedule'] sama dengan halaman pelanggan, jadi simpan/kirim di sana ikut menyegarkan daftar ini.
+    queryKey: ['reminders', 'schedule', 'members', { status, q, page }],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), pageSize: '20' });
       if (status !== 'semua') params.set('status', status);
       if (q) params.set('q', q);
-      return apiClient.get<ScheduleResponse>(`/reminders/schedule?${params.toString()}`);
+      return apiClient.get<MemberScheduleResponse>(`/reminders/schedule/members?${params.toString()}`);
     },
     placeholderData: (prev) => prev,
   });
   const data = query.data;
 
   function pickStatus(next: ScheduleStatus | 'semua') {
-    setStatus(next);
-    setPage(1);
+    setParams({ status: next, page: 1 });
   }
 
   return (
@@ -200,15 +142,17 @@ export function MonitoringTab() {
         })}
       </div>
 
-      <p className="-mt-2 text-xs text-muted-foreground">Klik salah satu kartu untuk memfilter daftar di bawah.</p>
+      <p className="-mt-2 text-xs text-muted-foreground">
+        Angka di kartu = jumlah set AC. Klik kartu untuk menampilkan pelanggan yang punya AC di status itu. Daftar
+        diurutkan dari jadwal servis terdekat; klik pelanggan untuk melihat semua AC-nya.
+      </p>
 
       <div className="flex flex-wrap items-center gap-2">
         <form
           className="flex w-full gap-2 sm:w-auto"
           onSubmit={(e) => {
             e.preventDefault();
-            setQ(qInput.trim());
-            setPage(1);
+            setParams({ q: qInput.trim(), page: 1 });
           }}
         >
           <div className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
@@ -230,7 +174,7 @@ export function MonitoringTab() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="semua">Semua status</SelectItem>
-            {(Object.keys(STATUS_META) as ScheduleStatus[]).map((s) => (
+            {STATUS_ORDER.map((s) => (
               <SelectItem key={s} value={s}>
                 {STATUS_META[s].label}
               </SelectItem>
@@ -239,156 +183,16 @@ export function MonitoringTab() {
         </Select>
       </div>
 
-      <Card className="gap-0 overflow-hidden py-0">
-        <PanelTitle title="Jadwal servis per set AC" count={data?.total} />
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader className="bg-muted/50">
-              <TableRow>
-                <TableHead>Pelanggan</TableHead>
-                <TableHead>AC</TableHead>
-                <TableHead>Servis terakhir</TableHead>
-                <TableHead>Siklus</TableHead>
-                <TableHead>Jadwal berikutnya</TableHead>
-                <TableHead className="hidden xl:table-cell">WA terakhir</TableHead>
-                <TableHead className="text-right">Aksi</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {query.isLoading && (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
-                    Memuat jadwal...
-                  </TableCell>
-                </TableRow>
-              )}
-              {query.isError && (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center text-destructive">
-                    Gagal memuat jadwal servis.
-                  </TableCell>
-                </TableRow>
-              )}
-              {data && data.items.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
-                    Tidak ada AC yang cocok dengan filter ini.
-                  </TableCell>
-                </TableRow>
-              )}
-              {data?.items.map((u, i) => {
-                // Satu pelanggan dengan beberapa AC: nama + HP cukup di baris pertama.
-                const sameMember = data.items[i - 1]?.member.id === u.member.id;
-                const noPhone = !u.member.phone;
-                return (
-                <TableRow key={u.id} className={cn(u.status === 'mati' && 'opacity-60')}>
-                  <TableCell>
-                    {sameMember ? (
-                      <div className="pl-3 text-xs text-muted-foreground">↳ pelanggan yang sama</div>
-                    ) : (
-                      <>
-                        <div className="font-medium">{u.member.name}</div>
-                        {noPhone ? (
-                          <div className="text-xs text-amber-700 dark:text-amber-400">
-                            Tanpa nomor HP, WA tidak bisa dikirim
-                          </div>
-                        ) : (
-                          <div className="text-xs text-muted-foreground">{u.member.phone}</div>
-                        )}
-                        {u.member.waOptOut && (
-                          <Badge variant="secondary" className="mt-1">
-                            Opt-out WA
-                          </Badge>
-                        )}
-                      </>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div>{u.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {[u.roomLocation, u.pk ? `${u.pk} PK` : null].filter(Boolean).join(' · ') || '-'}
-                    </div>
-                  </TableCell>
-                  <TableCell>{u.lastServiceDate ? formatDate(u.lastServiceDate) : '-'}</TableCell>
-                  <TableCell>{u.serviceIntervalDays ? `${u.serviceIntervalDays} hari` : '-'}</TableCell>
-                  <TableCell>
-                    <div>{u.nextServiceDate ? formatDate(u.nextServiceDate) : '-'}</div>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      <Badge variant={STATUS_META[u.status].badge}>{scheduleLabel(u)}</Badge>
-                      {u.adaJobBerjalan && <Badge variant="outline">Job berjalan</Badge>}
-                    </div>
-                  </TableCell>
-                  <TableCell className="hidden xl:table-cell">
-                    {u.lastWa ? (
-                      <div>
-                        <Badge
-                          variant={
-                            u.lastWa.status === 'terkirim'
-                              ? 'success'
-                              : u.lastWa.status === 'gagal'
-                                ? 'destructive'
-                                : 'secondary'
-                          }
-                          title={u.lastWa.error ?? undefined}
-                        >
-                          {WA_STATUS_LABEL[u.lastWa.status] ?? u.lastWa.status}
-                        </Badge>
-                        <div className="mt-1 text-xs text-muted-foreground">{formatDate(u.lastWa.at)}</div>
-                        {u.lastWa.status === 'gagal' && u.lastWa.error && (
-                          <div className="mt-0.5 max-w-40 text-xs whitespace-normal text-destructive">{u.lastWa.error}</div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Belum ada</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!u.reminderEnabled || !u.nextServiceDate || noPhone || u.member.waOptOut}
-                        title={
-                          !u.reminderEnabled
-                            ? 'Pengingat mati'
-                            : !u.nextServiceDate
-                              ? 'Belum ada jadwal servis'
-                              : noPhone
-                                ? 'Pelanggan tidak punya nomor HP'
-                                : u.member.waOptOut
-                                  ? 'Pelanggan memilih tidak menerima WA'
-                                  : 'Kirim pengingat sekarang lewat WhatsApp'
-                        }
-                        onClick={() => setSending(u)}
-                      >
-                        Kirim WA
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button size="icon" variant="ghost" aria-label="Aksi lainnya" title="Aksi lainnya">
-                            <MoreHorizontal className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditing(u)}>Atur siklus pengingat</DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link href={`/ac-units/${u.id}`}>Lihat detail AC</Link>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </TableCell>
-                </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <MemberScheduleTable
+        items={data?.items}
+        total={data?.total}
+        isLoading={query.isLoading}
+        isError={query.isError}
+      />
 
       {data && data.totalPages > 1 && (
         <div className="flex items-center justify-end gap-2 text-sm">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setParams({ page: page - 1 })}>
             Sebelumnya
           </Button>
           <span>
@@ -398,114 +202,145 @@ export function MonitoringTab() {
             variant="outline"
             size="sm"
             disabled={page >= data.totalPages}
-            onClick={() => setPage(page + 1)}
+            onClick={() => setParams({ page: page + 1 })}
           >
             Berikutnya
           </Button>
         </div>
       )}
-
-      {editing && <AturDialog key={editing.id} item={editing} onClose={() => setEditing(null)} />}
-      {sending && <KirimDialog key={sending.id} item={sending} onClose={() => setSending(null)} />}
     </div>
   );
 }
 
-function AturDialog({ item, onClose }: { item: ScheduleItem; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [enabled, setEnabled] = React.useState(item.reminderEnabled);
-  const [days, setDays] = React.useState(item.serviceIntervalDays != null ? String(item.serviceIntervalDays) : '');
-
-  const prevDays = item.serviceIntervalDays != null ? String(item.serviceIntervalDays) : '';
-  const toggled = enabled !== item.reminderEnabled;
-  const daysChanged = days.trim() !== prevDays;
-  // Siklus wajib diisi saat pengingat DINYALAKAN dari mati atau kalau diisi;
-  // unit lama yang masih kosong boleh tetap kosong (hanya ubah saklar).
-  const needsDays = enabled && (!item.reminderEnabled || days.trim() !== '');
-  const err = needsDays ? intervalError(days) : null;
-  const nothingChanged = !toggled && !daysChanged;
-
-  const save = useMutation({
-    mutationFn: () =>
-      apiClient.patch(`/ac-units/${item.id}`, {
-        reminderEnabled: toggled ? enabled : undefined,
-        serviceIntervalDays: enabled && days.trim() && daysChanged ? Number(days) : undefined,
-      }),
-    onSuccess: () => {
-      toast.success('Pengingat AC diperbarui.');
-      queryClient.invalidateQueries({ queryKey: ['reminders', 'schedule'] });
-      queryClient.invalidateQueries({ queryKey: ['ac-units', item.id] });
-      onClose();
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Gagal menyimpan.'),
-  });
+/** Daftar pelanggan dengan ringkasan set AC-nya; klik baris membuka halaman AC pelanggan itu. */
+export function MemberScheduleTable({
+  items,
+  total,
+  isLoading,
+  isError,
+}: {
+  items: MemberScheduleItem[] | undefined;
+  total: number | undefined;
+  isLoading: boolean;
+  isError: boolean;
+}) {
+  const router = useRouter();
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Atur pengingat servis</DialogTitle>
-          <DialogDescription>
-            {item.member.name} - {item.label}
-            {item.roomLocation ? ` (${item.roomLocation})` : ''}. Satu set AC = satu pengingat.
-          </DialogDescription>
-        </DialogHeader>
-        <ReminderScheduleFields
-          enabled={enabled}
-          onEnabledChange={setEnabled}
-          days={days}
-          onDaysChange={setDays}
-          baseDate={toggled ? undefined : item.lastServiceDate ? new Date(item.lastServiceDate) : undefined}
-        />
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Batal
-          </Button>
-          <Button disabled={nothingChanged || !!err || save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? 'Menyimpan...' : 'Simpan'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function KirimDialog({ item, onClose }: { item: ScheduleItem; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const send = useMutation({
-    mutationFn: () =>
-      apiClient.post<{ status: string; error: string | null }>(`/reminders/units/${item.id}/send-now`, {}),
-    onSuccess: (res) => {
-      if (res.status === 'terkirim') toast.success('Pengingat terkirim.');
-      else toast.warning(`Pesan dicatat tapi belum terkirim: ${res.error ?? 'alasan tidak diketahui'}`);
-      queryClient.invalidateQueries({ queryKey: ['reminders', 'schedule'] });
-      queryClient.invalidateQueries({ queryKey: ['whatsapp-logs'] });
-      onClose();
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Gagal mengirim pengingat.'),
-  });
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Kirim pengingat sekarang?</DialogTitle>
-          <DialogDescription>
-            Pengingat servis untuk {item.label}
-            {item.roomLocation ? ` (${item.roomLocation})` : ''} akan dikirim ke {item.member.name} (
-            {item.member.phone}) lewat WhatsApp, di luar jadwal otomatis. Pesan yang sama tidak bisa
-            dikirim lagi dalam 24 jam.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Batal
-          </Button>
-          <Button disabled={send.isPending} onClick={() => send.mutate()}>
-            {send.isPending ? 'Mengirim...' : 'Kirim sekarang'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <Card className="gap-0 overflow-hidden py-0">
+      <PanelTitle title="Jadwal servis per pelanggan" count={total} />
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead>Pelanggan</TableHead>
+              <TableHead>AC</TableHead>
+              <TableHead>Status jadwal</TableHead>
+              <TableHead>Jadwal terdekat</TableHead>
+              <TableHead className="hidden xl:table-cell">WA terakhir</TableHead>
+              <TableHead className="w-10">
+                <span className="sr-only">Buka</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  Memuat jadwal...
+                </TableCell>
+              </TableRow>
+            )}
+            {isError && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-destructive">
+                  Gagal memuat jadwal servis.
+                </TableCell>
+              </TableRow>
+            )}
+            {items && items.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  Tidak ada pelanggan yang cocok dengan filter ini.
+                </TableCell>
+              </TableRow>
+            )}
+            {items?.map((m) => {
+              const href = `/reminder-wa/member/${m.memberId}`;
+              const allOff = m.unitCount > 0 && m.counts.mati === m.unitCount;
+              return (
+                <TableRow
+                  key={m.memberId}
+                  className={cn('cursor-pointer', allOff && 'opacity-60')}
+                  onClick={() => router.push(href)}
+                >
+                  <TableCell>
+                    <Link
+                      href={href}
+                      className="font-medium hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {m.name}
+                    </Link>
+                    {m.phone ? (
+                      <div className="text-xs text-muted-foreground">{m.phone}</div>
+                    ) : (
+                      <div className="text-xs text-amber-700 dark:text-amber-400">
+                        Tanpa nomor HP, WA tidak bisa dikirim
+                      </div>
+                    )}
+                    {m.waOptOut && (
+                      <Badge variant="secondary" className="mt-1">
+                        Opt-out WA
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{m.unitCount} AC</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {STATUS_ORDER.filter((st) => m.counts[st] > 0).map((st) => (
+                        <Badge
+                          key={st}
+                          variant={STATUS_META[st].badge}
+                          title={`${m.counts[st]} AC: ${STATUS_META[st].label}`}
+                        >
+                          {STATUS_SHORT[st]} · {m.counts[st]}
+                        </Badge>
+                      ))}
+                      {m.jobBerjalanCount > 0 && <Badge variant="outline">Job berjalan · {m.jobBerjalanCount}</Badge>}
+                      {/* Status "Dalam Maintenance" tanpa job berjalan = tersangkut: pengingat otomatis hanya
+                          memproses unit berstatus Aktif, jadi AC itu dilewati sampai statusnya diperbaiki. */}
+                      {m.bukanAktifCount > 0 && (
+                        <Badge variant="warning" title={BUKAN_AKTIF_HINT}>
+                          Status bukan Aktif · {m.bukanAktifCount}
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {m.nextService ? (
+                      <>
+                        <div>{formatDate(m.nextService.date)}</div>
+                        <Badge variant={STATUS_META[m.nextService.status].badge} className="mt-1">
+                          {scheduleLabel({ status: m.nextService.status, nextServiceDate: m.nextService.date })}
+                        </Badge>
+                      </>
+                    ) : (
+                      '-'
+                    )}
+                  </TableCell>
+                  <TableCell className="hidden xl:table-cell">
+                    <LastWaCell lastWa={m.lastWa} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
