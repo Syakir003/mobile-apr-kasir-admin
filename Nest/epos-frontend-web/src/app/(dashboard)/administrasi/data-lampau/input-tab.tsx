@@ -72,9 +72,21 @@ const newItem = (): ItemRow => ({ key: ++seq, name: '', qty: '1', unitPrice: '' 
 
 const NONE = '__none__';
 
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
+// content-start: baris grid tidak melar mengikuti tetangga yang punya hint (kalau melar, input ikut turun dan tidak sejajar).
+// min-w-0: isi panjang (mis. nama produk di Select) tidak melebarkan kolomnya.
+function Field({
+  label,
+  children,
+  hint,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  hint?: string;
+  className?: string;
+}) {
   return (
-    <div className="grid gap-1.5">
+    <div className={cn('grid min-w-0 content-start gap-1.5', className)}>
       <Label className="text-xs text-muted-foreground">{label}</Label>
       {children}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
@@ -112,7 +124,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
   });
   const products = useQuery({
     queryKey: ['products', 'aktif'],
-    queryFn: () => apiClient.get<ProductOpt[]>('/products?status=aktif'),
+    queryFn: () => apiClient.get<ProductOpt[]>('/products?status=active'),
     staleTime: 5 * 60_000,
   });
   const indoorOpts = (products.data ?? []).filter((p) => p.acRole === 'indoor');
@@ -236,7 +248,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
   if (result) {
     const ids = result.units.map((u) => u.id).join(',');
     return (
-      <Card panel>
+      <Card panel className="max-w-4xl">
         <CardHeader>
           <CardTitle className="text-base">Tersimpan: {result.member.name}</CardTitle>
           <CardDescription>
@@ -281,7 +293,8 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
   }
 
   return (
-    <div className="grid gap-6">
+    // max-w-4xl: tanpa batas, kartu melebar ~1100px di layar lebar dan tiap input jadi terlalu panjang.
+    <div className="grid max-w-4xl gap-6">
       {/* ===== Member */}
       <Card panel>
         <CardHeader>
@@ -348,18 +361,16 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
               )}
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Nama *">
                 <Input value={name} onChange={(e) => setName(e.target.value)} />
               </Field>
               <Field label="No. HP" hint="Boleh kosong kalau belum tahu.">
                 <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="08xxxxxxxxxx" />
               </Field>
-              <div className="sm:col-span-2">
-                <Field label="Alamat" hint='Tercetak di label QR. Wajib kalau ada unit mode "QR dulu".'>
-                  <Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} />
-                </Field>
-              </div>
+              <Field label="Alamat" hint='Tercetak di label QR. Wajib kalau ada unit mode "QR dulu".' className="sm:col-span-2">
+                <Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} />
+              </Field>
             </div>
           )}
         </CardContent>
@@ -376,7 +387,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
         </CardHeader>
         <CardContent className="grid gap-4">
           {units.map((u, idx) => (
-            <div key={u.key} className="grid gap-3 rounded-lg border p-4">
+            <div key={u.key} className="@container grid gap-3 rounded-lg border p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium">Unit #{idx + 1}</span>
@@ -399,71 +410,77 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                 )}
               </div>
 
-              <Field label="Lokasi / ruangan">
-                <Input value={u.roomLocation} onChange={(e) => patchUnit(u.key, { roomLocation: e.target.value })} placeholder="Kamar utama, Ruang tamu, ..." />
-              </Field>
-
-              {u.mode === 'diketahui' && (
-                <>
-                  <div className="flex flex-wrap gap-2">
-                    {(['bebas', 'master'] as const).map((s) => (
-                      <Button key={s} type="button" size="sm" variant={u.source === s ? 'secondary' : 'ghost'} onClick={() => patchUnit(u.key, { source: s })}>
-                        {s === 'bebas' ? 'Ketik bebas' : 'Pilih dari master produk'}
-                      </Button>
-                    ))}
-                  </div>
-                  {u.source === 'bebas' ? (
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <Field label="Merk">
-                        <Input value={u.brand} onChange={(e) => patchUnit(u.key, { brand: e.target.value })} />
-                      </Field>
-                      <Field label="Model / tipe">
-                        <Input value={u.model} onChange={(e) => patchUnit(u.key, { model: e.target.value })} />
-                      </Field>
-                      <Field label="PK">
-                        <Input inputMode="decimal" value={u.pk} onChange={(e) => patchUnit(u.key, { pk: e.target.value })} placeholder="1, 1.5, 2" />
-                      </Field>
-                    </div>
-                  ) : (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <Field label="Indoor">
-                        <Select value={u.indoorProductId || NONE} onValueChange={(v) => patchUnit(u.key, { indoorProductId: v === NONE ? '' : v })}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NONE}>- tidak ada -</SelectItem>
-                            {indoorOpts.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                      <Field label="Outdoor">
-                        <Select value={u.outdoorProductId || NONE} onValueChange={(v) => patchUnit(u.key, { outdoorProductId: v === NONE ? '' : v })}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NONE}>- tidak ada -</SelectItem>
-                            {outdoorOpts.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                    </div>
-                  )}
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="No. seri (opsional)">
+              {/* Satu grid 6 kolom untuk semua isian unit: tiap baris = 3 isian x 2 kolom, jadi tepi kiri/kanan input
+                  sejajar antarbaris (Indoor/Outdoor 2 x 3 kolom karena nama produknya panjang). Jumlah kolom mengikuti
+                  lebar kartu (container query), bukan lebar layar, karena sidebar ikut memakan ruang. */}
+              <div className="grid grid-cols-1 gap-3 @md:grid-cols-2 @xl:grid-cols-6">
+                <Field label="Lokasi / ruangan" className="@xl:col-span-2">
+                  <Input value={u.roomLocation} onChange={(e) => patchUnit(u.key, { roomLocation: e.target.value })} placeholder="Kamar utama, Ruang tamu, ..." />
+                </Field>
+                {u.mode === 'diketahui' && (
+                  <>
+                    <Field label="No. seri (opsional)" className="@xl:col-span-2">
                       <Input value={u.serialNumber} onChange={(e) => patchUnit(u.key, { serialNumber: e.target.value })} />
                     </Field>
-                    <Field label="Tanggal pasang (opsional)">
+                    <Field label="Tanggal pasang (opsional)" className="@xl:col-span-2">
                       <Input type="date" value={u.installationDate} onChange={(e) => patchUnit(u.key, { installationDate: e.target.value })} />
                     </Field>
-                  </div>
-                  <div className="grid gap-3 rounded-md bg-muted/50 p-3 sm:grid-cols-2">
-                    <Field label="Servis terakhir (opsional)">
-                      <Input type="date" value={u.lastServiceDate} onChange={(e) => patchUnit(u.key, { lastServiceDate: e.target.value })} />
-                    </Field>
-                    <Field label="Siklus servis (hari, 7–730)" hint="Kosongkan = pengingat WA OFF. Bisa diatur nanti di Monitoring Jadwal.">
-                      <Input inputMode="numeric" value={u.serviceIntervalDays} onChange={(e) => patchUnit(u.key, { serviceIntervalDays: e.target.value })} placeholder="mis. 90" />
-                    </Field>
-                  </div>
-                </>
-              )}
+                    <div className="flex flex-wrap gap-2 @md:col-span-2 @xl:col-span-6">
+                      {(['bebas', 'master'] as const).map((s) => (
+                        <Button key={s} type="button" size="sm" variant={u.source === s ? 'secondary' : 'ghost'} onClick={() => patchUnit(u.key, { source: s })}>
+                          {s === 'bebas' ? 'Ketik bebas' : 'Pilih dari master produk'}
+                        </Button>
+                      ))}
+                    </div>
+                    {u.source === 'bebas' ? (
+                      <>
+                        <Field label="Merk" className="@xl:col-span-2">
+                          <Input value={u.brand} onChange={(e) => patchUnit(u.key, { brand: e.target.value })} />
+                        </Field>
+                        <Field label="Model / tipe" className="@xl:col-span-2">
+                          <Input value={u.model} onChange={(e) => patchUnit(u.key, { model: e.target.value })} />
+                        </Field>
+                        <Field label="PK" className="@xl:col-span-2">
+                          <Input inputMode="decimal" value={u.pk} onChange={(e) => patchUnit(u.key, { pk: e.target.value })} placeholder="1, 1.5, 2" />
+                        </Field>
+                      </>
+                    ) : (
+                      <>
+                        <Field label="Indoor" className="@xl:col-span-3">
+                          <Select value={u.indoorProductId || NONE} onValueChange={(v) => patchUnit(u.key, { indoorProductId: v === NONE ? '' : v })}>
+                            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NONE}>- tidak ada -</SelectItem>
+                              {indoorOpts.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <Field label="Outdoor" className="@xl:col-span-3">
+                          <Select value={u.outdoorProductId || NONE} onValueChange={(v) => patchUnit(u.key, { outdoorProductId: v === NONE ? '' : v })}>
+                            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NONE}>- tidak ada -</SelectItem>
+                              {outdoorOpts.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      </>
+                    )}
+                    {/* -mx-3 + p-3: latar abu-abu keluar 12px, tapi input di dalamnya tetap lurus dengan baris lain. */}
+                    <div className="-mx-3 grid grid-cols-1 gap-3 rounded-md bg-muted/50 p-3 @md:col-span-2 @md:grid-cols-2 @xl:col-span-6 @xl:grid-cols-6">
+                      <Field label="Servis terakhir (opsional)" className="@xl:col-span-2">
+                        <Input type="date" value={u.lastServiceDate} onChange={(e) => patchUnit(u.key, { lastServiceDate: e.target.value })} />
+                      </Field>
+                      <Field label="Siklus servis (hari, 7–730)" className="@xl:col-span-2">
+                        <Input inputMode="numeric" value={u.serviceIntervalDays} onChange={(e) => patchUnit(u.key, { serviceIntervalDays: e.target.value })} placeholder="mis. 90" />
+                      </Field>
+                      <p className="text-xs text-muted-foreground @md:col-span-2 @xl:col-span-2 @xl:flex @xl:min-h-9 @xl:items-center @xl:self-end">
+                        Kosongkan siklus = pengingat WA OFF. Bisa diatur nanti di Monitoring Jadwal.
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
               {u.mode === 'qr_dulu' && (
                 <p className="text-xs text-muted-foreground">
                   Unit dibuat tanpa data tipe. Label QR memuat nama + alamat member + ruangan. Pengingat WA OFF sampai
@@ -495,16 +512,18 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
           <CardDescription>Catatan histori saja - tidak memotong stok.</CardDescription>
         </CardHeader>
         {withInvoice && (
-          <CardContent className="grid gap-4">
-            <div className="max-w-xs">
+          // @container: jumlah kolom mengikuti lebar kartu, sama seperti kartu Unit AC.
+          <CardContent className="@container grid gap-4">
+            <div className="grid grid-cols-1 gap-3 @lg:grid-cols-3">
               <Field label="Tanggal transaksi asli *">
                 <Input type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} />
               </Field>
             </div>
-            <div className="grid gap-2">
+            <div className="grid gap-3">
               {items.map((it) => (
-                <div key={it.key} className="grid grid-cols-[1fr_5rem_9rem_auto] items-end gap-2">
-                  <div className="col-span-2 sm:col-span-1"><Field label="Item"><Input value={it.name} onChange={(e) => patchItem(it.key, { name: e.target.value })} /></Field></div>
+                // Sempit: Item satu baris penuh, di bawahnya Qty + Harga + hapus. Lebar: Item | Qty | Harga | hapus dalam satu baris.
+                <div key={it.key} className="grid grid-cols-[5rem_minmax(0,1fr)_2.25rem] items-end gap-2 @lg:grid-cols-[minmax(0,1fr)_5rem_11rem_2.25rem]">
+                  <Field label="Item" className="col-span-3 @lg:col-span-1"><Input value={it.name} onChange={(e) => patchItem(it.key, { name: e.target.value })} /></Field>
                   <Field label="Qty"><Input inputMode="decimal" value={it.qty} onChange={(e) => patchItem(it.key, { qty: e.target.value })} /></Field>
                   <Field label="Harga satuan"><CurrencyInput value={it.unitPrice} onChange={(v: string) => patchItem(it.key, { unitPrice: v })} /></Field>
                   <Button type="button" variant="ghost" size="icon" disabled={items.length === 1} onClick={() => setItems((r) => r.filter((x) => x.key !== it.key))}>
@@ -518,7 +537,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 @lg:grid-cols-3">
               <Field label="Diskon"><CurrencyInput value={invDiscount} onChange={(v: string) => setInvDiscount(v)} /></Field>
               <Field label="Sudah dibayar"><CurrencyInput value={invPaid} onChange={(v: string) => setInvPaid(v)} /></Field>
               <Field label="Total"><p className={cn('flex h-9 items-center text-sm font-semibold')}>{formatRupiah(grand)}</p></Field>

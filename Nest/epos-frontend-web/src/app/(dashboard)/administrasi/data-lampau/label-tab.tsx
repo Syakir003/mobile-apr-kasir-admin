@@ -112,9 +112,11 @@ export function LabelTab() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/* < md: pencarian satu baris penuh, dua filter berdampingan sama lebar, tombol aksi di baris sendiri.
+          >= md: satu baris dengan lebar tetap seperti semula. */}
+      <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:items-center">
         <form
-          className="relative"
+          className="relative col-span-2 md:col-span-1"
           onSubmit={(e) => {
             e.preventDefault();
             setTerm(q.trim());
@@ -122,17 +124,17 @@ export function LabelTab() {
           }}
         >
           <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-          <Input className="w-64 pl-8" placeholder="Cari member / alamat / ruangan / kode" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="w-full pl-8 md:w-64" placeholder="Cari member / alamat / ruangan / kode" value={q} onChange={(e) => setQ(e.target.value)} />
         </form>
         <Select value={label} onValueChange={(v) => { setLabel(v); setPage(1); }}>
-          <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-full md:w-44"><SelectValue /></SelectTrigger>
           <SelectContent>{LABEL_OPTS.map((o) => <SelectItem key={o.v} value={o.v}>{o.t}</SelectItem>)}</SelectContent>
         </Select>
         <Select value={dataF} onValueChange={(v) => { setDataF(v); setPage(1); }}>
-          <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-full md:w-52"><SelectValue /></SelectTrigger>
           <SelectContent>{DATA_OPTS.map((o) => <SelectItem key={o.v} value={o.v}>{o.t}</SelectItem>)}</SelectContent>
         </Select>
-        <div className="ml-auto flex gap-2">
+        <div className="col-span-2 flex flex-wrap gap-2 md:col-span-1 md:ml-auto">
           <Button size="sm" disabled={picked.size === 0 || picked.size > 100} onClick={print}>
             <Printer className="size-4" /> Cetak ({picked.size})
           </Button>
