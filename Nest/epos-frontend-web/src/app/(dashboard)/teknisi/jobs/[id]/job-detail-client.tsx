@@ -5,7 +5,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
@@ -112,6 +112,9 @@ interface JobDetail {
     outdoorProduct?: UnitPartProduct | null;
     serviceIntervalDays?: number | null;
     reminderEnabled?: boolean;
+    // QR unit ini sudah pernah dilabeli sebelum job ini (dihitung backend: tercatat dicetak/ditempel atau
+    // sudah punya job lain) — kartu QR menampilkan "Unit AC sudah terlabel".
+    labeled?: boolean;
   } | null;
   technician: { id: string; displayName: string; email: string } | null;
   findings: JobFinding[];
@@ -354,17 +357,29 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                 // buka halaman detail unit terpisah. Link cetak cuma admin/kasir
                 // (GET /service-orders/:id 403 untuk teknisi).
                 <div className="flex items-center gap-3 rounded-md border bg-white p-2 text-neutral-900">
-                  <BarcodeQr value={job.unit.barcodeValue} size={64} />
+                  <BarcodeQr value={job.unit.barcodeValue} size={64} className="shrink-0" />
                   <div className="min-w-0 text-xs text-neutral-600">
                     <p className="font-mono text-sm text-neutral-900">{job.unit.barcodeValue}</p>
                     <p>QR label unit AC ini</p>
-                    {job.order && !isTeknisi && (
-                      <Link
-                        href={`/service-orders/${job.order.id}/print-labels`}
-                        className="mt-1 inline-block font-medium text-neutral-900 hover:underline"
-                      >
-                        Cetak label unit
-                      </Link>
+                    {(job.unit.labeled || (job.order && !isTeknisi)) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {job.unit.labeled && (
+                          <Badge variant="success">
+                            <CheckCircle2 className="size-3" />
+                            Unit AC sudah terlabel
+                          </Badge>
+                        )}
+                        {job.order && !isTeknisi && (
+                          // Sudah terlabel: tombol sekunder (cetak ulang kalau label rusak/hilang).
+                          // Belum terlabel: tombol utama, ini langkah yang masih harus dikerjakan.
+                          <Button asChild size="sm" variant={job.unit.labeled ? 'outline' : 'default'}>
+                            <Link href={`/service-orders/${job.order.id}/print-labels`}>
+                              <Printer className="size-4" />
+                              Cetak label unit
+                            </Link>
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

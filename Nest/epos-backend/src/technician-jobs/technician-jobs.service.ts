@@ -22,6 +22,7 @@ import { releaseUnitMaintenanceTx } from './unit-maintenance.util';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
+import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 
 type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
 
@@ -353,7 +354,9 @@ export class TechnicianJobsService {
     if (role === 'teknisi' && job.technicianId !== actorId) {
       throw new ForbiddenException('Job ini bukan milik Anda');
     }
-    return job;
+    // `unit.labeled`: QR unit sudah pernah dilabeli (ada riwayat sebelum job ini) — kartu QR di halaman job menampilkannya.
+    if (!job.unit) return job;
+    return { ...job, unit: { ...job.unit, labeled: await isUnitLabeled(this.prisma, job.unit, job.createdAt) } };
   }
 
   /**

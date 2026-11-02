@@ -73,6 +73,8 @@ interface IntakeResult {
   memberId: string;
   unitId: string;
   barcodeValue: string;
+  // Unit lama yang sudah pernah terlabel QR (ada riwayat servis) — tidak perlu cetak label lagi.
+  unitLabeled: boolean;
   jobId: string;
   jobStatus: string;
 }
@@ -190,9 +192,15 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
       return apiClient.post<IntakeResult>('/service-orders/intake', body);
     },
     onSuccess: (result) => {
+      // Unit yang sudah terlabel (ada riwayat servis) tidak perlu cetak label lagi: langsung ke halaman job
+      // (admin maupun kasir; kasir dari sana menetapkan harga jasa).
+      if (result.unitLabeled) {
+        toast.success('Job servis dibuat. Unit AC sudah terlabel, tidak perlu cetak label lagi.');
+        router.push(`/teknisi/jobs/${result.jobId}`);
+        return;
+      }
       toast.success('Job servis dibuat.');
-      // Langsung ke halaman cetak label QR unit-nya — inti fitur ini
-      // (unit yang belum pernah tercatat baru dapet barcode di titik ini).
+      // Unit baru (belum pernah tercatat) baru dapat barcode di titik ini: langsung ke halaman cetak label QR-nya.
       router.push(`/service-orders/${result.serviceOrderId}/print-labels`);
     },
     onError: (err) => {
