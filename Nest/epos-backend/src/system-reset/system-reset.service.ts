@@ -71,6 +71,9 @@ export class SystemResetService {
 
         // ---- Tier 2: Pelanggan & unit AC — scope transaksi_pelanggan, total ----
         if (dto.scope === 'transaksi_pelanggan' || dto.scope === 'total') {
+          // Usulan koreksi data AC dari teknisi (FK ke unit AC, ON DELETE RESTRICT) — HARUS dihapus
+          // sebelum unit AC, kalau tidak seluruh reset gagal dengan error foreign key.
+          await del(tx, 'acUnitCorrection', (t) => t.acUnitCorrection.deleteMany());
           await del(tx, 'memberAcUnit', (t) => t.memberAcUnit.deleteMany());
           await del(tx, 'member', (t) => t.member.deleteMany());
           // Counter barcode unit AC — cuma aman direset kalau MemberAcUnit
@@ -88,6 +91,8 @@ export class SystemResetService {
           await tx.product.updateMany({ data: { pairedProductId: null } });
           await del(tx, 'installationPackageItem', (t) => t.installationPackageItem.deleteMany());
           await del(tx, 'installationPackage', (t) => t.installationPackage.deleteMany());
+          // Unit stok per QR (FK ke batch/ItemCost dan Product, tanpa ON DELETE) — harus hilang lebih dulu.
+          await del(tx, 'stockUnit', (t) => t.stockUnit.deleteMany());
           await del(tx, 'itemCost', (t) => t.itemCost.deleteMany());
           // Harga per tipe pembeli nempel ke produk/sparepart (tanpa FK) —
           // ikut dihapus biar gak jadi baris yatim.
