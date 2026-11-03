@@ -2175,7 +2175,7 @@ class _UnitSection extends StatelessWidget {
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
-          key: PageStorageKey('unit-tile-${job.id}'),
+          key: ValueKey('unit-tile-${job.id}'),
           initiallyExpanded: defaultOpen,
           title: Text(title,
               style: const TextStyle(
