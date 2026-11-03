@@ -416,7 +416,20 @@ export class AcUnitsService {
       include: {
         technician: { select: { id: true, displayName: true } },
         findings: {
-          select: { id: true, title: true, note: true, origin: true },
+          select: { id: true, title: true, note: true, origin: true, createdBy: { select: { id: true, displayName: true } } },
+        },
+        // Riwayat alih tugas job ini (kosong = tidak pernah dialihkan): pekerjaan yang diteruskan teknisi lain tetap
+        // terbaca siapa mengerjakan apa.
+        handovers: {
+          select: {
+            id: true,
+            createdAt: true,
+            statusAtHandover: true,
+            reason: true,
+            fromTechnician: { select: { id: true, displayName: true } },
+            toTechnician: { select: { id: true, displayName: true } },
+          },
+          orderBy: { createdAt: 'asc' },
         },
       },
       orderBy: { completedAt: 'desc' },

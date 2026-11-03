@@ -59,6 +59,32 @@ export function buildJobInvoiceLines(input: {
   ];
 }
 
+export interface UnitLabelSource {
+  brand?: string | null;
+  model?: string | null;
+  roomLocation?: string | null;
+  barcodeValue: string;
+}
+
+/**
+ * Nama unit AC untuk baris nota servis banyak AC: "Merk Model (Ruangan)". Unit "QR dulu" yang tipenya belum diisi
+ * memakai ruangannya, dan kalau itu juga kosong, kode QR-nya — selalu ada yang membedakan antarunit.
+ */
+export function unitInvoiceLabel(unit: UnitLabelSource): string {
+  const type = [unit.brand, unit.model].filter(Boolean).join(' ');
+  const room = unit.roomLocation?.trim();
+  if (type && room) return `${type} (${room})`;
+  return type || room || unit.barcodeValue;
+}
+
+/**
+ * Tambahkan nama unit ke baris JASA/transport ("Cuci AC - Daikin FTV25 (Kamar Utama)"); total/qty/harga tidak berubah.
+ * Baris sparepart TIDAK diberi nama unit: pengajuan sparepart satu untuk seluruh job (bukan per AC).
+ */
+export function tagLinesWithUnit(lines: BillLine[], label: string): BillLine[] {
+  return lines.map((l) => (l.kind === 'sparepart' ? l : { ...l, name: `${l.name} - ${label}` }));
+}
+
 /**
  * Tagihan servis yang DIHITUNG ULANG dari sumbernya setiap ada perubahan:
  * baris jasa (job_service_lines), pengajuan sparepart yang disetujui (jumlah
@@ -78,6 +104,7 @@ export class JobBillingService {
       include: {
         serviceLines: { orderBy: { position: 'asc' } },
         order: { select: { invoiceId: true } },
+        unit: { select: { brand: true, model: true, roomLocation: true, barcodeValue: true } },
       },
     });
     if (!job || !job.billingDerived || !job.order.invoiceId) return null;
@@ -108,12 +135,17 @@ export class JobBillingService {
           qty: Number(l.qty),
           unitPrice: Number(l.unitPrice),
         }));
-    const lines = buildJobInvoiceLines({
+    const built = buildJobInvoiceLines({
       services,
       spareparts,
       transport: cancelled ? 0 : job.transportLevel * TRANSPORT_STEP,
       mode: job.transportMode === 'dibagi' ? 'dibagi' : 'individu',
     });
+    // Servis banyak AC: beberapa job (satu per unit) berbagi satu invoice, jadi tiap baris diberi nama unitnya supaya
+    // "Cuci AC" yang muncul tiga kali bisa dibedakan. Dihitung dari semua job order (termasuk yang dibatalkan) agar
+    // penamaannya tidak berganti saat salah satu unit dibatalkan. Order satu unit tidak berubah.
+    const multiUnit = job.unit ? (await tx.technicianJob.count({ where: { orderId: job.orderId } })) > 1 : false;
+    const lines = multiUnit && job.unit ? tagLinesWithUnit(built, unitInvoiceLabel(job.unit)) : built;
 
     const rows = await tx.$queryRaw<
       { grand_total: string; subtotal: string; total_paid: string; status: InvoiceStatus }[]

@@ -33,7 +33,10 @@ export class ServiceOrdersController {
   async intake(@Body() dto: ServiceIntakeDto, @CurrentUser() user: CurrentUserPayload) {
     const result = await this.serviceOrders.intake(dto, user.sub);
     this.realtime.emitToAdmin('service_order.created', result);
-    await this.notifications.notifyJobsAssigned([{ jobId: result.jobId, technicianId: dto.technicianId ?? null }]);
+    // Satu notifikasi per order (bukan per unit), supaya servis banyak AC tidak membanjiri teknisi.
+    await this.notifications.notifyJobsAssigned([
+      { jobId: result.jobId, technicianId: dto.technicianId ?? null, unitCount: result.jobs.length },
+    ]);
     return result;
   }
 

@@ -39,9 +39,12 @@ import { UpdateNotesDto } from './dto/update-notes.dto';
 import { HistoryQueryDto } from './dto/history-query.dto';
 import { FindAllJobsQueryDto } from './dto/find-all-jobs-query.dto';
 import { AddFindingDto } from './dto/add-finding.dto';
+import { UpdateFindingDto } from './dto/update-finding.dto';
 import { SetServicePricingDto } from './dto/set-service-pricing.dto';
 import { ServicePricingService } from './service-pricing.service';
 import { SendBackDto } from './dto/send-back.dto';
+import { SubmitForReviewDto } from './dto/submit-for-review.dto';
+import { CancelJobDto } from './dto/cancel-job.dto';
 import { ApproveCompleteDto } from './dto/approve-complete.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { SyncBatchDto } from './dto/sync-batch.dto';
@@ -142,24 +145,49 @@ export class TechnicianJobsController {
 
   @Roles('admin', 'kasir')
   @Patch(':id/assign')
-  async assign(@Param('id') id: string, @Body() dto: AssignJobDto) {
-    const result = await this.jobs.assign(id, dto.technicianId);
+  async assign(
+    @Param('id') id: string,
+    @Body() dto: AssignJobDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const result = await this.jobs.assign(id, dto.technicianId, {
+      allInOrder: dto.allInOrder,
+      actorId: user.sub,
+      role: user.role,
+      reason: dto.reason,
+    });
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,
     });
+    const handedOver = result.previousTechnicianIds.length > 0;
     // Notifikasi push ke teknisi yang baru ditugaskan — .catch() biar
     // gagal kirim notifikasi (mis. push FCM error) gak nge-throw balik ke
     // response assign() yang aksi utamanya udah sukses & ke-commit (sama
     // pola kayak MaterialRequestsController.decide()).
     this.notifications
       .notify(dto.technicianId, {
-        title: 'Job Baru Ditugaskan',
-        body: 'Kamu dapat penugasan job servis baru.',
+        title: handedOver ? 'Job Dialihkan ke Kamu' : 'Job Baru Ditugaskan',
+        body: handedOver
+          ? result.status === 'menunggu_review'
+            ? 'Job servis dialihkan ke kamu. Pekerjaannya sudah diajukan dan sedang menunggu review admin.'
+            : 'Job servis dialihkan ke kamu. Scan ulang barcode unit lalu lanjutkan dari temuan & foto teknisi sebelumnya.'
+          : 'Kamu dapat penugasan job servis baru.',
         type: 'job_assigned',
         target: id,
       })
       .catch(() => {});
+    // Teknisi sebelumnya: kabari bahwa job sudah dialihkan (hilang dari antriannya).
+    for (const prevId of result.previousTechnicianIds) {
+      this.notifications
+        .notify(prevId, {
+          title: 'Job Dialihkan',
+          body: 'Job servis kamu dialihkan ke teknisi lain.',
+          type: 'job_handover',
+          target: id,
+        })
+        .catch(() => {});
+    }
     return result;
   }
 
@@ -193,6 +221,18 @@ export class TechnicianJobsController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     return this.jobs.addFinding(id, dto, user.sub, user.role);
+  }
+
+  // Teknisi menulis/mengubah deskripsi tambahan pada satu temuan (mis. penjelasan per unit AC).
+  @Roles('admin', 'teknisi')
+  @Patch(':id/findings/:findingId')
+  updateFinding(
+    @Param('id') id: string,
+    @Param('findingId') findingId: string,
+    @Body() dto: UpdateFindingDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.jobs.updateFindingNote(id, findingId, dto.note, user.sub, user.role);
   }
 
   // Ganti POST /technician-jobs/:id/photos (model lama, level-job) — foto
@@ -360,8 +400,9 @@ export class TechnicianJobsController {
   async submitForReview(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: SubmitForReviewDto,
   ) {
-    const result = await this.jobs.submitForReview(id, user.sub, user.role);
+    const result = await this.jobs.submitForReview(id, user.sub, user.role, { allInOrder: dto?.allInOrder });
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,
@@ -391,7 +432,7 @@ export class TechnicianJobsController {
     @Body() dto: SendBackDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    const result = await this.jobs.sendBack(id, dto.note, user.role);
+    const result = await this.jobs.sendBack(id, dto.note, user.role, { allInOrder: dto.allInOrder });
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,
@@ -417,8 +458,11 @@ export class TechnicianJobsController {
   async cancel(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: CancelJobDto,
   ) {
-    const result = await this.jobs.cancel(id, user.sub, user.role);
+    const result = await this.jobs.cancel(id, user.sub, user.role, {
+      moveRequestsToSibling: dto?.moveRequestsToSibling,
+    });
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,

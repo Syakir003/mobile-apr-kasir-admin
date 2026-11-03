@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { unitInvoiceLabel } from '../common/services/job-billing.service';
 import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { TechnicianJobsService } from '../technician-jobs/technician-jobs.service';
-import { ServiceIntakeDto } from './dto/service-intake.dto';
+import { IntakeUnitDto, ServiceIntakeDto } from './dto/service-intake.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
@@ -23,6 +25,25 @@ export class ServiceOrdersService {
     private readonly acUnits: AcUnitsService,
     private readonly technicianJobs: TechnicianJobsService,
   ) {}
+
+  /**
+   * Unit AC yang masih punya job belum final (bukan selesai/dibatalkan) tidak boleh dibuatkan job servis baru —
+   * mencegah job ganda pada unit yang sama (mis. unit dipilih lagi di intake, atau pemasangan belum rampung).
+   * Baris unit dikunci dulu (urut id) supaya dua pembuatan order bersamaan tidak sama-sama lolos.
+   */
+  private async assertNoActiveJob(tx: Prisma.TransactionClient, unitIds: string[]) {
+    if (unitIds.length === 0) return;
+    await tx.$executeRaw`SELECT id FROM member_ac_units WHERE id IN (${Prisma.join(unitIds)}) ORDER BY id FOR UPDATE`;
+    const busy = await tx.technicianJob.findMany({
+      where: { unitId: { in: unitIds }, status: { notIn: [TechnicianJobStatus.selesai, TechnicianJobStatus.dibatalkan] } },
+      select: { unit: { select: { brand: true, model: true, roomLocation: true, barcodeValue: true } } },
+    });
+    if (busy.length === 0) return;
+    const names = [...new Set(busy.map((b) => (b.unit ? unitInvoiceLabel(b.unit) : 'unit')))];
+    throw new BadRequestException(
+      `Unit berikut masih punya job servis yang belum selesai: ${names.join(', ')}. Selesaikan atau batalkan job itu dulu.`,
+    );
+  }
 
   /**
    * POST /service-orders — port RPC create_service_order (migrasi Supabase
@@ -47,6 +68,7 @@ export class ServiceOrdersService {
 
     const scheduledDate = dto.scheduledDate ? new Date(dto.scheduledDate) : undefined;
     return this.prisma.$transaction(async (tx) => {
+      await this.assertNoActiveJob(tx, unitIds);
       const order = await tx.serviceOrder.create({
         data: {
           memberId: member.id,
@@ -84,11 +106,40 @@ export class ServiceOrdersService {
   }
 
   async intake(dto: ServiceIntakeDto, actorId: string) {
-    if (!dto.existingUnitId && !dto.newUnit) {
-      throw new BadRequestException('Wajib pilih unit existing (existingUnitId) atau isi data unit baru (newUnit)');
+    // Satu atau banyak unit AC. Bentuk lama (existingUnitId/newUnit tunggal) tetap dipakai app mobile; bentuk baru
+    // `units[]` untuk servis banyak AC dalam satu order. Keduanya dinormalkan jadi daftar entri di sini.
+    const jobType = dto.jobType ?? 'perbaikan';
+    const workDescription = dto.workDescription?.trim() || undefined;
+    const complaint = dto.complaint?.trim() || undefined;
+    if (!complaint) {
+      throw new BadRequestException('Keluhan awal wajib diisi (kalau tidak ada keluhan, isi pekerjaannya, mis. Cuci AC)');
     }
-    if (dto.existingUnitId && dto.newUnit) {
-      throw new BadRequestException('Pilih salah satu: unit existing atau unit baru, jangan dua-duanya');
+    if (dto.units?.length && (dto.existingUnitId || dto.newUnit)) {
+      throw new BadRequestException('Pakai units[] ATAU existingUnitId/newUnit, jangan keduanya');
+    }
+    const entries: IntakeUnitDto[] = dto.units?.length
+      ? dto.units
+      : [{ existingUnitId: dto.existingUnitId, newUnit: dto.newUnit }];
+    const existingIds = new Set<string>();
+    for (const e of entries) {
+      if (!e.existingUnitId && !e.newUnit) {
+        throw new BadRequestException('Wajib pilih unit existing (existingUnitId) atau isi data unit baru (newUnit)');
+      }
+      if (e.existingUnitId && e.newUnit) {
+        throw new BadRequestException('Pilih salah satu: unit existing atau unit baru, jangan dua-duanya');
+      }
+      if (e.existingUnitId) {
+        if (existingIds.has(e.existingUnitId)) {
+          throw new BadRequestException('Unit AC yang sama dipilih lebih dari satu kali');
+        }
+        existingIds.add(e.existingUnitId);
+      }
+      const n = e.newUnit;
+      if (n?.qrDulu && (n.brand || n.model || n.pk != null || n.serialNumber)) {
+        throw new BadRequestException(
+          'Mode "QR dulu" tidak menerima merk/model/PK/no. seri — teknisi yang melengkapinya saat scan di lokasi.',
+        );
+      }
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -114,23 +165,37 @@ export class ServiceOrdersService {
         await tx.member.update({ where: { id: member.id }, data: { mapsUrl: dto.customer.mapsUrl } });
       }
 
-      let unit: { id: string; barcodeValue: string; memberId: string };
       // Unit lama yang sudah pernah terlabel QR tidak perlu dicetak lagi — frontend melewati halaman cetak label.
-      // Dihitung SEBELUM job baru dibuat, supaya job ini sendiri tidak ikut dianggap "riwayat".
-      let unitLabeled = false;
-      if (dto.existingUnitId) {
-        const existing = await tx.memberAcUnit.findUnique({ where: { id: dto.existingUnitId } });
-        if (!existing) throw new NotFoundException('Unit AC tidak ditemukan');
-        if (existing.memberId !== member.id) {
-          throw new BadRequestException(
-            'Unit ini terdaftar atas nama member lain — konfirmasi manual ke customer dulu sebelum lanjut',
-          );
+      // `labeled` dihitung SEBELUM job baru dibuat, supaya job ini sendiri tidak ikut dianggap "riwayat".
+      const units: { id: string; barcodeValue: string; memberId: string; labeled: boolean }[] = [];
+      let qrDuluCount = 0;
+      let newUnitCount = 0;
+      for (const e of entries) {
+        if (e.existingUnitId) {
+          const existing = await tx.memberAcUnit.findUnique({ where: { id: e.existingUnitId } });
+          if (!existing) throw new NotFoundException('Unit AC tidak ditemukan');
+          if (existing.memberId !== member.id) {
+            throw new BadRequestException(
+              'Unit ini terdaftar atas nama member lain — konfirmasi manual ke customer dulu sebelum lanjut',
+            );
+          }
+          units.push({ ...existing, labeled: await isUnitLabeled(tx, existing) });
+        } else {
+          const nu = e.newUnit!;
+          // "QR dulu" = jalur yang sama dengan Input Data Lampau (status menunggu_data, pengingat OFF); teknisi
+          // melengkapi lewat Scan Unit (POST /ac-units/:id/complete-data), admin dikabari lewat lonceng.
+          const created = nu.qrDulu
+            ? await this.acUnits.createLegacy(tx, member.id, { mode: 'qr_dulu', roomLocation: nu.roomLocation })
+            : await this.acUnits.registerExisting(tx, member.id, nu);
+          if (nu.qrDulu) qrDuluCount++;
+          newUnitCount++;
+          units.push({ ...created, labeled: false });
         }
-        unit = existing;
-        unitLabeled = await isUnitLabeled(tx, existing);
-      } else {
-        unit = await this.acUnits.registerExisting(tx, member.id, dto.newUnit!);
-        await tx.member.update({ where: { id: member.id }, data: { totalAcUnits: { increment: 1 } } });
+      }
+      // Unit lama yang dipilih tidak boleh sedang punya job aktif (unit baru pasti belum punya job).
+      await this.assertNoActiveJob(tx, [...existingIds]);
+      if (newUnitCount > 0) {
+        await tx.member.update({ where: { id: member.id }, data: { totalAcUnits: { increment: newUnitCount } } });
       }
 
       const scheduledDate = dto.scheduledDate ? new Date(dto.scheduledDate) : undefined;
@@ -138,50 +203,74 @@ export class ServiceOrdersService {
       const order = await tx.serviceOrder.create({
         data: {
           memberId: member.id,
-          type: 'perbaikan',
+          type: jobType,
           status: 'terjadwal',
-          note: dto.complaint,
+          // Note pekerjaan untuk teknisi: deskripsi pekerjaan; tanpa itu keluhannya (perilaku lama).
+          note: workDescription ?? complaint,
           scheduledDate,
           createdById: actorId,
         },
       });
 
-      await tx.serviceOrderUnit.create({
-        data: { orderId: order.id, unitId: unit.id, status: 'terjadwal' },
-      });
-
+      // Satu job per unit AC (temuan, foto, scan, riwayat servis tercatat per unit), semuanya di order yang sama
+      // -> satu invoice (baris tagihan tiap job ditandai job_id, lihat JobBillingService).
       // complaint diteruskan ke createForOrder() supaya otomatis kebentuk 1
       // JobFinding awal (origin: 'komplain_awal') — teknisi gak mulai dari
       // kosong kalau customer sudah bilang keluhannya saat intake (Siklus 5
       // revisi, checklist temuan dinamis).
-      const job = await this.technicianJobs.createForOrder(tx, {
-        orderId: order.id,
-        memberId: member.id,
-        unitId: unit.id,
-        technicianId: dto.technicianId ?? null,
-        type: 'perbaikan',
-        actorId,
-        scheduledDate,
-        complaint: dto.complaint,
-      });
+      const jobs: { id: string; status: string }[] = [];
+      for (const unit of units) {
+        await tx.serviceOrderUnit.create({
+          data: { orderId: order.id, unitId: unit.id, status: 'terjadwal' },
+        });
+        jobs.push(
+          await this.technicianJobs.createForOrder(tx, {
+            orderId: order.id,
+            memberId: member.id,
+            unitId: unit.id,
+            technicianId: dto.technicianId ?? null,
+            type: jobType,
+            actorId,
+            scheduledDate,
+            complaint,
+          }),
+        );
+      }
 
       await tx.auditLog.create({
         data: {
           actorUid: actorId,
           action: 'service_order.intake',
           target: order.id,
-          detail: { unitId: unit.id, jobId: job.id },
+          detail: {
+            unitId: units[0].id,
+            jobId: jobs[0].id,
+            jobType,
+            unitIds: units.map((u) => u.id),
+            jobIds: jobs.map((j) => j.id),
+            ...(qrDuluCount > 0 ? { qrDulu: true, qrDuluCount } : {}),
+          },
         },
       });
 
+      // Field tingkat atas = unit/job PERTAMA (bentuk lama, dipakai app mobile); `jobs` memuat semuanya.
       return {
         serviceOrderId: order.id,
         memberId: member.id,
-        unitId: unit.id,
-        barcodeValue: unit.barcodeValue,
-        unitLabeled,
-        jobId: job.id,
-        jobStatus: job.status,
+        unitId: units[0].id,
+        barcodeValue: units[0].barcodeValue,
+        unitLabeled: units[0].labeled,
+        jobId: jobs[0].id,
+        jobStatus: jobs[0].status,
+        jobs: units.map((u, i) => ({
+          jobId: jobs[i].id,
+          jobStatus: jobs[i].status,
+          unitId: u.id,
+          barcodeValue: u.barcodeValue,
+          unitLabeled: u.labeled,
+        })),
+        // Unit yang labelnya masih perlu dicetak (frontend: kosong = langsung ke halaman job).
+        unitsToLabel: units.filter((u) => !u.labeled).map((u) => u.id),
       };
     });
   }

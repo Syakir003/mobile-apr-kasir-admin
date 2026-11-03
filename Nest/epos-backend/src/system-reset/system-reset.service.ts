@@ -45,6 +45,8 @@ export class SystemResetService {
         await del(tx, 'manualPayment', (t) => t.manualPayment.deleteMany());
         await del(tx, 'materialRequest', (t) => t.materialRequest.deleteMany());
         await del(tx, 'jobServiceLine', (t) => t.jobServiceLine.deleteMany());
+        // Riwayat alih tugas menunjuk ke job (FK RESTRICT) -> hapus sebelum job.
+        await del(tx, 'jobHandover', (t) => t.jobHandover.deleteMany());
         await del(tx, 'technicianJob', (t) => t.technicianJob.deleteMany());
         await del(tx, 'serviceOrderUnit', (t) => t.serviceOrderUnit.deleteMany());
         await del(tx, 'serviceOrder', (t) => t.serviceOrder.deleteMany());

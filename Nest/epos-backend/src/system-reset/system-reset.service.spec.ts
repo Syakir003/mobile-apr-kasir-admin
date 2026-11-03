@@ -35,6 +35,15 @@ describe('SystemResetService — urutan hapus aman foreign key', () => {
     expect(order.indexOf('memberAcUnit')).toBeLessThan(order.indexOf('member'));
   });
 
+  it.each(['transaksi', 'transaksi_pelanggan', 'total'] as ResetScope[])(
+    '%s: riwayat alih tugas dihapus SEBELUM job teknisi',
+    async (scope) => {
+      const order = await run(scope);
+      expect(order).toContain('jobHandover');
+      expect(order.indexOf('jobHandover')).toBeLessThan(order.indexOf('technicianJob'));
+    },
+  );
+
   it('transaksi saja: pelanggan, unit AC, dan koreksi tidak disentuh', async () => {
     const order = await run('transaksi');
     expect(order).not.toContain('acUnitCorrection');

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Member } from '@prisma/client';
+import { Prisma, Member, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
@@ -227,7 +227,19 @@ export class MembersService {
     const member = await this.prisma.member.findUnique({
       where: { id },
       include: {
-        acUnits: { orderBy: { createdAt: "desc" }, include: UNIT_PRODUCTS_SELECT },
+        acUnits: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            ...UNIT_PRODUCTS_SELECT,
+            // Job yang belum final pada unit ini (maks. 1): form intake menandai unit yang masih dikerjakan,
+            // karena unit dengan job aktif tidak boleh dibuatkan job servis baru.
+            technicianJobs: {
+              where: { status: { notIn: [TechnicianJobStatus.selesai, TechnicianJobStatus.dibatalkan] } },
+              select: { id: true, status: true },
+              take: 1,
+            },
+          },
+        },
         invoices: {
           orderBy: { createdAt: 'desc' },
           // buyPriceSnapshot = harga modal, jangan sampai kebaca kasir.

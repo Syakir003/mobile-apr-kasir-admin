@@ -68,6 +68,9 @@ model User {
   jobPhotosUploaded  JobPhoto[]           @relation("PhotoUploadedBy")
   findingsCreated    JobFinding[]         @relation("FindingCreatedBy")
   findingPhotosUploaded JobFindingPhoto[] @relation("FindingPhotoUploadedBy")
+  handoversFrom      JobHandover[]        @relation("HandoverFrom")
+  handoversTo        JobHandover[]        @relation("HandoverTo")
+  handoversMade      JobHandover[]        @relation("HandoverBy")
   manualPaymentsMade ManualPayment[]      @relation("PaymentCreatedBy")
   notifications      Notification[]
   stockMovementsMade StockMovement[]      @relation("StockCreatedBy")
@@ -839,8 +842,31 @@ model TechnicianJob {
   photos           JobPhoto[]
   findings         JobFinding[]
   materialRequests MaterialRequest[]
+  handovers        JobHandover[]
 
   @@map("technician_jobs")
+}
+
+// Riwayat alih tugas: job dialihkan admin/kasir ke teknisi lain (kapan saja selama belum review/selesai, mis. teknisi
+// berhalangan atau pekerjaan dilanjut hari lain). Satu baris per pergantian; pergantian pertama dari kosong
+// (menunggu_penugasan) ke teknisi BUKAN alih tugas dan tidak dicatat di sini.
+model JobHandover {
+  id               String        @id @default(uuid())
+  jobId            String        @map("job_id")
+  job              TechnicianJob @relation(fields: [jobId], references: [id])
+  fromTechnicianId String        @map("from_technician_id")
+  fromTechnician   User          @relation("HandoverFrom", fields: [fromTechnicianId], references: [id])
+  toTechnicianId   String        @map("to_technician_id")
+  toTechnician     User          @relation("HandoverTo", fields: [toTechnicianId], references: [id])
+  handedById       String        @map("handed_by_id")
+  handedBy         User          @relation("HandoverBy", fields: [handedById], references: [id])
+  // Status job saat dialihkan ('assigned' = belum mulai, 'sedang_dikerjakan' = sudah dikerjakan sebagian).
+  statusAtHandover String        @map("status_at_handover")
+  reason           String?
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  @@index([jobId, createdAt])
+  @@map("job_handovers")
 }
 
 // Foto level-job (model LAMA). Dibiarkan ada di schema untuk data historis
