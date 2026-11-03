@@ -404,14 +404,33 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     final returned = working.where((j) => (j.reviewNote ?? '').isNotEmpty).toList();
     String unitName(TechnicianJob j) =>
         '${j.unitTitle.isEmpty ? 'Unit AC' : j.unitTitle}${j.unitRoom.isEmpty ? '' : ' (${j.unitRoom})'}';
-    bool inReviewOrDone(TechnicianJob j) =>
-        j.status == JobStatus.menungguReview || j.status == JobStatus.selesai;
+    String whyNotStartable(TechnicianJob j) => j.status != JobStatus.assigned
+        ? 'belum ditugaskan'
+        : j.unitAwaitingData
+            ? 'data unit belum dilengkapi (QR dulu)'
+            : j.unitBarcode.isEmpty
+                ? 'belum punya barcode'
+                : 'foto sebelum belum ada';
+    // Status satu baris di header tiap unit (menggantikan daftar centang terpisah).
+    (String, bool) stateOf(TechnicianJob j) => switch (j.status) {
+          JobStatus.menungguPenugasan || JobStatus.assigned => (
+              startable.contains(j) ? 'Belum discan' : 'Belum discan · ${whyNotStartable(j)}',
+              true
+            ),
+          JobStatus.sedangDikerjakan => (blockerOf(j) ?? 'Siap diajukan', blockerOf(j) != null),
+          _ => (j.status.label, false),
+        };
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         _OrderHeaderCard(
-            job: first, unitCount: all.length, scanned: scannedCount, active: active.length),
+          job: first,
+          unitCount: all.length,
+          status: active.isEmpty
+              ? first.status
+              : active.map((j) => j.status).reduce((a, b) => a.index <= b.index ? a : b),
+        ),
         const SizedBox(height: 12),
         _InfoCard(job: first, showUnit: false),
         if ((first.orderNote ?? '').trim().isNotEmpty &&
@@ -437,7 +456,8 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             key: ValueKey('unit-${all[i].id}'),
             job: all[i],
             index: i,
-            total: all.length,
+            stateText: stateOf(all[i]).$1,
+            stateWarn: stateOf(all[i]).$2,
             defaultOpen: all[i].id == first.id || all.length <= 2,
             canEdit: isTeknisi &&
                 (all[i].status == JobStatus.assigned ||
@@ -456,82 +476,48 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           ],
         ),
         const SizedBox(height: 20),
-        if (isTeknisi && (working.isNotEmpty || notStarted.isNotEmpty)) ...[
-          if (notStarted.isNotEmpty) ...[
-            _UnitChecklist(rows: [
-              for (final j in notStarted)
-                (
-                  label: unitName(j),
-                  state: j.status != JobStatus.assigned
-                      ? 'belum ditugaskan'
-                      : j.unitAwaitingData
-                          ? 'data unit belum dilengkapi (QR dulu)'
-                      : j.unitBarcode.isEmpty
-                          ? 'belum punya barcode, hubungi admin'
-                          : !hasBefore(j)
-                              ? 'belum discan · foto sebelum belum ada'
-                              : 'belum discan',
-                  ok: false,
-                ),
-              for (final j in working) (label: unitName(j), state: 'sudah discan', ok: true),
-            ]),
-            if (notStarted.any((j) => j.unitAwaitingData)) ...[
-              const SizedBox(height: 10),
-              _awaitingDataPanel(),
-            ],
+        if (isTeknisi && notStarted.isNotEmpty) ...[
+          if (notStarted.any((j) => j.unitAwaitingData)) ...[
+            _awaitingDataPanel(),
             const SizedBox(height: 10),
-            _primaryButton(
-              icon: Icons.qr_code_scanner,
-              label: 'Scan Barcode Unit ($scannedCount/${active.length} sudah discan)',
-              onPressed: startable.isEmpty
-                  ? null
-                  : () => _startUnit(startable, [
-                        for (final j in notStarted)
-                          (
-                            label: unitName(j),
-                            hint: startable.contains(j)
-                                ? null
-                                : j.status != JobStatus.assigned
-                                    ? 'belum ditugaskan'
-                                    : j.unitAwaitingData
-                                        ? 'data unit belum dilengkapi (QR dulu)'
-                                        : j.unitBarcode.isEmpty
-                                            ? 'belum punya barcode'
-                                            : 'foto sebelum belum ada',
-                          ),
-                      ]),
+          ] else if (startable.isEmpty) ...[
+            const NoticePanel(
+              tone: NoticeTone.warning,
+              icon: Icons.lock_outline,
+              text: 'Tambah temuan dan unggah foto SEBELUM di tiap unit dulu untuk memulai pekerjaan.',
             ),
-            const SizedBox(height: 16),
-          ],
-          // Selama masih ada unit belum discan, daftar scan di atas sudah cukup (sama dengan web).
-          if (notStarted.isEmpty)
-            _UnitChecklist(rows: [
-              for (final j in active)
-                (
-                  label: unitName(j),
-                  state: inReviewOrDone(j)
-                      ? 'sudah diajukan'
-                      : blockerOf(j) ?? 'siap diajukan',
-                  ok: inReviewOrDone(j) || blockerOf(j) == null,
-                ),
-            ]),
-          if (working.isNotEmpty) ...[
             const SizedBox(height: 10),
-            if (!canSubmitAll) ...[
-              const NoticePanel(
-                tone: NoticeTone.warning,
-                icon: Icons.hourglass_empty,
-                text:
-                    'Semua unit harus sudah discan/dimulai dan lengkap (temuan, foto sebelum/sesudah) sebelum diajukan selesai sekaligus. Unit yang tidak jadi diservis bisa dibatalkan admin.',
-              ),
-              const SizedBox(height: 10),
-            ],
-            _primaryButton(
-              icon: Icons.check_circle_outline,
-              label: 'Ajukan Selesai (${working.length} unit)',
-              onPressed: canSubmitAll ? () => _submitAll(first, ids) : null,
-            ),
           ],
+          _primaryButton(
+            icon: Icons.qr_code_scanner,
+            label: 'Mulai Pekerjaan ($scannedCount/${active.length} unit discan)',
+            onPressed: startable.isEmpty
+                ? null
+                : () => _startUnit(startable, [
+                      for (final j in notStarted)
+                        (label: unitName(j), hint: startable.contains(j) ? null : whyNotStartable(j)),
+                    ]),
+          ),
+        ] else if (isTeknisi && working.isNotEmpty) ...[
+          if (!canSubmitAll)
+            ...() {
+              final stuck = working.where((j) => blockerOf(j) != null).toList();
+              return [
+                NoticePanel(
+                  tone: NoticeTone.warning,
+                  icon: Icons.hourglass_empty,
+                  text: stuck.isEmpty
+                      ? 'Memuat data unit…'
+                      : '${unitName(stuck.first)}: ${blockerOf(stuck.first)}',
+                ),
+                const SizedBox(height: 10),
+              ];
+            }(),
+          _primaryButton(
+            icon: Icons.check_circle_outline,
+            label: 'Ajukan Selesai (${working.length} unit)',
+            onPressed: canSubmitAll ? () => _submitAll(first, ids) : null,
+          ),
         ] else if (active.isNotEmpty)
           _StatusHint(status: active.first.status),
       ],
@@ -1313,42 +1299,33 @@ class _ScanSheetState extends State<_ScanSheet> {
             _ManualEntry(onSubmit: _onManual),
             if (widget.pending != null && widget.pending!.isNotEmpty) ...[
               const SizedBox(height: 16),
-              Align(
+              const Align(
                 alignment: Alignment.centerLeft,
-                child: Text('Belum discan (${widget.pending!.length})',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600, color: AppColors.slate900)),
+                child: Text('Belum discan',
+                    style: TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.slate900)),
               ),
               const SizedBox(height: 6),
-              for (final p in widget.pending!)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                          p.hint == null
-                              ? Icons.radio_button_unchecked
-                              : Icons.lock_outline,
-                          size: 16,
-                          color: AppColors.slate400),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text.rich(TextSpan(children: [
-                          TextSpan(
-                              text: p.label,
-                              style: const TextStyle(
-                                  fontSize: 13, color: AppColors.slate900)),
-                          if (p.hint != null)
-                            TextSpan(
-                                text: ' - ${p.hint}',
-                                style: const TextStyle(
-                                    fontSize: 12, color: AppColors.slate500)),
-                        ])),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final p in widget.pending!)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: p.hint == null ? AppColors.teal50 : AppColors.slate50,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
-                    ],
-                  ),
-                ),
+                      child: Text(
+                        p.hint == null ? p.label : '${p.label} · ${p.hint}',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: p.hint == null ? AppColors.teal700 : AppColors.slate600),
+                      ),
+                    ),
+                ]),
+              ),
             ],
           ],
         ),
@@ -2120,18 +2097,12 @@ String _formatDate(DateTime d) {
   return '${two(d.day)}-${two(d.month)}-${d.year} ${two(d.hour)}:${two(d.minute)}';
 }
 
-/// Servis banyak AC: ringkasan order di atas halaman (pengganti kartu header satu unit).
+/// Servis banyak AC: kepala halaman order, bentuknya sama dengan kartu header satu unit.
 class _OrderHeaderCard extends StatelessWidget {
-  const _OrderHeaderCard({
-    required this.job,
-    required this.unitCount,
-    required this.scanned,
-    required this.active,
-  });
+  const _OrderHeaderCard({required this.job, required this.status, required this.unitCount});
   final TechnicianJob job;
+  final JobStatus status;
   final int unitCount;
-  final int scanned;
-  final int active;
 
   @override
   Widget build(BuildContext context) {
@@ -2154,60 +2125,19 @@ class _OrderHeaderCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(job.memberName.isEmpty ? 'Servis banyak unit AC' : job.memberName,
+                  Text(job.memberName.isEmpty ? 'Job servis' : job.memberName,
                       style: const TextStyle(
                           fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.slate900)),
                   const SizedBox(height: 4),
-                  Text(
-                    '${job.typeLabel} · $scanned dari $active unit sudah discan · satu nota untuk semua unit',
-                    style: const TextStyle(color: AppColors.slate500),
-                  ),
+                  Text('${job.typeLabel} · $unitCount unit AC',
+                      style: const TextStyle(color: AppColors.slate500)),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            StatusBadge(label: '$unitCount unit AC', color: AppColors.teal700),
+            StatusBadge(label: status.label, color: jobStatusColor(status)),
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Baris daftar periksa per unit (sudah discan / siap diajukan / apa yang masih kurang).
-class _UnitChecklist extends StatelessWidget {
-  const _UnitChecklist({required this.rows});
-  final List<({String label, String state, bool ok})> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final r in rows)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.check_circle,
-                    size: 18, color: r.ok ? AppColors.success : AppColors.slate300),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text.rich(TextSpan(children: [
-                    TextSpan(
-                        text: r.label,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600, color: AppColors.slate900)),
-                    TextSpan(
-                        text: ' - ${r.state}',
-                        style: const TextStyle(color: AppColors.slate500)),
-                  ])),
-                ),
-              ],
-            ),
-          ),
-      ],
     );
   }
 }
@@ -2218,7 +2148,8 @@ class _UnitSection extends StatelessWidget {
     super.key,
     required this.job,
     required this.index,
-    required this.total,
+    required this.stateText,
+    required this.stateWarn,
     required this.defaultOpen,
     required this.canEdit,
     required this.busy,
@@ -2227,7 +2158,8 @@ class _UnitSection extends StatelessWidget {
 
   final TechnicianJob job;
   final int index;
-  final int total;
+  final String stateText;
+  final bool stateWarn;
   final bool defaultOpen;
   final bool canEdit;
   final bool busy;
@@ -2235,7 +2167,6 @@ class _UnitSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cancelled = job.status == JobStatus.dibatalkan;
     final title =
         '${index + 1}. ${job.unitTitle.isEmpty ? 'Unit AC (tipe belum diisi)' : job.unitTitle}'
         '${job.unitRoom.isEmpty ? '' : ' · ${job.unitRoom}'}';
@@ -2249,18 +2180,11 @@ class _UnitSection extends StatelessWidget {
           title: Text(title,
               style: const TextStyle(
                   fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.slate900)),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Wrap(spacing: 6, runSpacing: 4, children: [
-              Text('Unit ${index + 1} dari $total',
-                  style: const TextStyle(fontSize: 12, color: AppColors.slate500)),
-              if (!cancelled)
-                StatusBadge(
-                    label: job.scanned ? 'Sudah discan' : 'Belum discan',
-                    color: job.scanned ? AppColors.success : AppColors.warning),
-              StatusBadge(label: job.status.label, color: jobStatusColor(job.status)),
-            ]),
-          ),
+          subtitle: Text(stateText,
+              style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: stateWarn ? AppColors.warning : AppColors.slate600)),
           childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
           expandedCrossAxisAlignment: CrossAxisAlignment.start,
           children: [

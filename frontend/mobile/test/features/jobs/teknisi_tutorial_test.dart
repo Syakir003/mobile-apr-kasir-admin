@@ -16,12 +16,11 @@ void main() {
     ));
     await tester.tap(find.text('buka'));
     await tester.pumpAndSettle();
-    expect(find.text('Tutorial Teknisi'), findsOneWidget);
-    expect(find.text('Terima job'), findsOneWidget);
+    expect(find.text('Alur kerja teknisi'), findsOneWidget);
+    expect(find.text('Mulai pekerjaan'), findsOneWidget);
 
-    await tester.scrollUntilVisible(find.text('Mengerti'), 300);
-    await tester.tap(find.text('Mengerti'));
+    Navigator.of(tester.element(find.text('Alur kerja teknisi'))).pop();
     await tester.pumpAndSettle();
-    expect(find.text('Tutorial Teknisi'), findsNothing);
+    expect(find.text('Alur kerja teknisi'), findsNothing);
   });
 }
