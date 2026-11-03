@@ -310,7 +310,6 @@ export function JobDetailClient({
   // (MultiUnitJobView). Di section satu unit tinggal scan-mulai (teknisi) dan batalkan unit (admin).
   const isFinal = ['selesai', 'dibatalkan'].includes(job.status);
   const returnedToTeknisi = isTeknisi && job.status === 'sedang_dikerjakan' && !!job.reviewNote;
-  const aksiEmpty = !!embedded && !isFinal && !isAdmin;
 
   const content = (
     <div className="grid gap-6">
@@ -352,11 +351,17 @@ export function JobDetailClient({
 
       {/* Servis banyak AC: Laporan Pekerjaan satu untuk seluruh job (tombolnya di header halaman, bukan per unit). */}
       {/* Teknisi: satu kolom dengan tombol aksi di bawah, seperti app mobile. Admin/kasir tetap dua kolom (aksi di kanan). */}
-      <div className={cn('grid gap-6', !aksiEmpty && !isTeknisi && 'xl:grid-cols-[1fr_360px]')}>
-        <div className="grid gap-6">
+      <div className={cn('grid gap-6', !embedded && !isTeknisi && 'xl:grid-cols-[1fr_360px]')}>
+        <div
+          className={cn(
+            'grid min-w-0',
+            // Di dalam section unit: kartu datar (tanpa bayangan) supaya tidak bersusun kartu-di-kartu.
+            embedded ? 'gap-4 [&_[data-slot=card]]:bg-background [&_[data-slot=card]]:shadow-none' : 'gap-6',
+          )}
+        >
           <Card className={cn(isAdmin && job.status === 'menunggu_review' && 'order-last')}>
             <CardHeader>
-              <CardTitle className="text-base">Detail</CardTitle>
+              <CardTitle className="text-base">{embedded ? 'Detail Unit' : 'Detail'}</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2 text-sm">
               {!embedded && (
@@ -411,10 +416,10 @@ export function JobDetailClient({
                 // Preview QR unit ini — biar bisa dicek/dilihat lagi tanpa harus
                 // buka halaman detail unit terpisah. Link cetak cuma admin/kasir
                 // (GET /service-orders/:id 403 untuk teknisi).
-                <div className="flex items-center gap-3 rounded-md border bg-white p-2 text-neutral-900">
-                  <BarcodeQr value={job.unit.barcodeValue} size={64} className="shrink-0" />
-                  <div className="min-w-0 text-xs text-neutral-600">
-                    <p className="font-mono text-sm text-neutral-900">{job.unit.barcodeValue}</p>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border bg-white p-3 text-neutral-900">
+                  <BarcodeQr value={job.unit.barcodeValue} size={72} className="shrink-0" />
+                  <div className="min-w-0 flex-1 basis-48 text-xs text-neutral-600">
+                    <p className="font-mono text-sm break-all text-neutral-900">{job.unit.barcodeValue}</p>
                     <p>QR label unit AC ini</p>
                     {(job.unit.labeled || (job.order && !isTeknisi)) && (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -517,7 +522,7 @@ export function JobDetailClient({
             </CardContent>
           </Card>
 
-          {(isAdmin || role === 'kasir') && <ServicePricingCard jobId={job.id} />}
+          {(isAdmin || role === 'kasir') && !embedded && <ServicePricingCard jobId={job.id} />}
 
           {/* Pengajuan sparepart tambahan — backend (material-requests
               module) udah lama ada & dipakai app mobile teknisi lama,
@@ -551,7 +556,27 @@ export function JobDetailClient({
           )}
         </div>
 
-        <Card className={cn('h-fit', !isTeknisi && 'xl:sticky xl:top-6', aksiEmpty && 'hidden')}>
+        {embedded ? (
+          isAdmin &&
+          !isFinal && (
+            <div className="flex justify-end border-t pt-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                disabled={cancelMutation.isPending}
+                onClick={() => {
+                  if (confirm('Batalkan unit AC ini dari job?')) {
+                    cancelMutation.mutate({ moveRequestsToSibling: true });
+                  }
+                }}
+              >
+                {cancelMutation.isPending ? 'Memproses...' : 'Batalkan unit ini'}
+              </Button>
+            </div>
+          )
+        ) : (
+        <Card className={cn('h-fit', !isTeknisi && 'xl:sticky xl:top-6')}>
           <CardHeader>
             <CardTitle className="text-base">Aksi</CardTitle>
           </CardHeader>
@@ -707,6 +732,7 @@ export function JobDetailClient({
             )}
           </CardContent>
         </Card>
+        )}
       </div>
     </div>
   );
@@ -867,6 +893,9 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
   const scheduleInvalid = scheduleUnits.some((j) => schedOn(j) && !!intervalError(schedDays(j)));
   // Harga jasa tiap unit ditetapkan admin/kasir SETELAH teknisi mengajukan; syarat untuk menyetujui, bukan mengajukan.
   const unpricedWaiting = waitingReview.filter((j) => j.type !== 'pemasangan' && j.billingDerived !== true);
+  // Panel Aksi Job (kanan) hanya ada bila ada yang bisa dikerjakan peran ini; kalau tidak, daftar unit memakai lebar penuh.
+  const hasAside =
+    (isTeknisi && (working.length > 0 || notStarted.length > 0)) || (isAdmin && (canAssign || waitingReview.length > 0));
   const canApproveAll =
     allLoaded && waitingReview.length > 0 && working.length === 0 && notStarted.length === 0 && unpricedWaiting.length === 0;
   // Pengajuan sparepart satu untuk seluruh job: daftar = gabungan pengajuan semua unit (terbaru di atas); pengajuan baru
@@ -908,6 +937,8 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
         </p>
       </div>
 
+      <div className={cn('grid items-start gap-6', hasAside && 'xl:grid-cols-[1fr_360px]')}>
+        <div className="grid min-w-0 gap-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Detail Order</CardTitle>
@@ -946,18 +977,6 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
               }
             />
           )}
-          {canAssign && (
-            <div className="mt-2">
-              <ReassignPanel
-                jobId={job.id}
-                currentTechnicianId={job.technician?.id ?? null}
-                started={anyStarted}
-                inReview={anyInReview}
-                allInOrder
-                technicians={technicians}
-              />
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -967,8 +986,6 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
 
       <HandoverHistoryCard items={mergeHandovers(jobs.map((j) => j.handovers ?? []))} />
 
-      <div className="grid items-start gap-6 xl:grid-cols-[1fr_360px]">
-        <div className="grid min-w-0 gap-6">
           <div className="grid gap-4">
             {entries.map((e, i) => (
               <JobDetailClient
@@ -979,6 +996,10 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
               />
             ))}
           </div>
+
+          {/* Harga jasa: SATU untuk seluruh job (bukan per unit), seperti servis satu unit. Disimpan di job pemegang harga
+              (job pertama yang belum dibatalkan); id job mana pun di order ini menunjuk ke sana. */}
+          {(isAdmin || role === 'kasir') && <ServicePricingCard jobId={job.id} />}
 
           {/* Pengajuan sparepart: SATU untuk seluruh job (tidak dipisah per AC). Secara data melekat pada unit aktif
               pertama; daftar di sini menggabungkan pengajuan semua unit. */}
@@ -999,14 +1020,26 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
           </Card>
         </div>
         {/* Panel aksi di samping seperti halaman satu unit (menempel di desktop; di layar sempit tampil di bawah). */}
-        <div className="xl:sticky xl:top-6">
+        <div className={cn('xl:sticky xl:top-6', !hasAside && 'hidden')}>
         {/* Satu job = satu pengajuan: Ajukan Selesai / Setujui / Kembalikan berlaku untuk SEMUA unit sekaligus. */}
-        {(isTeknisi || isAdmin) && (working.length > 0 || notStarted.length > 0 || waitingReview.length > 0) && (
+        {hasAside && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Aksi Job (semua unit)</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4">
+              {/* Alihkan tugas: untuk seluruh unit order (sama dengan penempatan di halaman satu unit). */}
+              {canAssign && (
+                <ReassignPanel
+                  jobId={job.id}
+                  currentTechnicianId={job.technician?.id ?? null}
+                  started={anyStarted}
+                  inReview={anyInReview}
+                  allInOrder
+                  technicians={technicians}
+                />
+              )}
+
               {/* Mulai Job: SATU panel (bukan per unit) yang membaca daftar unit sudah/belum discan. Scan barcode unit
                   yang belum discan memulai unit itu; semua unit tetap harus discan. */}
               {isTeknisi && notStarted.length > 0 && (
@@ -1112,9 +1145,9 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                 <div className="grid gap-3">
                   {unpricedWaiting.length > 0 && (
                     <p className="rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-xs">
-                      Tetapkan harga jasa dulu (kartu Harga Jasa di tiap unit): {unpricedWaiting.map(unitLabel).join(', ')}.
-                      Setelah itu kirim tagihan ke pelanggan; pekerjaan boleh langsung diselesaikan atau menunggu
-                      tagihan lunas dulu, sesuai keputusan admin.
+                      Tetapkan harga jasa dulu (kartu Harga Jasa, satu untuk seluruh job). Setelah itu kirim tagihan ke
+                      pelanggan; pekerjaan boleh langsung diselesaikan atau menunggu tagihan lunas dulu, sesuai
+                      keputusan admin.
                     </p>
                   )}
                   {working.length + notStarted.length > 0 && (

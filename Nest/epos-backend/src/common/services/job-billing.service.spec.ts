@@ -1,4 +1,4 @@
-import { JobBillingService, buildJobInvoiceLines, tagLinesWithUnit, unitInvoiceLabel } from './job-billing.service';
+import { JobBillingService, buildJobInvoiceLines, unitInvoiceLabel } from './job-billing.service';
 
 const jasa = (name: string, qty: number, unitPrice: number) => ({ refId: null, name, unit: 'jasa', qty, unitPrice });
 const part = (name: string, qty: number, unitPrice: number) => ({ refId: 'sp', name, unit: 'kg', qty, unitPrice });
@@ -76,25 +76,9 @@ describe('nama unit di baris nota servis banyak AC', () => {
     expect(unitInvoiceLabel({ brand: null, model: null, roomLocation: ' Kamar Anak ', barcodeValue: 'ACUNIT-2' })).toBe('Kamar Anak');
     expect(unitInvoiceLabel({ brand: null, model: null, roomLocation: '  ', barcodeValue: 'ACUNIT-3' })).toBe('ACUNIT-3');
   });
-
-  it('tagLinesWithUnit: jasa/transport diberi nama unit, sparepart tidak; angka tetap', () => {
-    const lines = buildJobInvoiceLines({
-      services: [jasa('Cuci AC', 1, 100000)],
-      spareparts: [part('Freon', 2, 50000)],
-      transport: 100000,
-      mode: 'individu',
-    });
-    const tagged = tagLinesWithUnit(lines, 'Daikin (Kamar 1)');
-    expect(tagged.map((l) => l.name)).toEqual([
-      'Cuci AC - Daikin (Kamar 1)',
-      'Freon', // sparepart satu untuk seluruh job: tidak diberi nama unit
-      'Biaya transport - Daikin (Kamar 1)',
-    ]);
-    expect(tagged.map((l) => [l.qty, l.unitPrice, l.lineTotal])).toEqual(lines.map((l) => [l.qty, l.unitPrice, l.lineTotal]));
-  });
 });
 
-// rebuild() dengan tx tiruan: baris invoice yang ditulis memakai nama unit hanya kalau order punya lebih dari satu job.
+// rebuild() dengan tx tiruan: baris invoice ditulis apa adanya (tanpa nama unit) walau order punya banyak job.
 function rebuildSetup(jobsInOrder: number, unit: Record<string, unknown> | null) {
   const created: any[] = [];
   const tx: any = {
@@ -124,19 +108,18 @@ function rebuildSetup(jobsInOrder: number, unit: Record<string, unknown> | null)
   return { tx, created };
 }
 
-describe('JobBillingService.rebuild — nama unit pada baris invoice', () => {
+describe('JobBillingService.rebuild — harga jasa satu untuk seluruh job', () => {
   const unit = { brand: 'Daikin', model: 'FTV25', roomLocation: 'Kamar Utama', barcodeValue: 'ACUNIT-1' };
 
-  it('order banyak unit: nama baris memuat unit, total tidak berubah', async () => {
+  it('order banyak unit: baris tagihan tetap apa adanya (tanpa nama unit), total benar', async () => {
     const { tx, created } = rebuildSetup(3, unit);
     const res = await new JobBillingService().rebuild(tx, 'j1');
-    expect(created.map((c) => c.name)).toEqual(['Cuci AC - Daikin FTV25 (Kamar Utama)']);
+    expect(created.map((c) => c.name)).toEqual(['Cuci AC']);
     expect(created[0].lineTotal).toBe(100000);
     expect(res?.newTotal).toBe(100000);
-    expect(tx.technicianJob.count).toHaveBeenCalledWith({ where: { orderId: 'o1' } });
   });
 
-  it('order satu unit: nama baris apa adanya (perilaku lama)', async () => {
+  it('order satu unit: sama saja', async () => {
     const { tx, created } = rebuildSetup(1, unit);
     await new JobBillingService().rebuild(tx, 'j1');
     expect(created.map((c) => c.name)).toEqual(['Cuci AC']);

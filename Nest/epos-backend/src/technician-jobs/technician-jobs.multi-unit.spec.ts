@@ -559,8 +559,25 @@ describe('TechnicianJobsService.sendBack — allInOrder', () => {
 // ---------------------------------------------------------------------------------------------------------------
 
 describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () => {
-  function cancelSetup(over: { type?: string; successor?: { id: string; billingDerived: boolean } | null; billingDerived?: boolean } = {}) {
-    const job = { id: 'j1', orderId: 'o1', unitId: 'u1', type: over.type ?? 'perbaikan', status: 'sedang_dikerjakan', billingDerived: over.billingDerived ?? true };
+  function cancelSetup(
+    over: {
+      type?: string;
+      successor?: { id: string; billingDerived: boolean } | null;
+      billingDerived?: boolean;
+      pricingLines?: number; // baris jasa yang dipegang job yang dibatalkan
+      successorLines?: number; // baris jasa milik pengganti (data lama per unit)
+    } = {},
+  ) {
+    const job = {
+      id: 'j1',
+      orderId: 'o1',
+      unitId: 'u1',
+      type: over.type ?? 'perbaikan',
+      status: 'sedang_dikerjakan',
+      billingDerived: over.billingDerived ?? true,
+      transportLevel: over.pricingLines ? 2 : 0,
+      transportMode: 'dibagi',
+    };
     const tx: any = {
       technicianJob: {
         update: jest.fn(async ({ data }: any) => ({ ...job, ...data })),
@@ -569,6 +586,10 @@ describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () 
       },
       serviceOrderUnit: { updateMany: jest.fn(async () => ({ count: 1 })) },
       memberAcUnit: { updateMany: jest.fn(async () => ({ count: 0 })) },
+      jobServiceLine: {
+        count: jest.fn(async ({ where }: any) => (where.jobId === 'j1' ? (over.pricingLines ?? 0) : (over.successorLines ?? 0))),
+        updateMany: jest.fn(async () => ({ count: over.pricingLines ?? 0 })),
+      },
       materialRequest: {
         updateMany: jest.fn(async () => ({ count: 1 })),
         findMany: jest.fn(async () => []),
@@ -609,6 +630,25 @@ describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () 
     expect(tx.technicianJob.findFirst).not.toHaveBeenCalled();
     expect(tx.materialRequest.updateMany).toHaveBeenCalledTimes(1); // hanya penolakan otomatis yang pending
     expect(tx.materialRequest.updateMany.mock.calls[0][0].data).toMatchObject({ status: 'rejected' });
+  });
+
+  it('unit pemegang harga jasa dibatalkan: baris jasa + transport pindah ke unit aktif berikutnya (walau tanpa flag), tagihan dihitung ulang', async () => {
+    const { svc, tx, jobBilling } = cancelSetup({ pricingLines: 2, successor: { id: 'j2', billingDerived: false } });
+    await svc.cancel('j1', 'a1', 'admin'); // tanpa flag (mis. dari app mobile)
+    expect(tx.jobServiceLine.updateMany).toHaveBeenCalledWith({ where: { jobId: 'j1' }, data: { jobId: 'j2' } });
+    expect(tx.technicianJob.update).toHaveBeenCalledWith({
+      where: { id: 'j2' },
+      data: { billingDerived: true, transportLevel: 2, transportMode: 'dibagi' },
+    });
+    expect(tx.technicianJob.update).toHaveBeenCalledWith({ where: { id: 'j1' }, data: { transportLevel: 0 } });
+    expect(tx.materialRequest.updateMany).toHaveBeenCalledTimes(1); // pengajuan TIDAK dipindah tanpa flag (hanya tolak pending)
+    expect(jobBilling.rebuild.mock.calls.map((c: any) => c[1])).toEqual(['j1', 'j2']);
+  });
+
+  it('pengganti sudah punya baris jasa sendiri (data lama per unit): baris tidak dipindah supaya tidak dobel', async () => {
+    const { svc, tx } = cancelSetup({ pricingLines: 2, successorLines: 1, successor: { id: 'j2', billingDerived: true } });
+    await svc.cancel('j1', 'a1', 'admin');
+    expect(tx.jobServiceLine.updateMany).not.toHaveBeenCalled();
   });
 
   it('unit terakhir yang aktif: tidak ada pengganti, pengajuan ikut dibatalkan seperti biasa', async () => {

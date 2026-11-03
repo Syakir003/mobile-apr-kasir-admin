@@ -265,8 +265,8 @@ export function ServicePricingCard({ jobId }: { jobId: string }) {
       setEdited(null);
       setTransportLevel(null);
       setTransportMode(null);
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'all'] });
+      // Seluruh awalan technician-jobs: servis banyak AC memakai satu harga, jadi data semua unit (billingDerived) ikut segar.
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
     onError: (err) => {
