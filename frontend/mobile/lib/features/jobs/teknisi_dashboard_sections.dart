@@ -32,7 +32,7 @@ class TeknisiDashboardSections extends ConsumerWidget {
         .where((j) => j.scheduledDate != null && _sameDay(j.scheduledDate!, now))
         .toList();
     final todayIds = {for (final j in today) j.id};
-    final others = jobs.where((j) => !todayIds.contains(j.id)).toList();
+    final others = groupJobsByOrder(jobs.where((j) => !todayIds.contains(j.id)).toList());
     final needsAttention = jobs
         .where((j) => j.status == JobStatus.assigned && j.hasBeforePhoto == false)
         .toList();
@@ -72,8 +72,8 @@ class TeknisiDashboardSections extends ConsumerWidget {
                 ? const Text('Tidak ada job berjadwal hari ini.',
                     style: TextStyle(color: AppColors.slate500))
                 : Column(children: [
-                    for (final j in today) ...[
-                      JobCard(job: j),
+                    for (final g in groupJobsByOrder(today)) ...[
+                      JobCard(job: g.first, group: g),
                       const SizedBox(height: 8),
                     ],
                   ]),
@@ -84,8 +84,8 @@ class TeknisiDashboardSections extends ConsumerWidget {
           AppSectionCard(
             title: 'Job Aktif Lainnya',
             child: Column(children: [
-              for (final j in others.take(5)) ...[
-                JobCard(job: j),
+              for (final g in others.take(5)) ...[
+                JobCard(job: g.first, group: g),
                 const SizedBox(height: 8),
               ],
               if (others.length > 5)

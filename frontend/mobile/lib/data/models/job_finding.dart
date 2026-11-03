@@ -2,10 +2,13 @@ import 'job_photo.dart' show PhotoKind;
 
 /// Foto sebelum/sesudah yang melekat ke satu temuan (`job_finding_photos`).
 class JobFindingPhoto {
-  const JobFindingPhoto({required this.id, required this.kind, required this.path});
+  const JobFindingPhoto({required this.id, required this.kind, required this.path, this.uploadedByName});
 
   final String id;
   final PhotoKind kind;
+
+  /// Pengunggah foto (nama teknisi), dipakai bila job pernah dialihkan.
+  final String? uploadedByName;
 
   /// Path file di server (`/uploads/job-photos/...`), diubah jadi URL lewat `/uploads/sign`.
   final String path;
@@ -14,6 +17,7 @@ class JobFindingPhoto {
         id: '${j['id']}',
         kind: PhotoKind.fromValue(j['kind']),
         path: (j['path'] as String?) ?? '',
+        uploadedByName: (j['uploadedBy'] as Map?)?['displayName'] as String?,
       );
 }
 
@@ -26,6 +30,7 @@ class JobFinding {
     required this.title,
     this.note,
     this.origin = 'ditambah_teknisi',
+    this.createdByName,
     this.photos = const [],
   });
 
@@ -35,6 +40,9 @@ class JobFinding {
 
   /// `komplain_awal` (dari keluhan pelanggan) atau `ditambah_teknisi`.
   final String origin;
+
+  /// Pencatat temuan (nama teknisi); kosong untuk temuan awal dari keluhan.
+  final String? createdByName;
   final List<JobFindingPhoto> photos;
 
   bool get hasBefore => photos.any((p) => p.kind == PhotoKind.sebelum);
@@ -45,6 +53,7 @@ class JobFinding {
         title: (j['title'] as String?) ?? '',
         note: j['note'] as String?,
         origin: (j['origin'] as String?) ?? 'ditambah_teknisi',
+        createdByName: (j['createdBy'] as Map?)?['displayName'] as String?,
         photos: [
           for (final p in (j['photos'] as List? ?? const []))
             JobFindingPhoto.fromNest(Map<String, dynamic>.from(p as Map)),

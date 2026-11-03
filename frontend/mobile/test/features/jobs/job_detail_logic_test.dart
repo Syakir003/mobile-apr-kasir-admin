@@ -40,14 +40,8 @@ void main() {
       expect(r, '1 temuan belum lengkap foto sebelum/sesudahnya.');
     });
 
-    test('belum priced & belum dikirim -> minta kirim temuan', () {
-      final r = submitBlockedReason(_job(priced: false), [_finding()]);
-      expect(r, contains('Kirim temuan'));
-    });
-
-    test('belum priced & sudah dikirim -> menunggu harga', () {
-      final r = submitBlockedReason(_job(priced: false, sentAt: DateTime(2026, 10, 23)), [_finding()]);
-      expect(r, contains('Menunggu kasir/admin'));
+    test('belum priced tidak memblokir (harga jadi syarat admin saat menyetujui)', () {
+      expect(submitBlockedReason(_job(priced: false), [_finding()]), isNull);
     });
 
     test('semua siap -> null', () {
