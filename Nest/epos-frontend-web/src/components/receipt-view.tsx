@@ -69,8 +69,19 @@ function Line({ left, right }: { left: React.ReactNode; right: React.ReactNode }
   );
 }
 
-/** `zoom`: pembesar di layar saja (saat cetak kembali 1 lewat CSS .struk-sheet). */
-export function ReceiptView({ data, zoom = 1.5 }: { data: ReceiptData; zoom?: number }) {
+/**
+ * `zoom`: pembesar di layar saja (saat cetak kembali 1 lewat CSS .struk-sheet).
+ * `showLogo`: false = tanpa logo hitam-putih di kepala kertas (halaman publik menampilkan logo berwarna di atas nota).
+ */
+export function ReceiptView({
+  data,
+  zoom = 1.5,
+  showLogo = true,
+}: {
+  data: ReceiptData;
+  zoom?: number;
+  showLogo?: boolean;
+}) {
   const { grand, paid, sisa, extras } = summarize(data);
   return (
     <div
@@ -79,13 +90,15 @@ export function ReceiptView({ data, zoom = 1.5 }: { data: ReceiptData; zoom?: nu
     >
       <div className="space-y-0.5 text-center">
         {/* Logo diproses hitam-putih berkontras supaya tegas di printer thermal. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/logo-apr-hd.png"
-          alt="APR"
-          className="mx-auto mb-2 h-auto w-[24mm]"
-          style={{ filter: 'grayscale(1) contrast(1.8)' }}
-        />
+        {showLogo && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src="/logo-apr-hd.png"
+            alt="APR"
+            className="mx-auto mb-2 h-auto w-[24mm]"
+            style={{ filter: 'grayscale(1) contrast(1.8)' }}
+          />
+        )}
         <p className="text-lg tracking-wide">AYUB AC</p>
         <p className="text-[11px]">Penjualan • Service • Spare Part • Rental AC</p>
         <p className="text-[11px]">JL. GUNUNG ANYAR RT. 01 RW. 06</p>
