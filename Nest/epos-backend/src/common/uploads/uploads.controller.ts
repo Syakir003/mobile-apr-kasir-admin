@@ -37,6 +37,11 @@ function safeAbs(rel: string): string {
   return abs;
 }
 
+/** Path file di disk untuk path tersimpan di DB ("/uploads/..."); menolak path di luar folder uploads. */
+export function resolveUploadFile(storedPath: string): string {
+  return safeAbs(String(storedPath ?? '').replace(/^\/?uploads\//, ''));
+}
+
 @Injectable()
 export class UploadsAccessGuard extends JwtAuthGuard implements CanActivate {
   async canActivate(ctx: ExecutionContext) {
