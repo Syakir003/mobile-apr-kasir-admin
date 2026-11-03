@@ -15,6 +15,8 @@ interface AcUnit {
   model: string | null;
   roomLocation: string | null;
   barcodeValue: string;
+  // 'menunggu_data' = unit "QR dulu" (tipe belum diketahui) — label diberi penanda seperti label Input Data Lampau.
+  status?: string;
   indoorProduct?: UnitPartProduct | null;
   outdoorProduct?: UnitPartProduct | null;
 }
@@ -27,7 +29,14 @@ interface ServiceOrderDetail {
   serviceOrderUnits: { id: string; unit: AcUnit }[];
 }
 
-export function UnitLabelsPrintClient({ serviceOrderId }: { serviceOrderId: string }) {
+export function UnitLabelsPrintClient({
+  serviceOrderId,
+  onlyUnitIds,
+}: {
+  serviceOrderId: string;
+  // Hanya cetak unit-unit ini (servis banyak AC dengan sebagian unit yang sudah terlabel). Kosong = semua unit order.
+  onlyUnitIds?: string[];
+}) {
   const router = useRouter();
   const { data, isLoading, isError } = useQuery({
     queryKey: ['service-orders', serviceOrderId],
@@ -37,7 +46,9 @@ export function UnitLabelsPrintClient({ serviceOrderId }: { serviceOrderId: stri
   if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Memuat label unit...</p>;
   if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat label unit.</p>;
 
-  const units = data.serviceOrderUnits.map((su) => su.unit);
+  const units = data.serviceOrderUnits
+    .map((su) => su.unit)
+    .filter((u) => !onlyUnitIds || onlyUnitIds.includes(u.id));
   const buyerName = data.member?.name;
   if (units.length === 0) {
     return (
@@ -86,9 +97,13 @@ export function UnitLabelsPrintClient({ serviceOrderId }: { serviceOrderId: stri
             <BarcodeQr value={unit.barcodeValue} size={104} />
             <p className="text-sm">{unit.barcodeValue}</p>
             {buyerName && <p className="text-sm font-medium">{buyerName}</p>}
-            <p className="text-sm">
-              {[unit.brand, unit.model].filter(Boolean).join(' ') || '-'}
-            </p>
+            {unit.status === 'menunggu_data' ? (
+              <p className="inline-block border border-black px-1 text-xs font-bold">TIPE BELUM DIKETAHUI</p>
+            ) : (
+              <p className="text-sm">
+                {[unit.brand, unit.model].filter(Boolean).join(' ') || '-'}
+              </p>
+            )}
             {unit.indoorProduct && <p className="text-xs">Indoor: {unit.indoorProduct.name}</p>}
             {unit.outdoorProduct && <p className="text-xs">Outdoor: {unit.outdoorProduct.name}</p>}
             {unit.roomLocation && <p className="text-sm">{unit.roomLocation}</p>}

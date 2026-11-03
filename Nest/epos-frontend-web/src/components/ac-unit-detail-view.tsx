@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { statusBadgeVariant } from '@/app/(dashboard)/teknisi/queue/queue-client';
+import { handoverStatusText } from '@/app/(dashboard)/teknisi/jobs/[id]/handover';
 import { BarcodeQr } from '@/components/barcode-qr';
 import { UnitPartsList, hasUnitParts, unitPartsTitle, type UnitPartProduct } from '@/components/ac-unit-parts';
 
@@ -22,6 +23,16 @@ export interface Finding {
   title: string;
   note: string | null;
   origin: string;
+  // Pencatat temuan (dipakai menandai pekerjaan teknisi sebelumnya pada job yang pernah dialihkan).
+  createdBy?: { id: string; displayName: string } | null;
+}
+export interface HistoryHandover {
+  id: string;
+  createdAt: string;
+  statusAtHandover: string;
+  reason: string | null;
+  fromTechnician: { id: string; displayName: string };
+  toTechnician: { id: string; displayName: string };
 }
 export interface ServiceHistoryEntry {
   id: string;
@@ -32,6 +43,8 @@ export interface ServiceHistoryEntry {
   completedAt: string | null;
   technician: { id: string; displayName: string } | null;
   findings: Finding[];
+  // Alih tugas job ini (kosong/tidak ada = tidak pernah dialihkan).
+  handovers?: HistoryHandover[];
 }
 export interface AcUnitDetail {
   unit: {
@@ -200,6 +213,13 @@ export function AcUnitDetailView({
                       <p className="mt-1 text-xs text-muted-foreground">
                         Teknisi: {job.technician?.displayName || '-'}
                       </p>
+                      {(job.handovers ?? []).map((h) => (
+                        <p key={h.id} className="mt-0.5 text-xs text-muted-foreground">
+                          Alih tugas: {h.fromTechnician.displayName} → {h.toTechnician.displayName} ·{' '}
+                          {formatDateTime(h.createdAt)} · {handoverStatusText(h.statusAtHandover)}
+                          {h.reason ? ` · Alasan: ${h.reason}` : ''}
+                        </p>
+                      ))}
                       {job.findings.length > 0 && (
                         <ul className="mt-2 grid gap-1 text-sm">
                           {job.findings.map((f) => (
@@ -207,6 +227,9 @@ export function AcUnitDetailView({
                               <span className="font-medium">{f.title}</span>
                               {f.note && (
                                 <span className="text-muted-foreground"> - {f.note}</span>
+                              )}
+                              {(job.handovers?.length ?? 0) > 0 && f.createdBy && (
+                                <span className="text-xs text-muted-foreground"> (oleh {f.createdBy.displayName})</span>
                               )}
                             </li>
                           ))}

@@ -57,6 +57,7 @@ function notificationHref(n: { type: string; target: string | null }): string | 
     case 'request_submitted':
       return '/material-requests';
     case 'request_decided':
+    case 'job_handover': // job dialihkan dari teknisi ini: sudah bukan miliknya, buka antrian
       return '/teknisi/queue';
     case 'penjualan_baru':
       return '/kasir-scan';

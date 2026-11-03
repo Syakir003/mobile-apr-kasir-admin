@@ -3,9 +3,9 @@
 import { UnitPartsList, hasUnitParts, type UnitPartProduct } from '@/components/ac-unit-parts';
 import * as React from 'react';
 import Link from 'next/link';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, CheckCircle2, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, ChevronDown, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
@@ -16,6 +16,7 @@ import { statusBadgeVariant } from '../../queue/queue-client';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { BarcodeQr } from '@/components/barcode-qr';
 import { SendFindingsBar, ServicePricingCard } from './service-pricing-card';
+import { HandoverHistoryCard, ReassignPanel, mergeHandovers, type HandoverRow } from './handover';
 import { ReminderScheduleFields, intervalError } from '@/components/reminder-schedule-fields';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -30,13 +31,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 
 interface ProblemCategoryRef {
   id: string;
@@ -47,6 +41,7 @@ interface JobFindingPhoto {
   kind: 'sebelum' | 'sesudah';
   path: string;
   createdAt: string;
+  uploadedBy?: { id: string; displayName: string } | null;
 }
 interface JobFinding {
   id: string;
@@ -56,6 +51,8 @@ interface JobFinding {
   category: ProblemCategoryRef;
   photos: JobFindingPhoto[];
   createdAt: string;
+  // Pencatat temuan (setelah alih tugas, teknisi baru melihat pekerjaan teknisi sebelumnya beserta namanya).
+  createdBy?: { id: string; displayName: string } | null;
 }
 interface MaterialRequestItemRow {
   id: string;
@@ -69,6 +66,8 @@ interface MaterialRequestItemRow {
 }
 interface MaterialRequestRow {
   id: string;
+  // Job tempat pengajuan ini melekat (pada servis banyak AC pengajuannya satu untuk seluruh job).
+  jobId?: string;
   status: string;
   total: string;
   note: string | null;
@@ -96,6 +95,7 @@ interface JobDetail {
   id: string;
   type: string;
   status: string;
+  createdAt: string;
   scheduledDate: string | null;
   notes: string | null;
   reviewNote: string | null;
@@ -115,6 +115,8 @@ interface JobDetail {
     // QR unit ini sudah pernah dilabeli sebelum job ini (dihitung backend: tercatat dicetak/ditempel atau
     // sudah punya job lain) — kartu QR menampilkan "Unit AC sudah terlabel".
     labeled?: boolean;
+    // 'menunggu_data' = unit "QR dulu": merk/PK belum diisi, wajib dilengkapi lewat Scan Unit sebelum job bisa dimulai.
+    status?: string;
   } | null;
   technician: { id: string; displayName: string; email: string } | null;
   findings: JobFinding[];
@@ -125,11 +127,20 @@ interface JobDetail {
   // (per service order, bukan per job — 1 order bisa punya banyak unit).
   order: {
     id: string;
+    // Note pekerjaan dari kasir/admin saat menerima servis (deskripsi pekerjaan); null = tidak ada.
+    note?: string | null;
     // Ada setelah harga jasa ditetapkan (servis mandiri) atau dari invoice POS (pemasangan).
     invoice?: { id: string; number: string; status: string; grandTotal: string; totalPaid: string } | null;
   } | null;
   // Kapan teknisi menekan "Kirim Temuan" (kasir & admin dinotifikasi).
   findingsSentAt: string | null;
+  // true = harga jasa JOB INI sudah ditetapkan (tagihan dihitung dari sumbernya). Pada servis banyak AC invoice-nya
+  // dipakai bersama, jadi `order.invoice` ada belum berarti unit ini sudah dihargai.
+  billingDerived?: boolean;
+  // Job lain di order yang sama (servis banyak AC, satu job per unit); kosong = servis satu unit biasa.
+  siblings?: { id: string; createdAt: string }[];
+  // Riwayat alih tugas job ini (kosong = tidak pernah dialihkan).
+  handovers?: HandoverRow[];
 }
 interface UserRow {
   id: string;
@@ -150,9 +161,9 @@ function useJobAction<TBody = void>(jobId: string, path: string, successMsg: str
     mutationFn: (body?: TBody) => apiClient.patch(`/technician-jobs/${jobId}${path}`, body ?? {}),
     onSuccess: () => {
       toast.success(successMsg);
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'all'] });
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'queue'] });
+      // Seluruh awalan 'technician-jobs' (job ini, daftar, antrian, dan job saudara di halaman banyak AC — pembatalan
+      // satu unit bisa memindahkan pengajuan sparepart ke unit lain).
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
     },
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : 'Aksi gagal.');
@@ -160,8 +171,37 @@ function useJobAction<TBody = void>(jobId: string, path: string, successMsg: str
   });
 }
 
-export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) {
-  const queryClient = useQueryClient();
+// `embedded` = dirender sebagai SATU SECTION UNIT di halaman servis banyak AC (MultiUnitJobView): tanpa judul halaman
+// & data pelanggan (ditampilkan sekali di atas), dibungkus kartu ber-header (unit, sudah/belum discan, status).
+interface EmbeddedProps {
+  index: number;
+  total: number;
+  defaultOpen: boolean;
+}
+
+// Seperti useJobAction, tapi untuk aksi SELURUH order servis banyak AC (body allInOrder); onDone menyegarkan semua section.
+function useOrderAction<TBody extends object>(jobId: string, path: string, successMsg: string, onDone: () => void) {
+  return useMutation({
+    mutationFn: (body: TBody) => apiClient.patch(`/technician-jobs/${jobId}/${path}`, body),
+    onSuccess: () => {
+      toast.success(successMsg);
+      onDone();
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Aksi gagal.');
+    },
+  });
+}
+
+export function JobDetailClient({
+  jobId,
+  role,
+  embedded,
+}: {
+  jobId: string;
+  role: Role;
+  embedded?: EmbeddedProps;
+}) {
   const isAdmin = role === 'admin';
   const isTeknisi = role === 'teknisi';
 
@@ -182,19 +222,6 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
   const [scanInput, setScanInput] = React.useState('');
   const [sendBackNote, setSendBackNote] = React.useState('');
 
-  const assignMutation = useMutation({
-    mutationFn: (technicianId: string) =>
-      apiClient.patch(`/technician-jobs/${jobId}/assign`, { technicianId }),
-    onSuccess: () => {
-      toast.success('Teknisi ditugaskan.');
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'all'] });
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'queue'] });
-    },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : 'Gagal menugaskan teknisi.');
-    },
-  });
   const startMutation = useJobAction<{ scannedBarcode: string }>(jobId, '/start', 'Job dimulai.');
   const submitForReviewMutation = useJobAction(jobId, '/submit-for-review', 'Diajukan untuk review.');
   const approveMutation = useJobAction<{ reminderEnabled: boolean; serviceIntervalDays?: number }>(
@@ -211,7 +238,9 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
     '/send-back',
     'Job dikembalikan ke teknisi.',
   );
-  const cancelMutation = useJobAction(jobId, '/cancel', 'Job dibatalkan.');
+  // Servis banyak AC: pengajuan sparepart dipakai bersama seluruh unit; kalau unit pemegangnya dibatalkan, backend
+  // memindahkannya ke unit aktif berikutnya (flag ini), bukan ikut membatalkannya.
+  const cancelMutation = useJobAction<{ moveRequestsToSibling?: boolean }>(jobId, '/cancel', 'Job dibatalkan.');
 
   if (jobQuery.isLoading) {
     return <p className="text-sm text-muted-foreground">Memuat job...</p>;
@@ -220,6 +249,11 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
     return <p className="text-sm text-destructive">Gagal memuat job. Mungkin sudah dihapus.</p>;
   }
   const job = jobQuery.data;
+  // Servis banyak AC: satu halaman memuat section tiap unit (job-job di satu order). Section itu sendiri
+  // (embedded) memakai komponen ini lagi, jadi tidak boleh mengalihkan lagi.
+  if (!embedded && job.siblings && job.siblings.length > 0) {
+    return <MultiUnitJobView job={job} role={role} />;
+  }
   // Samain persis sama gate backend di addFinding/addFindingPhoto
   // (technician-jobs.service.ts): cuma admin/teknisi, cuma selama job
   // 'assigned'/'sedang_dikerjakan'. Kasir tetap bisa lihat (GET findOne
@@ -262,89 +296,103 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
       !f.photos.some((p) => p.kind === 'sebelum') ||
       !f.photos.some((p) => p.kind === 'sesudah'),
   );
-  // Harga jasa harus sudah ditetapkan kasir/admin (invoice ada) sebelum servis bisa diajukan selesai.
-  const priced = !!job.order?.invoice;
-  const submitForReviewReady = job.findings.length > 0 && findingsMissingPhotos.length === 0 && priced;
+  // Harga jasa BUKAN syarat mengajukan selesai: teknisi cukup melengkapi temuan + foto, lalu admin menetapkan harga
+  // saat review. Harga (invoice ada; banyak AC: tiap unit punya harga sendiri) jadi syarat admin MENYETUJUI selesai
+  // (sama dengan gate approveComplete di backend). Pembayaran bukan syarat.
+  const priced = !!job.order?.invoice && (!embedded || job.billingDerived === true);
+  const submitForReviewReady = job.findings.length > 0 && findingsMissingPhotos.length === 0;
   const submitForReviewBlockedReason =
     job.findings.length === 0
       ? 'Tambah minimal 1 temuan dulu sebelum bisa mengajukan selesai.'
-      : findingsMissingPhotos.length > 0
-        ? `${findingsMissingPhotos.length} temuan belum lengkap foto sebelum/sesudahnya.`
-        : 'Harga jasa belum ditetapkan kasir/admin. Kirim temuan dan tunggu konfirmasi harganya.';
+      : `${findingsMissingPhotos.length} temuan belum lengkap foto sebelum/sesudahnya.`;
 
-  return (
+  // Servis banyak AC: Ajukan Selesai / Setujui / Kembalikan berlaku untuk SELURUH job dan ada di panel "Aksi Order"
+  // (MultiUnitJobView). Di section satu unit tinggal scan-mulai (teknisi) dan batalkan unit (admin).
+  const isFinal = ['selesai', 'dibatalkan'].includes(job.status);
+  const returnedToTeknisi = isTeknisi && job.status === 'sedang_dikerjakan' && !!job.reviewNote;
+  const aksiEmpty = !!embedded && !isFinal && !isAdmin;
+
+  const content = (
     <div className="grid gap-6">
-      <div>
-        <Link
-          href="/teknisi/queue"
-          className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Kembali
-        </Link>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {job.member?.name || (job.unit ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC' : 'Job servis')}
-          </h1>
-          <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
-          {/* Laporan Pekerjaan (kartu garansi): teknisi kapan saja, admin setelah job selesai. */}
-          {(isTeknisi || (isAdmin && job.status === 'selesai')) && (
-            <Button variant="outline" size="sm" asChild className="sm:ml-auto">
-              <Link href={`/teknisi/jobs/${job.id}/print`}>
-                <Printer className="size-4" />
-                Laporan Pekerjaan
-              </Link>
-            </Button>
-          )}
+      {!embedded && (
+        <div>
+          <Link
+            href="/teknisi/queue"
+            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" />
+            Kembali
+          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {job.member?.name || (job.unit ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC' : 'Job servis')}
+            </h1>
+            <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
+            {/* Laporan Pekerjaan (kartu garansi): teknisi kapan saja, admin setelah job selesai. */}
+            {(isTeknisi || (isAdmin && job.status === 'selesai')) && (
+              <Button variant="outline" size="sm" asChild className="sm:ml-auto">
+                <Link href={`/teknisi/jobs/${job.id}/print`}>
+                  <Printer className="size-4" />
+                  Laporan Pekerjaan
+                </Link>
+              </Button>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {jobTypeLabel(job.type)}
+            {job.unit
+              ? ` · ${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'}${job.unit.roomLocation ? ` (${job.unit.roomLocation})` : ''}`
+              : ''}
+          </p>
+          <div className="mt-3">
+            <JobSteps status={job.status} />
+          </div>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {jobTypeLabel(job.type)}
-          {job.unit
-            ? ` · ${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'}${job.unit.roomLocation ? ` (${job.unit.roomLocation})` : ''}`
-            : ''}
-        </p>
-        <div className="mt-3">
-          <JobSteps status={job.status} />
-        </div>
-      </div>
+      )}
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+      {/* Servis banyak AC: Laporan Pekerjaan satu untuk seluruh job (tombolnya di header halaman, bukan per unit). */}
+      {/* Teknisi: satu kolom dengan tombol aksi di bawah, seperti app mobile. Admin/kasir tetap dua kolom (aksi di kanan). */}
+      <div className={cn('grid gap-6', !aksiEmpty && !isTeknisi && 'xl:grid-cols-[1fr_360px]')}>
         <div className="grid gap-6">
           <Card className={cn(isAdmin && job.status === 'menunggu_review' && 'order-last')}>
             <CardHeader>
               <CardTitle className="text-base">Detail</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2 text-sm">
-              <DetailRow
-                label="Pelanggan"
-                value={job.member?.name || '-'}
-                // GET /members/:id di backend admin+kasir doang (teknisi
-                // gak boleh buka riwayat pembelian/HPP member) — link cuma
-                // ditampilin buat admin, teknisi tetap lihat teks biasa
-                // biar gak nabrak 403 kalau diklik.
-                valueNode={
-                  isAdmin && job.member ? (
-                    <Link href={`/members/${job.member.id}`} className="font-medium hover:underline">
-                      {job.member.name}
-                    </Link>
-                  ) : undefined
-                }
-              />
-              <DetailRow label="Nomor HP" value={job.member?.phone || '-'} />
-              <DetailRow label="Alamat" value={job.member?.address || '-'} />
-              <DetailRow
-                label="Lokasi"
-                value="-"
-                valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
-              />
-              <DetailRow
-                label="Unit AC"
-                value={
-                  job.unit
-                    ? `${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || '-'} - ${job.unit.roomLocation || 'lokasi belum diisi'}`
-                    : '-'
-                }
-              />
+              {!embedded && (
+                <>
+                  <DetailRow
+                    label="Pelanggan"
+                    value={job.member?.name || '-'}
+                    // GET /members/:id di backend admin+kasir doang (teknisi
+                    // gak boleh buka riwayat pembelian/HPP member) — link cuma
+                    // ditampilin buat admin, teknisi tetap lihat teks biasa
+                    // biar gak nabrak 403 kalau diklik.
+                    valueNode={
+                      isAdmin && job.member ? (
+                        <Link href={`/members/${job.member.id}`} className="font-medium hover:underline">
+                          {job.member.name}
+                        </Link>
+                      ) : undefined
+                    }
+                  />
+                  <DetailRow label="Nomor HP" value={job.member?.phone || '-'} />
+                  <DetailRow label="Alamat" value={job.member?.address || '-'} />
+                  <DetailRow
+                    label="Lokasi"
+                    value="-"
+                    valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
+                  />
+                  <DetailRow
+                    label="Unit AC"
+                    value={
+                      job.unit
+                        ? `${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || '-'}${isTeknisi ? '' : ` - ${job.unit.roomLocation || 'lokasi belum diisi'}`}`
+                        : '-'
+                    }
+                  />
+                </>
+              )}
               {job.unit && hasUnitParts(job.unit) && (
                 <DetailRow
                   label="Unit dalam paket"
@@ -352,7 +400,14 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                   valueNode={<UnitPartsList unit={job.unit} showSku />}
                 />
               )}
-              {job.unit && (
+              {/* Teknisi: sama dengan app mobile — unit hanya baris teks Ruangan & Barcode (tanpa gambar QR / label). */}
+              {job.unit && isTeknisi && (
+                <>
+                  <DetailRow label="Ruangan" value={job.unit.roomLocation || '-'} />
+                  <DetailRow label="Barcode" value={job.unit.barcodeValue || 'Belum digenerate'} />
+                </>
+              )}
+              {job.unit && !isTeknisi && (
                 // Preview QR unit ini — biar bisa dicek/dilihat lagi tanpa harus
                 // buka halaman detail unit terpisah. Link cetak cuma admin/kasir
                 // (GET /service-orders/:id 403 untuk teknisi).
@@ -373,7 +428,10 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                           // Sudah terlabel: tombol sekunder (cetak ulang kalau label rusak/hilang).
                           // Belum terlabel: tombol utama, ini langkah yang masih harus dikerjakan.
                           <Button asChild size="sm" variant={job.unit.labeled ? 'outline' : 'default'}>
-                            <Link href={`/service-orders/${job.order.id}/print-labels`}>
+                            <Link
+                              // Servis banyak AC: label unit ini saja (bukan seluruh unit order).
+                              href={`/service-orders/${job.order.id}/print-labels${embedded ? `?units=${job.unit.id}` : ''}`}
+                            >
                               <Printer className="size-4" />
                               Cetak label unit
                             </Link>
@@ -384,22 +442,46 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                   </div>
                 </div>
               )}
-              <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />
+              {!embedded && <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />}
               {/* Kalau lagi bisa diedit (lihat NotesEditor di bawah), jangan
                   dobel ditampilin di sini juga - biar gak ada 2 sumber
                   kebenaran yang keliatan beda pas belum di-save. */}
               {job.notes && !notesEditable && <DetailRow label="Catatan" value={job.notes} />}
-              {job.startedAt && (
+              {job.startedAt && isScanned(job) && (
                 <DetailRow label="Dimulai" value={formatDateTime(job.startedAt)} />
+              )}
+              {/* Dialihkan saat sedang dikerjakan: kembali ke Ditugaskan, teknisi baru wajib scan ulang barcode unit. */}
+              {job.startedAt && !isScanned(job) && job.status === 'assigned' && (
+                <DetailRow
+                  label="Menunggu scan ulang"
+                  value={`Mulai pertama ${formatDateTime(job.startedAt)} (teknisi sebelumnya)`}
+                />
               )}
               {job.completedAt && (
                 <DetailRow label="Selesai" value={formatDateTime(job.completedAt)} />
               )}
-              {job.reviewNote && (
+              {job.reviewNote && !returnedToTeknisi && (
                 <DetailRow label="Catatan Pengembalian" value={job.reviewNote} />
               )}
             </CardContent>
           </Card>
+
+          {/* Note pekerjaan dari kasir/admin, tepat di bawah Detail (halaman satu unit; banyak AC: di MultiUnitJobView). */}
+          {!embedded && job.order?.note && !noteRepeatsComplaint(job.order.note, job.findings) && (
+            <WorkNoteBox
+              note={job.order.note}
+              className={cn(isAdmin && job.status === 'menunggu_review' && 'order-last')}
+            />
+          )}
+
+          {!embedded && <HandoverHistoryCard items={job.handovers ?? []} />}
+
+          {/* Seperti app mobile: teknisi melihat catatan pengembalian sebagai peringatan di atas isian kerja. */}
+          {returnedToTeknisi && (
+            <p className="rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-sm">
+              Dikembalikan admin: {job.reviewNote}
+            </p>
+          )}
 
           {notesEditable && <NotesEditor key={job.id} jobId={job.id} initialNotes={job.notes} />}
 
@@ -417,6 +499,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                   jobId={job.id}
                   finding={finding}
                   canEdit={canEditFindings}
+                  showAuthors={(job.handovers?.length ?? 0) > 0}
                 />
               ))}
               {canEditFindings && <AddFindingForm jobId={job.id} />}
@@ -442,61 +525,68 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
               placeholder). Admin approve/reject/revisi dari halaman
               terpisah "Pengajuan Masuk" (/material-requests), di sini
               teknisi cuma ajukan + lihat status + tandai terpakai. */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Pengajuan Sparepart Tambahan</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              {job.materialRequests.length === 0 && (
-                <p className="text-sm text-muted-foreground">Belum ada pengajuan.</p>
-              )}
-              {job.materialRequests.length > 0 && (
-                <MaterialRequestsList
-                  jobId={job.id}
-                  requests={job.materialRequests}
-                  // GET /technician-jobs/:id sendiri udah nge-gate: teknisi
-                  // cuma bisa buka job MILIKNYA (403 kalau bukan) — jadi
-                  // kalau halaman ini kebuka buat isTeknisi, job ini pasti
-                  // memang job dia, gak perlu bandingin id lagi di sini.
-                  canMarkUsed={isAdmin || isTeknisi}
-                />
-              )}
-              {canEditFindings && <AddMaterialRequestForm jobId={job.id} />}
-            </CardContent>
-          </Card>
+          {!embedded && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Pengajuan Sparepart Tambahan</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                {job.materialRequests.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Belum ada pengajuan.</p>
+                )}
+                {job.materialRequests.length > 0 && (
+                  <MaterialRequestsList
+                    jobId={job.id}
+                    requests={job.materialRequests}
+                    // GET /technician-jobs/:id sendiri udah nge-gate: teknisi
+                    // cuma bisa buka job MILIKNYA (403 kalau bukan) — jadi
+                    // kalau halaman ini kebuka buat isTeknisi, job ini pasti
+                    // memang job dia, gak perlu bandingin id lagi di sini.
+                    canMarkUsed={isAdmin || isTeknisi}
+                  />
+                )}
+                {canEditFindings && <AddMaterialRequestForm jobId={job.id} />}
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        <Card className="h-fit xl:sticky xl:top-6">
+        <Card className={cn('h-fit', !isTeknisi && 'xl:sticky xl:top-6', aksiEmpty && 'hidden')}>
           <CardHeader>
             <CardTitle className="text-base">Aksi</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4">
-            {isAdmin && ['menunggu_penugasan', 'assigned'].includes(job.status) && (
-              <div className="grid gap-1.5">
-                <label className="text-sm font-medium">
-                  {job.status === 'assigned' ? 'Ganti Teknisi' : 'Tugaskan Teknisi'}
-                </label>
-                <Select
-                  value={job.technician?.id ?? undefined}
-                  onValueChange={(technicianId) => assignMutation.mutate(technicianId)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Pilih teknisi" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {technicians.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.displayName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            {/* Servis banyak AC: penugasan teknisi untuk seluruh unit ada sekali di atas halaman (MultiUnitJobView). */}
+            {!embedded && isAdmin && ['menunggu_penugasan', 'assigned', 'sedang_dikerjakan', 'menunggu_review'].includes(job.status) && (
+              <ReassignPanel
+                jobId={job.id}
+                currentTechnicianId={job.technician?.id ?? null}
+                started={job.status === 'sedang_dikerjakan'}
+                inReview={job.status === 'menunggu_review'}
+                technicians={technicians}
+              />
             )}
 
-            {isTeknisi && job.status === 'assigned' && (
+            {!embedded && isTeknisi && job.status === 'assigned' && (
               <div className="grid gap-2">
                 <label className="text-sm font-medium">Mulai Job (scan barcode unit)</label>
+                {/* Unit "QR dulu": backend menolak start() selama datanya belum lengkap — arahkan ke Scan Unit di
+                    depan, bukan setelah teknisi menekan Mulai. Tombol Mulai sengaja tidak dikunci di sini (cache
+                    30 dtk bisa basi sesudah data dilengkapi); backend tetap penentu. */}
+                {job.unit?.status === 'menunggu_data' && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-xs">
+                    <p className="min-w-0 flex-1">
+                      Data unit AC ini belum dilengkapi (QR dulu). Scan QR-nya di Scan Unit dan isi{' '}
+                      <span className="font-medium">merk + PK</span> dulu sebelum job bisa dimulai.
+                    </p>
+                    <Button asChild size="sm" variant="outline">
+                      <Link href="/ac-units/scan">
+                        <ScanLine className="size-4" />
+                        Buka Scan Unit
+                      </Link>
+                    </Button>
+                  </div>
+                )}
                 {/* Balikin gate lama (konsep app mobile teknisi): foto
                     SEBELUM wajib ada dulu, sebelum job boleh dimulai - sudah
                     ditegakkan juga di backend (start()), ini cuma versi
@@ -514,18 +604,6 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                     Kode terbaca: <span className="font-medium text-foreground">{scanInput}</span>
                   </p>
                 )}
-                {job.unit && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="justify-self-start"
-                    onClick={() => setScanInput(job.unit!.barcodeValue)}
-                  >
-                    <ScanLine className="size-4" />
-                    Isi otomatis dari data unit ini
-                  </Button>
-                )}
                 <Button
                   disabled={!scanInput.trim() || !hasBeforePhoto || startMutation.isPending}
                   onClick={() => startMutation.mutate({ scannedBarcode: scanInput.trim() })}
@@ -535,7 +613,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
               </div>
             )}
 
-            {isTeknisi && job.status === 'sedang_dikerjakan' && (
+            {!embedded && isTeknisi && job.status === 'sedang_dikerjakan' && (
               <div className="grid gap-1.5">
                 <Button
                   disabled={!submitForReviewReady || submitForReviewMutation.isPending}
@@ -555,7 +633,7 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
               </div>
             )}
 
-            {isAdmin && job.status === 'menunggu_review' && (
+            {!embedded && isAdmin && job.status === 'menunggu_review' && (
               <div className="grid gap-3">
                 {needsSchedule && (
                   <ReminderScheduleFields
@@ -565,8 +643,18 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                     onDaysChange={setRemindDays}
                   />
                 )}
+                {!priced && (
+                  <p className="rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-xs">
+                    Tetapkan harga jasa dulu di kartu Harga Jasa. Setelah itu kirim tagihan ke pelanggan; pekerjaan boleh
+                    langsung diselesaikan atau menunggu tagihan lunas dulu, sesuai keputusan admin.
+                  </p>
+                )}
                 <Button
-                  disabled={approveMutation.isPending || (needsSchedule && remindOnValue && !!intervalError(remindDaysValue))}
+                  disabled={
+                    !priced ||
+                    approveMutation.isPending ||
+                    (needsSchedule && remindOnValue && !!intervalError(remindDaysValue))
+                  }
                   onClick={() =>
                     approveMutation.mutate(
                       needsSchedule
@@ -605,7 +693,9 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
                 className="text-destructive hover:text-destructive"
                 disabled={cancelMutation.isPending}
                 onClick={() => {
-                  if (confirm('Batalkan job ini?')) cancelMutation.mutate();
+                  if (confirm(embedded ? 'Batalkan unit AC ini dari job?' : 'Batalkan job ini?')) {
+                    cancelMutation.mutate(embedded ? { moveRequestsToSibling: true } : undefined);
+                  }
                 }}
               >
                 {cancelMutation.isPending ? 'Memproses...' : 'Batalkan Job'}
@@ -619,6 +709,528 @@ export function JobDetailClient({ jobId, role }: { jobId: string; role: Role }) 
         </Card>
       </div>
     </div>
+  );
+  return embedded ? (
+    <UnitSection job={job} index={embedded.index} total={embedded.total} defaultOpen={embedded.defaultOpen}>
+      {content}
+    </UnitSection>
+  ) : (
+    content
+  );
+}
+
+/**
+ * Order tanpa Deskripsi Pekerjaan memakai keluhan sebagai note-nya, padahal keluhan itu sudah jadi temuan awal
+ * (origin komplain_awal) — Note Pekerjaan disembunyikan kalau isinya sama dengan temuan awal, supaya tidak muncul dua kali.
+ */
+function noteRepeatsComplaint(note: string, findings: { origin: string; title: string }[]): boolean {
+  const n = note.trim().toLowerCase();
+  return findings.some((f) => f.origin === 'komplain_awal' && f.title.trim().toLowerCase() === n);
+}
+
+/** Note pekerjaan (deskripsi pekerjaan dari kasir/admin) — tepat di bawah kartu detail order. */
+function WorkNoteBox({ note, className }: { note: string; className?: string }) {
+  return (
+    <div className={cn('rounded-lg border border-primary/30 bg-primary/5 px-4 py-3', className)}>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Note Pekerjaan</p>
+      <p className="mt-1 whitespace-pre-wrap text-sm">{note}</p>
+    </div>
+  );
+}
+
+// Sudah discan = job sudah dimulai (start() mewajibkan scan barcode unit). Job yang dialihkan ke teknisi lain saat sedang
+// dikerjakan kembali ke 'assigned' (wajib scan ulang): startedAt tetap terisi, tapi unit dihitung belum discan.
+const isScanned = (j: { startedAt: string | null; status: string }) =>
+  !!j.startedAt && !(['menunggu_penugasan', 'assigned'] as string[]).includes(j.status);
+
+const unitTitle = (unit: JobDetail['unit']) =>
+  unit ? [unit.brand, unit.model].filter(Boolean).join(' ') || 'Unit AC (tipe belum diisi)' : 'Tanpa unit';
+
+// Sama dengan gate submitForReview() di backend, dihitung dari data yang sudah dimuat: apa yang masih menahan
+// satu unit untuk diajukan selesai (kosong = siap). Harga jasa bukan syarat pengajuan: admin menetapkannya saat review.
+function unitBlockers(j: JobDetail): string[] {
+  const out: string[] = [];
+  if (j.findings.length === 0) out.push('belum ada temuan');
+  const noPhoto = j.findings.filter(
+    (f) => !f.photos.some((p) => p.kind === 'sebelum') || !f.photos.some((p) => p.kind === 'sesudah'),
+  ).length;
+  if (noPhoto > 0) out.push(`${noPhoto} temuan belum lengkap foto sebelum/sesudah`);
+  if (j.materialRequests.some((r) => r.status === 'pending')) out.push('pengajuan sparepart belum diputuskan');
+  if (j.materialRequests.some((r) => r.status === 'approved' && !r.usedAt)) out.push('sparepart disetujui belum ditandai terpakai');
+  return out;
+}
+
+// Hanya jenis job ini yang mengatur ulang jadwal pengingat saat disetujui (sinkron dengan backend).
+const needsScheduleType = (type: string) => ['cuci', 'maintenance', 'pemasangan'].includes(type);
+
+/**
+ * Servis banyak AC: halaman satu order dengan satu section per unit AC. Tiap unit adalah job sendiri (temuan, foto
+ * sebelum/sesudah, scan barcode, review, dan riwayat servis per unit), semuanya di satu order dengan satu nota.
+ * Data pelanggan & penugasan teknisi ditampilkan sekali di sini; isi tiap section = JobDetailClient (embedded).
+ */
+function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
+  const queryClient = useQueryClient();
+  const isAdmin = role === 'admin';
+  const isTeknisi = role === 'teknisi';
+
+  // Urut sesuai masuknya order (unit pertama di atas), job yang dibuka tetap ikut dalam urutan itu.
+  const entries = [{ id: job.id, createdAt: job.createdAt }, ...(job.siblings ?? [])].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+
+  // Kunci query sama dengan yang dipakai tiap section, jadi tidak ada request dobel (cache dibagi).
+  const results = useQueries({
+    queries: entries.map((e) => ({
+      queryKey: ['technician-jobs', e.id],
+      queryFn: () => apiClient.get<JobDetail>(`/technician-jobs/${e.id}`),
+    })),
+  });
+  const jobs = results.map((r) => r.data).filter((j): j is JobDetail => !!j);
+  const activeJobs = jobs.filter((j) => j.status !== 'dibatalkan');
+  // Sudah discan = job sudah dimulai (start() mewajibkan scan barcode unit yang cocok).
+  const scannedCount = activeJobs.filter(isScanned).length;
+  const finishedCount = activeJobs.filter((j) => j.status === 'selesai').length;
+  const canAssign =
+    isAdmin && jobs.some((j) => ['menunggu_penugasan', 'assigned', 'sedang_dikerjakan', 'menunggu_review'].includes(j.status));
+  const anyStarted = jobs.some((j) => j.status === 'sedang_dikerjakan');
+  const anyInReview = jobs.some((j) => j.status === 'menunggu_review');
+
+  const techniciansQuery = useQuery({
+    queryKey: ['users'],
+    queryFn: () => apiClient.get<UserRow[]>('/users'),
+    enabled: isAdmin,
+  });
+  const technicians = (techniciansQuery.data ?? []).filter((u) => u.role === 'teknisi' && u.active);
+
+
+  // ---- Aksi seluruh order: Ajukan Selesai (teknisi) dan Setujui / Kembalikan (admin) berlaku untuk SEMUA unit
+  // sekaligus (satu job). Backend memeriksa semua unit dalam satu transaksi: gagal di satu unit = tidak ada yang berubah.
+  const [sendBackNote, setSendBackNote] = React.useState('');
+  const [sched, setSched] = React.useState<Record<string, { on: boolean | null; days: string | null }>>({});
+  const refreshAll = () => {
+    for (const e of entries) queryClient.invalidateQueries({ queryKey: ['technician-jobs', e.id] });
+    queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'all'] });
+    queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'queue'] });
+  };
+  const submitAllMutation = useOrderAction<{ allInOrder: true }>(
+    job.id,
+    'submit-for-review',
+    'Seluruh unit diajukan untuk review.',
+    refreshAll,
+  );
+  const approveAllMutation = useOrderAction<{ allInOrder: true; units?: unknown[] }>(
+    job.id,
+    'approve-complete',
+    'Job disetujui selesai (semua unit).',
+    refreshAll,
+  );
+  const sendBackAllMutation = useOrderAction<{ allInOrder: true; note: string }>(
+    job.id,
+    'send-back',
+    'Job dikembalikan ke teknisi (semua unit).',
+    refreshAll,
+  );
+
+  // Mulai Job: satu panel untuk semua unit. Scan barcode salah satu unit yang belum discan = unit itu dimulai
+  // (backend tetap memvalidasi barcode cocok, foto sebelum ada, data unit lengkap, seperti satu unit).
+  const [scanInput, setScanInput] = React.useState('');
+  const startUnitMutation = useMutation({
+    mutationFn: ({ jobId, scannedBarcode }: { jobId: string; scannedBarcode: string }) =>
+      apiClient.patch(`/technician-jobs/${jobId}/start`, { scannedBarcode }),
+    onSuccess: () => {
+      toast.success('Unit dimulai.');
+      setScanInput('');
+      refreshAll();
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Aksi gagal.');
+    },
+  });
+
+  const working = activeJobs.filter((j) => j.status === 'sedang_dikerjakan');
+  const notStarted = activeJobs.filter((j) => ['menunggu_penugasan', 'assigned'].includes(j.status));
+  const scanCode = scanInput.trim();
+  const scanMatch = scanCode ? notStarted.find((j) => j.status === 'assigned' && j.unit?.barcodeValue === scanCode) : undefined;
+  const hasBeforePhotoOf = (j: JobDetail) => j.findings.some((f) => f.photos.some((p) => p.kind === 'sebelum'));
+  const waitingReview = activeJobs.filter((j) => j.status === 'menunggu_review');
+  const allLoaded = jobs.length === entries.length;
+  const unitLabel = (j: JobDetail) => `${unitTitle(j.unit)}${j.unit?.roomLocation ? ` (${j.unit.roomLocation})` : ''}`;
+  // Teknisi: siap diajukan kalau semua unit sudah dimulai dan tidak ada yang kurang (temuan/foto/sparepart).
+  const canSubmitAll =
+    allLoaded && working.length > 0 && notStarted.length === 0 && working.every((j) => unitBlockers(j).length === 0);
+  // Admin: jadwal pengingat per unit (hanya jenis job tertentu); nilai awal mengikuti kondisi unit, sama dengan satu unit.
+  const schedOn = (j: JobDetail) =>
+    sched[j.id]?.on ?? !(j.unit?.reminderEnabled === false && j.unit.serviceIntervalDays != null);
+  const schedDays = (j: JobDetail) =>
+    sched[j.id]?.days ?? (j.unit?.serviceIntervalDays != null ? String(j.unit.serviceIntervalDays) : '');
+  const scheduleUnits = waitingReview.filter((j) => needsScheduleType(j.type));
+  const scheduleInvalid = scheduleUnits.some((j) => schedOn(j) && !!intervalError(schedDays(j)));
+  // Harga jasa tiap unit ditetapkan admin/kasir SETELAH teknisi mengajukan; syarat untuk menyetujui, bukan mengajukan.
+  const unpricedWaiting = waitingReview.filter((j) => j.type !== 'pemasangan' && j.billingDerived !== true);
+  const canApproveAll =
+    allLoaded && waitingReview.length > 0 && working.length === 0 && notStarted.length === 0 && unpricedWaiting.length === 0;
+  // Pengajuan sparepart satu untuk seluruh job: daftar = gabungan pengajuan semua unit (terbaru di atas); pengajuan baru
+  // dibuat di unit aktif pertama (job yang masih bisa menerima pengajuan: ditugaskan / sedang dikerjakan).
+  const allRequests = jobs
+    .flatMap((j) => j.materialRequests)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const requestJob = jobs.find((j) => ['assigned', 'sedang_dikerjakan'].includes(j.status));
+
+  const invoice = job.order?.invoice;
+  return (
+    <div className="grid gap-6">
+      <div>
+        <Link
+          href="/teknisi/queue"
+          className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+          Kembali
+        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">{job.member?.name || 'Servis banyak unit AC'}</h1>
+          <Badge variant="secondary">{entries.length} unit AC</Badge>
+          {/* Laporan Pekerjaan (kartu garansi) SATU untuk seluruh job: teknisi kapan saja, admin setelah semua unit
+              selesai (unit yang dibatalkan tidak dihitung). */}
+          {(isTeknisi ||
+            (isAdmin && allLoaded && activeJobs.length > 0 && activeJobs.every((j) => j.status === 'selesai'))) && (
+            <Button variant="outline" size="sm" asChild className="sm:ml-auto">
+              <Link href={`/teknisi/jobs/${job.id}/print`}>
+                <Printer className="size-4" />
+                Laporan Pekerjaan
+              </Link>
+            </Button>
+          )}
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {jobTypeLabel(job.type)} · {scannedCount} dari {activeJobs.length} unit sudah discan
+          {finishedCount > 0 ? ` · ${finishedCount} selesai` : ''} · satu nota untuk semua unit
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Detail Order</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-sm">
+          <DetailRow
+            label="Pelanggan"
+            value={job.member?.name || '-'}
+            // GET /members/:id admin+kasir saja di backend; teknisi lihat teks biasa (sama dengan halaman satu unit).
+            valueNode={
+              isAdmin && job.member ? (
+                <Link href={`/members/${job.member.id}`} className="font-medium hover:underline">
+                  {job.member.name}
+                </Link>
+              ) : undefined
+            }
+          />
+          <DetailRow label="Nomor HP" value={job.member?.phone || '-'} />
+          <DetailRow label="Alamat" value={job.member?.address || '-'} />
+          <DetailRow
+            label="Lokasi"
+            value="-"
+            valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
+          />
+          <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />
+          {invoice && (
+            <DetailRow
+              label="Nota"
+              value={invoice.number}
+              valueNode={
+                isTeknisi ? undefined : (
+                  <Link href={`/invoices/${invoice.id}`} className="font-medium hover:underline">
+                    {invoice.number} · {statusLabel(invoice.status)} · {formatRupiah(invoice.grandTotal)}
+                  </Link>
+                )
+              }
+            />
+          )}
+          {canAssign && (
+            <div className="mt-2">
+              <ReassignPanel
+                jobId={job.id}
+                currentTechnicianId={job.technician?.id ?? null}
+                started={anyStarted}
+                inReview={anyInReview}
+                allInOrder
+                technicians={technicians}
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {job.order?.note && !noteRepeatsComplaint(job.order.note, jobs.flatMap((j) => j.findings)) && (
+        <WorkNoteBox note={job.order.note} />
+      )}
+
+      <HandoverHistoryCard items={mergeHandovers(jobs.map((j) => j.handovers ?? []))} />
+
+      <div className="grid items-start gap-6 xl:grid-cols-[1fr_360px]">
+        <div className="grid min-w-0 gap-6">
+          <div className="grid gap-4">
+            {entries.map((e, i) => (
+              <JobDetailClient
+                key={e.id}
+                jobId={e.id}
+                role={role}
+                embedded={{ index: i, total: entries.length, defaultOpen: e.id === job.id || entries.length <= 2 }}
+              />
+            ))}
+          </div>
+
+          {/* Pengajuan sparepart: SATU untuk seluruh job (tidak dipisah per AC). Secara data melekat pada unit aktif
+              pertama; daftar di sini menggabungkan pengajuan semua unit. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Pengajuan Sparepart Tambahan</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <p className="text-xs text-muted-foreground">
+                Satu pengajuan untuk seluruh job (semua unit AC), tidak dipisah per AC.
+              </p>
+              {allRequests.length === 0 && <p className="text-sm text-muted-foreground">Belum ada pengajuan.</p>}
+              {allRequests.length > 0 && (
+                <MaterialRequestsList jobId={job.id} requests={allRequests} canMarkUsed={isAdmin || isTeknisi} />
+              )}
+              {isTeknisi && requestJob && <AddMaterialRequestForm jobId={requestJob.id} />}
+            </CardContent>
+          </Card>
+        </div>
+        {/* Panel aksi di samping seperti halaman satu unit (menempel di desktop; di layar sempit tampil di bawah). */}
+        <div className="xl:sticky xl:top-6">
+        {/* Satu job = satu pengajuan: Ajukan Selesai / Setujui / Kembalikan berlaku untuk SEMUA unit sekaligus. */}
+        {(isTeknisi || isAdmin) && (working.length > 0 || notStarted.length > 0 || waitingReview.length > 0) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Aksi Job (semua unit)</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              {/* Mulai Job: SATU panel (bukan per unit) yang membaca daftar unit sudah/belum discan. Scan barcode unit
+                  yang belum discan memulai unit itu; semua unit tetap harus discan. */}
+              {isTeknisi && notStarted.length > 0 && (
+                <div className="grid gap-3">
+                  <p className="text-sm font-medium">Mulai Job (scan barcode tiap unit)</p>
+                  <ul className="grid gap-1.5 text-sm">
+                    {activeJobs.map((j) => {
+                      const scanned = isScanned(j);
+                      const hints = [
+                        j.unit?.status === 'menunggu_data' ? 'data unit belum dilengkapi' : null,
+                        !scanned && !hasBeforePhotoOf(j) ? 'foto sebelum belum ada' : null,
+                      ].filter(Boolean);
+                      return (
+                        <li key={j.id} className="flex items-start gap-2">
+                          <CheckCircle2
+                            className={cn('mt-0.5 size-4 shrink-0', scanned ? 'text-status-success' : 'text-muted-foreground/40')}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="font-medium">{unitLabel(j)}</span>
+                            <span className="text-muted-foreground">
+                              {' '}
+                              - {scanned ? 'sudah discan' : ['belum discan', ...hints].join(', ')}
+                            </span>
+                          </span>
+                          </li>
+                      );
+                    })}
+                  </ul>
+                  {notStarted.some((j) => j.unit?.status === 'menunggu_data') && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-xs">
+                      <p className="min-w-0 flex-1">
+                        Ada unit &quot;QR dulu&quot; yang datanya belum dilengkapi. Scan QR-nya di Scan Unit dan isi{' '}
+                        <span className="font-medium">merk + PK</span> dulu sebelum unit itu bisa dimulai.
+                      </p>
+                      <Button asChild size="sm" variant="outline">
+                        <Link href="/ac-units/scan">
+                          <ScanLine className="size-4" />
+                          Buka Scan Unit
+                        </Link>
+                      </Button>
+                    </div>
+                  )}
+                  <BarcodeScanner onDetect={(code) => setScanInput(code)} manualPlaceholder="Barcode unit" />
+                  {scanCode && (
+                    <p className="text-xs text-muted-foreground">
+                      Kode terbaca: <span className="font-medium text-foreground">{scanCode}</span>
+                      {scanMatch ? ` - ${unitLabel(scanMatch)}` : ' - tidak cocok dengan unit yang belum discan'}
+                    </p>
+                  )}
+                  <Button
+                    disabled={!scanMatch || !hasBeforePhotoOf(scanMatch) || startUnitMutation.isPending}
+                    onClick={() => scanMatch && startUnitMutation.mutate({ jobId: scanMatch.id, scannedBarcode: scanCode })}
+                  >
+                    {startUnitMutation.isPending ? 'Memproses...' : scanMatch ? `Mulai Job - ${unitLabel(scanMatch)}` : 'Mulai Job'}
+                  </Button>
+                </div>
+              )}
+
+              {isTeknisi && (working.length > 0 || notStarted.length > 0) && (
+                <div className="grid gap-3">
+                  <ul className={cn('grid gap-1 text-sm', notStarted.length > 0 && 'hidden')}>
+                    {activeJobs.map((j) => {
+                      const blockers = j.status === 'sedang_dikerjakan' ? unitBlockers(j) : [];
+                      const state =
+                        j.status === 'menunggu_review' || j.status === 'selesai'
+                          ? 'sudah diajukan'
+                          : j.status === 'sedang_dikerjakan'
+                            ? blockers.length === 0
+                              ? 'siap diajukan'
+                              : blockers.join(', ')
+                            : 'belum discan/dimulai';
+                      const ok = state === 'siap diajukan' || state === 'sudah diajukan';
+                      return (
+                        <li key={j.id} className="flex items-start gap-2">
+                          <CheckCircle2
+                            className={cn('mt-0.5 size-4 shrink-0', ok ? 'text-status-success' : 'text-muted-foreground/40')}
+                          />
+                          <span className="min-w-0">
+                            <span className="font-medium">{unitLabel(j)}</span>
+                            <span className="text-muted-foreground"> - {state}</span>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <Button
+                    disabled={!canSubmitAll || submitAllMutation.isPending}
+                    onClick={() => submitAllMutation.mutate({ allInOrder: true })}
+                    className="sm:justify-self-start"
+                  >
+                    {submitAllMutation.isPending ? 'Memproses...' : `Ajukan Selesai (${working.length} unit)`}
+                  </Button>
+                  {!canSubmitAll && (
+                    <p className="text-xs text-muted-foreground">
+                      Semua unit harus sudah discan/dimulai dan lengkap (temuan, foto sebelum/sesudah) sebelum
+                      diajukan selesai sekaligus. Unit yang tidak jadi diservis bisa dibatalkan admin di section-nya.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {isAdmin && waitingReview.length > 0 && (
+                <div className="grid gap-3">
+                  {unpricedWaiting.length > 0 && (
+                    <p className="rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-xs">
+                      Tetapkan harga jasa dulu (kartu Harga Jasa di tiap unit): {unpricedWaiting.map(unitLabel).join(', ')}.
+                      Setelah itu kirim tagihan ke pelanggan; pekerjaan boleh langsung diselesaikan atau menunggu
+                      tagihan lunas dulu, sesuai keputusan admin.
+                    </p>
+                  )}
+                  {working.length + notStarted.length > 0 && (
+                    <p className="rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-xs">
+                      Masih ada unit yang belum diajukan selesai oleh teknisi:{' '}
+                      {[...working, ...notStarted].map(unitLabel).join(', ')}. Persetujuan dilakukan sekali untuk semua
+                      unit setelah semuanya diajukan (unit yang tidak jadi diservis bisa dibatalkan di section-nya).
+                    </p>
+                  )}
+                  {scheduleUnits.map((j) => (
+                    <div key={j.id} className="grid gap-1.5">
+                      <p className="text-sm font-medium">Pengingat servis - {unitLabel(j)}</p>
+                      <ReminderScheduleFields
+                        enabled={schedOn(j)}
+                        onEnabledChange={(on) => setSched((s) => ({ ...s, [j.id]: { on, days: s[j.id]?.days ?? null } }))}
+                        days={schedDays(j)}
+                        onDaysChange={(days) => setSched((s) => ({ ...s, [j.id]: { on: s[j.id]?.on ?? null, days } }))}
+                      />
+                    </div>
+                  ))}
+                  <Button
+                    disabled={!canApproveAll || scheduleInvalid || approveAllMutation.isPending}
+                    onClick={() =>
+                      approveAllMutation.mutate({
+                        allInOrder: true,
+                        ...(scheduleUnits.length > 0
+                          ? {
+                              units: scheduleUnits.map((j) => ({
+                                jobId: j.id,
+                                reminderEnabled: schedOn(j),
+                                ...(schedOn(j) ? { serviceIntervalDays: Number(schedDays(j)) } : {}),
+                              })),
+                            }
+                          : {}),
+                      })
+                    }
+                    className="sm:justify-self-start"
+                  >
+                    {approveAllMutation.isPending ? 'Memproses...' : `Setujui Selesai (${waitingReview.length} unit)`}
+                  </Button>
+                  <div className="grid gap-1.5">
+                    <label className="text-sm font-medium">Kembalikan ke Teknisi (semua unit)</label>
+                    <Textarea
+                      rows={2}
+                      placeholder="Catatan - apa yang kurang? (sebut unitnya)"
+                      value={sendBackNote}
+                      onChange={(e) => setSendBackNote(e.target.value)}
+                    />
+                    <Button
+                      variant="outline"
+                      disabled={!sendBackNote.trim() || sendBackAllMutation.isPending}
+                      onClick={() => sendBackAllMutation.mutate({ allInOrder: true, note: sendBackNote.trim() })}
+                      className="sm:justify-self-start"
+                    >
+                      {sendBackAllMutation.isPending ? 'Memproses...' : 'Kembalikan'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Pembungkus satu unit di halaman servis banyak AC: header ringkas (unit, sudah/belum discan, status) + isi lipat. */
+function UnitSection({
+  job,
+  index,
+  total,
+  defaultOpen,
+  children,
+}: {
+  job: JobDetail;
+  index: number;
+  total: number;
+  defaultOpen: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  const cancelled = job.status === 'dibatalkan';
+  // Sudah discan = job sudah dimulai (start() mewajibkan scan barcode unit yang cocok).
+  const scanned = isScanned(job);
+  return (
+    <section id={`unit-${job.id}`} className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 border-b bg-muted/60 px-4 py-3 text-left"
+      >
+        {/* Nama unit (bernomor) di atas, "Unit x dari y" di bawahnya. Layar sempit: blok ini satu baris penuh. */}
+        <span className="min-w-0 basis-full sm:flex-1 sm:basis-0">
+          <span className="block truncate text-sm font-semibold">
+            {index + 1}. {unitTitle(job.unit)}
+            {job.unit?.roomLocation ? ` · ${job.unit.roomLocation}` : ''}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            Unit {index + 1} dari {total}
+          </span>
+        </span>
+        {!cancelled && (
+          <Badge variant={scanned ? 'success' : 'warning'}>
+            {scanned && <CheckCircle2 className="size-3" />}
+            {scanned ? 'Sudah discan' : 'Belum discan'}
+          </Badge>
+        )}
+        <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
+        <ChevronDown className={cn('ml-auto size-4 shrink-0 transition-transform sm:ml-0', open && 'rotate-180')} />
+      </button>
+      {/* hidden (bukan di-unmount) supaya isian yang belum dikirim di section ini tidak hilang saat dilipat. */}
+      <div className={cn('p-4', !open && 'hidden')}>{children}</div>
+    </section>
   );
 }
 
@@ -793,10 +1405,13 @@ function FindingCard({
   jobId,
   finding,
   canEdit,
+  showAuthors,
 }: {
   jobId: string;
   finding: JobFinding;
   canEdit: boolean;
+  /** Job pernah dialihkan: tampilkan siapa yang mencatat temuan dan mengunggah foto. */
+  showAuthors?: boolean;
 }) {
   const before = finding.photos.filter((p) => p.kind === 'sebelum');
   const after = finding.photos.filter((p) => p.kind === 'sesudah');
@@ -805,9 +1420,10 @@ function FindingCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-medium">{finding.title}</p>
-          {finding.note && (
-            <p className="mt-0.5 text-xs text-muted-foreground">{finding.note}</p>
+          {showAuthors && finding.createdBy && (
+            <p className="mt-0.5 text-xs text-muted-foreground">Dicatat oleh {finding.createdBy.displayName}</p>
           )}
+          <FindingNote jobId={jobId} finding={finding} canEdit={canEdit} />
         </div>
         <Badge variant={finding.origin === 'komplain_awal' ? 'secondary' : 'outline'}>
           {finding.origin === 'komplain_awal' ? 'Keluhan Awal' : 'Ditambah Teknisi'}
@@ -821,6 +1437,7 @@ function FindingCard({
           findingId={finding.id}
           kind="sebelum"
           canEdit={canEdit}
+          showAuthors={showAuthors}
         />
         <FindingPhotoGroup
           label="Sesudah"
@@ -829,9 +1446,77 @@ function FindingCard({
           findingId={finding.id}
           kind="sesudah"
           canEdit={canEdit}
+          showAuthors={showAuthors}
         />
       </div>
     </div>
+  );
+}
+
+/** Deskripsi temuan: teknisi boleh menulis/mengubah penjelasan tambahan per temuan (per unit AC) selama job aktif. */
+function FindingNote({ jobId, finding, canEdit }: { jobId: string; finding: JobFinding; canEdit: boolean }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = React.useState(false);
+  const [text, setText] = React.useState(finding.note ?? '');
+  const save = useMutation({
+    mutationFn: () => apiClient.patch(`/technician-jobs/${jobId}/findings/${finding.id}`, { note: text.trim() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
+      setEditing(false);
+      toast.success('Deskripsi temuan disimpan.');
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal menyimpan deskripsi.');
+    },
+  });
+
+  if (editing) {
+    return (
+      <div className="mt-1.5 grid gap-1.5">
+        <Textarea
+          rows={3}
+          autoFocus
+          maxLength={1000}
+          placeholder="Deskripsi temuan / penjelasan tambahan untuk unit ini"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <div className="flex gap-2">
+          <Button type="button" size="sm" disabled={save.isPending} onClick={() => save.mutate()}>
+            {save.isPending ? 'Menyimpan...' : 'Simpan'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={save.isPending}
+            onClick={() => {
+              setText(finding.note ?? '');
+              setEditing(false);
+            }}
+          >
+            Batal
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <>
+      {finding.note && <p className="mt-0.5 whitespace-pre-wrap text-xs text-muted-foreground">{finding.note}</p>}
+      {canEdit && (
+        <button
+          type="button"
+          onClick={() => {
+            setText(finding.note ?? '');
+            setEditing(true);
+          }}
+          className="mt-1 text-xs text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {finding.note ? 'Ubah deskripsi' : '+ Tambah deskripsi'}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -842,6 +1527,7 @@ function FindingPhotoGroup({
   findingId,
   kind,
   canEdit,
+  showAuthors,
 }: {
   label: string;
   photos: JobFindingPhoto[];
@@ -849,7 +1535,11 @@ function FindingPhotoGroup({
   findingId: string;
   kind: 'sebelum' | 'sesudah';
   canEdit: boolean;
+  showAuthors?: boolean;
 }) {
+  const uploaders = showAuthors
+    ? [...new Set(photos.map((p) => p.uploadedBy?.displayName).filter((n): n is string => !!n))]
+    : [];
   return (
     <div className="grid gap-1.5">
       <p className="text-xs font-medium text-muted-foreground">
@@ -864,6 +1554,7 @@ function FindingPhotoGroup({
           <FindingPhotoUploadButton jobId={jobId} findingId={findingId} kind={kind} />
         )}
       </div>
+      {uploaders.length > 0 && <p className="text-[11px] text-muted-foreground">Foto oleh {uploaders.join(', ')}</p>}
     </div>
   );
 }
@@ -1137,7 +1828,7 @@ function AddFindingForm({ jobId }: { jobId: string }) {
       </p>
       <Textarea
         rows={2}
-        placeholder="Catatan (opsional, berlaku untuk semua temuan di atas)"
+        placeholder="Deskripsi (opsional, berlaku untuk semua temuan di atas; bisa diubah per temuan setelahnya)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
       />
@@ -1240,7 +1931,7 @@ function MaterialRequestsList({
         </div>
       ))}
       {reporting && (
-        <MarkUsedDialog jobId={jobId} request={reporting} onClose={() => setReporting(null)} />
+        <MarkUsedDialog jobId={reporting.jobId ?? jobId} request={reporting} onClose={() => setReporting(null)} />
       )}
     </div>
   );

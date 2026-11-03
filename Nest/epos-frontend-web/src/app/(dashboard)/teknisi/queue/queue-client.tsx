@@ -67,7 +67,43 @@ export interface TechnicianJob {
   // Teknisi sudah menekan "Kirim Temuan" (kasir/admin perlu menetapkan harga jasa).
   findingsSentAt?: string | null;
   order?: { invoiceId: string | null } | null;
+  // Order tempat job ini bernaung. Servis banyak AC = beberapa job (satu per unit) di order yang sama.
+  orderId?: string;
+  // Harga jasa JOB INI sudah ditetapkan (pada servis banyak AC invoice order dipakai bersama).
+  billingDerived?: boolean;
 }
+
+interface QueueRow {
+  key: string;
+  jobs: TechnicianJob[];
+}
+
+// Servis banyak AC (satu order, satu job per unit) tampil sebagai SATU baris; halaman jobnya memuat section tiap
+// unit. Pemasangan dari POS tetap per job (alurnya tidak diubah).
+function groupByOrder(jobs: TechnicianJob[]): QueueRow[] {
+  const rows: QueueRow[] = [];
+  const byOrder = new Map<string, QueueRow>();
+  for (const j of jobs) {
+    if (j.orderId && j.type !== 'pemasangan') {
+      const existing = byOrder.get(j.orderId);
+      if (existing) {
+        existing.jobs.push(j);
+        continue;
+      }
+      const row: QueueRow = { key: j.orderId, jobs: [j] };
+      byOrder.set(j.orderId, row);
+      rows.push(row);
+      continue;
+    }
+    rows.push({ key: j.id, jobs: [j] });
+  }
+  return rows;
+}
+
+const STATUS_ORDER = ['menunggu_penugasan', 'assigned', 'sedang_dikerjakan', 'menunggu_review', 'selesai', 'dibatalkan'];
+const ASSIGNABLE_STATUSES = ['menunggu_penugasan', 'assigned'];
+const unitName = (j: TechnicianJob) =>
+  j.unit ? [j.unit.brand, j.unit.model].filter(Boolean).join(' ') || 'Unit AC' : `Order ${j.type}`;
 interface UserRow {
   id: string;
   displayName: string;
@@ -114,8 +150,8 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   );
 
   const assignMutation = useMutation({
-    mutationFn: ({ jobId, technicianId }: { jobId: string; technicianId: string }) =>
-      apiClient.patch(`/technician-jobs/${jobId}/assign`, { technicianId }),
+    mutationFn: ({ jobId, technicianId, allInOrder }: { jobId: string; technicianId: string; allInOrder?: boolean }) =>
+      apiClient.patch(`/technician-jobs/${jobId}/assign`, { technicianId, ...(allInOrder ? { allInOrder: true } : {}) }),
     onSuccess: () => {
       toast.success('Teknisi ditugaskan.');
       queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'all'] });
@@ -131,6 +167,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const filtered = !isTeknisi
     ? jobs.filter((j) => (showDone ? !ACTIVE_JOB_STATUSES.includes(j.status) : ACTIVE_JOB_STATUSES.includes(j.status)))
     : jobs;
+  const rows = groupByOrder(filtered);
 
   return (
     <div className="grid gap-6">
@@ -155,7 +192,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/60 px-5 py-3">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-semibold tracking-tight">Daftar Job</h2>
-            {!jobsQuery.isLoading && !jobsQuery.isError && <Badge variant="secondary">{filtered.length}</Badge>}
+            {!jobsQuery.isLoading && !jobsQuery.isError && <Badge variant="secondary">{rows.length}</Badge>}
           </div>
           {!isTeknisi && (
             <div className="flex gap-2">
@@ -198,66 +235,84 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
         )}
 
         <ul className="divide-y">
-          {filtered.map((job) => (
-            <li
-              key={job.id}
-              className="flex flex-col gap-1.5 px-5 py-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
-            >
-            <Link
-              href={`/teknisi/jobs/${job.id}`}
-              className="min-w-0 flex-1 rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <p className="truncate text-[15px] font-medium">
-                {job.unit
-                  ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'
-                  : `Order ${job.type}`}
-              </p>
-              {job.unit && unitPartsText(job.unit) && (
-                <p className="truncate text-xs text-muted-foreground">{unitPartsText(job.unit)}</p>
-              )}
-              <p className="truncate text-sm text-muted-foreground">
-                {job.type} • {job.member?.name || '-'}
-                {job.scheduledDate && ` • Jadwal ${formatDate(job.scheduledDate)}`}
-                {isAdmin && ` • ${job.technician?.displayName || 'Belum ditugaskan'}`}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">
-                Masuk {formatDateTime(job.createdAt)}
-              </p>
-              {!isTeknisi && job.findingsSentAt && !job.order?.invoiceId && (
-                <p className="truncate text-xs font-medium text-status-warning-foreground dark:text-status-warning">
-                  Temuan terkirim - tentukan harga jasa
-                </p>
-              )}
-            </Link>
-            <div className="flex shrink-0 items-center gap-2">
-              {isAdmin && ['menunggu_penugasan', 'assigned'].includes(job.status) && (
-                <Select
-                  value={job.technician?.id ?? undefined}
-                  onValueChange={(technicianId) =>
-                    assignMutation.mutate({ jobId: job.id, technicianId })
-                  }
+          {rows.map((row) => {
+            const job = row.jobs[0];
+            const many = row.jobs.length > 1;
+            // Satu baris = satu order servis banyak AC: status = tahap paling awal di antara unitnya.
+            const rowStatus = row.jobs
+              .map((j) => j.status)
+              .sort((a, b) => STATUS_ORDER.indexOf(a) - STATUS_ORDER.indexOf(b))[0];
+            const assignTarget = row.jobs.find((j) => ASSIGNABLE_STATUSES.includes(j.status));
+            // Perlu harga: temuan sudah dikirim ATAU sudah diajukan selesai (teknisi tidak perlu menunggu harga).
+            const needsPrice = row.jobs.some(
+              (j) =>
+                (!!j.findingsSentAt || j.status === 'menunggu_review') &&
+                (many ? !j.billingDerived : !j.order?.invoiceId),
+            );
+            return (
+              <li
+                key={row.key}
+                className="flex flex-col gap-1.5 px-5 py-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <Link
+                  href={`/teknisi/jobs/${job.id}`}
+                  className="min-w-0 flex-1 rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                  <SelectTrigger size="sm" className="w-44">
-                    <SelectValue placeholder="Tugaskan teknisi" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {technicians.length === 0 && (
-                      <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                        Belum ada teknisi aktif
-                      </p>
-                    )}
-                    {technicians.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.displayName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
-            </div>
-            </li>
-          ))}
+                  <p className="truncate text-[15px] font-medium">
+                    {many ? `${job.member?.name || 'Order servis'} · ${row.jobs.length} unit AC` : unitName(job)}
+                  </p>
+                  {many ? (
+                    <p className="truncate text-xs text-muted-foreground">{row.jobs.map(unitName).join(' • ')}</p>
+                  ) : (
+                    job.unit &&
+                    unitPartsText(job.unit) && (
+                      <p className="truncate text-xs text-muted-foreground">{unitPartsText(job.unit)}</p>
+                    )
+                  )}
+                  <p className="truncate text-sm text-muted-foreground">
+                    {job.type} • {job.member?.name || '-'}
+                    {job.scheduledDate && ` • Jadwal ${formatDate(job.scheduledDate)}`}
+                    {isAdmin && ` • ${job.technician?.displayName || 'Belum ditugaskan'}`}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    Masuk {formatDateTime(job.createdAt)}
+                  </p>
+                  {!isTeknisi && needsPrice && (
+                    <p className="truncate text-xs font-medium text-status-warning-foreground dark:text-status-warning">
+                      {many ? 'Tentukan harga jasa tiap unit' : 'Tentukan harga jasa'}
+                    </p>
+                  )}
+                </Link>
+                <div className="flex shrink-0 items-center gap-2">
+                  {isAdmin && assignTarget && (
+                    <Select
+                      value={assignTarget.technician?.id ?? undefined}
+                      onValueChange={(technicianId) =>
+                        assignMutation.mutate({ jobId: assignTarget.id, technicianId, allInOrder: many })
+                      }
+                    >
+                      <SelectTrigger size="sm" className="w-44">
+                        <SelectValue placeholder={many ? 'Tugaskan (semua unit)' : 'Tugaskan teknisi'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {technicians.length === 0 && (
+                          <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                            Belum ada teknisi aktif
+                          </p>
+                        )}
+                        {technicians.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.displayName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Badge variant={statusBadgeVariant(rowStatus)}>{statusLabel(rowStatus)}</Badge>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </div>

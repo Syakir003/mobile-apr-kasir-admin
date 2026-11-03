@@ -82,7 +82,8 @@ export function SendFindingsBar({
       )}
       {findingsSentAt && !priced && (
         <p className="text-xs text-status-warning-foreground dark:text-status-warning">
-          Temuan terkirim {formatDateTime(findingsSentAt)}. Menunggu harga jasa dari kasir/admin.
+          Temuan terkirim {formatDateTime(findingsSentAt)}. Kasir/admin akan menetapkan harga jasa; kamu bisa lanjut
+          mengerjakan dan mengajukan selesai tanpa menunggu.
         </p>
       )}
       {priced && <p className="text-xs text-status-success">Harga jasa sudah ditetapkan.</p>}
