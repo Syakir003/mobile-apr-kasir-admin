@@ -78,14 +78,6 @@ export function unitInvoiceLabel(unit: UnitLabelSource): string {
 }
 
 /**
- * Tambahkan nama unit ke baris JASA/transport ("Cuci AC - Daikin FTV25 (Kamar Utama)"); total/qty/harga tidak berubah.
- * Baris sparepart TIDAK diberi nama unit: pengajuan sparepart satu untuk seluruh job (bukan per AC).
- */
-export function tagLinesWithUnit(lines: BillLine[], label: string): BillLine[] {
-  return lines.map((l) => (l.kind === 'sparepart' ? l : { ...l, name: `${l.name} - ${label}` }));
-}
-
-/**
  * Tagihan servis yang DIHITUNG ULANG dari sumbernya setiap ada perubahan:
  * baris jasa (job_service_lines), pengajuan sparepart yang disetujui (jumlah
  * terpakai kalau sudah dilaporkan), dan transport job. Hasilnya ditulis sebagai
@@ -141,11 +133,9 @@ export class JobBillingService {
       transport: cancelled ? 0 : job.transportLevel * TRANSPORT_STEP,
       mode: job.transportMode === 'dibagi' ? 'dibagi' : 'individu',
     });
-    // Servis banyak AC: beberapa job (satu per unit) berbagi satu invoice, jadi tiap baris diberi nama unitnya supaya
-    // "Cuci AC" yang muncul tiga kali bisa dibedakan. Dihitung dari semua job order (termasuk yang dibatalkan) agar
-    // penamaannya tidak berganti saat salah satu unit dibatalkan. Order satu unit tidak berubah.
-    const multiUnit = job.unit ? (await tx.technicianJob.count({ where: { orderId: job.orderId } })) > 1 : false;
-    const lines = multiUnit && job.unit ? tagLinesWithUnit(built, unitInvoiceLabel(job.unit)) : built;
+    // Servis banyak AC: harga jasa SATU untuk seluruh job (disimpan di job pemegang harga, lihat ServicePricingService),
+    // jadi baris tagihan apa adanya seperti servis satu unit — tidak diberi nama unit.
+    const lines = built;
 
     const rows = await tx.$queryRaw<
       { grand_total: string; subtotal: string; total_paid: string; status: InvoiceStatus }[]

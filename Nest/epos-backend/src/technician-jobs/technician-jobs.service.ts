@@ -1389,19 +1389,39 @@ export class TechnicianJobsService {
       // salah satu unit. Kalau unit yang dibatalkan memegangnya dan masih ada unit lain yang aktif, pengajuan
       // DIPINDAH ke unit aktif berikutnya, bukan ikut ditolak/dibatalkan. Hanya bila diminta (flag), dan tidak untuk
       // pemasangan POS, supaya alur per-job (app mobile) tidak berubah.
+      //
+      // Harga jasa servis banyak AC juga SATU untuk seluruh job dan disimpan di job pemegang harga (job pertama yang
+      // belum dibatalkan). Kalau unit yang dibatalkan pemegangnya, baris jasa + transport DIPINDAH ke unit aktif
+      // berikutnya (selalu, tanpa menunggu flag) supaya tagihan tidak ikut hilang.
       let successor: { id: string; billingDerived: boolean } | null = null;
-      if (opts.moveRequestsToSibling && job.type !== 'pemasangan') {
-        successor = await tx.technicianJob.findFirst({
-          where: {
-            orderId: job.orderId,
-            id: { not: jobId },
-            status: { notIn: [TechnicianJobStatus.dibatalkan, TechnicianJobStatus.selesai] },
-          },
-          orderBy: { createdAt: 'asc' },
-          select: { id: true, billingDerived: true },
-        });
-        if (successor) {
-          await tx.materialRequest.updateMany({ where: { jobId }, data: { jobId: successor.id } });
+      if (job.type !== 'pemasangan') {
+        const holdsPricing = job.transportLevel > 0 || (await tx.jobServiceLine.count({ where: { jobId } })) > 0;
+        if (opts.moveRequestsToSibling || holdsPricing) {
+          successor = await tx.technicianJob.findFirst({
+            where: {
+              orderId: job.orderId,
+              id: { not: jobId },
+              status: { notIn: [TechnicianJobStatus.dibatalkan, TechnicianJobStatus.selesai] },
+            },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true, billingDerived: true },
+          });
+          if (successor) {
+            if (opts.moveRequestsToSibling) {
+              await tx.materialRequest.updateMany({ where: { jobId }, data: { jobId: successor.id } });
+            }
+            // Pengganti yang sudah punya baris jasa sendiri (data lama per unit) dibiarkan: baris job yang dibatalkan
+            // hilang dari tagihan lewat rebuild() di bawah.
+            if (holdsPricing && (await tx.jobServiceLine.count({ where: { jobId: successor.id } })) === 0) {
+              await tx.jobServiceLine.updateMany({ where: { jobId }, data: { jobId: successor.id } });
+              await tx.technicianJob.update({
+                where: { id: successor.id },
+                data: { billingDerived: true, transportLevel: job.transportLevel, transportMode: job.transportMode },
+              });
+              await tx.technicianJob.update({ where: { id: jobId }, data: { transportLevel: 0 } });
+              successor = { id: successor.id, billingDerived: true };
+            }
+          }
         }
       }
 
