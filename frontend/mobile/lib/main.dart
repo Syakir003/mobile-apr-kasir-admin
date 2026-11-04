@@ -10,6 +10,7 @@ import 'core/supabase/supabase_bootstrap.dart';
 import 'core/theme/app_theme.dart';
 import 'data/models/app_user.dart';
 import 'features/notifications/fcm_service.dart';
+import 'features/update/app_update.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,6 +54,7 @@ class EposApp extends ConsumerWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      builder: (context, child) => AppUpdateGate(child: child ?? const SizedBox.shrink()),
       routerConfig: router,
     );
   }
