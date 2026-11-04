@@ -6,13 +6,14 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Printer } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
-import { BarcodeQr } from '@/components/barcode-qr';
+import { UNIT_LABEL_SHEET_CLASS, UNIT_LABEL_SHEET_CSS, UnitLabelCard } from '@/components/unit-label-card';
 import { Button } from '@/components/ui/button';
 
 interface AcUnit {
   id: string;
   brand: string | null;
   model: string | null;
+  pk?: number | null;
   roomLocation: string | null;
   barcodeValue: string;
   // 'menunggu_data' = unit "QR dulu" (tipe belum diketahui) — baris tipe di label dikosongkan (tanpa tulisan apa pun).
@@ -22,10 +23,9 @@ interface AcUnit {
 }
 interface ServiceOrderDetail {
   id: string;
-  // Member pembeli/pemilik unit — dipakai nampilin nama pembeli di tiap
-  // label (di bawah barcode), biar label yang udah dicetak/tercecer bisa
-  // langsung ketauan punya siapa tanpa perlu scan dulu.
-  member: { id: string; name: string } | null;
+  // Member pembeli/pemilik unit — nama + alamatnya tercetak di tiap label, biar label yang sudah dicetak/tercecer bisa
+  // langsung ketahuan punya siapa tanpa perlu scan dulu.
+  member: { id: string; name: string; address?: string | null } | null;
   serviceOrderUnits: { id: string; unit: AcUnit }[];
 }
 
@@ -57,7 +57,6 @@ export function UnitLabelsPrintClient({
   const units = data.serviceOrderUnits
     .map((su) => su.unit)
     .filter((u) => !onlyUnitIds || onlyUnitIds.includes(u.id));
-  const buyerName = data.member?.name;
   if (units.length === 0) {
     return (
       <div className="p-6">
@@ -78,10 +77,9 @@ export function UnitLabelsPrintClient({
 
   return (
     <div>
-      {/* A6 per label (padanan unit_label_pdf.dart) — tiap unit dapet
-          halaman sendiri (`break-after: page`) biar gampang dipotong &
-          ditempel satu-satu ke unit AC-nya masing-masing. */}
-      <style>{'@page { size: 105mm 148mm; margin: 6mm; }'}</style>
+      {/* Stiker yang sama dengan cetak label Input Data Lampau (UnitLabelCard): lembar A4 2 kolom, satu stiker per
+          unit, gampang dipotong & ditempel ke unit AC member-nya. */}
+      <style>{UNIT_LABEL_SHEET_CSS}</style>
 
       <div className="mb-4 flex items-center justify-between print:hidden">
         <Button variant="ghost" onClick={() => router.back()}>
@@ -94,24 +92,23 @@ export function UnitLabelsPrintClient({
         </Button>
       </div>
 
-      <div className="bg-white text-black">
-        {units.map((unit, i) => (
-          <div
+      <div className={UNIT_LABEL_SHEET_CLASS}>
+        {units.map((unit) => (
+          <UnitLabelCard
             key={unit.id}
-            className="flex min-h-[136mm] flex-col items-center justify-center gap-2 text-center"
-            style={i < units.length - 1 ? { breakAfter: 'page' } : undefined}
-          >
-            <p className="text-base font-bold">Ayub Podo Rukun</p>
-            <BarcodeQr value={unit.barcodeValue} size={104} />
-            <p className="text-sm">{unit.barcodeValue}</p>
-            {buyerName && <p className="text-sm font-medium">{buyerName}</p>}
-            {unit.status !== 'menunggu_data' && [unit.brand, unit.model].filter(Boolean).length > 0 && (
-              <p className="text-sm">{[unit.brand, unit.model].filter(Boolean).join(' ')}</p>
-            )}
-            {unit.indoorProduct && <p className="text-xs">Indoor: {unit.indoorProduct.name}</p>}
-            {unit.outdoorProduct && <p className="text-xs">Outdoor: {unit.outdoorProduct.name}</p>}
-            {unit.roomLocation && <p className="text-sm">{unit.roomLocation}</p>}
-          </div>
+            unit={{
+              barcodeValue: unit.barcodeValue,
+              status: unit.status,
+              brand: unit.brand,
+              model: unit.model,
+              pk: unit.pk,
+              roomLocation: unit.roomLocation,
+              indoorName: unit.indoorProduct?.name,
+              outdoorName: unit.outdoorProduct?.name,
+            }}
+            memberName={data.member?.name}
+            memberAddress={data.member?.address}
+          />
         ))}
       </div>
     </div>
