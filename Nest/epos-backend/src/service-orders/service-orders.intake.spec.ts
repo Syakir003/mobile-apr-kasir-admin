@@ -380,7 +380,7 @@ describe('ServiceOrdersService.intake — titik lokasi kerja per unit', () => {
 });
 
 describe('ServiceIntakeDto — validasi titik lokasi kerja', () => {
-  const base = { customer: { name: 'Budi', phone: '0812' }, complaint: 'x', units: [{ existingUnitId: 'u1' }] };
+  const base = { customer: { name: 'Budi', phone: '081234567890' }, complaint: 'x', units: [{ existingUnitId: 'u1' }] };
   const errorsOf = async (extra: Record<string, unknown>) =>
     (await validate(plainToInstance(ServiceIntakeDto, { ...base, ...extra }), { whitelist: true })).length;
 

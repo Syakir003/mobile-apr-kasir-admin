@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsIndonesianPhone } from '../../common/is-indonesian-phone.decorator';
 import { normalizeMapsInput } from '../../common/maps-url.util';
 import { PRICE_TIERS } from '../../common/price-tier.util';
 import type { PriceTierName } from '../../common/price-tier.util';
@@ -16,6 +17,7 @@ export class CreateMemberDto {
   // nomor dari form transaksi, di sini bisa aja pelanggan belum kasih HP.
   @IsOptional()
   @IsString()
+  @IsIndonesianPhone()
   phone?: string;
 
   @IsOptional()

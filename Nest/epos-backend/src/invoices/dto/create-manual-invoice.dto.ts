@@ -10,6 +10,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { IsIndonesianPhone } from '../../common/is-indonesian-phone.decorator';
 
 /**
  * Baris item transaksi manual — SENGAJA bebas ketik nama (bukan `refId` ke
@@ -39,7 +40,7 @@ export class ManualInvoiceItemDto {
  */
 export class ManualInvoiceNewMemberDto {
   @IsString() @IsNotEmpty() name: string;
-  @IsString() @IsNotEmpty() phone: string;
+  @IsString() @IsNotEmpty() @IsIndonesianPhone() phone: string;
   @IsOptional() @IsString() address?: string;
 }
 
