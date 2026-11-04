@@ -9,5 +9,7 @@ export default async function MemberDetailPage({
   const { id } = await params;
   const session = await requireSession();
   // Ubah tipe pembeli cuma admin (sama dengan PATCH /members/:id/price-tier).
-  return <MemberDetailClient memberId={id} canEditTier={session.user.role === 'admin'} />;
+  // Ubah data member (nama, HP, alamat, link Maps, ...): admin & kasir (sama dengan PATCH /members/:id).
+  const canEdit = session.user.role === 'admin' || session.user.role === 'kasir';
+  return <MemberDetailClient memberId={id} canEditTier={session.user.role === 'admin'} canEdit={canEdit} />;
 }
