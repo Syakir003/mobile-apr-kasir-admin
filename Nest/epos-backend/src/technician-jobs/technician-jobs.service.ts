@@ -420,6 +420,9 @@ export class TechnicianJobsService {
       actorId: string;
       scheduledDate?: Date;
       complaint?: string;
+      // Titik lokasi kerja unit ini bila berbeda dari alamat pelanggan (null/kosong = ikut alamat member).
+      workAddress?: string | null;
+      workMapsUrl?: string | null;
     },
   ) {
     const now = new Date();
@@ -434,6 +437,8 @@ export class TechnicianJobsService {
           ? TechnicianJobStatus.assigned
           : TechnicianJobStatus.menunggu_penugasan,
         scheduledDate: params.scheduledDate,
+        workAddress: params.workAddress ?? null,
+        workMapsUrl: params.workMapsUrl ?? null,
         createdById: params.actorId,
         updatedAt: now,
       },
@@ -554,6 +559,9 @@ export class TechnicianJobsService {
         actorId,
         scheduledDate: job.scheduledDate ?? undefined,
         complaint,
+        // Unit tambahan umumnya di tempat yang sama dengan job asalnya: lokasi kerjanya diwarisi.
+        workAddress: job.workAddress,
+        workMapsUrl: job.workMapsUrl,
       });
       await tx.auditLog.create({
         data: {

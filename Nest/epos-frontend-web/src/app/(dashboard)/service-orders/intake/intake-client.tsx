@@ -7,10 +7,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, QrCode, Trash2, Wrench } from 'lucide-react';
+import { Copy, Plus, QrCode, Trash2, Wrench } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { numberOrUndefined, trimmedOrUndefined } from '@/lib/form-number';
+import { MAPS_INPUT_PLACEHOLDER, mapsInputDisplay } from '@/lib/maps-input';
 import { statusLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Role } from '@/lib/session';
@@ -99,6 +100,8 @@ interface NewUnitRow {
   pk: string;
   serialNumber: string;
   roomLocation: string;
+  // Titik lokasi kerja unit ini (key dari daftar titik). Titik yang sudah dihapus -> jatuh ke titik pertama.
+  locKey: number;
 }
 const blankRow = (key: number, qrDulu = false): NewUnitRow => ({
   key,
@@ -108,18 +111,31 @@ const blankRow = (key: number, qrDulu = false): NewUnitRow => ({
   pk: '',
   serialNumber: '',
   roomLocation: '',
+  locKey: DEFAULT_LOC_KEY,
 });
 // Baris bawaan (satu unit baru kosong) memakai key tetap; baris tambahan dapat key dari counter.
 const DEFAULT_ROW_KEY = 0;
+
+// Titik lokasi kerja: tempat AC dikerjakan bila BERBEDA dari alamat utama pelanggan. Titik tanpa isi = ikut alamat
+// pelanggan. Satu pelanggan bisa punya AC di beberapa tempat, jadi titiknya boleh lebih dari satu dan tiap unit memilih.
+interface WorkLocationRow {
+  key: number;
+  address: string;
+  mapsUrl: string;
+}
+const DEFAULT_LOC_KEY = 0;
+const MAX_LOCATIONS = 10;
+const blankLocation = (key: number): WorkLocationRow => ({ key, address: '', mapsUrl: '' });
+function locationLabel(l: WorkLocationRow, i: number): string {
+  const t = l.address.trim() || (l.mapsUrl.trim() ? 'link Maps' : '');
+  return `Titik ${i + 1} - ${t ? (t.length > 40 ? `${t.slice(0, 40)}...` : t) : 'ikut alamat pelanggan'}`;
+}
 
 const intakeSchema = z.object({
   name: z.string().min(1, 'Wajib diisi'),
   phone: z.string().min(1, 'Wajib diisi'),
   address: z.string().optional(),
-  mapsUrl: z
-    .string()
-    .optional()
-    .refine((v) => !v?.trim() || /^https?:\/\/\S+$/i.test(v.trim()), 'Harus diawali http:// atau https://'),
+  mapsUrl: z.string().optional(),
   jobType: z.enum(['perbaikan', 'cuci', 'maintenance']),
   workDescription: z.string().optional(),
   complaint: z.string().trim().min(1, 'Keluhan awal wajib diisi (kalau tidak ada, isi pekerjaannya, mis. Cuci AC)'),
@@ -139,6 +155,10 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
   const [rowsState, setRowsState] = React.useState<NewUnitRow[] | null>(null);
   const nextRowKey = React.useRef(1);
   const [technicianId, setTechnicianId] = React.useState<string | undefined>(undefined);
+  // Titik lokasi kerja (bawaan satu titik kosong = ikut alamat pelanggan) + pilihan titik tiap unit terdaftar yang dicentang.
+  const [locations, setLocations] = React.useState<WorkLocationRow[]>([blankLocation(DEFAULT_LOC_KEY)]);
+  const [existingLoc, setExistingLoc] = React.useState<Record<string, number>>({});
+  const nextLocKey = React.useRef(1);
 
   // Unit-unit yang udah kepunya member terpilih — cuma relevan kalau member
   // udah dipilih dari daftar (member baru pasti belum punya unit apapun).
@@ -170,6 +190,30 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
     setExistingUnitIds((cur) => (checked ? [...cur, id] : cur.filter((x) => x !== id)));
   }
 
+  // Titik lokasi kerja. Pembaruan fungsional supaya klik beruntun tidak saling menimpa.
+  const resolveLocKey = (key: number | undefined) =>
+    locations.some((l) => l.key === key) ? (key as number) : locations[0].key;
+  function addLocation() {
+    const key = nextLocKey.current++;
+    setLocations((cur) => (cur.length >= MAX_LOCATIONS ? cur : [...cur, blankLocation(key)]));
+  }
+  function patchLocation(key: number, patch: Partial<WorkLocationRow>) {
+    setLocations((cur) => cur.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  }
+  function removeLocation(key: number) {
+    setLocations((cur) => (cur.length <= 1 ? cur : cur.filter((l) => l.key !== key)));
+  }
+  // Tombol "Samakan dengan alamat pelanggan": salin alamat utama + link maps dari kartu Data Pelanggan ke titik ini.
+  function copyMemberAddress(key: number) {
+    const address = (form.getValues('address') ?? '').trim();
+    const mapsUrl = (form.getValues('mapsUrl') ?? '').trim();
+    if (!address && !mapsUrl) {
+      toast.error('Alamat pelanggan masih kosong. Isi dulu di Data Pelanggan.');
+      return;
+    }
+    patchLocation(key, { address, mapsUrl });
+  }
+
   // GET /users admin-only di backend (sama kayak teknisi/queue/queue-client.tsx)
   // -> kasir gak dapet dropdown teknisi, job-nya lahir 'menunggu_penugasan'
   // dan admin yang nugasin belakangan lewat halaman Job Teknisi.
@@ -187,8 +231,9 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
     form.setValue('name', m.name, { shouldValidate: true });
     form.setValue('phone', m.phone ?? '', { shouldValidate: true });
     form.setValue('address', m.address ?? '');
-    form.setValue('mapsUrl', m.mapsUrl ?? '');
+    form.setValue('mapsUrl', mapsInputDisplay(m.mapsUrl));
     setExistingUnitIds([]);
+    setExistingLoc({});
     setRowsState(null);
   }
 
@@ -218,9 +263,15 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
 
   const intakeMutation = useMutation({
     mutationFn: async (values: IntakeFormValues) => {
+      // Titik lokasi dikirim kalau ada isinya atau titiknya lebih dari satu (satu titik kosong = ikut alamat pelanggan).
+      const sendLocations = locations.length > 1 || locations.some((l) => l.address.trim() || l.mapsUrl.trim());
+      const locIndex = (key: number | undefined) => ({
+        ...(sendLocations ? { locationIndex: locations.findIndex((l) => l.key === resolveLocKey(key)) } : {}),
+      });
       const units = [
-        ...existingUnitIds.map((id) => ({ existingUnitId: id })),
+        ...existingUnitIds.map((id) => ({ existingUnitId: id, ...locIndex(existingLoc[id]) })),
         ...newUnits.map((u) => ({
+          ...locIndex(u.locKey),
           newUnit: u.qrDulu
             ? // Hanya ruangan yang ikut; merk/model/PK/no. seri sengaja tidak dikirim (backend menolaknya di mode ini).
               { qrDulu: true, roomLocation: trimmedOrUndefined(u.roomLocation) }
@@ -245,6 +296,9 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
         workDescription: trimmedOrUndefined(values.workDescription),
         complaint: trimmedOrUndefined(values.complaint),
         units,
+        ...(sendLocations
+          ? { locations: locations.map((l) => ({ address: trimmedOrUndefined(l.address), mapsUrl: trimmedOrUndefined(l.mapsUrl) })) }
+          : {}),
         technicianId,
         scheduledDate: trimmedOrUndefined(values.scheduledDate),
       };
@@ -348,7 +402,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                 name="address"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Alamat</FormLabel>
+                    <FormLabel>Alamat Utama</FormLabel>
                     <FormControl>
                       <Textarea rows={2} placeholder="Opsional" {...field} />
                     </FormControl>
@@ -361,14 +415,43 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                 name="mapsUrl"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Link Lokasi (Google Maps)</FormLabel>
+                    <FormLabel>Link Lokasi Utama (Google Maps)</FormLabel>
                     <FormControl>
-                      <Input placeholder="Opsional - tempel link dari Google Maps" {...field} />
+                      <Input placeholder={MAPS_INPUT_PLACEHOLDER} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+            </CardContent>
+          </Card>
+
+          <Card panel>
+            <CardHeader>
+              <CardTitle className="text-base">Titik Lokasi Kerja</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <p className="text-xs text-muted-foreground">
+                Isi hanya kalau AC dikerjakan di tempat yang berbeda dari alamat utama pelanggan di atas; kosongkan kalau
+                sama (teknisi memakai alamat utama). Satu pelanggan bisa punya AC di beberapa tempat: tambah titik lokasi,
+                lalu pilih titik tiap unit di bagian Unit AC.
+              </p>
+              {locations.map((loc, i) => (
+                <LocationCard
+                  key={loc.key}
+                  loc={loc}
+                  index={i}
+                  canRemove={locations.length > 1}
+                  onChange={(patch) => patchLocation(loc.key, patch)}
+                  onCopy={() => copyMemberAddress(loc.key)}
+                  onRemove={() => removeLocation(loc.key)}
+                />
+              ))}
+              <div>
+                <Button type="button" variant="outline" size="sm" onClick={addLocation} disabled={locations.length >= MAX_LOCATIONS}>
+                  <Plus className="size-4" /> Tambah titik lokasi
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -399,7 +482,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                           const checked = existingUnitIds.includes(u.id);
                           const busy = (u.technicianJobs?.length ?? 0) > 0;
                           return (
-                            <li key={u.id}>
+                            <li key={u.id} className="grid gap-2">
                               <Label
                                 htmlFor={`unit-${u.id}`}
                                 className={cn(
@@ -428,6 +511,16 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                                   <Badge variant="warning">{statusLabel(u.status)}</Badge>
                                 )}
                               </Label>
+                              {checked && locations.length > 1 && (
+                                <div className="pl-3">
+                                  <LocationSelect
+                                    id={`unit-loc-${u.id}`}
+                                    locations={locations}
+                                    value={resolveLocKey(existingLoc[u.id])}
+                                    onChange={(k) => setExistingLoc((cur) => ({ ...cur, [u.id]: k }))}
+                                  />
+                                </div>
+                              )}
                             </li>
                           );
                         })}
@@ -455,6 +548,8 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                     key={row.key}
                     row={row}
                     index={idx}
+                    locations={locations}
+                    resolveLocKey={resolveLocKey}
                     onChange={(patch) => patchRow(row.key, patch)}
                     onRemove={() => removeRow(row.key)}
                   />
@@ -610,11 +705,15 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
 function NewUnitCard({
   row,
   index,
+  locations,
+  resolveLocKey,
   onChange,
   onRemove,
 }: {
   row: NewUnitRow;
   index: number;
+  locations: WorkLocationRow[];
+  resolveLocKey: (key: number | undefined) => number;
   onChange: (patch: Partial<NewUnitRow>) => void;
   onRemove: () => void;
 }) {
@@ -703,6 +802,108 @@ function NewUnitCard({
           onChange={(e) => onChange({ roomLocation: e.target.value })}
         />
       </div>
+
+      {locations.length > 1 && (
+        <LocationSelect
+          id={`${id}-loc`}
+          locations={locations}
+          value={resolveLocKey(row.locKey)}
+          onChange={(k) => onChange({ locKey: k })}
+        />
+      )}
+    </div>
+  );
+}
+
+// Pilihan titik lokasi kerja satu unit (hanya tampil kalau titiknya lebih dari satu).
+function LocationSelect({
+  id,
+  locations,
+  value,
+  onChange,
+}: {
+  id: string;
+  locations: WorkLocationRow[];
+  value: number;
+  onChange: (key: number) => void;
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor={id} className="text-xs">
+        Titik lokasi kerja unit ini
+      </Label>
+      <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
+        <SelectTrigger id={id} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {locations.map((l, i) => (
+            <SelectItem key={l.key} value={String(l.key)}>
+              {locationLabel(l, i)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+// Satu titik lokasi kerja: alamat/nama daerah + link Google Maps (sama dengan Data Pelanggan: tanpa link, tombol Buka di
+// Maps di halaman job mencari teks alamatnya, jadi nama daerah saja sudah cukup) + salin alamat utama pelanggan.
+function LocationCard({
+  loc,
+  index,
+  canRemove,
+  onChange,
+  onCopy,
+  onRemove,
+}: {
+  loc: WorkLocationRow;
+  index: number;
+  canRemove: boolean;
+  onChange: (patch: Partial<WorkLocationRow>) => void;
+  onCopy: () => void;
+  onRemove: () => void;
+}) {
+  const id = `loc-${loc.key}`;
+  return (
+    <div className="grid gap-3 rounded-lg border p-3 sm:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">Titik lokasi {index + 1}</span>
+          <Button type="button" size="sm" variant="outline" onClick={onCopy}>
+            <Copy className="size-4" /> Samakan dengan alamat pelanggan
+          </Button>
+        </div>
+        {canRemove && (
+          <Button type="button" variant="ghost" size="icon" aria-label={`Hapus titik lokasi ${index + 1}`} onClick={onRemove}>
+            <Trash2 className="size-4" />
+          </Button>
+        )}
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor={`${id}-address`}>Alamat / nama daerah lokasi kerja</Label>
+        <Textarea
+          id={`${id}-address`}
+          rows={2}
+          placeholder="Mis. Jl. Melati 5 Mojokerto, atau cukup nama daerah"
+          value={loc.address}
+          onChange={(e) => onChange({ address: e.target.value })}
+        />
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor={`${id}-maps`}>Link Lokasi (Google Maps)</Label>
+        <Input
+          id={`${id}-maps`}
+          placeholder={MAPS_INPUT_PLACEHOLDER}
+          value={loc.mapsUrl}
+          onChange={(e) => onChange({ mapsUrl: e.target.value })}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Alamat dan link boleh diketik biasa (nama daerah atau tempat pun cukup, tanpa https://): tombol Buka di Maps di halaman job
+        akan membuka linknya, atau mencari teks yang diketik di Google Maps. Dikosongkan = ikut alamat utama pelanggan.
+      </p>
     </div>
   );
 }

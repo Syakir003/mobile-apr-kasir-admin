@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -7,6 +7,7 @@ import {
   IsDateString,
   IsDefined,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -17,13 +18,15 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { normalizeMapsInput } from '../../common/maps-url.util';
 
 export class IntakeCustomerDto {
   @IsString() @IsNotEmpty() name: string;
   @IsString() @IsNotEmpty() phone: string;
   @IsOptional() @IsString() address?: string;
   // Link Google Maps lokasi pelanggan; kalau diisi, ikut disimpan/diperbarui di member.
-  @IsOptional() @IsString() @MaxLength(500) @Matches(/^https?:\/\/\S+$/i, { message: 'Link lokasi harus diawali http:// atau https://' }) mapsUrl?: string;
+  // Link ATAU ketikan biasa (nama daerah/tempat): dinormalkan jadi URL (lihat normalizeMapsInput).
+  @IsOptional() @Transform(({ value }: { value: unknown }) => normalizeMapsInput(value)) @IsString() @MaxLength(500) @Matches(/^https?:\/\/\S+$/i, { message: 'Link lokasi harus diawali http:// atau https://' }) mapsUrl?: string;
   // Diisi kalau admin/kasir milih member LAMA lewat pencarian di form intake
   // (bukan ngetik manual) -> pakai persis member itu, SKIP pencocokan
   // by-phone di MembersService.findOrCreate(). Sama pola persis kayak
@@ -54,6 +57,18 @@ export class IntakeNewUnitDto {
 export class IntakeUnitDto {
   @IsOptional() @IsString() existingUnitId?: string;
   @IsOptional() @ValidateNested() @Type(() => IntakeNewUnitDto) newUnit?: IntakeNewUnitDto;
+  // Titik lokasi kerja unit ini: indeks ke ServiceIntakeDto.locations. Kosong = titik tunggal bila hanya ada satu,
+  // selain itu mengikuti alamat pelanggan.
+  @IsOptional() @IsInt() @Min(0) @Max(19) locationIndex?: number;
+}
+
+/**
+ * Satu titik lokasi kerja (berbeda dari alamat utama pelanggan). Teks alamat dipakai sebagai pencarian di Google Maps
+ * kalau link kosong, jadi mengetik nama daerah saja sudah cukup. Titik tanpa isi = ikut alamat pelanggan.
+ */
+export class IntakeLocationDto {
+  @IsOptional() @IsString() @MaxLength(500) address?: string;
+  @IsOptional() @Transform(({ value }: { value: unknown }) => normalizeMapsInput(value)) @IsString() @MaxLength(500) @Matches(/^https?:\/\/\S+$/i, { message: 'Link lokasi kerja harus diawali http:// atau https://' }) mapsUrl?: string;
 }
 
 /** Jenis pekerjaan yang bisa dipilih di form Terima Servis (pemasangan berasal dari POS, tidak ditawarkan di sini). */
@@ -99,6 +114,18 @@ export class ServiceIntakeDto {
   @ValidateNested({ each: true })
   @Type(() => IntakeUnitDto)
   units?: IntakeUnitDto[];
+
+  /**
+   * Titik lokasi kerja bila berbeda dari alamat pelanggan (satu pelanggan bisa punya AC di beberapa tempat). Tiap unit
+   * memilih titiknya lewat `units[].locationIndex`; tanpa pilihan: titik tunggal dipakai semua unit, kalau titiknya
+   * banyak unit ikut alamat pelanggan. Disimpan per job (technician_jobs.work_address / work_maps_url).
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20, { message: 'Maksimal 20 titik lokasi kerja per order servis' })
+  @ValidateNested({ each: true })
+  @Type(() => IntakeLocationDto)
+  locations?: IntakeLocationDto[];
 
   @IsOptional() @IsString() technicianId?: string;
   @IsOptional() @IsDateString() scheduledDate?: string;

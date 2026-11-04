@@ -838,6 +838,11 @@ model TechnicianJob {
   // ditetapkan lewat halaman job. false = jalur lama (POS pemasangan / belum dihargai).
   billingDerived Boolean @default(false) @map("billing_derived")
   serviceLines   JobServiceLine[]
+  // Titik lokasi kerja unit ini bila BERBEDA dari alamat pelanggan (Terima Servis: kartu "Titik Lokasi Kerja"; satu
+  // order bisa punya beberapa titik). Keduanya null = lokasi kerja sama dengan alamat/link member. workMapsUrl hanya
+  // http/https; tanpa link, tombol "Buka di Maps" mencari teks workAddress di Google Maps (nama daerah pun cukup).
+  workAddress    String? @map("work_address")
+  workMapsUrl    String? @map("work_maps_url")
 
   photos           JobPhoto[]
   findings         JobFinding[]

@@ -3,6 +3,8 @@ import { ServiceOrdersService } from './service-orders.service';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ServiceIntakeDto } from './dto/service-intake.dto';
+import { resolveWorkLocation } from './work-location.util';
+import { MAPS_SEARCH_PREFIX } from '../common/maps-url.util';
 
 // @nestjs/schedule ESM-only; terseret lewat technician-jobs -> reminders. Cron tidak dipakai di test ini.
 jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
@@ -281,5 +283,128 @@ describe('ServiceOrdersService.intake — jenis pekerjaan', () => {
     expect(await check(undefined)).toBe(0);
     expect(await check('pemasangan')).toBe(1);
     expect(await check('asal-asalan')).toBe(1);
+  });
+});
+
+// Titik lokasi kerja: satu pelanggan bisa punya AC di beberapa tempat. Tiap unit memilih titiknya; titik tanpa isi atau
+// tanpa pilihan (saat titiknya banyak) berarti ikut alamat pelanggan.
+describe('resolveWorkLocation', () => {
+  const pts = [
+    { address: ' Jl. Melati 5 ', mapsUrl: 'https://maps.app.goo.gl/abc' },
+    { address: 'Mojokerto kota' },
+    {},
+  ];
+
+  it('memilih titik menurut indeks (alamat dirapikan), link opsional', () => {
+    expect(resolveWorkLocation(pts, 0)).toEqual({ workAddress: 'Jl. Melati 5', workMapsUrl: 'https://maps.app.goo.gl/abc' });
+    expect(resolveWorkLocation(pts, 1)).toEqual({ workAddress: 'Mojokerto kota', workMapsUrl: null });
+  });
+
+  it('titik tanpa isi = ikut alamat pelanggan (null/null)', () => {
+    expect(resolveWorkLocation(pts, 2)).toEqual({ workAddress: null, workMapsUrl: null });
+  });
+
+  it('tanpa pilihan: titik tunggal dipakai semua unit; banyak titik atau tanpa titik = ikut alamat pelanggan', () => {
+    expect(resolveWorkLocation([pts[1]], undefined)).toEqual({ workAddress: 'Mojokerto kota', workMapsUrl: null });
+    expect(resolveWorkLocation(pts, undefined)).toEqual({ workAddress: null, workMapsUrl: null });
+    expect(resolveWorkLocation(undefined, undefined)).toEqual({ workAddress: null, workMapsUrl: null });
+  });
+
+  it('indeks di luar daftar ditolak (400)', () => {
+    expect(() => resolveWorkLocation(pts, 3)).toThrow(BadRequestException);
+    expect(() => resolveWorkLocation(undefined, 0)).toThrow(BadRequestException);
+  });
+});
+
+describe('ServiceOrdersService.intake — titik lokasi kerja per unit', () => {
+  const locs = [
+    { address: 'Rumah: Jl. Melati 5', mapsUrl: 'https://maps.app.goo.gl/rumah' },
+    { address: 'Ruko Mojokerto' },
+  ];
+
+  it('tiap unit mendapat titik pilihannya di job-nya (alamat + link), unit tanpa pilihan ikut alamat pelanggan', async () => {
+    const { svc, technicianJobs } = multiSetup({ u1: { labelAttachedAt: new Date() }, u2: { labelAttachedAt: new Date() }, u3: { labelAttachedAt: new Date() } });
+    await svc.intake(
+      {
+        customer,
+        complaint: 'Servis rutin',
+        locations: locs,
+        units: [
+          { existingUnitId: 'u1', locationIndex: 0 },
+          { existingUnitId: 'u2', locationIndex: 1 },
+          { existingUnitId: 'u3' },
+        ],
+      },
+      'a1',
+    );
+    const calls = technicianJobs.createForOrder.mock.calls.map((c: any[]) => c[1]);
+    expect(calls[0]).toMatchObject({ unitId: 'u1', workAddress: 'Rumah: Jl. Melati 5', workMapsUrl: 'https://maps.app.goo.gl/rumah' });
+    expect(calls[1]).toMatchObject({ unitId: 'u2', workAddress: 'Ruko Mojokerto', workMapsUrl: null });
+    expect(calls[2]).toMatchObject({ unitId: 'u3', workAddress: null, workMapsUrl: null });
+  });
+
+  it('satu titik saja: dipakai semua unit tanpa perlu memilih', async () => {
+    const { svc, technicianJobs } = multiSetup({ u1: { labelAttachedAt: new Date() }, u2: { labelAttachedAt: new Date() } });
+    await svc.intake(
+      { customer, complaint: 'Servis', locations: [{ address: 'Ruko Mojokerto' }], units: [{ existingUnitId: 'u1' }, { existingUnitId: 'u2' }] },
+      'a1',
+    );
+    for (const c of technicianJobs.createForOrder.mock.calls) {
+      expect(c[1]).toMatchObject({ workAddress: 'Ruko Mojokerto', workMapsUrl: null });
+    }
+  });
+
+  it('tanpa titik lokasi: job ikut alamat pelanggan (perilaku lama tidak berubah)', async () => {
+    const { svc, technicianJobs } = multiSetup({ u1: { labelAttachedAt: new Date() } });
+    await svc.intake({ customer, complaint: 'Servis', units: [{ existingUnitId: 'u1' }] }, 'a1');
+    expect(technicianJobs.createForOrder.mock.calls[0][1]).toMatchObject({ workAddress: null, workMapsUrl: null });
+  });
+
+  it('unit baru juga bisa memilih titik', async () => {
+    const { svc, technicianJobs } = multiSetup();
+    await svc.intake(
+      { customer, complaint: 'Servis', locations: locs, units: [{ newUnit: { qrDulu: true }, locationIndex: 1 }] },
+      'a1',
+    );
+    expect(technicianJobs.createForOrder.mock.calls[0][1]).toMatchObject({ workAddress: 'Ruko Mojokerto' });
+  });
+
+  it('pilihan titik yang tidak ada ditolak sebelum menyentuh database', async () => {
+    const { svc, tx } = multiSetup({ u1: {} });
+    tx.serviceOrder.create.mockClear();
+    await expect(
+      svc.intake({ customer, complaint: 'Servis', locations: locs, units: [{ existingUnitId: 'u1', locationIndex: 5 }] }, 'a1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.serviceOrder.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('ServiceIntakeDto — validasi titik lokasi kerja', () => {
+  const base = { customer: { name: 'Budi', phone: '0812' }, complaint: 'x', units: [{ existingUnitId: 'u1' }] };
+  const errorsOf = async (extra: Record<string, unknown>) =>
+    (await validate(plainToInstance(ServiceIntakeDto, { ...base, ...extra }), { whitelist: true })).length;
+
+  it('alamat teks bebas (nama daerah saja boleh) dan link Maps boleh link penuh', async () => {
+    expect(await errorsOf({ locations: [{ address: 'Mojokerto kota' }] })).toBe(0);
+    expect(await errorsOf({ locations: [{ address: 'Ruko', mapsUrl: 'https://maps.app.goo.gl/abc' }] })).toBe(0);
+  });
+
+  it('link Maps yang diketik biasa (tanpa https) dinormalkan jadi link, baik untuk titik lokasi maupun alamat utama pelanggan', async () => {
+    const dto = plainToInstance(ServiceIntakeDto, {
+      ...base,
+      customer: { ...base.customer, mapsUrl: 'Perumahan Griya Asri' },
+      locations: [{ address: 'Ruko', mapsUrl: 'goo.gl/maps/xyz' }, { address: 'Rumah', mapsUrl: 'Mojokerto kota' }, { address: 'Kosong', mapsUrl: '   ' }],
+    });
+    expect(await validate(dto, { whitelist: true })).toHaveLength(0);
+    expect(dto.customer.mapsUrl).toBe(MAPS_SEARCH_PREFIX + 'Perumahan%20Griya%20Asri');
+    expect(dto.locations?.[0].mapsUrl).toBe('https://goo.gl/maps/xyz');
+    expect(dto.locations?.[1].mapsUrl).toBe(MAPS_SEARCH_PREFIX + 'Mojokerto%20kota');
+    expect(dto.locations?.[2].mapsUrl).toBeNull();
+  });
+
+  it('batas jumlah titik dan indeks pilihan unit', async () => {
+    expect(await errorsOf({ locations: Array.from({ length: 21 }, () => ({ address: 'x' })) })).toBeGreaterThan(0);
+    expect(await errorsOf({ units: [{ existingUnitId: 'u1', locationIndex: -1 }] })).toBeGreaterThan(0);
+    expect(await errorsOf({ units: [{ existingUnitId: 'u1', locationIndex: 1.5 }] })).toBeGreaterThan(0);
   });
 });

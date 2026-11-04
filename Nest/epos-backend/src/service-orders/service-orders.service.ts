@@ -4,6 +4,7 @@ import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { TechnicianJobsService } from '../technician-jobs/technician-jobs.service';
 import { assertNoActiveJob } from '../technician-jobs/active-job.util';
+import { resolveWorkLocation } from './work-location.util';
 import { IntakeUnitDto, ServiceIntakeDto } from './dto/service-intake.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import { isUnitLabeled } from '../ac-units/unit-label-status.util';
@@ -122,6 +123,9 @@ export class ServiceOrdersService {
       }
     }
 
+    // Titik lokasi kerja tiap unit (urut sama dengan entries). Dicek sebelum transaksi supaya pilihan yang salah jadi 400.
+    const unitLocations = entries.map((e) => resolveWorkLocation(dto.locations, e.locationIndex));
+
     return this.prisma.$transaction(async (tx) => {
       // Sama pola persis kayak PosService.checkout(): kalau admin/kasir milih
       // member LAMA dari pencarian di form intake, pakai persis member itu
@@ -199,7 +203,7 @@ export class ServiceOrdersService {
       // kosong kalau customer sudah bilang keluhannya saat intake (Siklus 5
       // revisi, checklist temuan dinamis).
       const jobs: { id: string; status: string }[] = [];
-      for (const unit of units) {
+      for (const [i, unit] of units.entries()) {
         await tx.serviceOrderUnit.create({
           data: { orderId: order.id, unitId: unit.id, status: 'terjadwal' },
         });
@@ -213,6 +217,7 @@ export class ServiceOrdersService {
             actorId,
             scheduledDate,
             complaint,
+            ...unitLocations[i],
           }),
         );
       }

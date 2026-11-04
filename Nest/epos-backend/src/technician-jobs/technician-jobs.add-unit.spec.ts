@@ -239,6 +239,25 @@ describe('TechnicianJobsService.addUnit — unit sudah berlabel (scan barcode)',
   });
 });
 
+describe('TechnicianJobsService.addUnit — lokasi kerja', () => {
+  it('unit tambahan mewarisi titik lokasi kerja job asal (umumnya di tempat yang sama)', async () => {
+    const { svc, tx, createForOrder } = setup({
+      job: { workAddress: 'Ruko Mojokerto', workMapsUrl: 'https://maps.app.goo.gl/ruko' },
+    });
+    await svc.addUnit('j1', { barcode: 'B', complaint: 'Cuci' }, 't1', 'teknisi');
+    expect(createForOrder).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ workAddress: 'Ruko Mojokerto', workMapsUrl: 'https://maps.app.goo.gl/ruko' }),
+    );
+  });
+
+  it('job asal tanpa titik lokasi (ikut alamat pelanggan): unit tambahan juga ikut alamat pelanggan', async () => {
+    const { svc, tx, createForOrder } = setup();
+    await svc.addUnit('j1', { newUnit: true, complaint: 'Cuci AC' }, 't1', 'teknisi');
+    expect(createForOrder).toHaveBeenCalledWith(tx, expect.objectContaining({ workAddress: undefined, workMapsUrl: undefined }));
+  });
+});
+
 describe('TechnicianJobsService.addUnit — AC tanpa label (QR baru)', () => {
   it('membuat unit "QR dulu" milik pelanggan job, menambah hitungan AC member, dan minta cetak label + lengkapi data', async () => {
     const { svc, tx, acUnits, createForOrder } = setup();

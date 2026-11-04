@@ -138,6 +138,9 @@ interface JobDetail {
   // true = harga jasa JOB INI sudah ditetapkan (tagihan dihitung dari sumbernya). Pada servis banyak AC invoice-nya
   // dipakai bersama, jadi `order.invoice` ada belum berarti unit ini sudah dihargai.
   billingDerived?: boolean;
+  // Titik lokasi kerja unit ini bila berbeda dari alamat pelanggan (null = ikut alamat/link member).
+  workAddress?: string | null;
+  workMapsUrl?: string | null;
   // Job lain di order yang sama (servis banyak AC, satu job per unit); kosong = servis satu unit biasa.
   siblings?: { id: string; createdAt: string }[];
   // Riwayat alih tugas job ini (kosong = tidak pernah dialihkan).
@@ -329,6 +332,20 @@ export function JobDetailClient({
                   label="Unit dalam paket"
                   value=""
                   valueNode={<UnitPartsList unit={job.unit} showSku />}
+                />
+              )}
+              {/* Lokasi kerja unit ini bila berbeda dari alamat utama pelanggan (Detail Order). Tanpa link, Buka di Maps
+                  mencari teks alamatnya (nama daerah saja cukup). */}
+              {(job.workAddress || job.workMapsUrl) && (
+                <DetailRow
+                  label="Lokasi kerja"
+                  value=""
+                  valueNode={
+                    <span className="grid justify-items-end gap-1">
+                      {job.workAddress && <span>{job.workAddress}</span>}
+                      <MapsLink mapsUrl={job.workMapsUrl} address={job.workAddress} />
+                    </span>
+                  }
                 />
               )}
               {/* Teknisi: sama dengan app mobile — unit hanya baris teks Ruangan & Barcode (tanpa gambar QR / label). */}
@@ -1137,43 +1154,47 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
 
               {isTeknisi && (working.length > 0 || notStarted.length > 0) && (
                 <div className="grid gap-3">
-                  <ul className={cn('grid gap-1 text-sm', notStarted.length > 0 && 'hidden')}>
-                    {activeJobs.map((j) => {
-                      const blockers = j.status === 'sedang_dikerjakan' ? unitBlockers(j) : [];
-                      const state =
-                        j.status === 'menunggu_review' || j.status === 'selesai'
-                          ? 'sudah diajukan'
-                          : j.status === 'sedang_dikerjakan'
-                            ? blockers.length === 0
-                              ? 'siap diajukan'
-                              : blockers.join(', ')
-                            : 'belum discan/dimulai';
-                      const ok = state === 'siap diajukan' || state === 'sudah diajukan';
-                      return (
-                        <li key={j.id} className="flex items-start gap-2">
-                          <CheckCircle2
-                            className={cn('mt-0.5 size-4 shrink-0', ok ? 'text-status-success' : 'text-muted-foreground/40')}
-                          />
-                          <span className="min-w-0">
-                            <span className="font-medium">{unitLabel(j)}</span>
-                            <span className="text-muted-foreground"> - {state}</span>
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  <Button
-                    disabled={!canSubmitAll || submitAllMutation.isPending}
-                    onClick={() => submitAllMutation.mutate({ allInOrder: true })}
-                    className="sm:justify-self-start"
-                  >
-                    {submitAllMutation.isPending ? 'Memproses...' : `Ajukan Selesai (${working.length} unit)`}
-                  </Button>
-                  {!canSubmitAll && (
-                    <p className="text-xs text-muted-foreground">
-                      Semua unit harus sudah discan/dimulai dan lengkap (temuan, foto sebelum/sesudah) sebelum
-                      diajukan selesai sekaligus. Unit yang tidak jadi diservis bisa dibatalkan admin di section-nya.
-                    </p>
+                  {/* Satu tombol per tahap: selama masih ada unit yang belum discan hanya panel Mulai Job di atas yang
+                      tampil; begitu semua unit dimulai, tombolnya berganti jadi Ajukan Selesai. */}
+                  {notStarted.length === 0 && (
+                    <>
+                      <ul className="grid gap-1 text-sm">
+                        {activeJobs.map((j) => {
+                          const blockers = j.status === 'sedang_dikerjakan' ? unitBlockers(j) : [];
+                          const state =
+                            j.status === 'menunggu_review' || j.status === 'selesai'
+                              ? 'sudah diajukan'
+                              : blockers.length === 0
+                                ? 'siap diajukan'
+                                : blockers.join(', ');
+                          const ok = state === 'siap diajukan' || state === 'sudah diajukan';
+                          return (
+                            <li key={j.id} className="flex items-start gap-2">
+                              <CheckCircle2
+                                className={cn('mt-0.5 size-4 shrink-0', ok ? 'text-status-success' : 'text-muted-foreground/40')}
+                              />
+                              <span className="min-w-0">
+                                <span className="font-medium">{unitLabel(j)}</span>
+                                <span className="text-muted-foreground"> - {state}</span>
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <Button
+                        disabled={!canSubmitAll || submitAllMutation.isPending}
+                        onClick={() => submitAllMutation.mutate({ allInOrder: true })}
+                        className="sm:justify-self-start"
+                      >
+                        {submitAllMutation.isPending ? 'Memproses...' : `Ajukan Selesai (${working.length} unit)`}
+                      </Button>
+                      {!canSubmitAll && (
+                        <p className="text-xs text-muted-foreground">
+                          Semua unit harus lengkap (temuan, foto sebelum/sesudah) sebelum diajukan selesai sekaligus.
+                          Unit yang tidak jadi diservis bisa dibatalkan admin di section-nya.
+                        </p>
+                      )}
+                    </>
                   )}
                   {/* Customer minta AC lain ikut diservis: unit tambahan jadi section baru di halaman ini. */}
                   {requestJob && <AddUnitButton jobId={requestJob.id} jobType={requestJob.type} />}

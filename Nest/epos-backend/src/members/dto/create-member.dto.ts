@@ -1,4 +1,6 @@
+import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { normalizeMapsInput } from '../../common/maps-url.util';
 import { PRICE_TIERS } from '../../common/price-tier.util';
 import type { PriceTierName } from '../../common/price-tier.util';
 
@@ -20,7 +22,9 @@ export class CreateMemberDto {
   @IsString()
   address?: string;
 
+  // Link ATAU ketikan biasa (nama daerah/tempat): dinormalkan jadi URL (lihat normalizeMapsInput).
   @IsOptional()
+  @Transform(({ value }: { value: unknown }) => normalizeMapsInput(value))
   @IsString()
   @MaxLength(500)
   @Matches(/^https?:\/\/\S+$/i, { message: 'Link lokasi harus diawali http:// atau https://' })
