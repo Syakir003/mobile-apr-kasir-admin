@@ -8,6 +8,7 @@ import { MaterialRequestsModule } from '../material-requests/material-requests.m
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RemindersModule } from '../reminders/reminders.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { AcUnitsModule } from '../ac-units/ac-units.module';
 
 @Module({
   // Siklus 9 — MaterialRequestsModule diimport biar OfflineSyncService bisa
@@ -18,7 +19,8 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
   // notify() teknisi yang baru ditugaskan. RemindersModule+WhatsappModule
   // ditambah Siklus WA/Fonnte — dipakai approveComplete() buat resolusi
   // siklus servis berikutnya + kirim pesan "selesai servis" otomatis.
-  imports: [RealtimeModule, MaterialRequestsModule, NotificationsModule, RemindersModule, WhatsappModule],
+  // AcUnitsModule: addUnit() membuat unit "QR dulu" baru lewat AcUnitsService.createLegacy (barcode satu namespace).
+  imports: [RealtimeModule, MaterialRequestsModule, NotificationsModule, RemindersModule, WhatsappModule, AcUnitsModule],
   controllers: [TechnicianJobsController],
   providers: [TechnicianJobsService, OfflineSyncService, ServicePricingService],
   exports: [TechnicianJobsService],

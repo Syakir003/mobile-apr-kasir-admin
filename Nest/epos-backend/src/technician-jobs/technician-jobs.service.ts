@@ -23,6 +23,10 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import { isUnitLabeled } from '../ac-units/unit-label-status.util';
+import { AcUnitsService } from '../ac-units/ac-units.service';
+import { assertNoActiveJob } from './active-job.util';
+import { AddUnitDto } from './dto/add-unit.dto';
+import { INTAKE_JOB_TYPES } from '../service-orders/dto/service-intake.dto';
 
 type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
 
@@ -51,6 +55,7 @@ export class TechnicianJobsService {
     private readonly whatsapp: WhatsappService,
     private readonly notifications: NotificationsService,
     private readonly jobBilling: JobBillingService,
+    private readonly acUnits: AcUnitsService,
   ) {}
 
   private assertOwnerOrAdmin(
@@ -450,6 +455,161 @@ export class TechnicianJobsService {
     }
 
     return job;
+  }
+
+  /**
+   * Teknisi menambah unit AC ke jobnya yang berstatus DITUGASKAN atau SEDANG DIKERJAKAN (customer minta AC lain ikut
+   * diservis di tempat). Hanya pemilik job (atau admin) yang boleh; teknisi lain baru bisa lewat alih tugas.
+   * Satu unit tambahan = satu job baru di ORDER YANG SAMA (satu nota, harga jasa & transport tetap satu untuk seluruh
+   * job), dipegang teknisi pemilik job ini, dengan temuan awal dari `complaint` supaya tempat foto sebelum/sesudah +
+   * deskripsi langsung ada. Dua jalur:
+   *  - `barcode`: unit sudah berlabel -> harus milik pelanggan yang sama dan tidak punya job aktif;
+   *  - `newUnit`: AC belum pernah tercatat -> unit baru "QR dulu" (status menunggu_data, pengingat OFF) yang otomatis
+   *    masuk daftar AC pelanggan; teknisi mencetak labelnya, scan QR-nya di Scan Unit, lalu mengisi merk/PK.
+   * Job baru berstatus Ditugaskan: foto sebelum + scan barcode (Mulai Job) tetap wajib seperti unit lain, dan "Ajukan
+   * Selesai" menunggu semua unit dimulai. Bila harga jasa sudah ditetapkan, unit baru BELUM dihargai (billingDerived
+   * false) sehingga admin harus memperbarui harga jasa dulu sebelum menyetujui (lihat assertJobPriced).
+   */
+  async addUnit(jobId: string, dto: AddUnitDto, actorId: string, role: Role) {
+    const complaint = dto.complaint?.trim();
+    if (!complaint) {
+      throw new BadRequestException(
+        'Isi pekerjaan/keluhan unit ini dulu (kalau tidak ada keluhan, isi pekerjaannya, mis. Cuci AC)',
+      );
+    }
+    const barcode = dto.barcode?.trim();
+    if (barcode && dto.newUnit) {
+      throw new BadRequestException('Pilih salah satu: scan barcode unit yang sudah berlabel ATAU AC tanpa label, jangan dua-duanya');
+    }
+    if (!barcode && !dto.newUnit) {
+      throw new BadRequestException('Scan barcode unit yang sudah berlabel, atau pilih AC tanpa label');
+    }
+    if (barcode && dto.roomLocation?.trim()) {
+      throw new BadRequestException('Ruangan hanya diisi untuk AC tanpa label (unit berlabel sudah punya datanya)');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const found = await tx.technicianJob.findUnique({ where: { id: jobId }, select: { orderId: true } });
+      if (!found) throw new NotFoundException('Job tidak ditemukan');
+      // Kunci semua job order ini (urut id, sama dengan pengajuan selesai satu order) supaya penambahan unit tidak
+      // bertabrakan dengan "Ajukan Selesai (semua unit)" yang sedang berjalan.
+      await tx.$executeRaw`SELECT id FROM technician_jobs WHERE order_id = ${found.orderId} ORDER BY id FOR UPDATE`;
+      const job = await tx.technicianJob.findUnique({
+        where: { id: jobId },
+        include: {
+          member: { select: { id: true, name: true } },
+          technician: { select: { displayName: true } },
+        },
+      });
+      if (!job) throw new NotFoundException('Job tidak ditemukan');
+      this.assertOwnerOrAdmin(job, actorId, role);
+      // Ditugaskan juga boleh: customer sering minta tambah AC begitu teknisi tiba, sebelum sempat memulai job.
+      if (job.status !== TechnicianJobStatus.assigned && job.status !== TechnicianJobStatus.sedang_dikerjakan) {
+        throw new BadRequestException('Unit AC baru hanya bisa ditambahkan saat job Ditugaskan atau Sedang Dikerjakan');
+      }
+      if (job.type === 'pemasangan') {
+        throw new BadRequestException(
+          'Order pemasangan tidak bisa ditambah unit dari sini. Buat servis baru lewat Terima Servis.',
+        );
+      }
+      if (!job.memberId) {
+        throw new BadRequestException('Job ini tidak punya pelanggan, unit tidak bisa ditambahkan');
+      }
+      const jobType =
+        dto.jobType ?? ((INTAKE_JOB_TYPES as readonly string[]).includes(job.type) ? job.type : 'perbaikan');
+
+      let unit: { id: string; barcodeValue: string; status: string };
+      if (barcode) {
+        const existing = await tx.memberAcUnit.findUnique({ where: { barcodeValue: barcode } });
+        if (!existing) throw new NotFoundException('Unit tidak ditemukan / QR tidak valid');
+        if (existing.memberId !== job.memberId) {
+          throw new BadRequestException(
+            'Unit ini terdaftar atas nama pelanggan lain, bukan pelanggan job ini. Konfirmasi ke admin dulu sebelum lanjut.',
+          );
+        }
+        const alreadyHere = await tx.technicianJob.count({
+          where: { orderId: job.orderId, unitId: existing.id, status: { not: TechnicianJobStatus.dibatalkan } },
+        });
+        if (alreadyHere > 0) throw new BadRequestException('Unit ini sudah ada di job ini');
+        await assertNoActiveJob(tx, [existing.id]);
+        unit = existing;
+      } else {
+        unit = await this.acUnits.createLegacy(tx, job.memberId, { mode: 'qr_dulu', roomLocation: dto.roomLocation });
+        await tx.member.update({ where: { id: job.memberId }, data: { totalAcUnits: { increment: 1 } } });
+      }
+
+      // Unit pernah ada di order ini (jobnya dibatalkan) dipakai ulang barisnya, bukan dobel.
+      const orderUnit = await tx.serviceOrderUnit.findFirst({ where: { orderId: job.orderId, unitId: unit.id } });
+      if (orderUnit) {
+        await tx.serviceOrderUnit.update({ where: { id: orderUnit.id }, data: { status: 'terjadwal' } });
+      } else {
+        await tx.serviceOrderUnit.create({ data: { orderId: job.orderId, unitId: unit.id, status: 'terjadwal' } });
+      }
+      const newJob = await this.createForOrder(tx, {
+        orderId: job.orderId,
+        memberId: job.memberId,
+        unitId: unit.id,
+        technicianId: job.technicianId,
+        type: jobType,
+        actorId,
+        scheduledDate: job.scheduledDate ?? undefined,
+        complaint,
+      });
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'job.add_unit',
+          target: newJob.id,
+          detail: { fromJobId: job.id, orderId: job.orderId, unitId: unit.id, jobType, newUnit: !barcode },
+        },
+      });
+      const order = await tx.serviceOrder.findUnique({ where: { id: job.orderId }, select: { invoiceId: true } });
+      return {
+        ok: true,
+        jobId: newJob.id,
+        orderId: job.orderId,
+        unitId: unit.id,
+        barcodeValue: unit.barcodeValue,
+        // AC tanpa label: QR baru, teknisi yang mencetak (halaman cetak label teknisi).
+        needsLabel: !barcode,
+        // Unit "QR dulu": merk/PK harus dilengkapi lewat Scan Unit sebelum unit bisa dimulai.
+        needsData: unit.status === 'menunggu_data',
+        // Invoice sudah ada = harga jasa pernah ditetapkan; unit baru ini belum ikut dihargai.
+        needsPricing: !!order?.invoiceId,
+        jobType,
+        customerName: job.member?.name ?? null,
+        technicianName: job.technician?.displayName ?? null,
+      };
+    });
+  }
+
+  /**
+   * Data label QR unit-unit satu order untuk halaman cetak label TEKNISI. Bentuknya sama dengan potongan
+   * GET /service-orders/:id yang dipakai cetak label admin/kasir (endpoint itu terlalu lebar untuk teknisi: memuat
+   * nota). Teknisi hanya mendapat unit yang job-nya miliknya; `unitIds` menyaring unit tertentu.
+   */
+  async unitLabels(jobId: string, actorId: string, role: Role, unitIds?: string[]) {
+    const job = await this.prisma.technicianJob.findUnique({
+      where: { id: jobId },
+      select: { orderId: true, technicianId: true, member: { select: { id: true, name: true } } },
+    });
+    if (!job) throw new NotFoundException('Job tidak ditemukan');
+    this.assertOwnerOrAdmin(job, actorId, role);
+    const rows = await this.prisma.serviceOrderUnit.findMany({
+      where: {
+        orderId: job.orderId,
+        ...(unitIds?.length ? { unitId: { in: unitIds } } : {}),
+        ...(role === 'teknisi'
+          ? { unit: { technicianJobs: { some: { orderId: job.orderId, technicianId: actorId } } } }
+          : {}),
+      },
+      include: { unit: { include: UNIT_PRODUCTS_SELECT } },
+    });
+    return {
+      id: job.orderId,
+      member: job.member,
+      serviceOrderUnits: rows.map((r) => ({ id: r.id, unit: r.unit })),
+    };
   }
 
   /**

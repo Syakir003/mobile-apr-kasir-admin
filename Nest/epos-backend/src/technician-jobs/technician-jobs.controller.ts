@@ -34,6 +34,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { TechnicianJobsService } from './technician-jobs.service';
 import { AssignJobDto } from './dto/assign-job.dto';
+import { AddUnitDto } from './dto/add-unit.dto';
 import { StartJobDto } from './dto/start-job.dto';
 import { UpdateNotesDto } from './dto/update-notes.dto';
 import { HistoryQueryDto } from './dto/history-query.dto';
@@ -143,6 +144,19 @@ export class TechnicianJobsController {
     return this.jobs.findOne(id, user.sub, user.role);
   }
 
+  // Data label QR unit-unit order ini untuk halaman cetak label TEKNISI (GET /service-orders/:id 403 untuk teknisi).
+  // ?units=a,b menyaring unit tertentu; teknisi hanya mendapat unit yang job-nya miliknya.
+  @Roles('admin', 'teknisi')
+  @Get(':id/unit-labels')
+  unitLabels(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('units') units?: string,
+  ) {
+    const unitIds = units ? units.split(',').map((u) => u.trim()).filter(Boolean) : undefined;
+    return this.jobs.unitLabels(id, user.sub, user.role, unitIds);
+  }
+
   @Roles('admin', 'kasir')
   @Patch(':id/assign')
   async assign(
@@ -188,6 +202,29 @@ export class TechnicianJobsController {
         })
         .catch(() => {});
     }
+    return result;
+  }
+
+  // Teknisi menambah unit AC ke job yang sedang dikerjakan (customer minta AC lain ikut diservis di tempat):
+  // unit berlabel (scan barcode) atau AC tanpa label (QR baru, dicetak teknisi). Admin & kasir dikabari supaya
+  // meninjau harga jasa.
+  @Roles('admin', 'teknisi')
+  @Post(':id/add-unit')
+  async addUnit(
+    @Param('id') id: string,
+    @Body() dto: AddUnitDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const result = await this.jobs.addUnit(id, dto, user.sub, user.role);
+    this.realtime.emitToAdmin('job.unit_added', { jobId: id, newJobId: result.jobId });
+    void this.notifications
+      .notifyRoles(['admin', 'kasir'], {
+        title: 'Unit AC Ditambahkan ke Job',
+        body: `${result.technicianName ?? 'Teknisi'} menambah 1 unit AC${result.customerName ? ` untuk ${result.customerName}` : ''} di tengah servis${result.needsPricing ? '. Tinjau dan perbarui harga jasa.' : '.'}`,
+        type: 'unit_added',
+        target: id,
+      })
+      .catch(() => undefined);
     return result;
   }
 

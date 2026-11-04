@@ -1,10 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { unitInvoiceLabel } from '../common/services/job-billing.service';
 import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { TechnicianJobsService } from '../technician-jobs/technician-jobs.service';
+import { assertNoActiveJob } from '../technician-jobs/active-job.util';
 import { IntakeUnitDto, ServiceIntakeDto } from './dto/service-intake.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import { isUnitLabeled } from '../ac-units/unit-label-status.util';
@@ -25,25 +24,6 @@ export class ServiceOrdersService {
     private readonly acUnits: AcUnitsService,
     private readonly technicianJobs: TechnicianJobsService,
   ) {}
-
-  /**
-   * Unit AC yang masih punya job belum final (bukan selesai/dibatalkan) tidak boleh dibuatkan job servis baru —
-   * mencegah job ganda pada unit yang sama (mis. unit dipilih lagi di intake, atau pemasangan belum rampung).
-   * Baris unit dikunci dulu (urut id) supaya dua pembuatan order bersamaan tidak sama-sama lolos.
-   */
-  private async assertNoActiveJob(tx: Prisma.TransactionClient, unitIds: string[]) {
-    if (unitIds.length === 0) return;
-    await tx.$executeRaw`SELECT id FROM member_ac_units WHERE id IN (${Prisma.join(unitIds)}) ORDER BY id FOR UPDATE`;
-    const busy = await tx.technicianJob.findMany({
-      where: { unitId: { in: unitIds }, status: { notIn: [TechnicianJobStatus.selesai, TechnicianJobStatus.dibatalkan] } },
-      select: { unit: { select: { brand: true, model: true, roomLocation: true, barcodeValue: true } } },
-    });
-    if (busy.length === 0) return;
-    const names = [...new Set(busy.map((b) => (b.unit ? unitInvoiceLabel(b.unit) : 'unit')))];
-    throw new BadRequestException(
-      `Unit berikut masih punya job servis yang belum selesai: ${names.join(', ')}. Selesaikan atau batalkan job itu dulu.`,
-    );
-  }
 
   /**
    * POST /service-orders — port RPC create_service_order (migrasi Supabase
@@ -68,7 +48,7 @@ export class ServiceOrdersService {
 
     const scheduledDate = dto.scheduledDate ? new Date(dto.scheduledDate) : undefined;
     return this.prisma.$transaction(async (tx) => {
-      await this.assertNoActiveJob(tx, unitIds);
+      await assertNoActiveJob(tx, unitIds);
       const order = await tx.serviceOrder.create({
         data: {
           memberId: member.id,
@@ -193,7 +173,7 @@ export class ServiceOrdersService {
         }
       }
       // Unit lama yang dipilih tidak boleh sedang punya job aktif (unit baru pasti belum punya job).
-      await this.assertNoActiveJob(tx, [...existingIds]);
+      await assertNoActiveJob(tx, [...existingIds]);
       if (newUnitCount > 0) {
         await tx.member.update({ where: { id: member.id }, data: { totalAcUnits: { increment: newUnitCount } } });
       }

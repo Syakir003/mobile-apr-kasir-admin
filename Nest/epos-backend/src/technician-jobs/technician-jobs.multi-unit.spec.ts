@@ -34,7 +34,7 @@ function submitSetup(opts: { job?: Record<string, unknown>; invoiceId?: string |
     },
   };
   const prisma: any = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
-  const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any);
+  const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
   return { svc, tx };
 }
 
@@ -78,7 +78,7 @@ describe('TechnicianJobsService.approveComplete — gate harga jasa (pindahan da
         throw new Error('seharusnya tidak sampai transaksi');
       }),
     };
-    const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any);
+    const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
     return { svc, prisma };
   }
 
@@ -122,7 +122,7 @@ describe('TechnicianJobsService.updateFindingNote — deskripsi per temuan', () 
         update: jest.fn(async ({ data }: any) => ({ id: 'f1', ...data })),
       },
     };
-    return { svc: new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any), prisma };
+    return { svc: new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any), prisma };
   }
 
   it('teknisi pemilik menyimpan deskripsi (dipangkas); kosong = dihapus', async () => {
@@ -153,7 +153,7 @@ function findOneSetup(orderType: string) {
       findMany: jest.fn(async () => siblingRows),
     },
   };
-  const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any);
+  const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
   return { svc, prisma, siblingRows };
 }
 
@@ -216,7 +216,7 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
       user: { findUnique: jest.fn(async () => ({ id: 't9', role: 'teknisi', active: true })) },
       $transaction: jest.fn(async (fn: any) => fn(tx)),
     };
-    const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any);
+    const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
     return { svc, prisma, tx };
   }
   const opts = { actorId: 'adm1', role: 'admin' as const };
@@ -385,7 +385,7 @@ function orderSetup(jobList: Record<string, unknown>[], opts: { findings?: Recor
     $transaction: jest.fn(async (fn: any) => fn(tx)),
   };
   prisma.technicianJob.count = tx.technicianJob.count;
-  const svc = new TechnicianJobsService(prisma, {} as any, {} as any, notifications, {} as any);
+  const svc = new TechnicianJobsService(prisma, {} as any, {} as any, notifications, {} as any, {} as any);
   return { svc, tx, prisma, notifications, jobs };
 }
 
@@ -601,7 +601,7 @@ describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () 
       $transaction: jest.fn(async (fn: any) => fn(tx)),
     };
     const jobBilling: any = { rebuild: jest.fn(async () => null) };
-    const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, jobBilling);
+    const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, jobBilling, {} as any);
     return { svc, tx, jobBilling };
   }
 
@@ -687,7 +687,7 @@ describe('TechnicianJobsService.start — job yang dialihkan harus di-scan ulang
       jobFindingPhoto: { count: jest.fn(async () => 1) }, // foto sebelum dari teknisi sebelumnya
       $transaction: jest.fn(async (fn: any) => fn(tx)),
     };
-    return { svc: new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any), tx };
+    return { svc: new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any), tx };
   }
 
   it('barcode salah ditolak; barcode benar memulai lagi dan waktu mulai pertama dipertahankan', async () => {
