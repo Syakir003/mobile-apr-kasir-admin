@@ -109,6 +109,8 @@ class TechnicianJob {
     this.memberPhone = '',
     this.memberAddress = '',
     this.memberMapsUrl = '',
+    this.workAddress = '',
+    this.workMapsUrl = '',
     this.unitBrand = '',
     this.unitModel = '',
     this.unitPk = 0,
@@ -154,6 +156,10 @@ class TechnicianJob {
   final String memberPhone;
   final String memberAddress;
   final String memberMapsUrl;
+
+  /// Titik lokasi kerja job ini bila berbeda dari alamat member (kosong = ikut alamat member).
+  final String workAddress;
+  final String workMapsUrl;
   final String unitBrand;
   final String unitModel;
   final double unitPk;
@@ -186,6 +192,8 @@ class TechnicianJob {
       status != JobStatus.menungguPenugasan &&
       status != JobStatus.assigned;
 
+  bool get hasWorkLocation => workAddress.trim().isNotEmpty || workMapsUrl.trim().isNotEmpty;
+
   String get typeLabel => jobTypeLabel(type);
   String get unitTitle => '$unitBrand $unitModel'.trim();
 
@@ -215,6 +223,8 @@ class TechnicianJob {
       memberPhone: (member?['phone'] as String?) ?? '',
       memberAddress: (member?['address'] as String?) ?? '',
       memberMapsUrl: (member?['maps_url'] as String?) ?? '',
+      workAddress: (data['work_address'] as String?) ?? '',
+      workMapsUrl: (data['work_maps_url'] as String?) ?? '',
       unitBrand: (unit?['brand'] as String?) ?? '',
       unitModel: (unit?['model'] as String?) ?? '',
       unitPk: numFromNest(unit?['pk'])?.toDouble() ?? 0,

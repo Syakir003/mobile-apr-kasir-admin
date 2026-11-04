@@ -24,6 +24,7 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
   late final TextEditingController _name;
   late final TextEditingController _phone;
   late final TextEditingController _address;
+  late final TextEditingController _mapsUrl;
   late final TextEditingController _notes;
   late String _customerType;
   late bool _active;
@@ -38,6 +39,7 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
     _name = TextEditingController(text: m?.name ?? '');
     _phone = TextEditingController(text: m?.phone ?? '');
     _address = TextEditingController(text: m?.address ?? '');
+    _mapsUrl = TextEditingController(text: m?.mapsUrl ?? '');
     _notes = TextEditingController(text: m?.notes ?? '');
     _customerType = m?.customerType ?? kCustomerTypes.first;
     _active = m?.active ?? true;
@@ -48,6 +50,7 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
     _name.dispose();
     _phone.dispose();
     _address.dispose();
+    _mapsUrl.dispose();
     _notes.dispose();
     super.dispose();
   }
@@ -77,6 +80,7 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
       name: _name.text.trim(),
       phone: normalizePhone(_phone.text.trim()),
       address: _address.text.trim(),
+      mapsUrl: _mapsUrl.text.trim(),
       customerType: _customerType,
       memberSince: widget.initial?.memberSince,
       totalAcUnits: widget.initial?.totalAcUnits ?? 0,
@@ -167,6 +171,14 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
               hint: 'Alamat pemasangan atau penagihan',
               maxLines: 2,
               controller: _address,
+              enabled: !_busy,
+            ),
+            const SizedBox(height: kFieldGap),
+            AppTextField(
+              key: const Key('mapsUrl'),
+              label: 'Link Lokasi (Google Maps)',
+              hint: 'Tempel link, atau ketik nama daerah/tempat',
+              controller: _mapsUrl,
               enabled: !_busy,
             ),
             const SizedBox(height: kFieldGap),

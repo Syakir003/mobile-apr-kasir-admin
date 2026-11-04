@@ -27,6 +27,8 @@ class NestMemberRepository implements CrudRepository<Member> {
         'name': m.name,
         'phone': m.phone,
         'address': m.address,
+        // Kosong = hapus link; ketikan biasa (nama daerah) dinormalkan jadi URL oleh backend.
+        'mapsUrl': m.mapsUrl,
         if (_customerTypes.contains(m.customerType)) 'customerType': m.customerType,
         'notes': m.notes ?? '',
       };

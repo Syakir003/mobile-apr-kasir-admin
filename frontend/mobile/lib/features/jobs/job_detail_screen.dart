@@ -865,12 +865,57 @@ class _JobSteps extends StatelessWidget {
 
 /// Link lokasi: link Google Maps yang diisi admin/kasir (hanya http/https); bila kosong,
 /// cari alamat teksnya di Google Maps; bila alamat juga kosong, tidak ada link.
-Uri? mapsUriFor(TechnicianJob job) {
-  final url = job.memberMapsUrl.trim();
+Uri? mapsUriFor(TechnicianJob job) => _mapsUri(job.memberMapsUrl, job.memberAddress);
+
+/// Sama untuk titik lokasi kerja job (bila berbeda dari alamat member).
+Uri? workMapsUriFor(TechnicianJob job) => _mapsUri(job.workMapsUrl, job.workAddress);
+
+Uri? _mapsUri(String rawUrl, String rawAddress) {
+  final url = rawUrl.trim();
   if (RegExp(r'^https?://', caseSensitive: false).hasMatch(url)) return Uri.tryParse(url);
-  final address = job.memberAddress.trim();
+  final address = rawAddress.trim();
   if (address.isEmpty) return null;
   return Uri.https('www.google.com', '/maps/search/', {'api': '1', 'query': address});
+}
+
+/// Teks "Buka di Maps" yang bisa diketuk.
+class _MapsLink extends StatelessWidget {
+  const _MapsLink({super.key, required this.uri});
+  final Uri uri;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: () => launchUrl(uri, mode: LaunchMode.externalApplication),
+        child: const Text('Buka di Maps',
+            style: TextStyle(
+                color: AppColors.teal700,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                decoration: TextDecoration.underline)),
+      );
+}
+
+/// Alamat titik lokasi kerja + link Maps-nya (rata kanan di baris info, rata kiri di section unit).
+class _WorkLocationValue extends StatelessWidget {
+  const _WorkLocationValue({required this.job, this.alignEnd = true});
+  final TechnicianJob job;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final maps = workMapsUriFor(job);
+    return Column(
+      crossAxisAlignment: alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        if (job.workAddress.isNotEmpty)
+          Text(job.workAddress,
+              textAlign: alignEnd ? TextAlign.right : TextAlign.left,
+              style: const TextStyle(
+                  color: AppColors.slate900, fontSize: 14, fontWeight: FontWeight.w600)),
+        if (maps != null) _MapsLink(key: const Key('open-work-maps'), uri: maps),
+      ],
+    );
+  }
 }
 
 class _InfoCard extends StatelessWidget {
@@ -903,16 +948,7 @@ class _InfoCard extends StatelessWidget {
               maps == null
                   ? const Text('-',
                       style: TextStyle(color: AppColors.slate900, fontSize: 14, fontWeight: FontWeight.w600))
-                  : InkWell(
-                      key: const Key('open-maps'),
-                      onTap: () => launchUrl(maps, mode: LaunchMode.externalApplication),
-                      child: const Text('Buka di Maps',
-                          style: TextStyle(
-                              color: AppColors.teal700,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              decoration: TextDecoration.underline)),
-                    ),
+                  : _MapsLink(key: const Key('open-maps'), uri: maps),
             ),
             if (showUnit && job.unitId != null) ...[
               const Divider(height: 1),
@@ -928,6 +964,11 @@ class _InfoCard extends StatelessWidget {
               const Divider(height: 1),
               _row(Icons.qr_code, 'Barcode',
                   job.unitBarcode.isEmpty ? 'Belum digenerate' : job.unitBarcode),
+            ],
+            // Titik lokasi kerja bila berbeda dari alamat pelanggan (sama dengan baris "Lokasi kerja" di web).
+            if (showUnit && job.hasWorkLocation) ...[
+              const Divider(height: 1),
+              _rowWidget(Icons.pin_drop_outlined, 'Lokasi kerja', _WorkLocationValue(job: job)),
             ],
             if (job.technicianName.isNotEmpty) ...[
               const Divider(height: 1),
@@ -2191,6 +2232,12 @@ class _UnitSection extends StatelessWidget {
             if (job.unitParts.isNotEmpty)
               Text(job.unitParts,
                   style: const TextStyle(fontSize: 12.5, color: AppColors.slate500)),
+            if (job.hasWorkLocation) ...[
+              const SizedBox(height: 8),
+              const Text('Lokasi kerja',
+                  style: TextStyle(fontSize: 12.5, color: AppColors.slate500)),
+              _WorkLocationValue(job: job, alignEnd: false),
+            ],
             if (job.startedAt != null && job.status == JobStatus.assigned) ...[
               const SizedBox(height: 8),
               NoticePanel(
