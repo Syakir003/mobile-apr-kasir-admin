@@ -15,7 +15,7 @@ interface AcUnit {
   model: string | null;
   roomLocation: string | null;
   barcodeValue: string;
-  // 'menunggu_data' = unit "QR dulu" (tipe belum diketahui) — label diberi penanda seperti label Input Data Lampau.
+  // 'menunggu_data' = unit "QR dulu" (tipe belum diketahui) — baris tipe di label dikosongkan (tanpa tulisan apa pun).
   status?: string;
   indoorProduct?: UnitPartProduct | null;
   outdoorProduct?: UnitPartProduct | null;
@@ -105,12 +105,8 @@ export function UnitLabelsPrintClient({
             <BarcodeQr value={unit.barcodeValue} size={104} />
             <p className="text-sm">{unit.barcodeValue}</p>
             {buyerName && <p className="text-sm font-medium">{buyerName}</p>}
-            {unit.status === 'menunggu_data' ? (
-              <p className="inline-block border border-black px-1 text-xs font-bold">TIPE BELUM DIKETAHUI</p>
-            ) : (
-              <p className="text-sm">
-                {[unit.brand, unit.model].filter(Boolean).join(' ') || '-'}
-              </p>
+            {unit.status !== 'menunggu_data' && [unit.brand, unit.model].filter(Boolean).length > 0 && (
+              <p className="text-sm">{[unit.brand, unit.model].filter(Boolean).join(' ')}</p>
             )}
             {unit.indoorProduct && <p className="text-xs">Indoor: {unit.indoorProduct.name}</p>}
             {unit.outdoorProduct && <p className="text-xs">Outdoor: {unit.outdoorProduct.name}</p>}

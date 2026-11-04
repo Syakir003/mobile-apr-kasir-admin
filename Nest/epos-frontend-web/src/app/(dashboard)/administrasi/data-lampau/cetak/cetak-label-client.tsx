@@ -24,7 +24,7 @@ interface LabelUnit {
 
 // Lembar stiker A4, 2 kolom. Setiap label SELALU memuat nama member +
 // alamat + ruangan supaya tim yang keliling tahu tujuannya tanpa buka sistem.
-// Unit 'menunggu_data' diberi tanda "TIPE BELUM DIKETAHUI" — teknisi
+// Unit 'menunggu_data' (tipe belum diketahui) tidak diberi tulisan apa pun di baris tipe, dibiarkan kosong — teknisi
 // melengkapi datanya saat scan di lokasi.
 export function CetakLabelClient({ ids }: { ids: string }) {
   const router = useRouter();
@@ -62,7 +62,14 @@ export function CetakLabelClient({ ids }: { ids: string }) {
 
       <div className="grid grid-cols-2 gap-2 bg-white text-black">
         {data.map((u) => {
-          const tipe = [u.brand, u.model].filter(Boolean).join(' ');
+          // Tipe belum diketahui (unit 'menunggu_data', mis. "QR dulu") atau belum ada: baris tipe dikosongkan, tanpa
+          // tulisan apa pun di label — teknisi melengkapi datanya saat scan di lokasi.
+          const tipeLine =
+            u.status === 'menunggu_data'
+              ? ''
+              : [[u.brand, u.model].filter(Boolean).join(' '), u.pk != null ? `${u.pk} PK` : '']
+                  .filter(Boolean)
+                  .join(' · ');
           return (
             <div
               key={u.id}
@@ -78,16 +85,7 @@ export function CetakLabelClient({ ids }: { ids: string }) {
                 <p className="text-sm font-bold">{u.member.name}</p>
                 <p className="mt-0.5 line-clamp-3">{u.member.address || '-'}</p>
                 {u.roomLocation && <p className="mt-0.5 font-medium">Ruang: {u.roomLocation}</p>}
-                {u.status === 'menunggu_data' ? (
-                  <p className="mt-1 inline-block border border-black px-1 text-[10px] font-bold">
-                    TIPE BELUM DIKETAHUI
-                  </p>
-                ) : (
-                  <p className="mt-0.5">
-                    {tipe || '-'}
-                    {u.pk != null ? ` · ${u.pk} PK` : ''}
-                  </p>
-                )}
+                {tipeLine && <p className="mt-0.5">{tipeLine}</p>}
               </div>
             </div>
           );
