@@ -462,6 +462,23 @@ export class AcUnitsService {
         unit: true,
         technician: { select: { id: true, displayName: true, email: true } },
         order: true,
+        // Riwayat unit di mobile: alih tugas + pencatat temuan (sama dengan riwayat servis unit di web).
+        findings: {
+          select: { id: true, title: true, origin: true, createdBy: { select: { id: true, displayName: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+        handovers: {
+          select: {
+            id: true,
+            createdAt: true,
+            statusAtHandover: true,
+            reason: true,
+            fromTechnician: { select: { id: true, displayName: true } },
+            toTechnician: { select: { id: true, displayName: true } },
+            handedBy: { select: { id: true, displayName: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });

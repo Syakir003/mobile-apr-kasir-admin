@@ -46,6 +46,44 @@ DateTime? _toDate(Object? v) => switch (v) {
       _ => null,
     };
 
+/// Satu entri riwayat alih tugas (`job_handovers`).
+class JobHandover {
+  const JobHandover({
+    required this.id,
+    required this.createdAt,
+    required this.statusAtHandover,
+    required this.fromName,
+    required this.toName,
+    required this.handedByName,
+    this.reason,
+  });
+
+  final String id;
+  final DateTime? createdAt;
+  final String statusAtHandover;
+  final String fromName;
+  final String toName;
+  final String handedByName;
+  final String? reason;
+
+  /// Keterangan status job saat dialihkan (sama dengan `handoverStatusText` di web).
+  String get statusText => switch (statusAtHandover) {
+        'sedang_dikerjakan' => 'dialihkan saat sedang dikerjakan',
+        'menunggu_review' => 'dialihkan saat menunggu review',
+        _ => 'dialihkan sebelum dimulai',
+      };
+
+  factory JobHandover.fromNest(Map<String, dynamic> j) => JobHandover(
+        id: '${j['id']}',
+        createdAt: _toDate(j['createdAt']),
+        statusAtHandover: (j['statusAtHandover'] as String?) ?? '',
+        fromName: ((j['fromTechnician'] as Map?)?['displayName'] as String?) ?? '-',
+        toName: ((j['toTechnician'] as Map?)?['displayName'] as String?) ?? '-',
+        handedByName: ((j['handedBy'] as Map?)?['displayName'] as String?) ?? '-',
+        reason: j['reason'] as String?,
+      );
+}
+
 /// Job teknisi (tabel `technician_jobs`), diperkaya dengan data member, unit
 /// AC, dan nama teknisi lewat repositori (join client-side). Field enrichment
 /// bersifat opsional — kosong bila relasi belum dimuat.
@@ -78,6 +116,11 @@ class TechnicianJob {
     this.unitBarcode = '',
     this.unitParts = '',
     this.technicianName = '',
+    this.siblingIds = const [],
+    this.orderNote,
+    this.handovers = const [],
+    this.unitAwaitingData = false,
+    this.findingHeads = const [],
   });
 
   final String id;
@@ -121,6 +164,28 @@ class TechnicianJob {
   final String unitParts;
   final String technicianName;
 
+  /// Servis banyak AC: id job lain (unit lain) di order yang sama; kosong = servis satu unit.
+  final List<String> siblingIds;
+
+  /// Deskripsi Pekerjaan order (`service_orders.note`).
+  final String? orderNote;
+
+  /// Riwayat alih tugas job ini (kosong bila tak pernah dialihkan).
+  final List<JobHandover> handovers;
+
+  /// Unit "QR dulu" (`menunggu_data`): merk/PK wajib dilengkapi lewat Scan Unit sebelum job bisa dimulai.
+  final bool unitAwaitingData;
+
+  /// Ringkasan temuan (judul + pencatat) untuk riwayat unit; tanpa foto.
+  final List<({String title, String? by})> findingHeads;
+
+  /// Sudah discan = sudah dimulai (start mewajibkan scan barcode). Job yang dialihkan saat
+  /// sedang dikerjakan kembali ke `assigned`: startedAt tetap terisi tapi wajib scan ulang.
+  bool get scanned =>
+      startedAt != null &&
+      status != JobStatus.menungguPenugasan &&
+      status != JobStatus.assigned;
+
   String get typeLabel => jobTypeLabel(type);
   String get unitTitle => '$unitBrand $unitModel'.trim();
 
@@ -157,6 +222,20 @@ class TechnicianJob {
       unitBarcode: (unit?['barcode_value'] as String?) ?? '',
       unitParts: (unit?['parts'] as String?) ?? '',
       technicianName: (data['technician_name'] as String?) ?? '',
+      siblingIds: [for (final i in (data['sibling_ids'] as List? ?? const [])) '$i'],
+      orderNote: data['order_note'] as String?,
+      handovers: [
+        for (final h in (data['handovers'] as List? ?? const []))
+          JobHandover.fromNest(Map<String, dynamic>.from(h as Map)),
+      ],
+      unitAwaitingData: unit?['status'] == 'menunggu_data',
+      findingHeads: [
+        for (final f in (data['findings'] as List? ?? const []))
+          (
+            title: ((f as Map)['title'] as String?) ?? '',
+            by: (f['createdBy'] as Map?)?['displayName'] as String?,
+          ),
+      ],
     );
   }
 }

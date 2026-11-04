@@ -524,6 +524,29 @@ class _HistoryTile extends StatelessWidget {
                               fontSize: 12, color: AppColors.slate400),
                         ),
 
+                      for (final h in job.handovers)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Text(
+                            'Alih tugas: ${h.fromName} → ${h.toName} · '
+                            '${h.createdAt == null ? '' : '${formatHistoryDate(h.createdAt!)} · '}'
+                            '${h.statusText}${(h.reason ?? '').isEmpty ? '' : ' · Alasan: ${h.reason}'}',
+                            style: const TextStyle(fontSize: 11.5, color: AppColors.slate500),
+                          ),
+                        ),
+                      if (job.findingHeads.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            [
+                              for (final f in job.findingHeads)
+                                '• ${f.title}'
+                                    '${job.handovers.isNotEmpty && (f.by ?? '').isNotEmpty ? ' (oleh ${f.by})' : ''}',
+                            ].join('\n'),
+                            style: const TextStyle(fontSize: 12, color: AppColors.slate700),
+                          ),
+                        ),
+
                       const SizedBox(height: 8),
                       Wrap(
                         spacing: 6,

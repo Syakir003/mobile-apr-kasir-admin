@@ -87,12 +87,13 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
                 if (jobs.isEmpty) {
                   return _EmptyState(showDone: _showDone);
                 }
+                final rows = groupJobsByOrder(jobs);
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: jobs.length,
+                  itemCount: rows.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (_, i) =>
-                      JobCard(job: jobs[i], showTechnician: !isTeknisi),
+                  itemBuilder: (_, i) => JobCard(
+                      job: rows[i].first, group: rows[i], showTechnician: !isTeknisi),
                 );
               },
             ),
@@ -104,17 +105,27 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
 }
 
 class JobCard extends StatelessWidget {
-  const JobCard({super.key, required this.job, this.showTechnician = false});
+  const JobCard({super.key, required this.job, this.showTechnician = false, this.group = const []});
 
   final TechnicianJob job;
   final bool showTechnician;
 
+  /// Semua job satu order (servis banyak AC); lebih dari satu = kartu ringkasan order.
+  final List<TechnicianJob> group;
+
   @override
   Widget build(BuildContext context) {
-    final color = jobStatusColor(job.status);
-    final title = job.unitTitle.isEmpty
-        ? 'Order ${job.typeLabel}'
-        : job.unitTitle;
+    final many = group.length > 1;
+    // Satu baris = satu order banyak AC: status = tahap paling awal di antara unitnya.
+    final status = many
+        ? group.map((j) => j.status).reduce((a, b) => a.index <= b.index ? a : b)
+        : job.status;
+    final color = jobStatusColor(status);
+    final title = many
+        ? '${group.length} unit AC'
+        : job.unitTitle.isEmpty
+            ? 'Order ${job.typeLabel}'
+            : job.unitTitle;
     return Card(
       child: InkWell(
         onTap: () => context.go('/jobs/${job.id}'),
@@ -148,7 +159,7 @@ class JobCard extends StatelessWidget {
                         color: AppColors.slate900,
                       ),
                     ),
-                    if (job.unitParts.isNotEmpty) ...[
+                    if (!many && job.unitParts.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(
                         job.unitParts,
@@ -191,7 +202,7 @@ class JobCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              StatusBadge(label: job.status.label, color: color),
+              StatusBadge(label: status.label, color: color),
             ],
           ),
         ),

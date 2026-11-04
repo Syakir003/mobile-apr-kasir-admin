@@ -13,6 +13,7 @@ import '../../core/widgets/page_header.dart';
 import '../../data/models/app_user.dart';
 import '../jobs/job_providers.dart';
 import '../jobs/teknisi_dashboard_sections.dart';
+import '../jobs/teknisi_tutorial.dart';
 import '../keluar_gudang/keluar_gudang_providers.dart';
 import '../notifications/notification_bell.dart';
 import '../pos/cart_state.dart' show formatRupiah;
@@ -66,7 +67,13 @@ class DashboardScreen extends ConsumerWidget {
                       title: 'Dashboard',
                       subtitle: formatTanggalPanjang(DateTime.now()),
                       subtitleIcon: Icons.calendar_today_outlined,
-                      action: role == UserRole.teknisi || role == UserRole.gudang
+                      action: role == UserRole.teknisi
+                          ? PageHeaderAction(
+                              icon: Icons.help_outline,
+                              label: 'Tutorial',
+                              onPressed: () => showTeknisiTutorial(context),
+                            )
+                          : role == UserRole.gudang
                           ? null
                           : PageHeaderAction(
                               icon: Icons.download_outlined,

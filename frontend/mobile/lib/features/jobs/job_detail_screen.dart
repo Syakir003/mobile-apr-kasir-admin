@@ -22,6 +22,7 @@ import 'job_list_screen.dart' show jobStatusColor;
 import 'job_providers.dart';
 import 'job_report_pdf.dart';
 import 'job_requests_section.dart';
+import 'teknisi_tutorial.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/form_field.dart';
 import '../../core/widgets/empty_state.dart';
@@ -84,6 +85,38 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     );
   }
 
+  /// Servis banyak AC: scan barcode salah satu unit yang belum discan = unit itu dimulai.
+  /// [pending] = semua unit yang belum discan (label + keterangan kenapa belum bisa), ditampilkan di sheet scan.
+  Future<void> _startUnit(
+      List<TechnicianJob> startable, List<({String label, String? hint})> pending) async {
+    final scanned = await _scanBarcode('',
+        unitLabel: 'salah satu unit yang belum discan',
+        accepted: [for (final j in startable) j.unitBarcode],
+        pending: pending);
+    if (scanned == null) return;
+    final match = startable.firstWhere((j) => j.unitBarcode.trim() == scanned.trim());
+    final caller = ref.read(updateJobStatusCallerProvider);
+    await _run(
+      () => caller({'jobId': match.id, 'action': 'start', 'scannedBarcode': scanned}),
+      'Unit dimulai: ${match.unitTitle}.',
+    );
+    ref.invalidate(jobProvider(match.id));
+    ref.invalidate(jobFindingsProvider(match.id));
+  }
+
+  /// Servis banyak AC: Ajukan Selesai berlaku untuk SEMUA unit sekaligus (server memeriksa atomik).
+  Future<void> _submitAll(TechnicianJob first, List<String> ids) async {
+    final caller = ref.read(updateJobStatusCallerProvider);
+    await _run(
+      () => caller({'jobId': first.id, 'action': 'submit_review', 'allInOrder': true}),
+      'Seluruh unit diajukan untuk review.',
+    );
+    for (final id in ids) {
+      ref.invalidate(jobProvider(id));
+      ref.invalidate(jobFindingsProvider(id));
+    }
+  }
+
   Future<void> _saveNotes(TechnicianJob job) =>
       _run(() => saveJobNotes(job.id, _notes.text.trim()), 'Catatan disimpan.');
 
@@ -138,7 +171,10 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   ///
   /// [unitLabel] dipakai sebagai petunjuk di layar — nilai [expected] sendiri
   /// tidak pernah ditampilkan utuh, lihat [_ScanSheet].
-  Future<String?> _scanBarcode(String expected, {required String unitLabel}) {
+  Future<String?> _scanBarcode(String expected,
+      {required String unitLabel,
+      List<String>? accepted,
+      List<({String label, String? hint})>? pending}) {
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -147,7 +183,8 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
       builder: (sheetContext) =>
-          _ScanSheet(expected: expected, unitLabel: unitLabel),
+          _ScanSheet(
+              expected: expected, unitLabel: unitLabel, accepted: accepted, pending: pending),
     );
   }
 
@@ -157,6 +194,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     BuildContext context,
     TechnicianJob job,
     List<MaterialRequest> requests,
+    List<TechnicianJob> orderJobs,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     final materials = requests
@@ -165,7 +203,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         .toList(growable: false);
     try {
       await Printing.layoutPdf(
-        onLayout: (_) => buildJobReportPdf(job, materials),
+        onLayout: (_) => buildJobReportPdf(job, materials, orderJobs: orderJobs),
         name: 'Laporan-Pekerjaan-${job.id.substring(0, 8)}',
       );
       messenger.showSnackBar(
@@ -184,14 +222,29 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     final jobAsync = ref.watch(jobProvider(widget.jobId));
     final role = ref.watch(currentUserProvider).value?.role;
     final unitId = jobAsync.value?.unitId;
-    final requests =
-        ref.watch(jobRequestsProvider(widget.jobId)).value ??
-            const <MaterialRequest>[];
+    // Servis banyak AC: laporan satu untuk seluruh order, jadi ikutkan job & pengajuan semua unit.
+    final siblingIds = jobAsync.value?.siblingIds ?? const <String>[];
+    final requests = [
+      for (final id in [widget.jobId, ...siblingIds])
+        ...(ref.watch(jobRequestsProvider(id)).value ?? const <MaterialRequest>[]),
+    ];
+    final orderJobs = [
+      if (jobAsync.value != null) jobAsync.value!,
+      for (final id in siblingIds)
+        if (ref.watch(jobProvider(id)).value case final j?) j,
+    ];
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detail Job'),
         actions: [
+          if (role == UserRole.teknisi)
+            IconButton(
+              key: const Key('job-tutorial'),
+              icon: const Icon(Icons.help_outline),
+              tooltip: 'Tutorial',
+              onPressed: () => showTeknisiTutorial(context),
+            ),
           // Kasir/admin/teknisi bisa cetak laporan pekerjaan (rangkap kartu
           // garansi) kapan saja job sudah dimuat — cocok dicetak blank di
           // lapangan atau lengkap setelah job selesai.
@@ -201,7 +254,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               icon: const Icon(Icons.print_outlined),
               tooltip: 'Cetak Laporan Pekerjaan',
               onPressed: () =>
-                  _printJobReport(context, jobAsync.value!, requests),
+                  _printJobReport(context, jobAsync.value!, requests, orderJobs),
             ),
           // Teknisi perlu tahu apa yang pernah dikerjakan pada unit ini.
           if (unitId != null)
@@ -224,6 +277,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             _notes.text = job.notes!;
             _notesInit = true;
           }
+          if (job.siblingIds.isNotEmpty) return _multiUnitBody(job, role);
           final findings = ref.watch(jobFindingsProvider(job.id)).value;
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -231,7 +285,26 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               _HeaderCard(job: job),
               const SizedBox(height: 12),
               _InfoCard(job: job),
+              if ((job.orderNote ?? '').trim().isNotEmpty &&
+                  !noteRepeatsComplaint(job.orderNote!, findings ?? const [])) ...[
+                const SizedBox(height: 12),
+                _WorkNoteCard(note: job.orderNote!),
+              ],
+              if (job.handovers.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _HandoverHistoryCard(items: job.handovers),
+              ],
               _PaymentBanner(jobId: job.id),
+              // Dialihkan saat sedang dikerjakan: kembali ke Ditugaskan, teknisi baru wajib scan ulang.
+              if (job.startedAt != null && job.status == JobStatus.assigned) ...[
+                const SizedBox(height: 12),
+                NoticePanel(
+                  tone: NoticeTone.warning,
+                  icon: Icons.qr_code_scanner,
+                  text:
+                      'Menunggu scan ulang. Mulai pertama ${_formatDate(job.startedAt!)} (teknisi sebelumnya); scan barcode unit untuk melanjutkan.',
+                ),
+              ],
               if (role == UserRole.teknisi &&
                   job.status == JobStatus.sedangDikerjakan &&
                   (job.reviewNote ?? '').isNotEmpty) ...[
@@ -273,6 +346,206 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     );
   }
 
+  /// Servis banyak AC: satu halaman per order, section per unit; satu panel Mulai (scan tiap unit),
+  /// satu Ajukan Selesai, satu pengajuan sparepart (sama dengan halaman web).
+  Widget _multiUnitBody(TechnicianJob first, UserRole? role) {
+    final ids = [first.id, ...first.siblingIds];
+    final all = <TechnicianJob>[];
+    for (final id in ids) {
+      final j = id == first.id ? first : ref.watch(jobProvider(id)).value;
+      if (j != null) all.add(j);
+    }
+    all.sort((a, b) => (a.createdAt ?? DateTime(0)).compareTo(b.createdAt ?? DateTime(0)));
+    final findingsOf = {
+      for (final j in all) j.id: ref.watch(jobFindingsProvider(j.id)).value,
+    };
+    final isTeknisi = role == UserRole.teknisi;
+    final allLoaded = all.length == ids.length;
+    final active = all.where((j) => j.status != JobStatus.dibatalkan).toList();
+    final working = active.where((j) => j.status == JobStatus.sedangDikerjakan).toList();
+    final notStarted = active
+        .where((j) => j.status == JobStatus.menungguPenugasan || j.status == JobStatus.assigned)
+        .toList();
+    bool hasBefore(TechnicianJob j) => findingsOf[j.id]?.any((f) => f.hasBefore) ?? false;
+    // Unit yang bisa discan sekarang: sudah ditugaskan, ber-barcode, dan sudah ada foto sebelum.
+    final startable = notStarted
+        .where((j) =>
+            j.status == JobStatus.assigned &&
+            j.unitBarcode.isNotEmpty &&
+            !j.unitAwaitingData &&
+            hasBefore(j))
+        .toList();
+    final requestsOf = {
+      for (final j in all) j.id: ref.watch(jobRequestsProvider(j.id)).value,
+    };
+    // Sama dengan gate submitForReview di server: temuan/foto lengkap, dan pengajuan sparepart tidak menggantung.
+    String? blockerOf(TechnicianJob j) {
+      final f = findingsOf[j.id];
+      if (f == null) return 'memuat temuan…';
+      final base = submitBlockedReason(j, f);
+      if (base != null) return base;
+      final r = requestsOf[j.id] ?? const <MaterialRequest>[];
+      if (r.any((x) => x.isPending)) return 'pengajuan sparepart belum diputuskan';
+      if (r.any((x) => x.needsUsage)) return 'sparepart disetujui belum ditandai terpakai';
+      return null;
+    }
+
+    final canSubmitAll = allLoaded &&
+        working.isNotEmpty &&
+        notStarted.isEmpty &&
+        working.every((j) => blockerOf(j) == null);
+    final scannedCount = active.where((j) => j.scanned).length;
+    final holders = all.where(
+        (j) => j.status == JobStatus.assigned || j.status == JobStatus.sedangDikerjakan);
+    final holder = holders.isEmpty ? first : holders.first;
+    final allFindings = [
+      for (final f in findingsOf.values) ...(f ?? const <JobFinding>[]),
+    ];
+    final returned = working.where((j) => (j.reviewNote ?? '').isNotEmpty).toList();
+    String unitName(TechnicianJob j) =>
+        '${j.unitTitle.isEmpty ? 'Unit AC' : j.unitTitle}${j.unitRoom.isEmpty ? '' : ' (${j.unitRoom})'}';
+    String whyNotStartable(TechnicianJob j) => j.status != JobStatus.assigned
+        ? 'belum ditugaskan'
+        : j.unitAwaitingData
+            ? 'data unit belum dilengkapi (QR dulu)'
+            : j.unitBarcode.isEmpty
+                ? 'belum punya barcode'
+                : 'foto sebelum belum ada';
+    // Status satu baris di header tiap unit (menggantikan daftar centang terpisah).
+    (String, bool) stateOf(TechnicianJob j) => switch (j.status) {
+          JobStatus.menungguPenugasan || JobStatus.assigned => (
+              startable.contains(j) ? 'Belum discan' : 'Belum discan · ${whyNotStartable(j)}',
+              true
+            ),
+          JobStatus.sedangDikerjakan => (blockerOf(j) ?? 'Siap diajukan', blockerOf(j) != null),
+          _ => (j.status.label, false),
+        };
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _OrderHeaderCard(
+          job: first,
+          unitCount: all.length,
+          status: active.isEmpty
+              ? first.status
+              : active.map((j) => j.status).reduce((a, b) => a.index <= b.index ? a : b),
+        ),
+        const SizedBox(height: 12),
+        _InfoCard(job: first, showUnit: false),
+        if ((first.orderNote ?? '').trim().isNotEmpty &&
+            !noteRepeatsComplaint(first.orderNote!, allFindings)) ...[
+          const SizedBox(height: 12),
+          _WorkNoteCard(note: first.orderNote!),
+        ],
+        if (all.any((j) => j.handovers.isNotEmpty)) ...[
+          const SizedBox(height: 12),
+          _HandoverHistoryCard(items: mergeHandovers([for (final j in all) j.handovers])),
+        ],
+        if (isTeknisi && returned.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          NoticePanel(
+            tone: NoticeTone.warning,
+            icon: Icons.undo,
+            text: 'Dikembalikan admin: ${returned.first.reviewNote}',
+          ),
+        ],
+        const SizedBox(height: 12),
+        for (var i = 0; i < all.length; i++) ...[
+          _UnitSection(
+            key: ValueKey('unit-${all[i].id}'),
+            job: all[i],
+            index: i,
+            stateText: stateOf(all[i]).$1,
+            stateWarn: stateOf(all[i]).$2,
+            defaultOpen: all[i].id == first.id || all.length <= 2,
+            canEdit: isTeknisi &&
+                (all[i].status == JobStatus.assigned ||
+                    all[i].status == JobStatus.sedangDikerjakan),
+            busy: _busy,
+            onSaveNotes: (text) =>
+                _run(() => saveJobNotes(all[i].id, text), 'Catatan disimpan.'),
+          ),
+          const SizedBox(height: 12),
+        ],
+        JobRequestsSection(
+          job: holder,
+          otherJobIds: [
+            for (final j in all)
+              if (j.id != holder.id) j.id
+          ],
+        ),
+        const SizedBox(height: 20),
+        if (isTeknisi && notStarted.isNotEmpty) ...[
+          if (notStarted.any((j) => j.unitAwaitingData)) ...[
+            _awaitingDataPanel(),
+            const SizedBox(height: 10),
+          ] else if (startable.isEmpty) ...[
+            const NoticePanel(
+              tone: NoticeTone.warning,
+              icon: Icons.lock_outline,
+              text: 'Tambah temuan dan unggah foto SEBELUM di tiap unit dulu untuk memulai pekerjaan.',
+            ),
+            const SizedBox(height: 10),
+          ],
+          _primaryButton(
+            icon: Icons.qr_code_scanner,
+            label: 'Mulai Pekerjaan ($scannedCount/${active.length} unit discan)',
+            onPressed: startable.isEmpty
+                ? null
+                : () => _startUnit(startable, [
+                      for (final j in notStarted)
+                        (label: unitName(j), hint: startable.contains(j) ? null : whyNotStartable(j)),
+                    ]),
+          ),
+        ] else if (isTeknisi && working.isNotEmpty) ...[
+          if (!canSubmitAll)
+            ...() {
+              final stuck = working.where((j) => blockerOf(j) != null).toList();
+              return [
+                NoticePanel(
+                  tone: NoticeTone.warning,
+                  icon: Icons.hourglass_empty,
+                  text: stuck.isEmpty
+                      ? 'Memuat data unit…'
+                      : '${unitName(stuck.first)}: ${blockerOf(stuck.first)}',
+                ),
+                const SizedBox(height: 10),
+              ];
+            }(),
+          _primaryButton(
+            icon: Icons.check_circle_outline,
+            label: 'Ajukan Selesai (${working.length} unit)',
+            onPressed: canSubmitAll ? () => _submitAll(first, ids) : null,
+          ),
+        ] else if (active.isNotEmpty)
+          _StatusHint(status: active.first.status),
+      ],
+    );
+  }
+
+  /// Unit "QR dulu": backend menolak Mulai sampai merk/PK dilengkapi lewat Scan Unit.
+  Widget _awaitingDataPanel() => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const NoticePanel(
+            tone: NoticeTone.warning,
+            icon: Icons.lock_outline,
+            text:
+                'Data unit AC ini belum dilengkapi (QR dulu). Scan QR-nya di Scan Unit dan isi merk/PK dulu sebelum memulai.',
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const Key('open-scan-unit'),
+              onPressed: () => context.go('/scan'),
+              icon: const Icon(Icons.qr_code_scanner, size: 18),
+              label: const Text('Buka Scan Unit'),
+            ),
+          ),
+        ],
+      );
+
   List<Widget> _actions(TechnicianJob job, UserRole? role, List<JobFinding>? loaded) {
     final findings = loaded ?? const <JobFinding>[];
     final hasBefore = findings.any((f) => f.hasBefore);
@@ -286,7 +559,10 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       if (job.status == JobStatus.assigned) {
         // Server mewajibkan: unit ber-barcode, minimal satu foto SEBELUM pada temuan.
         final noBarcode = job.unitId == null || job.unitBarcode.isEmpty;
-        if (noBarcode) {
+        if (job.unitAwaitingData) {
+          widgets.add(_awaitingDataPanel());
+          widgets.add(const SizedBox(height: 10));
+        } else if (noBarcode) {
           widgets.add(const NoticePanel(
             tone: NoticeTone.warning,
             icon: Icons.lock_outline,
@@ -304,7 +580,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         widgets.add(_primaryButton(
           icon: Icons.qr_code_scanner,
           label: 'Mulai Pekerjaan',
-          onPressed: (hasBefore && !noBarcode) ? () => _start(job) : null,
+          onPressed: (hasBefore && !noBarcode && !job.unitAwaitingData) ? () => _start(job) : null,
         ));
       } else if (job.status == JobStatus.sedangDikerjakan) {
         final blocked = loaded == null ? null : submitBlockedReason(job, findings);
@@ -598,8 +874,11 @@ Uri? mapsUriFor(TechnicianJob job) {
 }
 
 class _InfoCard extends StatelessWidget {
-  const _InfoCard({required this.job});
+  const _InfoCard({required this.job, this.showUnit = true});
   final TechnicianJob job;
+
+  /// Servis banyak AC: data unit ada di section tiap unit, bukan di kartu order.
+  final bool showUnit;
 
   @override
   Widget build(BuildContext context) {
@@ -635,7 +914,7 @@ class _InfoCard extends StatelessWidget {
                               decoration: TextDecoration.underline)),
                     ),
             ),
-            if (job.unitId != null) ...[
+            if (showUnit && job.unitId != null) ...[
               const Divider(height: 1),
               _row(Icons.ac_unit, 'Unit AC',
                   job.unitTitle.isEmpty ? '-' : job.unitTitle),
@@ -654,12 +933,12 @@ class _InfoCard extends StatelessWidget {
               const Divider(height: 1),
               _row(Icons.badge_outlined, 'Teknisi', job.technicianName),
             ],
-            if (job.startedAt != null) ...[
+            if (showUnit && job.startedAt != null) ...[
               const Divider(height: 1),
               _row(Icons.play_circle_outline, 'Mulai',
                   _formatDate(job.startedAt!)),
             ],
-            if (job.completedAt != null) ...[
+            if (showUnit && job.completedAt != null) ...[
               const Divider(height: 1),
               _row(Icons.check_circle_outline, 'Selesai',
                   _formatDate(job.completedAt!)),
@@ -917,9 +1196,16 @@ class _AssignPanelState extends ConsumerState<_AssignPanel> {
 /// Yang ditampilkan hanya identitas unit + 4 karakter terakhir barcode,
 /// cukup untuk memastikan unit yang benar tanpa bisa direkonstruksi.
 class _ScanSheet extends StatefulWidget {
-  const _ScanSheet({required this.expected, required this.unitLabel});
+  const _ScanSheet(
+      {required this.expected, required this.unitLabel, this.accepted, this.pending});
   final String expected;
   final String unitLabel;
+
+  /// Servis banyak AC: daftar unit yang belum discan, ditampilkan di bawah kolom kode manual.
+  final List<({String label, String? hint})>? pending;
+
+  /// Servis banyak AC: barcode salah satu unit yang belum discan dianggap cocok ([expected] diabaikan).
+  final List<String>? accepted;
 
   @override
   State<_ScanSheet> createState() => _ScanSheetState();
@@ -930,7 +1216,12 @@ class _ScanSheetState extends State<_ScanSheet> {
 
   /// 4 karakter terakhir barcode — pembeda antar unit di alamat yang sama,
   /// tapi terlalu sedikit untuk diketik di input manual.
+  bool _matches(String raw) => widget.accepted != null
+      ? widget.accepted!.any((b) => b.trim() == raw.trim())
+      : raw.trim() == widget.expected.trim();
+
   String get _barcodeHint {
+    if (widget.accepted != null) return '';
     final value = widget.expected.trim();
     return value.length <= 4 ? '' : '…${value.substring(value.length - 4)}';
   }
@@ -940,7 +1231,7 @@ class _ScanSheetState extends State<_ScanSheet> {
     final raw =
         capture.barcodes.isEmpty ? null : capture.barcodes.first.rawValue;
     if (raw == null) return;
-    if (raw.trim() == widget.expected.trim()) {
+    if (_matches(raw)) {
       _handled = true;
       Navigator.of(context).pop(raw.trim());
     } else {
@@ -954,8 +1245,9 @@ class _ScanSheetState extends State<_ScanSheet> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(
+            20, 12, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1005,6 +1297,36 @@ class _ScanSheetState extends State<_ScanSheet> {
             ),
             const SizedBox(height: 12),
             _ManualEntry(onSubmit: _onManual),
+            if (widget.pending != null && widget.pending!.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Belum discan',
+                    style: TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.slate900)),
+              ),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final p in widget.pending!)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: p.hint == null ? AppColors.teal50 : AppColors.slate50,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                      ),
+                      child: Text(
+                        p.hint == null ? p.label : '${p.label} · ${p.hint}',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: p.hint == null ? AppColors.teal700 : AppColors.slate600),
+                      ),
+                    ),
+                ]),
+              ),
+            ],
           ],
         ),
       ),
@@ -1012,7 +1334,7 @@ class _ScanSheetState extends State<_ScanSheet> {
   }
 
   void _onManual(String value) {
-    if (value.trim() == widget.expected.trim()) {
+    if (_matches(value)) {
       Navigator.of(context).pop(value.trim());
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1118,6 +1440,33 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
     }, result.names.length > 1 ? '${result.names.length} temuan ditambahkan.' : 'Temuan ditambahkan.');
   }
 
+  /// Ubah/hapus deskripsi temuan (kosong = hapus), sama dengan "Ubah deskripsi" di web.
+  Future<void> _editNote(JobFinding finding) async {
+    final c = TextEditingController(text: finding.note ?? '');
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Deskripsi Temuan'),
+        content: TextField(
+          controller: c,
+          autofocus: true,
+          maxLength: 1000,
+          maxLines: 4,
+          decoration: const InputDecoration(hintText: 'Jelaskan temuan ini (opsional)'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Batal')),
+          FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(c.text.trim()),
+              child: const Text('Simpan')),
+        ],
+      ),
+    );
+    c.dispose();
+    if (text == null) return;
+    await _guard(() => updateFindingNote(widget.job.id, finding.id, text), 'Deskripsi disimpan.');
+  }
+
   Future<void> _addPhoto(JobFinding finding, PhotoKind kind) async {
     final source = await _pickSource();
     if (source == null) return;
@@ -1220,7 +1569,9 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
                         finding: f,
                         canUpload: widget.canUpload,
                         busy: _busy,
+                        showAuthors: widget.job.handovers.isNotEmpty,
                         onAdd: (kind) => _addPhoto(f, kind),
+                        onEditNote: () => _editNote(f),
                       ),
                       const SizedBox(height: 10),
                     ],
@@ -1490,12 +1841,23 @@ class _FindingTile extends StatelessWidget {
     required this.canUpload,
     required this.busy,
     required this.onAdd,
+    required this.onEditNote,
+    this.showAuthors = false,
   });
 
   final JobFinding finding;
   final bool canUpload;
   final bool busy;
   final ValueChanged<PhotoKind> onAdd;
+  final VoidCallback onEditNote;
+
+  /// Job pernah dialihkan: tampilkan siapa yang mencatat temuan dan mengunggah foto.
+  final bool showAuthors;
+
+  List<String> get _uploaders => {
+        for (final p in finding.photos)
+          if ((p.uploadedByName ?? '').isNotEmpty) p.uploadedByName!,
+      }.toList();
 
   @override
   Widget build(BuildContext context) {
@@ -1529,6 +1891,26 @@ class _FindingTile extends StatelessWidget {
             Text(finding.note!,
                 style: const TextStyle(color: AppColors.slate600, fontSize: 13)),
           ],
+          if (showAuthors) ...[
+            const SizedBox(height: 2),
+            Text(
+              [
+                if ((finding.createdByName ?? '').isNotEmpty) 'Dicatat oleh ${finding.createdByName}',
+                if (_uploaders.isNotEmpty) 'Foto oleh ${_uploaders.join(', ')}',
+              ].join(' · '),
+              style: const TextStyle(color: AppColors.slate500, fontSize: 11.5),
+            ),
+          ],
+          if (canUpload)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: busy ? null : onEditNote,
+                style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero, minimumSize: const Size(0, 32)),
+                child: Text((finding.note ?? '').isEmpty ? '+ Tambah deskripsi' : 'Ubah deskripsi'),
+              ),
+            ),
           const SizedBox(height: 10),
           for (final kind in PhotoKind.values) ...[
             _PhotoGroup(
@@ -1713,4 +2095,263 @@ class _AddTile extends StatelessWidget {
 String _formatDate(DateTime d) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '${two(d.day)}-${two(d.month)}-${d.year} ${two(d.hour)}:${two(d.minute)}';
+}
+
+/// Servis banyak AC: kepala halaman order, bentuknya sama dengan kartu header satu unit.
+class _OrderHeaderCard extends StatelessWidget {
+  const _OrderHeaderCard({required this.job, required this.status, required this.unitCount});
+  final TechnicianJob job;
+  final JobStatus status;
+  final int unitCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: AppColors.teal50,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+              child: const Icon(Icons.handyman_outlined, color: AppColors.teal700, size: 26),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(job.memberName.isEmpty ? 'Job servis' : job.memberName,
+                      style: const TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.slate900)),
+                  const SizedBox(height: 4),
+                  Text('${job.typeLabel} · $unitCount unit AC',
+                      style: const TextStyle(color: AppColors.slate500)),
+                ],
+              ),
+            ),
+            StatusBadge(label: status.label, color: jobStatusColor(status)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Satu unit di halaman servis banyak AC: header ringkas (unit, sudah/belum discan, status) + isi lipat.
+class _UnitSection extends StatelessWidget {
+  const _UnitSection({
+    super.key,
+    required this.job,
+    required this.index,
+    required this.stateText,
+    required this.stateWarn,
+    required this.defaultOpen,
+    required this.canEdit,
+    required this.busy,
+    required this.onSaveNotes,
+  });
+
+  final TechnicianJob job;
+  final int index;
+  final String stateText;
+  final bool stateWarn;
+  final bool defaultOpen;
+  final bool canEdit;
+  final bool busy;
+  final Future<void> Function(String text) onSaveNotes;
+
+  @override
+  Widget build(BuildContext context) {
+    final title =
+        '${index + 1}. ${job.unitTitle.isEmpty ? 'Unit AC (tipe belum diisi)' : job.unitTitle}'
+        '${job.unitRoom.isEmpty ? '' : ' · ${job.unitRoom}'}';
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          key: ValueKey('unit-tile-${job.id}'),
+          initiallyExpanded: defaultOpen,
+          title: Text(title,
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.slate900)),
+          subtitle: Text(stateText,
+              style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: stateWarn ? AppColors.warning : AppColors.slate600)),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (job.unitParts.isNotEmpty)
+              Text(job.unitParts,
+                  style: const TextStyle(fontSize: 12.5, color: AppColors.slate500)),
+            if (job.startedAt != null && job.status == JobStatus.assigned) ...[
+              const SizedBox(height: 8),
+              NoticePanel(
+                tone: NoticeTone.warning,
+                icon: Icons.qr_code_scanner,
+                text:
+                    'Menunggu scan ulang. Mulai pertama ${_formatDate(job.startedAt!)} (teknisi sebelumnya).',
+              ),
+            ],
+            if (job.unitId != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => context.go('/units/${job.unitId}/history'),
+                  icon: const Icon(Icons.history, size: 18),
+                  label: const Text('Riwayat Service Unit'),
+                ),
+              ),
+            if (canEdit)
+              _UnitNotesField(
+                key: ValueKey('notes-${job.id}'),
+                initial: job.notes ?? '',
+                busy: busy,
+                onSave: onSaveNotes,
+              )
+            else if ((job.notes ?? '').isNotEmpty)
+              _NotesCard(notes: job.notes!),
+            const SizedBox(height: 10),
+            _FindingsSection(job: job, canUpload: canEdit),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Catatan pengerjaan satu unit (banyak AC): controller sendiri supaya isian tiap unit tidak tertukar.
+class _UnitNotesField extends StatefulWidget {
+  const _UnitNotesField(
+      {super.key, required this.initial, required this.busy, required this.onSave});
+  final String initial;
+  final bool busy;
+  final Future<void> Function(String text) onSave;
+
+  @override
+  State<_UnitNotesField> createState() => _UnitNotesFieldState();
+}
+
+class _UnitNotesFieldState extends State<_UnitNotesField> {
+  late final _c = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _DiagnosisField(
+        controller: _c,
+        busy: widget.busy,
+        onSave: () => widget.onSave(_c.text.trim()),
+      );
+}
+
+/// Order tanpa Deskripsi Pekerjaan memakai keluhan sebagai note-nya, padahal keluhan itu sudah jadi temuan awal
+/// (origin komplain_awal) — Note Pekerjaan disembunyikan bila isinya sama dengan temuan awal.
+bool noteRepeatsComplaint(String note, List<JobFinding> findings) {
+  final n = note.trim().toLowerCase();
+  return findings
+      .any((f) => f.origin == 'komplain_awal' && f.title.trim().toLowerCase() == n);
+}
+
+/// Note Pekerjaan (deskripsi pekerjaan dari kasir/admin), tepat di bawah kartu detail.
+class _WorkNoteCard extends StatelessWidget {
+  const _WorkNoteCard({required this.note});
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.teal50,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.teal700.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('NOTE PEKERJAAN',
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.slate500)),
+          const SizedBox(height: 4),
+          Text(note, style: const TextStyle(color: AppColors.slate900)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Gabungkan riwayat alih tugas beberapa job (alih tugas serentak = satu entri, bukan satu per unit).
+/// Entri yang sama = teknisi asal/tujuan, alasan, dan detik yang sama.
+List<JobHandover> mergeHandovers(List<List<JobHandover>> lists) {
+  final seen = <String, JobHandover>{};
+  for (final h in lists.expand((l) => l)) {
+    final at = h.createdAt?.toUtc().toIso8601String();
+    final key =
+        '${h.fromName}|${h.toName}|${h.reason ?? ''}|${at == null ? '' : at.substring(0, 19)}';
+    seen.putIfAbsent(key, () => h);
+  }
+  return seen.values.toList()
+    ..sort((a, b) => (a.createdAt ?? DateTime(0)).compareTo(b.createdAt ?? DateTime(0)));
+}
+
+/// Riwayat alih tugas job (pemanggil tidak menampilkannya bila kosong).
+class _HandoverHistoryCard extends StatelessWidget {
+  const _HandoverHistoryCard({required this.items});
+  final List<JobHandover> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Riwayat Alih Tugas',
+                style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.slate900)),
+            const SizedBox(height: 8),
+            for (final h in items)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(color: AppColors.slate300),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${h.fromName} → ${h.toName}',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, color: AppColors.slate900)),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${h.createdAt == null ? '' : '${_formatDate(h.createdAt!)} · '}'
+                      'oleh ${h.handedByName} · ${h.statusText}',
+                      style: const TextStyle(fontSize: 12, color: AppColors.slate500),
+                    ),
+                    if ((h.reason ?? '').isNotEmpty)
+                      Text('Alasan: ${h.reason}', style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
