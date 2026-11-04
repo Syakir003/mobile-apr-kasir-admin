@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
+import { AppUpdateController } from './app-update/app-update.controller';
 import { UploadsController } from './common/uploads/uploads.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -74,7 +75,7 @@ import { UndianModule } from './undian/undian.module';
     KasirScanModule,
     UndianModule,
   ],
-  controllers: [AppController, UploadsController],
+  controllers: [AppController, AppUpdateController, UploadsController],
   providers: [AppService],
 })
 export class AppModule {}
