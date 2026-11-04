@@ -16,6 +16,7 @@ import { statusBadgeVariant } from '../../queue/queue-client';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { BarcodeQr } from '@/components/barcode-qr';
 import { SendFindingsBar, ServicePricingCard } from './service-pricing-card';
+import { AddUnitButton } from './add-unit';
 import { HandoverHistoryCard, ReassignPanel, mergeHandovers, type HandoverRow } from './handover';
 import { ReminderScheduleFields, intervalError } from '@/components/reminder-schedule-fields';
 import { Button } from '@/components/ui/button';
@@ -310,94 +311,19 @@ export function JobDetailClient({
   // (MultiUnitJobView). Di section satu unit tinggal scan-mulai (teknisi) dan batalkan unit (admin).
   const isFinal = ['selesai', 'dibatalkan'].includes(job.status);
   const returnedToTeknisi = isTeknisi && job.status === 'sedang_dikerjakan' && !!job.reviewNote;
+  // Panel Aksi di kanan, sama dengan halaman servis banyak AC. Teknisi hanya punya aksi saat job Ditugaskan/Sedang
+  // Dikerjakan; di status lain panelnya disembunyikan dan konten memakai lebar penuh (seperti MultiUnitJobView).
+  const hasAside = !embedded && (!isTeknisi || ['assigned', 'sedang_dikerjakan'].includes(job.status));
 
-  const content = (
-    <div className="grid gap-6">
-      {!embedded && (
-        <div>
-          <Link
-            href="/teknisi/queue"
-            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Kembali
-          </Link>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {job.member?.name || (job.unit ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC' : 'Job servis')}
-            </h1>
-            <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
-            {/* Laporan Pekerjaan (kartu garansi): teknisi kapan saja, admin setelah job selesai. */}
-            {(isTeknisi || (isAdmin && job.status === 'selesai')) && (
-              <Button variant="outline" size="sm" asChild className="sm:ml-auto">
-                <Link href={`/teknisi/jobs/${job.id}/print`}>
-                  <Printer className="size-4" />
-                  Laporan Pekerjaan
-                </Link>
-              </Button>
-            )}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {jobTypeLabel(job.type)}
-            {job.unit
-              ? ` · ${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'}${job.unit.roomLocation ? ` (${job.unit.roomLocation})` : ''}`
-              : ''}
-          </p>
-          <div className="mt-3">
-            <JobSteps status={job.status} />
-          </div>
-        </div>
-      )}
-
-      {/* Servis banyak AC: Laporan Pekerjaan satu untuk seluruh job (tombolnya di header halaman, bukan per unit). */}
-      {/* Teknisi: satu kolom dengan tombol aksi di bawah, seperti app mobile. Admin/kasir tetap dua kolom (aksi di kanan). */}
-      <div className={cn('grid gap-6', !embedded && !isTeknisi && 'xl:grid-cols-[1fr_360px]')}>
-        <div
-          className={cn(
-            'grid min-w-0',
-            // Di dalam section unit: kartu datar (tanpa bayangan) supaya tidak bersusun kartu-di-kartu.
-            embedded ? 'gap-4 [&_[data-slot=card]]:bg-background [&_[data-slot=card]]:shadow-none' : 'gap-6',
-          )}
-        >
-          <Card className={cn(isAdmin && job.status === 'menunggu_review' && 'order-last')}>
+  // Isi section unit: Detail Unit + (banner dikembalikan, catatan) + Temuan & Foto. Dipakai sebagai section unit di halaman
+  // banyak AC (embedded) maupun di halaman satu unit, supaya struktur keduanya sama.
+  const unitCards = (
+    <>
+          <Card>
             <CardHeader>
-              <CardTitle className="text-base">{embedded ? 'Detail Unit' : 'Detail'}</CardTitle>
+              <CardTitle className="text-base">Detail Unit</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2 text-sm">
-              {!embedded && (
-                <>
-                  <DetailRow
-                    label="Pelanggan"
-                    value={job.member?.name || '-'}
-                    // GET /members/:id di backend admin+kasir doang (teknisi
-                    // gak boleh buka riwayat pembelian/HPP member) — link cuma
-                    // ditampilin buat admin, teknisi tetap lihat teks biasa
-                    // biar gak nabrak 403 kalau diklik.
-                    valueNode={
-                      isAdmin && job.member ? (
-                        <Link href={`/members/${job.member.id}`} className="font-medium hover:underline">
-                          {job.member.name}
-                        </Link>
-                      ) : undefined
-                    }
-                  />
-                  <DetailRow label="Nomor HP" value={job.member?.phone || '-'} />
-                  <DetailRow label="Alamat" value={job.member?.address || '-'} />
-                  <DetailRow
-                    label="Lokasi"
-                    value="-"
-                    valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
-                  />
-                  <DetailRow
-                    label="Unit AC"
-                    value={
-                      job.unit
-                        ? `${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || '-'}${isTeknisi ? '' : ` - ${job.unit.roomLocation || 'lokasi belum diisi'}`}`
-                        : '-'
-                    }
-                  />
-                </>
-              )}
               {job.unit && hasUnitParts(job.unit) && (
                 <DetailRow
                   label="Unit dalam paket"
@@ -410,6 +336,22 @@ export function JobDetailClient({
                 <>
                   <DetailRow label="Ruangan" value={job.unit.roomLocation || '-'} />
                   <DetailRow label="Barcode" value={job.unit.barcodeValue || 'Belum digenerate'} />
+                  {/* Unit "QR dulu" (mis. AC tanpa label yang ditambahkan teknisi di tengah servis): teknisi yang
+                      mencetak labelnya. Hilang sendiri setelah datanya dilengkapi (status unit jadi aktif). */}
+                  {job.unit.status === 'menunggu_data' && (
+                    <DetailRow
+                      label="Label QR"
+                      value=""
+                      valueNode={
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/teknisi/jobs/${job.id}/print-labels?units=${job.unit.id}`}>
+                            <Printer className="size-4" />
+                            Cetak label unit
+                          </Link>
+                        </Button>
+                      }
+                    />
+                  )}
                 </>
               )}
               {job.unit && !isTeknisi && (
@@ -447,7 +389,6 @@ export function JobDetailClient({
                   </div>
                 </div>
               )}
-              {!embedded && <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />}
               {/* Kalau lagi bisa diedit (lihat NotesEditor di bawah), jangan
                   dobel ditampilin di sini juga - biar gak ada 2 sumber
                   kebenaran yang keliatan beda pas belum di-save. */}
@@ -470,16 +411,6 @@ export function JobDetailClient({
               )}
             </CardContent>
           </Card>
-
-          {/* Note pekerjaan dari kasir/admin, tepat di bawah Detail (halaman satu unit; banyak AC: di MultiUnitJobView). */}
-          {!embedded && job.order?.note && !noteRepeatsComplaint(job.order.note, job.findings) && (
-            <WorkNoteBox
-              note={job.order.note}
-              className={cn(isAdmin && job.status === 'menunggu_review' && 'order-last')}
-            />
-          )}
-
-          {!embedded && <HandoverHistoryCard items={job.handovers ?? []} />}
 
           {/* Seperti app mobile: teknisi melihat catatan pengembalian sebagai peringatan di atas isian kerja. */}
           {returnedToTeknisi && (
@@ -521,6 +452,108 @@ export function JobDetailClient({
               )}
             </CardContent>
           </Card>
+    </>
+  );
+
+  const content = (
+    <div className="grid gap-6">
+      {!embedded && (
+        <div>
+          <Link
+            href="/teknisi/queue"
+            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" />
+            Kembali
+          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {job.member?.name || (job.unit ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC' : 'Job servis')}
+            </h1>
+            <Badge variant={statusBadgeVariant(job.status)}>{statusLabel(job.status)}</Badge>
+            {/* Laporan Pekerjaan (kartu garansi): teknisi kapan saja, admin setelah job selesai. */}
+            {(isTeknisi || (isAdmin && job.status === 'selesai')) && (
+              <Button variant="outline" size="sm" asChild className="sm:ml-auto">
+                <Link href={`/teknisi/jobs/${job.id}/print`}>
+                  <Printer className="size-4" />
+                  Laporan Pekerjaan
+                </Link>
+              </Button>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {jobTypeLabel(job.type)}
+            {job.unit
+              ? ` · ${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'}${job.unit.roomLocation ? ` (${job.unit.roomLocation})` : ''}`
+              : ''}
+          </p>
+          <div className="mt-3">
+            <JobSteps status={job.status} />
+          </div>
+        </div>
+      )}
+
+      {/* Servis banyak AC: Laporan Pekerjaan satu untuk seluruh job (tombolnya di header halaman, bukan per unit). */}
+      {/* Semua peran: dua kolom (konten kiri, Aksi 360px di kanan), sama dengan halaman servis banyak AC. */}
+      <div className={cn('grid items-start gap-6', hasAside && 'xl:grid-cols-[1fr_360px]')}>
+        <div
+          className={cn(
+            'grid min-w-0',
+            // Di dalam section unit: kartu datar (tanpa bayangan) supaya tidak bersusun kartu-di-kartu.
+            embedded ? 'gap-4 [&_[data-slot=card]]:bg-background [&_[data-slot=card]]:shadow-none' : 'gap-6',
+          )}
+        >
+          {!embedded && (
+            <Card className={cn(isAdmin && job.status === 'menunggu_review' && 'order-last')}>
+              <CardHeader>
+                <CardTitle className="text-base">Detail Order</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-2 text-sm">
+                  <DetailRow
+                    label="Pelanggan"
+                    value={job.member?.name || '-'}
+                    // GET /members/:id di backend admin+kasir doang (teknisi
+                    // gak boleh buka riwayat pembelian/HPP member) — link cuma
+                    // ditampilin buat admin, teknisi tetap lihat teks biasa
+                    // biar gak nabrak 403 kalau diklik.
+                    valueNode={
+                      isAdmin && job.member ? (
+                        <Link href={`/members/${job.member.id}`} className="font-medium hover:underline">
+                          {job.member.name}
+                        </Link>
+                      ) : undefined
+                    }
+                  />
+                  <DetailRow label="Nomor HP" value={job.member?.phone || '-'} />
+                  <DetailRow label="Alamat" value={job.member?.address || '-'} />
+                  <DetailRow
+                    label="Lokasi"
+                    value="-"
+                    valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
+                  />
+                <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Note pekerjaan dari kasir/admin, tepat di bawah Detail (halaman satu unit; banyak AC: di MultiUnitJobView). */}
+          {!embedded && job.order?.note && !noteRepeatsComplaint(job.order.note, job.findings) && (
+            <WorkNoteBox
+              note={job.order.note}
+              className={cn(isAdmin && job.status === 'menunggu_review' && 'order-last')}
+            />
+          )}
+
+          {!embedded && <HandoverHistoryCard items={job.handovers ?? []} />}
+
+          {/* Unit: Detail Unit + temuan & foto. Satu unit memakai section yang sama dengan tiap unit di halaman banyak AC. */}
+          {embedded ? (
+            unitCards
+          ) : (
+            <UnitSection job={job} index={0} total={1} defaultOpen>
+              <div className="grid min-w-0 gap-4 [&_[data-slot=card]]:bg-background [&_[data-slot=card]]:shadow-none">{unitCards}</div>
+            </UnitSection>
+          )}
 
           {(isAdmin || role === 'kasir') && !embedded && <ServicePricingCard jobId={job.id} />}
 
@@ -575,8 +608,8 @@ export function JobDetailClient({
               </Button>
             </div>
           )
-        ) : (
-        <Card className={cn('h-fit', !isTeknisi && 'xl:sticky xl:top-6')}>
+        ) : hasAside ? (
+        <Card className="h-fit xl:sticky xl:top-6">
           <CardHeader>
             <CardTitle className="text-base">Aksi</CardTitle>
           </CardHeader>
@@ -635,6 +668,8 @@ export function JobDetailClient({
                 >
                   {startMutation.isPending ? 'Memproses...' : 'Mulai Job'}
                 </Button>
+                {/* Customer sering minta tambah AC begitu teknisi tiba, sebelum job dimulai: tidak perlu mulai dulu. */}
+                {job.type !== 'pemasangan' && <AddUnitButton jobId={job.id} jobType={job.type} />}
               </div>
             )}
 
@@ -655,6 +690,8 @@ export function JobDetailClient({
                 {!submitForReviewReady && (
                   <p className="text-xs text-muted-foreground">{submitForReviewBlockedReason}</p>
                 )}
+                {/* Customer minta AC lain ikut diservis: unit tambahan masuk job ini (order pemasangan tidak). */}
+                {job.type !== 'pemasangan' && <AddUnitButton jobId={job.id} jobType={job.type} />}
               </div>
             )}
 
@@ -732,7 +769,7 @@ export function JobDetailClient({
             )}
           </CardContent>
         </Card>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -1138,6 +1175,8 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                       diajukan selesai sekaligus. Unit yang tidak jadi diservis bisa dibatalkan admin di section-nya.
                     </p>
                   )}
+                  {/* Customer minta AC lain ikut diservis: unit tambahan jadi section baru di halaman ini. */}
+                  {requestJob && <AddUnitButton jobId={requestJob.id} jobType={requestJob.type} />}
                 </div>
               )}
 
@@ -1245,11 +1284,12 @@ function UnitSection({
         {/* Nama unit (bernomor) di atas, "Unit x dari y" di bawahnya. Layar sempit: blok ini satu baris penuh. */}
         <span className="min-w-0 basis-full sm:flex-1 sm:basis-0">
           <span className="block truncate text-sm font-semibold">
-            {index + 1}. {unitTitle(job.unit)}
+            {total > 1 ? `${index + 1}. ` : ''}
+            {unitTitle(job.unit)}
             {job.unit?.roomLocation ? ` · ${job.unit.roomLocation}` : ''}
           </span>
           <span className="block text-xs text-muted-foreground">
-            Unit {index + 1} dari {total}
+            {total > 1 ? `Unit ${index + 1} dari ${total}` : 'Detail unit, temuan & foto'}
           </span>
         </span>
         {!cancelled && (

@@ -31,16 +31,24 @@ interface ServiceOrderDetail {
 
 export function UnitLabelsPrintClient({
   serviceOrderId,
+  jobId,
   onlyUnitIds,
 }: {
-  serviceOrderId: string;
+  // Admin/kasir: detail order (GET /service-orders/:id).
+  serviceOrderId?: string;
+  // Teknisi: GET /service-orders/:id 403, jadi datanya diambil lewat job miliknya (GET /technician-jobs/:id/unit-labels,
+  // bentuk datanya sama, hanya unit yang job-nya milik teknisi itu).
+  jobId?: string;
   // Hanya cetak unit-unit ini (servis banyak AC dengan sebagian unit yang sudah terlabel). Kosong = semua unit order.
   onlyUnitIds?: string[];
 }) {
   const router = useRouter();
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['service-orders', serviceOrderId],
-    queryFn: () => apiClient.get<ServiceOrderDetail>(`/service-orders/${serviceOrderId}`),
+    queryKey: jobId ? ['technician-jobs', jobId, 'unit-labels'] : ['service-orders', serviceOrderId],
+    queryFn: () =>
+      apiClient.get<ServiceOrderDetail>(
+        jobId ? `/technician-jobs/${jobId}/unit-labels` : `/service-orders/${serviceOrderId}`,
+      ),
   });
 
   if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Memuat label unit...</p>;

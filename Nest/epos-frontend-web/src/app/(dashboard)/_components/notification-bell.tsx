@@ -53,6 +53,7 @@ function notificationHref(n: { type: string; target: string | null }): string | 
     case 'job_cancelled':
     case 'findings_sent':
     case 'service_priced':
+    case 'unit_added': // teknisi menambah unit AC di tengah servis: buka job untuk meninjau harga jasa
       return n.target ? `/teknisi/jobs/${n.target}` : '/teknisi/queue';
     case 'request_submitted':
       return '/material-requests';
