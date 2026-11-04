@@ -599,7 +599,7 @@ export class TechnicianJobsService {
   async unitLabels(jobId: string, actorId: string, role: Role, unitIds?: string[]) {
     const job = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
-      select: { orderId: true, technicianId: true, member: { select: { id: true, name: true } } },
+      select: { orderId: true, technicianId: true, member: { select: { id: true, name: true, address: true } } },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
     this.assertOwnerOrAdmin(job, actorId, role);
