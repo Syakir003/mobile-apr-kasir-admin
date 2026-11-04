@@ -17,7 +17,9 @@ import '../../data/models/job_photo.dart' show PhotoKind;
 import '../../data/models/material_request.dart';
 import '../../data/models/technician_job.dart';
 import '../pos/cart_state.dart' show formatRupiah;
+import '../members/unit_label_pdf.dart';
 import '../pos/pos_providers.dart' show techniciansProvider;
+import 'add_unit_sheet.dart';
 import 'job_list_screen.dart' show jobStatusColor;
 import 'job_providers.dart';
 import 'job_report_pdf.dart';
@@ -174,6 +176,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   Future<String?> _scanBarcode(String expected,
       {required String unitLabel,
       List<String>? accepted,
+      bool acceptAny = false,
       List<({String label, String? hint})>? pending}) {
     return showModalBottomSheet<String>(
       context: context,
@@ -184,9 +187,64 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       ),
       builder: (sheetContext) =>
           _ScanSheet(
-              expected: expected, unitLabel: unitLabel, accepted: accepted, pending: pending),
+              expected: expected,
+              unitLabel: unitLabel,
+              accepted: accepted,
+              acceptAny: acceptAny,
+              pending: pending),
     );
   }
+
+  /// Tambah Unit AC (teknisi): scan QR unit berlabel milik pelanggan job ini (server yang memeriksa kecocokannya),
+  /// atau buat QR baru untuk AC tanpa label lalu langsung cetak labelnya.
+  Future<void> _addUnit(TechnicianJob job) async {
+    final input = await showModalBottomSheet<AddUnitInput>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (_) => AddUnitSheet(
+        jobType: job.type,
+        onScan: () => _scanBarcode('', unitLabel: 'unit AC yang ditambahkan', acceptAny: true),
+      ),
+    );
+    if (input == null) return;
+    AddUnitResult? result;
+    await _run(() async => result = await addUnitToJob(job.id, input), 'Unit AC ditambahkan ke job.');
+    ref.invalidate(jobQueueProvider);
+    final added = result;
+    if (added != null && added.needsLabel) await _printUnitLabel(job.id, added.unitId);
+  }
+
+  /// Cetak label QR satu unit "QR dulu" (teknisi yang mencetak dan menempelnya di AC).
+  Future<void> _printUnitLabel(String jobId, String unitId) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final unit = await fetchUnitForLabel(jobId, unitId);
+      if (unit == null) throw Exception('Data unit untuk label tidak ditemukan.');
+      await Printing.layoutPdf(
+        onLayout: (_) => buildUnitLabelPdf(unit),
+        name: 'Label-${unit.barcodeValue}',
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text('Gagal menyiapkan label: ${errorMessage(e)}'),
+        backgroundColor: AppColors.danger,
+      ));
+    }
+  }
+
+  Widget _addUnitButton(TechnicianJob job) => Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: OutlinedButton.icon(
+          key: const Key('add-unit'),
+          onPressed: _busy ? null : () => _addUnit(job),
+          icon: const Icon(Icons.add),
+          label: const Text('Tambah Unit AC'),
+        ),
+      );
 
   /// Buka dialog cetak/simpan Laporan Pekerjaan, dengan umpan balik jelas
   /// (pola sama dengan `_shareReceipt` di invoice_detail_screen.dart).
@@ -398,6 +456,8 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     final holders = all.where(
         (j) => j.status == JobStatus.assigned || j.status == JobStatus.sedangDikerjakan);
     final holder = holders.isEmpty ? first : holders.first;
+    // Job pemilik tombol Tambah Unit AC: yang masih Ditugaskan/Sedang Dikerjakan (sama dengan requestJob di web).
+    final addUnitHost = holders.isEmpty ? null : holders.first;
     final allFindings = [
       for (final f in findingsOf.values) ...(f ?? const <JobFinding>[]),
     ];
@@ -465,6 +525,10 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             busy: _busy,
             onSaveNotes: (text) =>
                 _run(() => saveJobNotes(all[i].id, text), 'Catatan disimpan.'),
+            // Unit "QR dulu" (mis. AC tanpa label yang baru ditambahkan): teknisi yang mencetak labelnya.
+            onPrintLabel: isTeknisi && all[i].unitAwaitingData && all[i].unitId != null
+                ? () => _printUnitLabel(all[i].id, all[i].unitId!)
+                : null,
           ),
           const SizedBox(height: 12),
         ],
@@ -498,6 +562,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
                         (label: unitName(j), hint: startable.contains(j) ? null : whyNotStartable(j)),
                     ]),
           ),
+          if (addUnitHost != null) _addUnitButton(addUnitHost),
         ] else if (isTeknisi && working.isNotEmpty) ...[
           if (!canSubmitAll)
             ...() {
@@ -518,6 +583,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             label: 'Ajukan Selesai (${working.length} unit)',
             onPressed: canSubmitAll ? () => _submitAll(first, ids) : null,
           ),
+          if (addUnitHost != null) _addUnitButton(addUnitHost),
         ] else if (active.isNotEmpty)
           _StatusHint(status: active.first.status),
       ],
@@ -525,7 +591,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   }
 
   /// Unit "QR dulu": backend menolak Mulai sampai merk/PK dilengkapi lewat Scan Unit.
-  Widget _awaitingDataPanel() => Column(
+  Widget _awaitingDataPanel({TechnicianJob? printFor}) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const NoticePanel(
@@ -543,6 +609,16 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               label: const Text('Buka Scan Unit'),
             ),
           ),
+          if (printFor != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const Key('print-unit-label'),
+                onPressed: () => _printUnitLabel(printFor.id, printFor.unitId!),
+                icon: const Icon(Icons.print_outlined, size: 18),
+                label: const Text('Cetak Label QR'),
+              ),
+            ),
         ],
       );
 
@@ -560,7 +636,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         // Server mewajibkan: unit ber-barcode, minimal satu foto SEBELUM pada temuan.
         final noBarcode = job.unitId == null || job.unitBarcode.isEmpty;
         if (job.unitAwaitingData) {
-          widgets.add(_awaitingDataPanel());
+          widgets.add(_awaitingDataPanel(printFor: job.unitId == null ? null : job));
           widgets.add(const SizedBox(height: 10));
         } else if (noBarcode) {
           widgets.add(const NoticePanel(
@@ -597,6 +673,11 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           label: 'Ajukan Selesai',
           onPressed: (loaded != null && blocked == null) ? () => _submitReview(job) : null,
         ));
+      }
+      // Customer sering minta tambah AC begitu teknisi tiba (sebelum mulai) atau di tengah servis; pemasangan tidak.
+      if (job.type != 'pemasangan' &&
+          (job.status == JobStatus.assigned || job.status == JobStatus.sedangDikerjakan)) {
+        widgets.add(_addUnitButton(job));
       }
     }
 
@@ -1238,8 +1319,15 @@ class _AssignPanelState extends ConsumerState<_AssignPanel> {
 /// cukup untuk memastikan unit yang benar tanpa bisa direkonstruksi.
 class _ScanSheet extends StatefulWidget {
   const _ScanSheet(
-      {required this.expected, required this.unitLabel, this.accepted, this.pending});
+      {required this.expected,
+      required this.unitLabel,
+      this.accepted,
+      this.acceptAny = false,
+      this.pending});
   final String expected;
+
+  /// Tambah Unit AC: kode apa pun yang terbaca diterima (server yang memeriksa unit & pelanggannya).
+  final bool acceptAny;
   final String unitLabel;
 
   /// Servis banyak AC: daftar unit yang belum discan, ditampilkan di bawah kolom kode manual.
@@ -1257,12 +1345,14 @@ class _ScanSheetState extends State<_ScanSheet> {
 
   /// 4 karakter terakhir barcode — pembeda antar unit di alamat yang sama,
   /// tapi terlalu sedikit untuk diketik di input manual.
-  bool _matches(String raw) => widget.accepted != null
-      ? widget.accepted!.any((b) => b.trim() == raw.trim())
-      : raw.trim() == widget.expected.trim();
+  bool _matches(String raw) => widget.acceptAny
+      ? raw.trim().isNotEmpty
+      : widget.accepted != null
+          ? widget.accepted!.any((b) => b.trim() == raw.trim())
+          : raw.trim() == widget.expected.trim();
 
   String get _barcodeHint {
-    if (widget.accepted != null) return '';
+    if (widget.accepted != null || widget.acceptAny) return '';
     final value = widget.expected.trim();
     return value.length <= 4 ? '' : '…${value.substring(value.length - 4)}';
   }
@@ -2195,9 +2285,13 @@ class _UnitSection extends StatelessWidget {
     required this.canEdit,
     required this.busy,
     required this.onSaveNotes,
+    this.onPrintLabel,
   });
 
   final TechnicianJob job;
+
+  /// Non-null = tampilkan tombol Cetak Label QR (unit "QR dulu" milik teknisi yang login).
+  final VoidCallback? onPrintLabel;
   final int index;
   final String stateText;
   final bool stateWarn;
@@ -2254,6 +2348,16 @@ class _UnitSection extends StatelessWidget {
                   onPressed: () => context.go('/units/${job.unitId}/history'),
                   icon: const Icon(Icons.history, size: 18),
                   label: const Text('Riwayat Service Unit'),
+                ),
+              ),
+            if (onPrintLabel != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: ValueKey('print-label-${job.id}'),
+                  onPressed: onPrintLabel,
+                  icon: const Icon(Icons.print_outlined, size: 18),
+                  label: const Text('Cetak Label QR'),
                 ),
               ),
             if (canEdit)

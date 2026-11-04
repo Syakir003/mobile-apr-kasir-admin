@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
 import '../../core/router/app_router.dart';
 import '../../data/models/app_user.dart';
+import '../../data/models/ac_unit.dart';
 import '../../data/models/invoice.dart';
 import '../../data/models/job_finding.dart';
 import '../../data/models/material_request.dart';
 import '../../data/models/service_order.dart';
 import '../../data/models/technician_job.dart';
+import '../../data/repositories/ac_unit_repository.dart' show acUnitRowFromNest;
 import '../../data/repositories/job_repository.dart';
 import '../../core/utils/num_parse.dart';
 
@@ -100,6 +102,46 @@ final signedPhotoUrlProvider =
 /// `PATCH /technician-jobs/:id/notes` — simpan diagnosa/catatan pengerjaan (job aktif).
 Future<void> saveJobNotes(String jobId, String notes) =>
     _api.patch('/technician-jobs/$jobId/notes', body: {'notes': notes});
+
+/// Isian "Tambah Unit AC": unit berlabel (`barcode`) ATAU AC tanpa label (`newUnit`, QR baru dicetak teknisi).
+typedef AddUnitInput = ({
+  String jobType,
+  String complaint,
+  String? barcode,
+  bool newUnit,
+  String? roomLocation,
+});
+
+/// Hasil `POST /technician-jobs/:id/add-unit`. `needsLabel` = unit baru, labelnya harus dicetak teknisi.
+typedef AddUnitResult = ({String unitId, bool needsLabel, bool needsData});
+
+/// `POST /technician-jobs/:id/add-unit` — teknisi menambah unit AC ke jobnya (Ditugaskan/Sedang Dikerjakan);
+/// unit tambahan jadi job baru di order yang sama. Server yang memeriksa kepemilikan, status, dan pelanggan unit.
+Future<AddUnitResult> addUnitToJob(String jobId, AddUnitInput input) async {
+  final r = await _api.post('/technician-jobs/$jobId/add-unit', body: {
+    if (input.barcode != null) 'barcode': input.barcode,
+    if (input.newUnit) 'newUnit': true,
+    if ((input.roomLocation ?? '').isNotEmpty) 'roomLocation': input.roomLocation,
+    'jobType': input.jobType,
+    'complaint': input.complaint,
+  }) as Map;
+  return (
+    unitId: r['unitId'] as String,
+    needsLabel: r['needsLabel'] == true,
+    needsData: r['needsData'] == true,
+  );
+}
+
+/// `GET /technician-jobs/:id/unit-labels?units=<unitId>` — data unit untuk cetak label QR oleh teknisi
+/// (server hanya memberi unit yang job-nya milik teknisi itu). Null bila unit tak ditemukan.
+Future<AcUnit?> fetchUnitForLabel(String jobId, String unitId) async {
+  final r = await _api.get('/technician-jobs/$jobId/unit-labels?units=${Uri.encodeQueryComponent(unitId)}') as Map;
+  for (final row in (r['serviceOrderUnits'] as List? ?? const [])) {
+    final unit = (row as Map)['unit'] as Map;
+    if (unit['id'] == unitId) return AcUnit.fromMap(unitId, acUnitRowFromNest(unit));
+  }
+  return null;
+}
 
 /// Kenapa Ajukan Selesai belum boleh (sama dengan gate `submitForReview` di server),
 /// atau null bila sudah siap. Harga jasa BUKAN syarat teknisi — admin yang menunggu harga saat menyetujui.
