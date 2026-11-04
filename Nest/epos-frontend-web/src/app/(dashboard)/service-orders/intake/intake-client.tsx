@@ -12,6 +12,7 @@ import { Copy, Plus, QrCode, Trash2, Wrench } from 'lucide-react';
 import { apiClient, ApiError } from '@/lib/api-client';
 import { numberOrUndefined, trimmedOrUndefined } from '@/lib/form-number';
 import { MAPS_INPUT_PLACEHOLDER, mapsInputDisplay } from '@/lib/maps-input';
+import { phoneError } from '@/lib/phone';
 import { statusLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Role } from '@/lib/session';
@@ -337,6 +338,12 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
   });
 
   function onSubmit(values: IntakeFormValues) {
+    // Batas nomor HP standar Indonesia; dilewati bila member lama dipilih (backend memakai data member di database).
+    const phoneErr = selectedMember ? null : phoneError(values.phone);
+    if (phoneErr) {
+      form.setError('phone', { message: phoneErr });
+      return;
+    }
     if (totalUnits === 0) {
       toast.error('Pilih unit yang sudah terdaftar atau tambahkan unit AC baru, minimal satu.');
       return;
@@ -391,7 +398,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                   <FormItem>
                     <FormLabel>Nomor HP</FormLabel>
                     <FormControl>
-                      <Input placeholder="08xxxxxxxxxx" {...field} />
+                      <Input placeholder="Mis. 0855xxxxxxxx atau 62855xxxxxxxx" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

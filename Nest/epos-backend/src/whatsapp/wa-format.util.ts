@@ -7,14 +7,18 @@
 /**
  * Normalisasi nomor HP ke format internasional tanpa '+', dipakai sebagai
  * `target` Fonnte. '0812…' -> '62812…', '+62 812-345' -> '62812345'.
+ * Input nomor di form dibebaskan (0855…, 62855…, +62 855…, 855…, dengan spasi/strip/kurung), jadi bentuk salah ketik
+ * yang umum ikut dibereskan: '+62 0855…' / '620855…' (nol sisa setelah kode negara) dan '0062855…' (awalan
+ * internasional 00). Nomor Indonesia tidak pernah memakai 0 tepat setelah 62, jadi membuangnya aman.
  * String kosong/tanpa digit dikembalikan '' apa adanya supaya pemanggil bisa
  * menyaring member tanpa nomor yang valid (jangan sampai nge-hit Fonnte
  * dengan target kosong).
  */
 export function waPhone(phone: string | null | undefined): string {
-  const digits = (phone ?? '').replace(/\D/g, '');
+  let digits = (phone ?? '').replace(/\D/g, '');
   if (digits === '') return '';
-  if (digits.startsWith('62')) return digits;
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('62')) return '62' + digits.slice(2).replace(/^0+/, '');
   if (digits.startsWith('0')) return '62' + digits.slice(1);
   return '62' + digits;
 }

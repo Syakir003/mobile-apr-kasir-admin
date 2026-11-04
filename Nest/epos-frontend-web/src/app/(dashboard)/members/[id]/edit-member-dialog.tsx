@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { MAPS_INPUT_PLACEHOLDER, mapsInputDisplay } from '@/lib/maps-input';
+import { PHONE_ERROR_MESSAGE, isValidIndonesianPhone } from '@/lib/phone';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -79,8 +80,15 @@ export function EditMemberDialog({
 
 function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: () => void }) {
   const queryClient = useQueryClient();
+  const originalPhone = (member.phone ?? '').trim();
+  const schema = editMemberSchema.superRefine((v, ctx) => {
+    const p = (v.phone ?? '').trim();
+    if (p !== originalPhone && !isValidIndonesianPhone(p)) {
+      ctx.addIssue({ code: 'custom', path: ['phone'], message: PHONE_ERROR_MESSAGE });
+    }
+  });
   const form = useForm<EditMemberValues>({
-    resolver: zodResolver(editMemberSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       name: member.name,
       phone: member.phone ?? '',
@@ -96,7 +104,8 @@ function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: ()
     mutationFn: (v: EditMemberValues) =>
       apiClient.patch(`/members/${member.id}`, {
         name: v.name.trim(),
-        phone: (v.phone ?? '').trim(),
+        // Nomor dikirim hanya bila diubah (kosong = hapus nomor).
+        ...((v.phone ?? '').trim() !== originalPhone ? { phone: (v.phone ?? '').trim() } : {}),
         address: (v.address ?? '').trim(),
         // Kosong = hapus link (backend menyimpan null).
         mapsUrl: (v.mapsUrl ?? '').trim(),
@@ -139,7 +148,7 @@ function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: ()
             <FormItem>
               <FormLabel>No. HP</FormLabel>
               <FormControl>
-                <Input placeholder="08xxxxxxxxxx" {...field} />
+                <Input placeholder="Mis. 0855xxxxxxxx atau 62855xxxxxxxx" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>

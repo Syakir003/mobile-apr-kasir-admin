@@ -6,19 +6,15 @@ import { UpdateMemberDto } from './dto/update-member.dto';
 import { MemberListQueryDto } from './dto/member-list-query.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import type { PriceTierName } from '../common/price-tier.util';
+import { normalizePhone } from '../common/phone.util';
 
 @Injectable()
 export class MembersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Port 1:1 dari normalize_phone() (pos_functions.sql) / phone.ts lama. */
+  /** Normalisasi nomor HP (kunci pencarian member); aturannya di common/phone.util.ts. */
   normalizePhone(raw: string): string {
-    const cleaned = raw.replace(/[\s\-.()]/g, '');
-    if (cleaned.startsWith('+62')) return cleaned;
-    if (cleaned.startsWith('628')) return '+' + cleaned;
-    if (cleaned.startsWith('08')) return '+62' + cleaned.substring(1);
-    if (cleaned.startsWith('8')) return '+62' + cleaned;
-    return cleaned;
+    return normalizePhone(raw);
   }
 
   async findOrCreate(

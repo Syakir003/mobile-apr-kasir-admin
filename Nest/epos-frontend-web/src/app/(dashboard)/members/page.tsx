@@ -12,6 +12,7 @@ import { Plus, Search } from 'lucide-react';
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
 import { MAPS_INPUT_PLACEHOLDER } from '@/lib/maps-input';
+import { phoneError } from '@/lib/phone';
 import { TIER_LABEL, TIER_OPTIONS, type PriceTier } from '@/lib/price-tier';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -87,7 +88,8 @@ interface CreateMemberResult {
 
 const createMemberSchema = z.object({
   name: z.string().min(1, 'Nama wajib diisi'),
-  phone: z.string().optional(),
+  // Batas nomor HP standar Indonesia (kosong boleh: nomor opsional).
+  phone: z.string().optional().refine((v) => !phoneError(v), { message: 'Nomor HP tidak valid. Pakai nomor Indonesia (10-13 digit), mis. 0855xxxxxxxx atau 62855xxxxxxxx.' }),
   address: z.string().optional(),
   mapsUrl: z.string().optional(),
   customerType: z.enum(['rumah', 'perusahaan', 'toko', '']).optional(),
@@ -306,7 +308,7 @@ export default function MembersPage() {
                   <FormItem>
                     <FormLabel>No. HP</FormLabel>
                     <FormControl>
-                      <Input placeholder="08xxxxxxxxxx (opsional)" {...field} />
+                      <Input placeholder="Opsional - mis. 0855xxxxxxxx atau 62855xxxxxxxx" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

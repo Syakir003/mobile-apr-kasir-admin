@@ -16,13 +16,16 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { IsIndonesianPhone } from '../../common/is-indonesian-phone.decorator';
 import { normalizeMapsInput } from '../../common/maps-url.util';
 
 export class IntakeCustomerDto {
   @IsString() @IsNotEmpty() name: string;
-  @IsString() @IsNotEmpty() phone: string;
+  // Nomor dilewati bila memberId diisi: yang dipakai data member di database, bukan nomor yang dikirim.
+  @ValidateIf((o: { memberId?: string }) => !o.memberId) @IsString() @IsNotEmpty() @IsIndonesianPhone() phone: string;
   @IsOptional() @IsString() address?: string;
   // Link Google Maps lokasi pelanggan; kalau diisi, ikut disimpan/diperbarui di member.
   // Link ATAU ketikan biasa (nama daerah/tempat): dinormalkan jadi URL (lihat normalizeMapsInput).
