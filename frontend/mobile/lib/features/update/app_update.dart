@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:ota_update/ota_update.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -74,6 +75,13 @@ final appUpdateProvider = FutureProvider<AppUpdate?>((ref) async {
   }
 });
 
+/// Unduh APK di dalam app lalu buka dialog pasang Android (paket ota_update). Android tetap meminta satu ketukan
+/// "Instal" untuk APK di luar Play Store; yang dihemat: tidak lewat browser & tidak perlu mencari file unduhan.
+/// Provider supaya tes bisa menggantinya dengan aliran event palsu.
+final apkInstallerProvider = Provider<Stream<OtaEvent> Function(String url, String fileName)>(
+  (ref) => (url, fileName) => OtaUpdate().execute(url, destinationFilename: fileName),
+);
+
 /// Membungkus seluruh app (lewat `MaterialApp.router(builder:)`). Update opsional = kartu di bawah yang bisa ditutup;
 /// wajib = layar penuh yang menutup app sampai teknisi memasang versi baru. Tanpa Navigator, jadi aman dipasang di
 /// atas router.
@@ -88,8 +96,55 @@ class AppUpdateGate extends ConsumerStatefulWidget {
 class _AppUpdateGateState extends ConsumerState<AppUpdateGate> {
   bool _dismissed = false;
 
-  Future<void> _download(AppUpdateInfo info) =>
+  /// Persen unduhan selama berjalan; null = tidak sedang mengunduh.
+  int? _progress;
+  String? _message;
+
+  /// Cara lama: buka link di browser. Dipakai bila unduhan di dalam app gagal.
+  Future<void> _openInBrowser(AppUpdateInfo info) =>
       launchUrl(Uri.parse(info.downloadUrl), mode: LaunchMode.externalApplication);
+
+  void _update(AppUpdateInfo info) {
+    setState(() {
+      _progress = 0;
+      _message = null;
+    });
+    final events = ref.read(apkInstallerProvider)(info.downloadUrl, 'epos-ac-${info.buildNumber}.apk');
+    events.listen(
+      (e) {
+        if (!mounted) return;
+        switch (e.status) {
+          case OtaStatus.DOWNLOADING:
+            setState(() => _progress = int.tryParse(e.value ?? '') ?? _progress);
+          case OtaStatus.INSTALLING:
+          case OtaStatus.INSTALLATION_DONE:
+            setState(() {
+              _progress = null;
+              _message = 'Ketuk "Instal" pada dialog Android. Kalau dialog tertutup, ketuk Update lagi.';
+            });
+          case OtaStatus.ALREADY_RUNNING_ERROR:
+            break;
+          case OtaStatus.PERMISSION_NOT_GRANTED_ERROR:
+            setState(() {
+              _progress = null;
+              _message = 'Izinkan "Instal aplikasi tidak dikenal" untuk app ini, lalu ketuk Update lagi.';
+            });
+          default:
+            _fallback(info);
+        }
+      },
+      onError: (_) => _fallback(info),
+    );
+  }
+
+  void _fallback(AppUpdateInfo info) {
+    if (!mounted) return;
+    setState(() {
+      _progress = null;
+      _message = 'Unduhan di dalam app gagal, dibuka lewat browser. Setelah selesai, ketuk file-nya untuk memasang.';
+    });
+    _openInBrowser(info);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -117,25 +172,32 @@ class _AppUpdateGateState extends ConsumerState<AppUpdateGate> {
           Text(info.notes, style: const TextStyle(color: AppColors.slate500, fontSize: 13)),
         ],
         const SizedBox(height: 8),
-        const Text(
-          'Setelah unduhan selesai, ketuk file-nya untuk memasang. Data kamu tidak hilang.',
-          style: TextStyle(color: AppColors.slate500, fontSize: 13),
+        Text(
+          _message ?? 'Ketuk Update, tunggu unduhan selesai, lalu ketuk "Instal". Data kamu tidak hilang.',
+          key: const Key('update-message'),
+          style: const TextStyle(color: AppColors.slate500, fontSize: 13),
         ),
+        if (_progress != null) ...[
+          const SizedBox(height: 10),
+          LinearProgressIndicator(value: _progress! / 100),
+          const SizedBox(height: 4),
+          Text('Mengunduh… $_progress%', style: const TextStyle(color: AppColors.slate500, fontSize: 12)),
+        ],
         const SizedBox(height: 14),
         Row(
           children: [
             if (!required)
               TextButton(
                 key: const Key('update-later'),
-                onPressed: () => setState(() => _dismissed = true),
+                onPressed: _progress != null ? null : () => setState(() => _dismissed = true),
                 child: const Text('Nanti'),
               ),
             const Spacer(),
             FilledButton.icon(
               key: const Key('update-download'),
-              onPressed: () => _download(info),
-              icon: const Icon(Icons.download),
-              label: const Text('Unduh Pembaruan'),
+              onPressed: _progress != null ? null : () => _update(info),
+              icon: const Icon(Icons.system_update),
+              label: const Text('Update'),
             ),
           ],
         ),

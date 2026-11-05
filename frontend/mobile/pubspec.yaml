@@ -2,7 +2,7 @@ name: epos_ac
 description: APR-POS - aplikasi kasir, admin, dan teknisi AC.
 publish_to: 'none'
 # Angka setelah + = versionCode Android: WAJIB naik tiap rilis APK (dibandingkan dengan /app-version di server).
-version: 1.0.3+4
+version: 1.0.4+5
 
 environment:
   sdk: ^3.4.0
@@ -33,6 +33,7 @@ dependencies:
   http_parser: ^4.1.2
   flutter_secure_storage: ^11.2.0
   socket_io_client: ^3.1.6
+  ota_update: ^7.1.0
 
 dev_dependencies:
   flutter_test:
