@@ -68,6 +68,9 @@ function notificationHref(n: { type: string; target: string | null }): string | 
       return '/stock/opname';
     case 'unit_correction':
       return '/administrasi/data-lampau?tab=koreksi';
+    case 'service_due':
+      // target = id pelanggan: form Terima Servis terisi otomatis (unit yang jatuh tempo tercentang, jenis Cuci AC).
+      return n.target ? `/service-orders/intake?memberId=${n.target}&jatuhTempo=1` : '/service-orders/intake';
     case 'unit_data_completed':
       // target = id pelanggan: halaman AC pelanggan di Monitoring Jadwal, tempat siklus pengingat diatur.
       return n.target ? `/reminder-wa/member/${n.target}` : '/reminder-wa';
