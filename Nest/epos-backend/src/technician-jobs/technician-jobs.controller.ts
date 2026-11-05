@@ -22,6 +22,7 @@ import type { CurrentUserPayload } from '../auth/decorators/current-user.decorat
 import { TechnicianJobsService } from './technician-jobs.service';
 import { AssignJobDto } from './dto/assign-job.dto';
 import { AddUnitDto } from './dto/add-unit.dto';
+import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { StartJobDto } from './dto/start-job.dto';
 import { UpdateNotesDto } from './dto/update-notes.dto';
 import { HistoryQueryDto } from './dto/history-query.dto';
@@ -212,6 +213,33 @@ export class TechnicianJobsController {
         target: id,
       })
       .catch(() => undefined);
+    return result;
+  }
+
+  // Komplain pelanggan atas job yang sudah selesai (admin): membuat job komplain baru dari data job awal, tanpa penagihan
+  // baru. Teknisi dikabari lewat lonceng seperti penugasan biasa.
+  @Roles('admin')
+  @Post(':id/complaint')
+  async createComplaint(
+    @Param('id') id: string,
+    @Body() dto: CreateComplaintDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const result = await this.jobs.createComplaint(id, dto, user.sub);
+    this.realtime.emitToAdmin('job.status_changed', {
+      jobId: result.jobId,
+      status: result.technicianId ? 'assigned' : 'menunggu_penugasan',
+    });
+    if (result.technicianId) {
+      void this.notifications
+        .notify(result.technicianId, {
+          title: 'Job Komplain Ditugaskan',
+          body: `Pelanggan${result.customerName ? ` ${result.customerName}` : ''} mengajukan komplain. Kerjakan ulang (scan unit dulu); tanpa penagihan baru.`,
+          type: 'job_assigned',
+          target: result.jobId,
+        })
+        .catch(() => undefined);
+    }
     return result;
   }
 

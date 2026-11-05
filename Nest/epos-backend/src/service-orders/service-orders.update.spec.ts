@@ -94,6 +94,15 @@ describe('ServiceOrdersService.update — jadwal, jenis pekerjaan, note', () => 
   });
 });
 
+describe('ServiceOrdersService.update — order komplain', () => {
+  it('jenis pekerjaan job komplain tidak bisa diganti, tetapi jadwal/note tetap boleh', async () => {
+    const { svc, tx } = setup(order([job('j1', 'assigned', { complaintOfJobId: 'j-awal' })]));
+    await expect(svc.update('o1', { jobType: 'cuci' }, 'admin1')).rejects.toThrow('job komplain tidak bisa diganti');
+    await expect(svc.update('o1', { scheduledDate: '2026-11-12', note: 'Bawa tangga' }, 'admin1')).resolves.toMatchObject({ ok: true });
+    expect(tx.serviceOrder.update).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('ServiceOrdersService.update — titik lokasi kerja per unit', () => {
   it('mengubah titik tiap unit; alamat/link dirapikan dan kosong = ikut alamat pelanggan (null)', async () => {
     const { svc, tx } = setup(order([job('j1', 'assigned', { workAddress: 'Lama' }), job('j2')]));

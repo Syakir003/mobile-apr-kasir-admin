@@ -846,12 +846,19 @@ model TechnicianJob {
   // http/https; tanpa link, tombol "Buka di Maps" mencari teks workAddress di Google Maps (nama daerah pun cukup).
   workAddress    String? @map("work_address")
   workMapsUrl    String? @map("work_maps_url")
+  // Job KOMPLAIN: pengerjaan ulang atas keluhan pelanggan setelah job selesai. Menunjuk job SELESAI yang dikomplain
+  // (job itu beserta temuan, foto, dan tagihannya dibiarkan utuh). Job komplain punya temuan & foto sendiri dan TIDAK
+  // memakai penetapan harga jasa/tagihan baru. null = job biasa.
+  complaintOfJobId String? @map("complaint_of_job_id")
+  complaintOf      TechnicianJob?  @relation("JobComplaint", fields: [complaintOfJobId], references: [id], onDelete: SetNull)
+  complaints       TechnicianJob[] @relation("JobComplaint")
 
   photos           JobPhoto[]
   findings         JobFinding[]
   materialRequests MaterialRequest[]
   handovers        JobHandover[]
 
+  @@index([complaintOfJobId])
   @@map("technician_jobs")
 }
 

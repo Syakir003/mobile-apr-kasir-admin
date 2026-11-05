@@ -26,6 +26,7 @@ import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { assertNoActiveJob } from './active-job.util';
 import { AddUnitDto } from './dto/add-unit.dto';
+import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { INTAKE_JOB_TYPES } from '../service-orders/dto/service-intake.dto';
 
 type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
@@ -359,6 +360,11 @@ export class TechnicianJobsService {
           include: { items: true },
           orderBy: { createdAt: 'desc' },
         },
+        // Job komplain: menunjuk job selesai yang dikomplain; job selesai: daftar komplain atasnya (kosong = tidak ada).
+        complaintOf: {
+          select: { id: true, completedAt: true, orderId: true, technician: { select: { displayName: true } } },
+        },
+        complaints: { select: { id: true, status: true, createdAt: true, orderId: true }, orderBy: { createdAt: 'asc' } },
         // Riwayat alih tugas (kosong untuk job yang tidak pernah dialihkan).
         handovers: {
           include: {
@@ -423,6 +429,8 @@ export class TechnicianJobsService {
       // Titik lokasi kerja unit ini bila berbeda dari alamat pelanggan (null/kosong = ikut alamat member).
       workAddress?: string | null;
       workMapsUrl?: string | null;
+      // Job komplain: menunjuk job selesai yang dikomplain (lihat createComplaint). null/kosong = job biasa.
+      complaintOfJobId?: string | null;
     },
   ) {
     const now = new Date();
@@ -439,6 +447,7 @@ export class TechnicianJobsService {
         scheduledDate: params.scheduledDate,
         workAddress: params.workAddress ?? null,
         workMapsUrl: params.workMapsUrl ?? null,
+        complaintOfJobId: params.complaintOfJobId ?? null,
         createdById: params.actorId,
         updatedAt: now,
       },
@@ -587,6 +596,124 @@ export class TechnicianJobsService {
         jobType,
         customerName: job.member?.name ?? null,
         technicianName: job.technician?.displayName ?? null,
+      };
+    });
+  }
+
+  /**
+   * Komplain pelanggan atas job yang sudah SELESAI (admin; tombol "Komplain" di Detail Order). Job awal dibiarkan utuh:
+   * temuan, foto, tagihan, dan jadwal pengingatnya tidak disentuh. Yang dibuat adalah ORDER BARU (tanpa nota) berisi satu
+   * job komplain per unit yang dipilih, dengan data pelanggan/unit/lokasi disalin dari job awal sehingga admin tidak
+   * mengisi ulang apa pun:
+   *  - keluhan jadi temuan awal (origin komplain_awal) = section temuan & foto sebelum/sesudah BARU, terpisah dari temuan
+   *    job awal (foto job awal tidak bercampur dengan foto pengerjaan komplain);
+   *  - alur kerja sama dengan job biasa: teknisi scan barcode unit + foto sebelum untuk Mulai Job, melengkapi temuan &
+   *    foto, Ajukan Selesai, admin menyetujui. TANPA penetapan harga jasa dan tagihan baru (lihat assertJobPriced,
+   *    ServicePricingService.set, sendFindings);
+   *  - jenis pekerjaan 'perbaikan' supaya persetujuannya tidak mengubah siklus/jadwal pengingat servis unit.
+   * Satu keluhan bisa mencakup beberapa unit dari order yang sama (`jobIds`). Unit yang masih punya job aktif ditolak.
+   * Teknisi bawaan = teknisi job awal (bila masih aktif); `technicianId: null` = belum ditentukan.
+   */
+  async createComplaint(jobId: string, dto: CreateComplaintDto, actorId: string) {
+    const complaint = dto.complaint?.trim();
+    if (!complaint) throw new BadRequestException('Isi keluhan pelanggan dulu');
+    const scheduledDate = new Date(dto.scheduledDate);
+    if (Number.isNaN(scheduledDate.getTime())) throw new BadRequestException('Jadwal tidak valid');
+    const wantedIds = [...new Set(dto.jobIds?.length ? dto.jobIds : [jobId])];
+
+    return this.prisma.$transaction(async (tx) => {
+      const base = await tx.technicianJob.findUnique({ where: { id: jobId }, select: { orderId: true } });
+      if (!base) throw new NotFoundException('Job tidak ditemukan');
+      // Kunci semua job order asal (urut id) supaya dua komplain bersamaan pada unit yang sama tidak sama-sama lolos.
+      await tx.$executeRaw`SELECT id FROM technician_jobs WHERE order_id = ${base.orderId} ORDER BY id FOR UPDATE`;
+      const sources = await tx.technicianJob.findMany({
+        where: { id: { in: wantedIds } },
+        include: {
+          member: { select: { id: true, name: true } },
+          unit: { select: { brand: true, model: true, roomLocation: true, barcodeValue: true } },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
+      if (sources.length !== wantedIds.length) throw new NotFoundException('Ada job yang dipilih tidak ditemukan');
+      for (const s of sources) {
+        if (s.orderId !== base.orderId) {
+          throw new BadRequestException('Unit yang dipilih harus berasal dari order yang sama');
+        }
+        if (s.status !== TechnicianJobStatus.selesai) {
+          throw new BadRequestException(
+            `Komplain hanya untuk job yang sudah Selesai (${this.unitName(s.unit)} belum selesai)`,
+          );
+        }
+        if (!s.unitId || !s.memberId) {
+          throw new BadRequestException('Job tanpa unit AC atau pelanggan tidak bisa dikomplain');
+        }
+      }
+      // Job komplain baru tidak boleh menumpuk dengan job aktif lain pada unit yang sama.
+      await assertNoActiveJob(tx, sources.map((s) => s.unitId as string));
+
+      const first = sources[0];
+      let technicianId: string | null;
+      if (dto.technicianId === undefined) {
+        // Bawaan: teknisi job awal, kalau akunnya sudah nonaktif/bukan teknisi jadi "belum ditentukan" (admin menugaskan).
+        const prev = first.technicianId
+          ? await tx.user.findUnique({ where: { id: first.technicianId }, select: { role: true, active: true } })
+          : null;
+        technicianId = prev && prev.role === 'teknisi' && prev.active ? first.technicianId : null;
+      } else if (dto.technicianId === null) {
+        technicianId = null;
+      } else {
+        const tech = await tx.user.findUnique({ where: { id: dto.technicianId }, select: { role: true, active: true } });
+        if (!tech || tech.role !== 'teknisi' || !tech.active) {
+          throw new BadRequestException('Teknisi tidak valid atau tidak aktif');
+        }
+        technicianId = dto.technicianId;
+      }
+
+      const order = await tx.serviceOrder.create({
+        data: {
+          memberId: first.memberId,
+          type: 'perbaikan',
+          status: 'terjadwal',
+          scheduledDate,
+          createdById: actorId,
+        },
+      });
+      const created: { jobId: string; fromJobId: string; unitId: string }[] = [];
+      for (const s of sources) {
+        await tx.serviceOrderUnit.create({
+          data: { orderId: order.id, unitId: s.unitId as string, status: 'terjadwal' },
+        });
+        const newJob = await this.createForOrder(tx, {
+          orderId: order.id,
+          memberId: s.memberId as string,
+          unitId: s.unitId as string,
+          technicianId,
+          type: 'perbaikan',
+          actorId,
+          scheduledDate,
+          complaint,
+          // Lokasi kerja sama dengan job awal (unit yang sama), jadi admin tidak mengisinya lagi.
+          workAddress: s.workAddress,
+          workMapsUrl: s.workMapsUrl,
+          complaintOfJobId: s.id,
+        });
+        created.push({ jobId: newJob.id, fromJobId: s.id, unitId: s.unitId as string });
+        await tx.auditLog.create({
+          data: {
+            actorUid: actorId,
+            action: 'job.complaint',
+            target: newJob.id,
+            detail: { fromJobId: s.id, fromOrderId: base.orderId, orderId: order.id, unitId: s.unitId, technicianId },
+          },
+        });
+      }
+      return {
+        ok: true,
+        orderId: order.id,
+        jobId: created[0].jobId,
+        jobs: created,
+        technicianId,
+        customerName: first.member?.name ?? null,
       };
     });
   }
@@ -1006,6 +1133,10 @@ export class TechnicianJobsService {
       ) {
         throw new BadRequestException('Temuan hanya bisa dikirim selama job aktif');
       }
+      // Job komplain tidak ditagih: tidak ada harga jasa yang perlu ditetapkan dari temuannya.
+      if (job.complaintOfJobId) {
+        throw new BadRequestException('Job komplain tidak ditagih, jadi temuannya tidak perlu dikirim untuk penetapan harga');
+      }
       if (job.findings.length === 0) {
         throw new BadRequestException('Tambah minimal 1 temuan dulu sebelum dikirim');
       }
@@ -1260,7 +1391,8 @@ export class TechnicianJobsService {
         'Job harus berstatus Menunggu Review untuk disetujui',
       );
     }
-    await this.assertJobPriced(job);
+    // Job komplain tidak ditagih lagi: tidak ada harga jasa yang perlu ditetapkan sebelum disetujui.
+    if (!job.complaintOfJobId) await this.assertJobPriced(job);
 
     // Pengingat servis per unit AC (2026-09-30) — validasi SEBELUM transaksi
     // supaya job tidak tertutup kalau siklusnya belum diisi.
@@ -1424,7 +1556,7 @@ export class TechnicianJobsService {
     for (const j of waiting) {
       // Harga jasa tiap unit harus sudah ditetapkan (dicek untuk SEMUA unit dulu supaya tidak setengah tersetujui).
       try {
-        await this.assertJobPriced(j);
+        if (!j.complaintOfJobId) await this.assertJobPriced(j); // job komplain tidak ditagih
       } catch (e) {
         if (e instanceof BadRequestException) {
           throw new BadRequestException(`Unit ${this.unitName(j.unit)}: ${e.message}`);

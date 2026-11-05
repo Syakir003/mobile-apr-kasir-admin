@@ -355,6 +355,10 @@ export class ServiceOrdersService {
       if (dto.jobType !== undefined && (order.type === 'pemasangan' || open.some((j) => j.type === 'pemasangan'))) {
         throw new BadRequestException('Jenis pekerjaan order pemasangan tidak bisa diganti');
       }
+      // Job komplain selalu 'perbaikan': persetujuannya tidak boleh menyentuh jadwal pengingat servis unit.
+      if (dto.jobType !== undefined && open.some((j) => j.complaintOfJobId)) {
+        throw new BadRequestException('Jenis pekerjaan job komplain tidak bisa diganti');
+      }
 
       const changes: Record<string, unknown> = {};
       const orderData: Prisma.ServiceOrderUpdateInput = {};

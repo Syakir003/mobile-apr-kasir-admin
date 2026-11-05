@@ -153,6 +153,10 @@ export class ServicePricingService {
       await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
       const job = await tx.technicianJob.findUnique({ where: { id: jobId } });
       if (!job) throw new NotFoundException('Job tidak ditemukan');
+      // Job komplain (pengerjaan ulang atas keluhan pelanggan) tidak ditagih lagi.
+      if (job.complaintOfJobId) {
+        throw new BadRequestException('Job komplain tidak ditagih, jadi tidak ada harga jasa yang perlu ditetapkan');
+      }
       if (job.status === TechnicianJobStatus.selesai || job.status === TechnicianJobStatus.dibatalkan) {
         throw new BadRequestException('Harga jasa tidak bisa diubah setelah job selesai atau dibatalkan');
       }
