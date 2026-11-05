@@ -402,26 +402,23 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 </label>
               )}
               {!isTeknisi && (
-                <div className="inline-flex gap-1 rounded-lg border bg-background p-0.5">
-                  {[
-                    { done: false, label: 'Aktif' },
-                    { done: true, label: 'Selesai' },
-                  ].map((tab) => (
-                    <button
-                      key={tab.label}
-                      type="button"
-                      aria-pressed={showDone === tab.done}
-                      onClick={() => setShowDone(tab.done)}
-                      className={cn(
-                        'rounded-md px-3.5 py-1 text-xs font-semibold transition-colors',
-                        showDone === tab.done
-                          ? 'bg-primary text-primary-foreground shadow-xs'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant={showDone ? 'outline' : 'default'}
+                    aria-pressed={!showDone}
+                    onClick={() => setShowDone(false)}
+                  >
+                    Aktif
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={showDone ? 'default' : 'outline'}
+                    aria-pressed={showDone}
+                    onClick={() => setShowDone(true)}
+                  >
+                    Selesai
+                  </Button>
                 </div>
               )}
             </div>
@@ -438,26 +435,23 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs sm:pb-0">
+            <div className="flex items-center gap-2 overflow-x-auto p-0.5 text-xs">
               <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
                 <CalendarDays className="size-3.5 text-primary" />
                 Filter Hari:
               </span>
               {dayPills.map((pill) => (
-                <button
+                <Button
                   key={pill.key}
                   type="button"
+                  size="sm"
+                  variant={dayFilter === pill.key ? 'default' : 'outline'}
                   aria-pressed={dayFilter === pill.key}
                   onClick={() => setDayFilter(pill.key)}
-                  className={cn(
-                    'shrink-0 whitespace-nowrap rounded-lg border px-2.5 py-0.5 transition-colors',
-                    dayFilter === pill.key
-                      ? 'border-primary bg-primary/10 font-semibold text-primary'
-                      : 'bg-background font-medium text-muted-foreground hover:bg-muted',
-                  )}
+                  className="shrink-0 whitespace-nowrap"
                 >
                   {pill.label}
-                </button>
+                </Button>
               ))}
             </div>
             <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
@@ -467,14 +461,14 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 value={pickedDate}
                 onChange={(e) => setDayFilter(e.target.value || 'all')}
                 aria-label="Pilih tanggal jadwal"
-                className="h-7 w-auto bg-background text-xs"
+                className="h-8 w-auto bg-background text-xs"
               />
               {filtersActive && (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-7 text-destructive hover:text-destructive"
+                  className="text-destructive hover:text-destructive"
                   onClick={resetFilters}
                 >
                   <X className="size-3.5" />
