@@ -1,7 +1,8 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { SESSION_COOKIE_NAME, decodeSession, type SessionPayload } from '@/lib/session';
+import { cache } from 'react';
+import { SESSION_COOKIE_NAME, decodeSession, type SessionPayload, type SessionUser } from '@/lib/session';
 
 const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:3000';
 
@@ -19,6 +20,22 @@ export async function requireSession(): Promise<SessionPayload> {
   if (!session) redirect('/login');
   return session;
 }
+
+/**
+ * User sesi + nama & foto TERBARU dari GET /auth/me. Cookie hanya diisi saat
+ * login, jadi foto yang diganti dari HP/browser lain tidak akan kelihatan
+ * tanpa ini. Gagal (backend mati dsb.) = pakai isi cookie apa adanya.
+ * Role tetap dari cookie, sama dengan yang dipakai proxy.ts untuk guard rute.
+ */
+export const currentUser = cache(async (): Promise<SessionUser> => {
+  const { user } = await requireSession();
+  try {
+    const me = await serverFetch<{ displayName: string; avatarPath: string | null }>('/auth/me');
+    return { ...user, displayName: me.displayName, avatarPath: me.avatarPath };
+  } catch {
+    return user;
+  }
+});
 
 export async function serverFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const session = await requireSession();
