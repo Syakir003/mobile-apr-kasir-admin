@@ -25,6 +25,7 @@ import { AddUnitDto } from './dto/add-unit.dto';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { StartJobDto } from './dto/start-job.dto';
 import { UpdateNotesDto } from './dto/update-notes.dto';
+import { UpdateKeteranganDto } from './dto/update-keterangan.dto';
 import { HistoryQueryDto } from './dto/history-query.dto';
 import { FindAllJobsQueryDto } from './dto/find-all-jobs-query.dto';
 import { AddFindingDto } from './dto/add-finding.dto';
@@ -413,7 +414,18 @@ export class TechnicianJobsController {
     @Body() dto: UpdateNotesDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.jobs.updateNotes(id, dto.notes, user.sub, user.role, { allInOrder: dto.allInOrder });
+    return this.jobs.updateNotes(id, dto.notes, user.sub, user.role);
+  }
+
+  // Keterangan teknisi (satu order, bagian bawah halaman job): beda dari :id/notes (Diagnosa per unit).
+  @Roles('admin', 'teknisi')
+  @Patch(':id/keterangan')
+  updateKeterangan(
+    @Param('id') id: string,
+    @Body() dto: UpdateKeteranganDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.jobs.updateKeterangan(id, dto.keterangan, user.sub, user.role);
   }
 
   // Ganti PATCH :id/complete (dulu teknisi langsung nutup job sendiri).

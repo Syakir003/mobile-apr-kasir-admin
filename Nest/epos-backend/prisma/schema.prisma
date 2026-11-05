@@ -755,6 +755,9 @@ model ServiceOrder {
   createdAt     DateTime  @default(now()) @map("created_at")
   note          String?
   scheduledDate DateTime? @map("scheduled_date")
+  // Keterangan teknisi: catatan SATU ORDER untuk admin (mis. "Cuci 2 unit AC dibayar cash 75 ribu"), diisi teknisi di bagian
+  // paling bawah halaman job sebelum Ajukan Selesai. BEDA dari technician_jobs.notes = Diagnosa / Catatan Pengerjaan per unit.
+  technicianNote String? @map("technician_note")
 
   units TechnicianJob[]
   serviceOrderUnits ServiceOrderUnit[]

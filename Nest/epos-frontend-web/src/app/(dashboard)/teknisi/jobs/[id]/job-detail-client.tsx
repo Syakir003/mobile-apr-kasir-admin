@@ -132,6 +132,8 @@ interface JobDetail {
     id: string;
     // Note pekerjaan dari kasir/admin saat menerima servis (deskripsi pekerjaan); null = tidak ada.
     note?: string | null;
+    // Keterangan teknisi (catatan satu order untuk admin); beda dari notes job = Diagnosa per unit.
+    technicianNote?: string | null;
     // Ada setelah harga jasa ditetapkan (servis mandiri) atau dari invoice POS (pemasangan).
     invoice?: { id: string; number: string; status: string; grandTotal: string; totalPaid: string } | null;
   } | null;
@@ -233,7 +235,7 @@ export function JobDetailClient({
   const [scanInput, setScanInput] = React.useState('');
   const [sendBackNote, setSendBackNote] = React.useState('');
   // Keterangan teknisi (kartu di bagian bawah halaman); dipanggil sebelum early return supaya urutan hook tetap.
-  const keterangan = useKeterangan(jobId, jobQuery.data?.notes ?? null, false);
+  const keterangan = useKeterangan(jobId, jobQuery.data?.order?.technicianNote ?? null);
 
   const startMutation = useJobAction<{ scannedBarcode: string }>(jobId, '/start', 'Job dimulai.');
   const submitForReviewMutation = useJobAction(jobId, '/submit-for-review', 'Diajukan untuk review.');
@@ -276,8 +278,11 @@ export function JobDetailClient({
   // Halaman ini untuk admin/kasir = memantau pekerjaan teknisi (read-only), jadi kontrolnya
   // hanya tampil untuk teknisi pemilik job.
   const canEditFindings = isTeknisi && ['assigned', 'sedang_dikerjakan'].includes(job.status);
-  // Keterangan teknisi (dulu "Diagnosa / Catatan Pengerjaan" di tengah kartu unit): kini kartu tersendiri di bagian
-  // paling bawah. Hanya teknisi yang mengisi, selama job aktif; admin/kasir membacanya (lihat KeteranganCard).
+  // Diagnosa / Catatan Pengerjaan: catatan teknis PER UNIT (kolom notes job) di tengah kartu unit, sama dengan app mobile.
+  // Hanya teknisi yang mengisi, selama job aktif; admin/kasir melihat versi baca-saja.
+  const notesEditable = isTeknisi && ['assigned', 'sedang_dikerjakan'].includes(job.status);
+  // Keterangan teknisi: catatan SATU ORDER untuk admin (service_orders.technician_note), kartu di bagian paling bawah.
+  // TERPISAH dari Diagnosa di atas. Hanya teknisi yang mengisi; admin/kasir membacanya (lihat KeteranganCard).
   const keteranganEditable = isTeknisi && ['assigned', 'sedang_dikerjakan'].includes(job.status);
   // Sama kayak gate start() di backend — minimal 1 foto 'sebelum' di
   // salah satu temuan job ini. Dihitung dari data yang udah ke-fetch, jadi
@@ -412,6 +417,10 @@ export function JobDetailClient({
                   </div>
                 </div>
               )}
+              {/* Kalau lagi bisa diedit (lihat NotesEditor di bawah), jangan
+                  dobel ditampilin di sini juga - biar gak ada 2 sumber
+                  kebenaran yang keliatan beda pas belum di-save. */}
+              {job.notes && !notesEditable && <DetailRow label="Catatan" value={job.notes} />}
               {job.startedAt && isScanned(job) && (
                 <DetailRow label="Dimulai" value={formatDateTime(job.startedAt)} />
               )}
@@ -437,6 +446,8 @@ export function JobDetailClient({
               Dikembalikan admin: {job.reviewNote}
             </p>
           )}
+
+          {notesEditable && <NotesEditor key={job.id} jobId={job.id} initialNotes={job.notes} />}
 
           <Card>
             <CardHeader>
@@ -899,9 +910,10 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
     enabled: isAdmin,
   });
   const technicians = (techniciansQuery.data ?? []).filter((u) => u.role === 'teknisi' && u.active);
-  // Keterangan teknisi: satu untuk seluruh order (disalin ke semua job aktif). Nilai awal = isian pertama yang ada.
-  const orderNotes = jobs.find((j) => j.notes)?.notes ?? null;
-  const keterangan = useKeterangan(job.id, orderNotes, true);
+  // Keterangan teknisi: satu untuk seluruh order (service_orders.technician_note); dikirim lewat job aktif mana pun.
+  // Diagnosa per unit tetap di section tiap unit (kolom notes job), tidak tersentuh.
+  const keteranganJob = jobs.find((j) => ['assigned', 'sedang_dikerjakan'].includes(j.status)) ?? job;
+  const keterangan = useKeterangan(keteranganJob.id, job.order?.technicianNote ?? null);
   const keteranganEditable = isTeknisi && jobs.some((j) => ['assigned', 'sedang_dikerjakan'].includes(j.status));
 
 
@@ -1483,24 +1495,74 @@ function DetailRow({
   );
 }
 
+/** Field catatan kerja bebas teknisi (beda dari checklist temuan terstruktur
+ * di bawah) — konsep diambil dari app mobile teknisi lama (`_DiagnosisField`
+ * di job_detail_screen.dart), yang endpoint backend-nya (`PATCH :id/notes`)
+ * ternyata masih hidup tapi belum ada UI web-nya sama sekali. `initialNotes`
+ * cuma dipakai buat nilai awal (state lokal, gak disinkron ulang tiap
+ * refetch) — mutasi sukses tetap invalidate query supaya card "Detail" di
+ * atas ikutan update begitu berpindah keluar dari mode edit. */
+function NotesEditor({
+  jobId,
+  initialNotes,
+}: {
+  jobId: string;
+  initialNotes: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const [notes, setNotes] = React.useState(initialNotes ?? '');
+
+  const saveMutation = useMutation({
+    mutationFn: () => apiClient.patch(`/technician-jobs/${jobId}/notes`, { notes: notes.trim() }),
+    onSuccess: () => {
+      toast.success('Catatan disimpan.');
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal menyimpan catatan.');
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Diagnosa / Catatan Pengerjaan</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-2">
+        <Textarea
+          rows={3}
+          placeholder="Tuliskan hasil pengecekan atau tindakan..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+        <Button
+          type="button"
+          size="sm"
+          className="justify-self-start"
+          disabled={saveMutation.isPending}
+          onClick={() => saveMutation.mutate()}
+        >
+          {saveMutation.isPending ? 'Menyimpan...' : 'Simpan Catatan'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 /**
- * Keterangan teknisi: catatan bebas untuk admin (mis. "Cuci 2 unit AC dibayar cash 75 ribu" atau "Pelanggan minta penawaran
- * ganti kapasitor, bisa dikerjakan besok"), diisi di bagian paling bawah halaman sebelum Ajukan Selesai. Disimpan di kolom
- * `notes` job lewat PATCH :id/notes (endpoint yang sama dengan "Diagnosa / Catatan Pengerjaan" di app mobile). Servis
- * banyak AC: satu keterangan untuk seluruh order (`allInOrder`, disalin ke semua job yang masih aktif).
+ * Keterangan teknisi: catatan SATU ORDER untuk admin (mis. "Cuci 2 unit AC dibayar cash 75 ribu" atau "Pelanggan minta
+ * penawaran ganti kapasitor, bisa dikerjakan besok"), diisi di bagian paling bawah halaman sebelum Ajukan Selesai.
+ * TERPISAH dari "Diagnosa / Catatan Pengerjaan" (catatan teknis per unit, kolom notes job): Keterangan disimpan di order
+ * (service_orders.technician_note) lewat PATCH :id/keterangan, jadi satu untuk seluruh order, baik satu unit maupun banyak AC.
  */
-function useKeterangan(jobId: string, serverNotes: string | null, allInOrder: boolean) {
+function useKeterangan(jobId: string, serverValue: string | null) {
   const queryClient = useQueryClient();
   // draft null = teknisi belum mengubah apa pun, jadi yang tampil isi dari server.
   const [draft, setDraft] = React.useState<string | null>(null);
-  const value = draft ?? serverNotes ?? '';
-  const dirty = draft !== null && draft.trim() !== (serverNotes ?? '').trim();
+  const value = draft ?? serverValue ?? '';
+  const dirty = draft !== null && draft.trim() !== (serverValue ?? '').trim();
   const save = useMutation({
-    mutationFn: (text: string) =>
-      apiClient.patch(`/technician-jobs/${jobId}/notes`, {
-        notes: text.trim(),
-        ...(allInOrder ? { allInOrder: true } : {}),
-      }),
+    mutationFn: (text: string) => apiClient.patch(`/technician-jobs/${jobId}/keterangan`, { keterangan: text.trim() }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['technician-jobs'] }),
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : 'Gagal menyimpan keterangan.');
