@@ -51,6 +51,9 @@ model User {
   // semua token lama tetap sah.
   passwordChangedAt DateTime? @map("password_changed_at")
 
+  // Foto profil sendiri ("/uploads/avatars/<uuid>.jpg"), NULL = pakai inisial.
+  avatarPath String? @map("avatar_path")
+
   // Relasi balik (dipakai untuk audit trail & penugasan)
   auditLogs          AuditLog[]
   deviceTokens       DeviceToken[]

@@ -13,20 +13,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { randomUUID } from 'crypto';
-
-// Whitelist ekstensi foto — dicocokkan dari mimetype yang beneran dideteksi
-// multer (bukan dari nama file client, yang gampang dipalsu). Nama file
-// FINAL selalu di-generate server (randomUUID), TIDAK PERNAH pakai
-// file.originalname mentah — cegah path traversal (mis. originalname
-// "../../../../src/main.js") yang sebelumnya bisa nembus destination folder
-// lewat path.join di multer diskStorage.
-const ALLOWED_PHOTO_MIME: Record<string, string> = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-};
+import { photoUploadOptions } from '../common/uploads/photo-upload';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -277,36 +264,8 @@ export class TechnicianJobsController {
   // per kind (tidak dibatasi cuma 1 foto).
   @Roles('admin', 'teknisi')
   @Post(':id/findings/:findingId/photos')
-  @UseInterceptors(
-    FileInterceptor('photo', {
-      storage: diskStorage({
-        destination: './uploads/job-photos',
-        // Nama file di-generate SERVER (UUID + ekstensi dari mimetype
-        // ter-whitelist) — file.originalname TIDAK PERNAH dipakai buat path,
-        // biar gak bisa path-traversal ataupun nyelundup ekstensi berbahaya
-        // (mis. .html/.svg yang bisa stored-XSS lewat static /uploads).
-        filename: (_, file, cb) => {
-          const ext = ALLOWED_PHOTO_MIME[file.mimetype];
-          if (!ext)
-            return cb(
-              new BadRequestException('Tipe file harus JPG/PNG/WEBP'),
-              '',
-            );
-          cb(null, `${randomUUID()}${ext}`);
-        },
-      }),
-      fileFilter: (_, file, cb) => {
-        if (!ALLOWED_PHOTO_MIME[file.mimetype]) {
-          return cb(
-            new BadRequestException('Tipe file harus JPG/PNG/WEBP'),
-            false,
-          );
-        }
-        cb(null, true);
-      },
-      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB — cukup buat foto HP, cegah upload segede-gedenya
-    }),
-  )
+  // 10MB — cukup buat foto HP, cegah upload segede-gedenya.
+  @UseInterceptors(FileInterceptor('photo', photoUploadOptions('job-photos', 10)))
   // Siklus 9 — nerima field opsional `clientActionId` di form-data (Flutter
   // isi ini kalau upload ini adalah "tahap 1" dari alur foto offline: foto
   // diambil offline, disimpan lokal, baru di-upload ke sini begitu online

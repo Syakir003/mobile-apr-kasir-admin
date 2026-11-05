@@ -6,7 +6,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { BadgeCheck, ChevronRight, Lock, Mail, User as UserIcon } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { BadgeCheck, Camera, ChevronRight, Lock, Mail, User as UserIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -28,6 +29,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import type { Role, SessionUser } from '@/lib/session';
+import { UserAvatar } from '@/components/user-avatar';
 
 const ROLE_LABEL: Record<Role, string> = {
   admin: 'Admin',
@@ -63,11 +65,6 @@ const emptyPasswordValues: ChangePasswordValues = {
   confirmPassword: '',
 };
 
-function initialOf(user: SessionUser) {
-  const source = user.displayName.trim() || user.email || '?';
-  return source.charAt(0).toUpperCase();
-}
-
 // Kontennya padanan `ProfileScreen` di app mobile (profile_screen.dart):
 // avatar+nama+role, "Informasi Akun", "Keamanan Akun" -> Ubah Password.
 // Tata letaknya SENGAJA bukan port 1:1 dari layar HP — di web, layar
@@ -83,6 +80,26 @@ function initialOf(user: SessionUser) {
 // proxy generik).
 export function ProfilClient({ user }: { user: SessionUser }) {
   const [passwordOpen, setPasswordOpen] = React.useState(false);
+  const router = useRouter();
+  const fileInput = React.useRef<HTMLInputElement>(null);
+
+  // Foto profil: route khusus memperbarui cookie sesi, lalu refresh supaya
+  // sidebar (DashboardShell, Server Component layout) ikut memakai foto baru.
+  const avatarMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append('photo', file);
+      const res = await fetch('/api/auth/avatar', { method: 'POST', body: form });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.message ?? 'Gagal mengganti foto profil');
+      return data;
+    },
+    onSuccess: () => {
+      toast.success('Foto profil diperbarui.');
+      router.refresh();
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Gagal mengganti foto profil.'),
+  });
 
   const passwordForm = useForm<ChangePasswordValues>({
     resolver: zodResolver(changePasswordSchema),
@@ -134,9 +151,34 @@ export function ProfilClient({ user }: { user: SessionUser }) {
           bukan ditumpuk vertikal-center kayak layar HP. */}
       <Card>
         <CardContent className="flex flex-col items-center gap-5 text-center sm:flex-row sm:text-left">
-          <div className="flex size-20 shrink-0 items-center justify-center rounded-full border-4 border-white bg-primary/10 text-3xl font-bold text-primary shadow-md">
-            {initialOf(user)}
-          </div>
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            disabled={avatarMutation.isPending}
+            title="Ganti foto profil"
+            className="group relative shrink-0 rounded-full disabled:opacity-60"
+          >
+            <UserAvatar
+              user={user}
+              className="size-20 border-4 border-white bg-primary/10 text-3xl font-bold text-primary shadow-md"
+            />
+            <span className="absolute right-0 bottom-0 flex size-7 items-center justify-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow group-hover:brightness-110">
+              <Camera className="size-3.5" />
+            </span>
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              if (file.size > 5 * 1024 * 1024) return toast.error('Ukuran foto maksimal 5MB.');
+              avatarMutation.mutate(file);
+            }}
+          />
           <div className="grid gap-1.5">
             <p className="text-xl font-bold">{user.displayName || 'Pengguna'}</p>
             <p className="text-sm text-muted-foreground">{user.email}</p>

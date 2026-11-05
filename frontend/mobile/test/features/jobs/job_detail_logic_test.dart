@@ -1,7 +1,7 @@
 import 'package:epos_ac/data/models/job_finding.dart';
 import 'package:epos_ac/data/models/material_request.dart';
 import 'package:epos_ac/data/models/technician_job.dart';
-import 'package:epos_ac/features/jobs/job_detail_screen.dart' show mapsUriFor;
+import 'package:epos_ac/features/jobs/job_detail_screen.dart' show mapsUriFor, workMapsUriFor;
 import 'package:epos_ac/features/jobs/job_providers.dart' show submitBlockedReason;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -62,6 +62,25 @@ void main() {
 
     test('tanpa mapsUrl dan alamat -> null', () {
       expect(mapsUriFor(_job()), isNull);
+    });
+  });
+
+  group('lokasi kerja job', () {
+    TechnicianJob work({String url = '', String address = ''}) => TechnicianJob(
+          id: 'j1', orderId: 'o1', memberId: 'm1', unitId: 'u1', technicianId: 't1',
+          type: 'cuci', status: JobStatus.assigned, workMapsUrl: url, workAddress: address,
+        );
+
+    test('kosong -> tidak ada lokasi kerja & tidak ada link', () {
+      expect(work().hasWorkLocation, isFalse);
+      expect(workMapsUriFor(work()), isNull);
+    });
+
+    test('link dipakai apa adanya; hanya alamat -> pencarian Maps', () {
+      expect(workMapsUriFor(work(url: 'https://maps.app.goo.gl/y'))?.toString(), 'https://maps.app.goo.gl/y');
+      final u = workMapsUriFor(work(address: 'Ruko Blok B'));
+      expect(work(address: 'Ruko Blok B').hasWorkLocation, isTrue);
+      expect(u?.queryParameters['query'], 'Ruko Blok B');
     });
   });
 

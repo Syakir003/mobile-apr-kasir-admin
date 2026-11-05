@@ -17,6 +17,8 @@ export interface SessionUser {
   email: string;
   role: Role;
   displayName: string;
+  /** "/uploads/avatars/..." (tampil lewat /api/proxy), null/absen = inisial nama. */
+  avatarPath?: string | null;
 }
 
 export interface SessionPayload {

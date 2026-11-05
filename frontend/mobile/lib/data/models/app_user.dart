@@ -19,10 +19,14 @@ class AppUser {
     required this.email,
     required this.displayName,
     required this.role,
+    this.avatarPath,
   });
 
   final String uid;
   final String email;
   final String displayName;
   final UserRole role;
+
+  /// Foto profil di server (`/uploads/avatars/...`), tampil lewat `/uploads/sign`. Null = inisial nama.
+  final String? avatarPath;
 }

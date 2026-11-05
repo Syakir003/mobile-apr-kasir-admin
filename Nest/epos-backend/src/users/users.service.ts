@@ -170,6 +170,7 @@ export class UsersService {
         email: true,
         displayName: true,
         role: true,
+        avatarPath: true,
         active: true,
         createdAt: true,
       },

@@ -18,6 +18,17 @@ void main() {
       expect(reloaded.user?.role, UserRole.teknisi);
     });
 
+    test('avatarPath ikut tersimpan; non-string dibaca null', () async {
+      final storage = MemoryKeyValueStore();
+      const withPhoto = AppUser(
+          uid: 'u1', email: 'a@b.id', displayName: 'Andi', role: UserRole.teknisi, avatarPath: '/uploads/avatars/x.jpg');
+      await SessionStore(storage).save('tok-1', withPhoto);
+      final reloaded = SessionStore(storage);
+      await reloaded.load();
+      expect(reloaded.user?.avatarPath, '/uploads/avatars/x.jpg');
+      expect(userFromJson({'id': 'u1', 'role': 'kasir', 'avatarPath': 5})?.avatarPath, isNull);
+    });
+
     test('clear menghapus sesi & memancarkan null', () async {
       final store = SessionStore(MemoryKeyValueStore());
       await store.save('tok-1', _user);

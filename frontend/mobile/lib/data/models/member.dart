@@ -24,6 +24,7 @@ class Member {
     required this.name,
     required this.phone,
     required this.address,
+    this.mapsUrl = '',
     required this.customerType,
     this.memberSince,
     this.totalAcUnits = 0,
@@ -35,6 +36,9 @@ class Member {
   final String name;
   final String phone;
   final String address;
+
+  /// Link lokasi (Google Maps) pelanggan; kosong = tanpa link. Backend selalu menyimpannya sebagai URL.
+  final String mapsUrl;
   final String customerType;
   final DateTime? memberSince;
   final int totalAcUnits;
@@ -47,6 +51,7 @@ class Member {
       name: (data['name'] as String?) ?? '',
       phone: (data['phone'] as String?) ?? '',
       address: (data['address'] as String?) ?? '',
+      mapsUrl: (data['maps_url'] as String?) ?? '',
       customerType: (data['customer_type'] as String?) ?? 'lainnya',
       memberSince: _toDate(data['member_since']),
       totalAcUnits: numFromNest(data['total_ac_units'])?.toInt() ?? 0,
@@ -60,6 +65,7 @@ class Member {
       'name': name,
       'phone': phone,
       'address': address,
+      'maps_url': mapsUrl,
       'customer_type': customerType,
       'member_since': memberSince?.toUtc().toIso8601String(),
       'total_ac_units': totalAcUnits,
@@ -73,6 +79,7 @@ class Member {
     String? name,
     String? phone,
     String? address,
+    String? mapsUrl,
     String? customerType,
     DateTime? memberSince,
     int? totalAcUnits,
@@ -84,6 +91,7 @@ class Member {
       name: name ?? this.name,
       phone: phone ?? this.phone,
       address: address ?? this.address,
+      mapsUrl: mapsUrl ?? this.mapsUrl,
       customerType: customerType ?? this.customerType,
       memberSince: memberSince ?? this.memberSince,
       totalAcUnits: totalAcUnits ?? this.totalAcUnits,

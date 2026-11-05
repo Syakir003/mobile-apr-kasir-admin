@@ -15,9 +15,9 @@ class NestMemberRepository implements CrudRepository<Member> {
 
   @override
   Stream<List<Member>> watchAll() async* {
-    final rows = await _api.get('/members') as List;
+    final rows = await fetchAllMemberRows(_api.get);
     yield [
-      for (final r in rows) Member.fromMap((r as Map)['id'] as String, snakeKeys(r)),
+      for (final r in rows) Member.fromMap(r['id'] as String, snakeKeys(r)),
     ];
   }
 
@@ -27,6 +27,8 @@ class NestMemberRepository implements CrudRepository<Member> {
         'name': m.name,
         'phone': m.phone,
         'address': m.address,
+        // Kosong = hapus link; ketikan biasa (nama daerah) dinormalkan jadi URL oleh backend.
+        'mapsUrl': m.mapsUrl,
         if (_customerTypes.contains(m.customerType)) 'customerType': m.customerType,
         'notes': m.notes ?? '',
       };
@@ -45,4 +47,17 @@ class NestMemberRepository implements CrudRepository<Member> {
   Future<void> update(String id, Member item) async {
     await _api.patch('/members/$id', body: {..._body(item), 'active': item.active});
   }
+}
+
+/// GET /members berhalaman (`{ items, totalPages, ... }`); daftar member di HP
+/// mencari di sisi app, jadi semua halaman diambil.
+// ponytail: semua member dimuat sekaligus; pindah ke pencarian server (?q=&page=) kalau member sudah ribuan.
+Future<List<Map>> fetchAllMemberRows(Future<dynamic> Function(String path) get) async {
+  final rows = <Map>[];
+  for (var page = 1, pages = 1; page <= pages; page++) {
+    final res = await get('/members?page=$page&pageSize=100') as Map;
+    rows.addAll((res['items'] as List).cast<Map>());
+    pages = (res['totalPages'] as num?)?.toInt() ?? 1;
+  }
+  return rows;
 }

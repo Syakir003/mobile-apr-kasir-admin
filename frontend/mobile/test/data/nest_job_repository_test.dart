@@ -131,6 +131,20 @@ void main() {
       expect(job.memberMapsUrl, 'https://maps.app.goo.gl/x');
     });
 
+    test('titik lokasi kerja job terbawa (camelCase Nest -> field model)', () {
+      final job = TechnicianJob.fromMap(
+        'j1',
+        technicianJobRowFromNest({
+          'status': 'assigned',
+          'workAddress': 'Ruko Blok B',
+          'workMapsUrl': 'https://www.google.com/maps/search/?api=1&query=Ruko',
+        }),
+      );
+      expect(job.workAddress, 'Ruko Blok B');
+      expect(job.workMapsUrl, startsWith('https://'));
+      expect(job.hasWorkLocation, isTrue);
+    });
+
     test('tanpa paket -> kosong; hasBeforePhoto null bila daftar tak membawanya', () {
       final job = TechnicianJob.fromMap(
         'j2',

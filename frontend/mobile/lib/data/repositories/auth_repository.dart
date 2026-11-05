@@ -11,6 +11,9 @@ abstract interface class AuthRepository {
   Future<void> refresh();
 
   Future<void> changePassword({required String currentPassword, required String newPassword});
+
+  /// Ganti foto profil sendiri (semua role).
+  Future<void> uploadAvatar({required List<int> bytes, required String ext, required String contentType});
 }
 
 /// Login lewat backend Nest (POST /auth/login), sesi di [SessionStore].
@@ -72,6 +75,19 @@ class NestAuthRepository implements AuthRepository {
     final token = res is Map ? res['accessToken'] : null;
     final user = res is Map ? userFromJson(res['user']) : null;
     if (token is String && user != null) await _session.save(token, user);
+  }
+
+  /// POST /auth/me/avatar -> server membalas user terbaru (token tidak berubah).
+  @override
+  Future<void> uploadAvatar({required List<int> bytes, required String ext, required String contentType}) async {
+    final user = userFromJson(await _api.postMultipart(
+      '/auth/me/avatar',
+      fileField: 'photo',
+      bytes: bytes,
+      filename: 'avatar.$ext',
+      contentType: contentType,
+    ));
+    if (user != null) await _session.updateUser(user);
   }
 }
 
