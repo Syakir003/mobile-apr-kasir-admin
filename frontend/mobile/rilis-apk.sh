@@ -5,7 +5,10 @@
 #   2. flutter build apk --release --split-per-abi      (atau tanpa --split-per-abi bila mau satu APK universal)
 #   3. bash rilis-apk.sh [--min <build>] "catatan rilis"
 #
-# --min <build>: HP dengan build di bawah angka itu DIPAKSA update (pakai bila kontrak API berubah dan APK lama
+# PENTING: buildNumber di version.json = versionCode APK, BUKAN angka setelah + di pubspec. Dengan --split-per-abi
+# Flutter menambah 2000 untuk arm64 (1.0.2+3 -> 2003), dan itulah yang dibaca app terpasang (PackageInfo).
+#
+# --min <versionCode>: HP dengan versionCode di bawah angka itu DIPAKSA update (pakai bila kontrak API berubah dan APK lama
 #                bisa error). Tanpa --min, update hanya ditawarkan (bisa "Nanti").
 # APK yang diunggah: build/app/outputs/flutter-apk/app-release.apk, atau ABI arm64-v8a bila dibuild dengan
 # --split-per-abi (hampir semua HP Android sekarang).
@@ -54,19 +57,23 @@ want=$(keytool -list -keystore "$(prop storeFile)" -storepass "$(prop storePassw
 have=$("$APKSIGNER" verify --print-certs "$APK" 2>/dev/null | grep -i 'certificate SHA-256 digest' | head -1 | awk '{print $NF}' | norm)
 [ -n "$want" ] && [ "$want" = "$have" ] || { echo "APK TIDAK ditandatangani keystore release (APK: ${have:-?}, keystore: ${want:-?})."; exit 1; }
 
+# versionCode asli dari APK (lihat catatan di atas soal +2000 untuk arm64).
+VC=$("$(dirname "$APKSIGNER")"/aapt2* dump badging "$APK" 2>/dev/null | head -1 | grep -o "versionCode='[0-9]*'" | grep -o '[0-9]*')
+[[ "$VC" =~ ^[0-9]+$ ]] || { echo "versionCode APK tidak terbaca (aapt2)."; exit 1; }
+
 # Build harus lebih besar dari yang sudah terbit.
 CUR=$(curl -fsS -m 10 "$API/app-version" 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get('buildNumber',0))" 2>/dev/null || echo 0)
-[ "$BUILD" -gt "$CUR" ] || { echo "Build $BUILD tidak lebih besar dari yang terbit ($CUR). Naikkan angka setelah + di pubspec.yaml."; exit 1; }
+[ "$VC" -gt "$CUR" ] || { echo "versionCode $VC tidak lebih besar dari yang terbit ($CUR). Naikkan angka setelah + di pubspec.yaml."; exit 1; }
 
 FILE="epos-ac-$NAME-b$BUILD.apk"
-JSON=$(python - "$NAME" "$BUILD" "$MIN" "$API/downloads/$FILE" "$NOTES" <<'PY'
+JSON=$(python - "$NAME" "$VC" "$MIN" "$API/downloads/$FILE" "$NOTES" <<'PY'
 import json, sys
 n, b, m, u, notes = sys.argv[1:6]
 print(json.dumps({"versionName": n, "buildNumber": int(b), "minBuildNumber": int(m), "downloadUrl": u, "notes": notes}, ensure_ascii=False))
 PY
 )
 
-echo "Rilis $NAME (build $BUILD, min $MIN) dari $APK ($(du -h "$APK" | cut -f1))"
+echo "Rilis $NAME (build $BUILD, versionCode $VC, min $MIN) dari $APK ($(du -h "$APK" | cut -f1))"
 scp -q "$APK" "$VPS:/var/www/epos-apk/downloads/$FILE.part"
 # version.json diganti paling akhir dan atomik: app tidak pernah melihat info versi yang file-nya belum utuh.
 ssh "$VPS" "chmod 644 /var/www/epos-apk/downloads/$FILE.part && mv /var/www/epos-apk/downloads/$FILE.part /var/www/epos-apk/downloads/$FILE && cat > /var/www/epos-apk/version.json.tmp && mv /var/www/epos-apk/version.json.tmp /var/www/epos-apk/version.json" <<<"$JSON"
