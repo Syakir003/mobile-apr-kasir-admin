@@ -543,7 +543,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
             const scheduled = row.jobs.find((j) => j.scheduledDate)?.scheduledDate;
             const showAssign = isAdmin && !!assignTarget;
             return (
-              <li key={row.key} className="px-5 py-2.5 transition-colors hover:bg-muted/50">
+              <li key={row.key} className="px-5 py-3.5 transition-colors hover:bg-muted/50">
                 <div className="flex items-start gap-3">
                   {!isTeknisi && selecting && (
                     <Checkbox
@@ -554,11 +554,11 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                       aria-label={`Pilih job ${many ? `${customer} (${row.jobs.length} unit)` : unitName(job)} untuk cetak QR`}
                     />
                   )}
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between md:gap-3">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between md:gap-3">
                       <Link
                         href={`/teknisi/jobs/${job.id}`}
-                        className="min-w-0 flex-1 space-y-1 rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="min-w-0 flex-1 space-y-1.5 rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       >
                         <p className="text-[15px] font-semibold leading-snug tracking-tight">
                           {customer} <span className="font-normal text-muted-foreground">·</span>{' '}
@@ -566,7 +566,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                         </p>
                         {/* Informasi AC dan lokasi dalam satu baris (membungkus bila sempit). */}
                         {(unitsText || locationText) && (
-                          <div className="flex flex-wrap items-start gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-start gap-x-4 gap-y-1 text-xs text-muted-foreground">
                             {unitsText && <span>{unitsText}</span>}
                             {locationText && (
                               <span className="inline-flex items-start gap-1.5">
@@ -586,7 +586,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                               assignMutation.mutate({ jobId: assignTarget.id, technicianId, allInOrder: many })
                             }
                           >
-                            <SelectTrigger size="sm" className="w-44 data-[size=sm]:h-7">
+                            <SelectTrigger size="sm" className="w-44">
                               <SelectValue placeholder={many ? 'Tugaskan (semua unit)' : 'Tugaskan teknisi'} />
                             </SelectTrigger>
                             <SelectContent>
@@ -616,7 +616,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
                       <span
                         className={cn(
                           'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold',
