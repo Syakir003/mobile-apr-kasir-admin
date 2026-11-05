@@ -128,6 +128,7 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
     if (j['siblings'] is List)
       'sibling_ids': [for (final sib in j['siblings'] as List) (sib as Map)['id']],
     if (j['order'] is Map) 'order_note': (j['order'] as Map)['note'],
+    if (j['order'] is Map) 'order_technician_note': (j['order'] as Map)['technicianNote'],
     if (j['handovers'] is List) 'handovers': j['handovers'],
     if (j['findings'] is List) 'findings': j['findings'],
   };

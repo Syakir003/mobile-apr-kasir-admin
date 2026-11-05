@@ -103,6 +103,12 @@ final signedPhotoUrlProvider =
 Future<void> saveJobNotes(String jobId, String notes) =>
     _api.patch('/technician-jobs/$jobId/notes', body: {'notes': notes});
 
+/// `PATCH /technician-jobs/:id/keterangan` — simpan Keterangan teknisi (catatan SATU ORDER untuk admin, disimpan di
+/// `service_orders.technician_note`). BEDA dari [saveJobNotes] (Diagnosa per unit). [jobId] = job aktif mana pun di
+/// order itu; kosong = hapus keterangan.
+Future<void> saveJobKeterangan(String jobId, String keterangan) =>
+    _api.patch('/technician-jobs/$jobId/keterangan', body: {'keterangan': keterangan});
+
 /// Isian "Tambah Unit AC": unit berlabel (`barcode`) ATAU AC tanpa label (`newUnit`, QR baru dicetak teknisi).
 typedef AddUnitInput = ({
   String jobType,

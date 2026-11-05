@@ -43,12 +43,16 @@ class JobDetailScreen extends ConsumerStatefulWidget {
 
 class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   final _notes = TextEditingController();
+  // Keterangan teknisi: catatan SATU ORDER untuk admin (beda dari _notes = Diagnosa per unit/job).
+  final _keterangan = TextEditingController();
   bool _busy = false;
   bool _notesInit = false;
+  bool _keteranganInit = false;
 
   @override
   void dispose() {
     _notes.dispose();
+    _keterangan.dispose();
     super.dispose();
   }
 
@@ -107,10 +111,13 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   }
 
   /// Servis banyak AC: Ajukan Selesai berlaku untuk SEMUA unit sekaligus (server memeriksa atomik).
-  Future<void> _submitAll(TechnicianJob first, List<String> ids) async {
+  Future<void> _submitAll(TechnicianJob first, TechnicianJob host, List<String> ids) async {
     final caller = ref.read(updateJobStatusCallerProvider);
     await _run(
-      () => caller({'jobId': first.id, 'action': 'submit_review', 'allInOrder': true}),
+      () async {
+        await _flushKeterangan(first, host);
+        await caller({'jobId': first.id, 'action': 'submit_review', 'allInOrder': true});
+      },
       'Seluruh unit diajukan untuk review.',
     );
     for (final id in ids) {
@@ -122,14 +129,29 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   Future<void> _saveNotes(TechnicianJob job) =>
       _run(() => saveJobNotes(job.id, _notes.text.trim()), 'Catatan disimpan.');
 
+  /// Simpan Keterangan teknisi (satu order). [host] = job aktif milik teknisi yang dipakai sebagai pintu masuk API.
+  Future<void> _saveKeterangan(TechnicianJob host) => _run(
+      () => saveJobKeterangan(host.id, _keterangan.text.trim()), 'Keterangan disimpan.');
+
+  /// Sebelum Ajukan Selesai: Keterangan yang belum disimpan ikut tersimpan. [current] = job dengan data order terbaru
+  /// (pembanding), [host] = job aktif tujuan PATCH. Melempar bila gagal supaya pengajuan tidak jalan.
+  Future<void> _flushKeterangan(TechnicianJob current, TechnicianJob host) async {
+    final text = _keterangan.text.trim();
+    if (text == (current.technicianNote ?? '').trim()) return;
+    await saveJobKeterangan(host.id, text);
+  }
+
   Future<void> _submitReview(TechnicianJob job) async {
     final caller = ref.read(updateJobStatusCallerProvider);
     await _run(
-      () => caller({
-        'jobId': job.id,
-        'action': 'submit_review',
-        'notes': _notes.text.trim(),
-      }),
+      () async {
+        await _flushKeterangan(job, job);
+        await caller({
+          'jobId': job.id,
+          'action': 'submit_review',
+          'notes': _notes.text.trim(),
+        });
+      },
       'Pekerjaan diajukan, menunggu review admin.',
     );
     ref.invalidate(jobFindingsProvider(job.id));
@@ -335,6 +357,10 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             _notes.text = job.notes!;
             _notesInit = true;
           }
+          if (!_keteranganInit && job.technicianNote != null) {
+            _keterangan.text = job.technicianNote!;
+            _keteranganInit = true;
+          }
           if (job.siblingIds.isNotEmpty) return _multiUnitBody(job, role);
           final findings = ref.watch(jobFindingsProvider(job.id)).value;
           return ListView(
@@ -395,6 +421,14 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               ),
               const SizedBox(height: 12),
               JobRequestsSection(job: job),
+              // Keterangan: paling bawah, tepat sebelum Ajukan Selesai (sama dengan web).
+              ..._keteranganSection(
+                current: job,
+                host: job,
+                editable: role == UserRole.teknisi &&
+                    (job.status == JobStatus.assigned ||
+                        job.status == JobStatus.sedangDikerjakan),
+              ),
               const SizedBox(height: 20),
               ..._actions(job, role, findings),
             ],
@@ -539,6 +573,8 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               if (j.id != holder.id) j.id
           ],
         ),
+        // Keterangan: satu untuk seluruh order, dikirim lewat job aktif mana pun (holder).
+        ..._keteranganSection(current: first, host: holder, editable: isTeknisi && holders.isNotEmpty),
         const SizedBox(height: 20),
         if (isTeknisi && notStarted.isNotEmpty) ...[
           if (notStarted.any((j) => j.unitAwaitingData)) ...[
@@ -581,13 +617,34 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           _primaryButton(
             icon: Icons.check_circle_outline,
             label: 'Ajukan Selesai (${working.length} unit)',
-            onPressed: canSubmitAll ? () => _submitAll(first, ids) : null,
+            onPressed: canSubmitAll ? () => _submitAll(first, holder, ids) : null,
           ),
           if (addUnitHost != null) _addUnitButton(addUnitHost),
         ] else if (active.isNotEmpty)
           _StatusHint(status: active.first.status),
       ],
     );
+  }
+
+  /// Kartu Keterangan teknisi (kosong bila tidak bisa diedit dan memang belum ada isinya).
+  /// [current] = job dengan data order terbaru, [host] = job aktif tujuan penyimpanan.
+  List<Widget> _keteranganSection({
+    required TechnicianJob current,
+    required TechnicianJob host,
+    required bool editable,
+  }) {
+    final saved = (current.technicianNote ?? '').trim();
+    if (!editable && saved.isEmpty) return const [];
+    return [
+      const SizedBox(height: 12),
+      _KeteranganCard(
+        controller: _keterangan,
+        saved: saved,
+        editable: editable,
+        busy: _busy,
+        onSave: () => _saveKeterangan(host),
+      ),
+    ];
   }
 
   /// Unit "QR dulu": backend menolak Mulai sampai merk/PK dilengkapi lewat Scan Unit.
@@ -1142,6 +1199,76 @@ class _DiagnosisField extends StatelessWidget {
                 child: const Text('Simpan Catatan'),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Keterangan teknisi: catatan SATU ORDER untuk admin (mis. "Cuci 2 unit AC, dibayar cash 75 ribu"), terpisah dari
+/// Diagnosa / Catatan Pengerjaan per unit. Teknisi (job aktif) mengisi di paling bawah sebelum Ajukan Selesai; selain itu
+/// (admin/kasir, atau teknisi setelah diajukan) hanya dibaca. Isian yang belum disimpan ikut tersimpan saat Ajukan Selesai.
+class _KeteranganCard extends StatelessWidget {
+  const _KeteranganCard({
+    required this.controller,
+    required this.saved,
+    required this.editable,
+    required this.busy,
+    required this.onSave,
+  });
+  final TextEditingController controller;
+
+  /// Isi yang sudah tersimpan di server (sudah di-trim).
+  final String saved;
+  final bool editable;
+  final bool busy;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(editable ? 'Keterangan' : 'Keterangan Teknisi',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600, color: AppColors.slate900)),
+            const SizedBox(height: 10),
+            if (editable) ...[
+              TextField(
+                key: const Key('job-keterangan'),
+                controller: controller,
+                maxLines: 3,
+                maxLength: 1000,
+                decoration: const InputDecoration(
+                  hintText:
+                      'Catatan untuk admin, mis. "Cuci 2 unit AC, dibayar cash 75 ribu" atau "Pelanggan minta penawaran ganti kapasitor, bisa dikerjakan besok"',
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Isi sebelum Ajukan Selesai. Yang belum disimpan ikut tersimpan otomatis saat Ajukan Selesai.',
+                style: TextStyle(fontSize: 12, color: AppColors.slate500),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                // Tombol aktif hanya bila isian beda dari yang tersimpan (sama dengan "dirty" di web).
+                child: ListenableBuilder(
+                  listenable: controller,
+                  builder: (context, _) => OutlinedButton(
+                    key: const Key('save-keterangan'),
+                    onPressed:
+                        (busy || controller.text.trim() == saved) ? null : onSave,
+                    child: const Text('Simpan Keterangan'),
+                  ),
+                ),
+              ),
+            ] else
+              Text(saved, style: const TextStyle(color: AppColors.slate600)),
           ],
         ),
       ),

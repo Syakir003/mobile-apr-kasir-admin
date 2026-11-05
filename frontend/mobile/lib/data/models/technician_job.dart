@@ -120,6 +120,7 @@ class TechnicianJob {
     this.technicianName = '',
     this.siblingIds = const [],
     this.orderNote,
+    this.technicianNote,
     this.handovers = const [],
     this.unitAwaitingData = false,
     this.findingHeads = const [],
@@ -175,6 +176,10 @@ class TechnicianJob {
 
   /// Deskripsi Pekerjaan order (`service_orders.note`).
   final String? orderNote;
+
+  /// Keterangan teknisi: catatan SATU ORDER untuk admin (`service_orders.technician_note`). Beda dari [notes]
+  /// (Diagnosa / Catatan Pengerjaan per unit). Hanya terisi dari `GET /technician-jobs/:id`.
+  final String? technicianNote;
 
   /// Riwayat alih tugas job ini (kosong bila tak pernah dialihkan).
   final List<JobHandover> handovers;
@@ -234,6 +239,7 @@ class TechnicianJob {
       technicianName: (data['technician_name'] as String?) ?? '',
       siblingIds: [for (final i in (data['sibling_ids'] as List? ?? const [])) '$i'],
       orderNote: data['order_note'] as String?,
+      technicianNote: data['order_technician_note'] as String?,
       handovers: [
         for (final h in (data['handovers'] as List? ?? const []))
           JobHandover.fromNest(Map<String, dynamic>.from(h as Map)),
