@@ -1,6 +1,5 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
-
 import '../../core/api/api_client.dart';
+import '../../core/utils/snake_keys.dart';
 import '../models/product.dart';
 import '../models/service_item.dart';
 import '../models/sparepart.dart';
@@ -11,9 +10,10 @@ import 'crud_repository.dart';
 /// Flutter -> Nest (pola sama seperti [NestItemCostRepository] di
 /// `item_cost_repository.dart`).
 ///
-/// [watchAll] TETAP lewat Supabase Realtime (delegasi ke sebuah
-/// [SupabaseCrudRepository] internal) — realtime belum dipindah ke Nest,
-/// hanya [create]/[update] (Future biasa) yang pindah. Body request dibangun
+/// [watchAll] = sekali GET `?status=all` (aktif + nonaktif, seperti dulu di
+/// Supabase); tak ada realtime, jadi form simpan me-`ref.invalidate` provider
+/// daftarnya. Data Supabase sudah tidak dipakai (sumber tunggal epos_db VPS).
+/// Body request dibangun
 /// manual dalam bentuk camelCase (bukan lewat `toMap()` yang snake_case,
 /// itu punya Supabase) karena DTO Nest (mis. `CreateProductDto`) pakai nama
 /// field camelCase persis sama dengan field Dart model ini.
@@ -38,19 +38,12 @@ Map<String, dynamic> productToNestBody(Product p) => {
     };
 
 class NestProductRepository implements CrudRepository<Product> {
-  NestProductRepository(SupabaseClient client, this._api)
-      : _watcher = SupabaseCrudRepository<Product>(
-          client,
-          'products',
-          Product.fromMap,
-          (p) => p.toMap(),
-        );
+  const NestProductRepository(this._api);
 
   final ApiClient _api;
-  final SupabaseCrudRepository<Product> _watcher;
 
   @override
-  Stream<List<Product>> watchAll() => _watcher.watchAll();
+  Stream<List<Product>> watchAll() => _fetchAll(_api, '/products', Product.fromMap);
 
   @override
   Future<String> create(Product item) async {
@@ -77,19 +70,12 @@ Map<String, dynamic> sparepartToNestBody(Sparepart s) => {
     };
 
 class NestSparepartRepository implements CrudRepository<Sparepart> {
-  NestSparepartRepository(SupabaseClient client, this._api)
-      : _watcher = SupabaseCrudRepository<Sparepart>(
-          client,
-          'spareparts',
-          Sparepart.fromMap,
-          (s) => s.toMap(),
-        );
+  const NestSparepartRepository(this._api);
 
   final ApiClient _api;
-  final SupabaseCrudRepository<Sparepart> _watcher;
 
   @override
-  Stream<List<Sparepart>> watchAll() => _watcher.watchAll();
+  Stream<List<Sparepart>> watchAll() => _fetchAll(_api, '/spareparts', Sparepart.fromMap);
 
   @override
   Future<String> create(Sparepart item) async {
@@ -112,19 +98,12 @@ Map<String, dynamic> serviceToNestBody(ServiceItem s) => {
     };
 
 class NestServiceRepository implements CrudRepository<ServiceItem> {
-  NestServiceRepository(SupabaseClient client, this._api)
-      : _watcher = SupabaseCrudRepository<ServiceItem>(
-          client,
-          'services',
-          ServiceItem.fromMap,
-          (s) => s.toMap(),
-        );
+  const NestServiceRepository(this._api);
 
   final ApiClient _api;
-  final SupabaseCrudRepository<ServiceItem> _watcher;
 
   @override
-  Stream<List<ServiceItem>> watchAll() => _watcher.watchAll();
+  Stream<List<ServiceItem>> watchAll() => _fetchAll(_api, '/services', ServiceItem.fromMap);
 
   @override
   Future<String> create(ServiceItem item) async {
@@ -135,4 +114,11 @@ class NestServiceRepository implements CrudRepository<ServiceItem> {
   @override
   Future<void> update(String id, ServiceItem item) =>
       _api.patch('/services/$id', body: serviceToNestBody(item));
+}
+
+/// GET daftar master data (array) -> model, memakai fromMap snake_case yang sama dengan data Supabase lama.
+Stream<List<T>> _fetchAll<T>(
+    ApiClient api, String path, T Function(String id, Map<String, dynamic> data) fromMap) async* {
+  final rows = await api.get('$path?status=all') as List;
+  yield [for (final r in rows) fromMap((r as Map)['id'] as String, snakeKeys(r))];
 }

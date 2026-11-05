@@ -86,6 +86,7 @@ class _ServiceFormScreenState extends ConsumerState<ServiceFormScreen> {
       } else {
         await repo.create(service);
       }
+      ref.invalidate(serviceListProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Jasa tersimpan.')),

@@ -154,6 +154,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
             .read(itemCostRepositoryProvider)
             .save(CostKind.product, id, parseRupiahInput(_buyPrice.text));
       }
+      ref.invalidate(productListProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Produk tersimpan.')),

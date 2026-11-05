@@ -1,20 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/wa_message.dart';
 import '../members/member_providers.dart';
 import '../../core/utils/num_parse.dart';
 
-/// Baris `wa_outbox` dari Nest (camelCase Prisma) -> bentuk yang dibaca
-/// [WaMessage.fromMap].
-Map<String, dynamic> waOutboxRowFromNest(Map<String, dynamic> row) => {
+/// Baris `whatsapp_logs` dari Nest (`GET /whatsapp-logs`, camelCase Prisma,
+/// `member` ikut di-include) -> bentuk yang dibaca [WaMessage.fromMap].
+Map<String, dynamic> waLogRowFromNest(Map<String, dynamic> row) => {
       'member_id': row['memberId'],
-      'member_name': row['memberName'],
+      'member_name': (row['member'] as Map?)?['name'],
       'phone': row['phone'],
       'kind': row['kind'],
-      'body': row['body'],
+      'body': row['message'],
       'status': row['status'],
       'unit_ids': row['unitIds'],
       'due_date': row['dueDate'],
@@ -23,29 +21,21 @@ Map<String, dynamic> waOutboxRowFromNest(Map<String, dynamic> row) => {
       'error': row['error'],
     };
 
-/// Antrean pesan WhatsApp yang belum dikirim (`wa_outbox`, status `pending`).
-///
-/// Realtime, seperti [notificationsStreamProvider]: baris hasil panen scheduler
-/// harian muncul sendiri tanpa admin perlu me-refresh. RLS sudah membatasi ke
-/// admin/kasir (migrasi 0023), jadi teknisi menerima daftar kosong.
-final waOutboxStreamProvider =
-    StreamProvider.autoDispose<List<WaMessage>>((ref) {
-  final client = ref.watch(supabaseProvider);
-  return client
-      .from('wa_outbox')
-      .stream(primaryKey: ['id'])
-      .eq('status', 'pending')
-      .order('created_at')
-      .map((rows) {
-        final list = [
-          for (final r in rows) WaMessage.fromMap(r['id'] as String, Map.from(r)),
-        ];
-        // Realtime `.order` naik; tampilkan terbaru dulu.
-        list.sort((a, b) =>
-            (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
-        return list;
-      });
-});
+/// 100 log WA terbaru (opsional per status), terbaru dulu.
+Future<List<WaMessage>> _fetchWaLogs({String? status}) async {
+  final res = await const ApiClient()
+      .get('/whatsapp-logs?pageSize=100${status == null ? '' : '&status=$status'}') as Map;
+  return [
+    for (final r in (res['items'] as List).cast<Map>())
+      WaMessage.fromMap(r['id'] as String, waLogRowFromNest(Map<String, dynamic>.from(r))),
+  ];
+}
+
+/// Pesan WA yang GAGAL terkirim. Pengiriman otomatis (Fonnte), jadi yang perlu
+/// perhatian admin/kasir hanya yang gagal — admin bisa mengirim ulang.
+final waFailedProvider = FutureProvider.autoDispose<List<WaMessage>>(
+  (ref) => _fetchWaLogs(status: 'gagal'),
+);
 
 /// Nama pelanggan per `member_id`, untuk melabeli kartu antrean.
 ///
@@ -60,34 +50,10 @@ final waMemberNamesProvider = Provider.autoDispose<Map<String, String>>((ref) {
   return {for (final m in members) m.id: m.name};
 });
 
-/// Membuka tautan `wa.me` di aplikasi WhatsApp. Dipisah sebagai provider supaya
-/// widget test bisa menggantinya — `url_launcher` butuh channel platform yang
-/// tidak tersedia di test.
-final waLauncherProvider = Provider<Future<bool> Function(Uri)>((ref) {
-  return (uri) => launchUrl(uri, mode: LaunchMode.externalApplication);
-});
-
-/// Jumlah pesan menunggu dikirim (untuk badge di menu).
-final waPendingCountProvider = Provider.autoDispose<int>((ref) {
-  return (ref.watch(waOutboxStreamProvider).value ?? const []).length;
-});
-
-/// `POST /wa-outbox/:id/mark-sent` — pengganti RPC `mark_wa_sent` pada migrasi
-/// Flutter -> Nest, dipanggil SETELAH WhatsApp benar-benar terbuka.
-final markWaSentCallerProvider =
-    Provider<Future<void> Function(String id)>((ref) {
+/// `POST /whatsapp-logs/:id/retry` (admin) — kirim ulang pesan berstatus gagal.
+final retryWaCallerProvider = Provider<Future<void> Function(String id)>((ref) {
   return (id) async {
-    await const ApiClient().post('/wa-outbox/$id/mark-sent');
-  };
-});
-
-/// `POST /wa-outbox/:id/cancel` — pengganti RPC `cancel_wa_message`.
-final cancelWaMessageCallerProvider =
-    Provider<Future<void> Function(String id, {String? reason})>((ref) {
-  return (id, {reason}) async {
-    await const ApiClient().post('/wa-outbox/$id/cancel', body: {
-      if (reason != null) 'reason': reason,
-    });
+    await const ApiClient().post('/whatsapp-logs/$id/retry');
   };
 });
 
@@ -221,21 +187,7 @@ final saveWaTemplatesCallerProvider =
   };
 });
 
-/// Pesan pengingat yang sudah selesai diproses (`wa_outbox` selain `pending`)
-/// — terkirim, gagal, atau dibatalkan. Untuk layar Riwayat. Pengganti query
-/// Supabase langsung pada migrasi Flutter -> Nest (`GET /wa-outbox/history`,
-/// endpoint yang sama juga sudah dipakai internal — lihat `WaOutboxService.history`).
-///
-/// Query biasa, bukan Realtime: baris riwayat tidak berubah lagi. Nest
-/// membatasi 100 terbaru di server (sama seperti `.limit(100)` sebelumnya).
-final waHistoryProvider =
-    FutureProvider.autoDispose<List<WaMessage>>((ref) async {
-  final rows = await const ApiClient().get('/wa-outbox/history') as List;
-  return [
-    for (final r in rows)
-      WaMessage.fromMap(
-        (r as Map)['id'] as String,
-        waOutboxRowFromNest(Map<String, dynamic>.from(r)),
-      ),
-  ];
-});
+/// Riwayat semua pesan WA (terkirim, gagal, dibatalkan, menunggu) — 100 terbaru.
+final waHistoryProvider = FutureProvider.autoDispose<List<WaMessage>>(
+  (ref) => _fetchWaLogs(),
+);

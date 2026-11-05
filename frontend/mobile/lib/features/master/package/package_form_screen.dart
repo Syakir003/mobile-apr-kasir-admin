@@ -93,6 +93,7 @@ class _PackageFormScreenState extends ConsumerState<PackageFormScreen> {
       } else {
         await repo.create(package);
       }
+      ref.invalidate(packageListProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Paket tersimpan.')),

@@ -11,7 +11,8 @@ enum WaKind {
   reminderH3('reminder_h3', 'Pengingat H-3'),
   reminderH7('reminder_h7', 'Terlambat 7 Hari'),
   menangUndian('menang_undian', 'Menang Undian'),
-  voucherBaru('voucher_baru', 'Voucher Baru');
+  voucherBaru('voucher_baru', 'Voucher Baru'),
+  invoice('invoice', 'Nota');
 
   const WaKind(this.value, this.label);
 

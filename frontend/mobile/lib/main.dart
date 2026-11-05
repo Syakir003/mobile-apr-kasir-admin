@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/auth/session_store.dart';
 import 'core/router/app_router.dart';
-import 'core/supabase/supabase_bootstrap.dart';
 import 'core/theme/app_theme.dart';
 import 'data/models/app_user.dart';
 import 'features/notifications/fcm_service.dart';
@@ -14,7 +13,6 @@ import 'features/update/app_update.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await bootstrapSupabase();
   await SessionStore.instance.load();
   final container = ProviderContainer();
   // Validasi ulang sesi tersimpan (role/status akun terbaru) tanpa nahan layar awal.

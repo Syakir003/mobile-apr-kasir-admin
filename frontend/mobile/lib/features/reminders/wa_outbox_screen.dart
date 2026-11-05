@@ -14,20 +14,18 @@ import '../../data/models/app_user.dart';
 import '../../data/models/wa_message.dart';
 import 'reminder_providers.dart';
 
-/// Antrean pengingat servis yang menunggu dikirim ke pelanggan lewat WhatsApp.
+/// Layar utama Pengingat: pesan WhatsApp yang GAGAL terkirim.
 ///
-/// Selama adapter pengiriman masih `manual` (lihat rencana Fase 8), layar inilah
-/// pengirimnya: satu ketukan membuka WhatsApp dengan pesan sudah terisi penuh,
-/// admin/kasir tinggal menekan Send. Redaksi pesan datang utuh dari
-/// `build_wa_body()` di Postgres — klien tidak pernah menyusun ulang teksnya,
-/// supaya yang dikirim hari ini identik dengan template yang nanti diajukan ke
-/// Meta saat naik ke Cloud API.
+/// Pengingat & notifikasi WA dikirim otomatis oleh server (Fonnte), sama seperti
+/// web — tidak ada lagi antrean kirim manual. Yang perlu perhatian hanya pesan
+/// gagal (mis. nomor salah, layanan WA sedang gangguan); admin bisa mengirim ulang.
+/// Semua pesan (terkirim/gagal/dibatalkan) ada di Riwayat.
 class WaOutboxScreen extends ConsumerWidget {
   const WaOutboxScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(waOutboxStreamProvider);
+    final async = ref.watch(waFailedProvider);
     final names = ref.watch(waMemberNamesProvider);
     final isAdmin = ref.watch(currentUserProvider).value?.role == UserRole.admin;
 
@@ -53,26 +51,33 @@ class WaOutboxScreen extends ConsumerWidget {
       body: async.when(
         loading: () => const AppSkeletonList(),
         error: (e, _) =>
-            AppErrorState(error: e, title: 'Gagal memuat antrean pengingat'),
-        data: (items) {
-          if (items.isEmpty) {
-            return const AppEmptyState(
-              icon: Icons.mark_chat_read_outlined,
-              title: 'Tidak ada pesan menunggu',
-              message: 'Pengingat baru muncul sendiri di sini saat pekerjaan '
-                  'selesai atau saat jadwal servis pelanggan mendekat.',
-            );
-          }
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (_, i) => _WaCard(
-              message: items[i],
-              memberName: names[items[i].memberId] ?? items[i].memberName,
-            ),
-          );
-        },
+            AppErrorState(error: e, title: 'Gagal memuat pesan WhatsApp'),
+        data: (items) => RefreshIndicator(
+          onRefresh: () async => ref.invalidate(waFailedProvider),
+          child: items.isEmpty
+              ? ListView(
+                  // Tetap bisa ditarik untuk refresh walau kosong.
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    AppEmptyState(
+                      icon: Icons.mark_chat_read_outlined,
+                      title: 'Tidak ada pesan gagal',
+                      message: 'Pengingat dikirim otomatis lewat WhatsApp. Pesan '
+                          'yang gagal terkirim akan muncul di sini.',
+                    ),
+                  ],
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (_, i) => _WaCard(
+                    message: items[i],
+                    memberName: names[items[i].memberId] ?? items[i].memberName,
+                    canRetry: isAdmin,
+                  ),
+                ),
+        ),
       ),
     );
   }
@@ -86,13 +91,15 @@ AppBadgeTone waKindTone(WaKind kind) => switch (kind) {
       WaKind.reminderH7 => AppBadgeTone.danger,
       WaKind.menangUndian => AppBadgeTone.success,
       WaKind.voucherBaru => AppBadgeTone.success,
+      WaKind.invoice => AppBadgeTone.draft,
     };
 
 class _WaCard extends ConsumerStatefulWidget {
-  const _WaCard({required this.message, required this.memberName});
+  const _WaCard({required this.message, required this.memberName, required this.canRetry});
 
   final WaMessage message;
   final String memberName;
+  final bool canRetry;
 
   @override
   ConsumerState<_WaCard> createState() => _WaCardState();
@@ -110,66 +117,17 @@ class _WaCardState extends ConsumerState<_WaCard> {
     );
   }
 
-  /// Buka WhatsApp dulu, tandai terkirim belakangan.
-  ///
-  /// Urutannya penting: kalau statusnya ditandai lebih dulu lalu WhatsApp gagal
-  /// terbuka, pesan itu hilang dari antrean tanpa pernah sampai ke pelanggan
-  /// dan tidak ada yang menyadarinya.
-  Future<void> _kirim() async {
+  Future<void> _kirimUlang() async {
     setState(() => _busy = true);
-    final launch = ref.read(waLauncherProvider);
-    final markSent = ref.read(markWaSentCallerProvider);
     try {
-      final opened = await launch(widget.message.waUri);
+      await ref.read(retryWaCallerProvider)(widget.message.id);
+      ref.invalidate(waFailedProvider);
+      ref.invalidate(waHistoryProvider);
       if (!mounted) return;
-      if (!opened) {
-        _snack('WhatsApp tidak terpasang di perangkat ini.', error: true);
-        return;
-      }
-      await markSent(widget.message.id);
-      if (!mounted) return;
-      _snack('Pesan ditandai terkirim.');
+      _snack('Pesan dikirim ulang.');
     } catch (e) {
       if (!mounted) return;
-      _snack('Gagal mengirim: ${errorMessage(e)}', error: true);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _batalkan() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Batalkan pengingat?'),
-        content: Text(
-          'Pesan untuk ${widget.memberName} tidak akan dikirim dan tidak bisa '
-          'dimunculkan kembali.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Tidak'),
-          ),
-          FilledButton(
-            key: const Key('konfirmasi-batal'),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Batalkan'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-
-    setState(() => _busy = true);
-    final cancel = ref.read(cancelWaMessageCallerProvider);
-    try {
-      await cancel(widget.message.id);
-      if (!mounted) return;
-      _snack('Pengingat dibatalkan.');
-    } catch (e) {
-      if (!mounted) return;
-      _snack('Gagal membatalkan: ${errorMessage(e)}', error: true);
+      _snack('Gagal mengirim ulang: ${errorMessage(e)}', error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -234,29 +192,30 @@ class _WaCardState extends ConsumerState<_WaCard> {
               ),
             ),
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  key: Key('kirim-${msg.id}'),
-                  onPressed: _busy ? null : _kirim,
-                  icon: const Icon(Icons.send_outlined, size: 18),
-                  label: const Text('Kirim via WhatsApp'),
-                ),
+          if ((msg.error ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Alasan gagal: ${msg.error!.trim()}',
+              style: const TextStyle(
+                fontFamily: AppFonts.body,
+                fontSize: 12,
+                height: 16 / 12,
+                color: AppColors.danger,
               ),
-              const SizedBox(width: 12),
-              OutlinedButton(
-                key: Key('batal-${msg.id}'),
-                onPressed: _busy ? null : _batalkan,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.danger,
-                  side: const BorderSide(color: AppColors.dangerBorder),
-                ),
-                child: const Text('Batalkan'),
+            ),
+          ],
+          if (widget.canRetry) ...[
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                key: Key('kirim-ulang-${msg.id}'),
+                onPressed: _busy ? null : _kirimUlang,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Kirim ulang'),
               ),
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );
