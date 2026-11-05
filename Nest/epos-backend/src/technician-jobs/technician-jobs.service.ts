@@ -1083,7 +1083,7 @@ export class TechnicianJobsService {
     });
   }
 
-  async updateNotes(jobId: string, notes: string, actorId: string, role: Role, opts: { allInOrder?: boolean } = {}) {
+  async updateNotes(jobId: string, notes: string, actorId: string, role: Role) {
     const job = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
     });
@@ -1102,23 +1102,30 @@ export class TechnicianJobsService {
         'Catatan cuma bisa diubah selama job aktif',
       );
     }
-    if (opts.allInOrder) {
-      // Servis banyak AC: Keterangan teknisi satu untuk seluruh order. Disalin ke semua job order ini yang masih aktif
-      // (milik teknisi yang sama; admin: semua), supaya tampil sama di tiap job dan tidak ada yang tertinggal.
-      await this.prisma.technicianJob.updateMany({
-        where: {
-          orderId: job.orderId,
-          status: { in: [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] },
-          ...(role === 'admin' ? {} : { technicianId: actorId }),
-        },
-        data: { notes },
-      });
-      return this.prisma.technicianJob.findUniqueOrThrow({ where: { id: jobId } });
-    }
     return this.prisma.technicianJob.update({
       where: { id: jobId },
       data: { notes },
     });
+  }
+
+  /**
+   * Keterangan teknisi: catatan SATU ORDER untuk admin (mis. "Cuci 2 unit AC dibayar cash 75 ribu", "pelanggan minta penawaran
+   * ganti kapasitor, bisa dikerjakan besok"), disimpan di service_orders.technician_note. BEDA dari updateNotes (Diagnosa /
+   * Catatan Pengerjaan, per unit/job). `jobId` = job mana pun di order itu yang masih aktif dan milik pemanggil (admin: semua).
+   */
+  async updateKeterangan(jobId: string, keterangan: string, actorId: string, role: Role) {
+    const job = await this.prisma.technicianJob.findUnique({
+      where: { id: jobId },
+      select: { id: true, orderId: true, technicianId: true, status: true },
+    });
+    if (!job) throw new NotFoundException('Job tidak ditemukan');
+    this.assertOwnerOrAdmin(job, actorId, role);
+    if (!([TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]).includes(job.status)) {
+      throw new BadRequestException('Keterangan cuma bisa diubah selama job aktif');
+    }
+    const text = keterangan.trim() || null;
+    await this.prisma.serviceOrder.update({ where: { id: job.orderId }, data: { technicianNote: text } });
+    return { ok: true, orderId: job.orderId, technicianNote: text };
   }
 
   /**
