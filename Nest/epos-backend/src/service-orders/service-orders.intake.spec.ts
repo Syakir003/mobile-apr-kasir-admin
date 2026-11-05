@@ -9,6 +9,19 @@ import { MAPS_SEARCH_PREFIX } from '../common/maps-url.util';
 // @nestjs/schedule ESM-only; terseret lewat technician-jobs -> reminders. Cron tidak dipakai di test ini.
 jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
 
+// Jadwal WAJIB di ServiceIntakeDto. Tes di file ini (selain yang khusus jadwal) tidak membahasnya, jadi `svc.intake`
+// dibungkus agar boleh dipanggil tanpa jadwal (dilengkapi bawaan).
+type IntakeInput = Omit<ServiceIntakeDto, 'scheduledDate'> & { scheduledDate?: string };
+function withDefaultSchedule(real: ServiceOrdersService) {
+  const realIntake = real.intake.bind(real);
+  const svc = real as ServiceOrdersService & {
+    intake: (dto: IntakeInput, actorId: string) => ReturnType<ServiceOrdersService['intake']>;
+  };
+  // Yang eksplisit di tes tetap menang atas jadwal bawaan.
+  (svc as any).intake = (dto: IntakeInput, actorId: string) => realIntake({ scheduledDate: '2026-11-10', ...dto }, actorId);
+  return svc;
+}
+
 // Intake servis mandiri: unit baru bisa dibuat biasa (status aktif) atau mode "QR dulu" (menunggu_data,
 // jalur yang sama dengan Input Data Lampau). tx tiruan cukup untuk jalur unit baru dengan member terpilih.
 function setup() {
@@ -27,7 +40,7 @@ function setup() {
     createLegacy: jest.fn(async () => ({ id: 'u-qr', barcodeValue: 'ACUNIT-2', memberId: 'm1' })),
   };
   const technicianJobs: any = { createForOrder: jest.fn(async () => ({ id: 'j1', status: 'menunggu_penugasan' })) };
-  const svc = new ServiceOrdersService(prisma, {} as any, acUnits, technicianJobs);
+  const svc = withDefaultSchedule(new ServiceOrdersService(prisma, {} as any, acUnits, technicianJobs));
   return { svc, tx, acUnits, technicianJobs, prisma };
 }
 
@@ -94,7 +107,7 @@ function multiSetup(
   };
   let n = 0;
   technicianJobs.createForOrder.mockImplementation(async () => ({ id: `j${++n}`, status: 'assigned' }));
-  const svc = new ServiceOrdersService(prisma, {} as any, acUnits, technicianJobs);
+  const svc = withDefaultSchedule(new ServiceOrdersService(prisma, {} as any, acUnits, technicianJobs));
   return { svc, tx, acUnits, technicianJobs };
 }
 
@@ -275,7 +288,7 @@ describe('ServiceOrdersService.intake — jenis pekerjaan', () => {
 
   it('validasi DTO: hanya perbaikan/cuci/maintenance; pemasangan dan nilai asing ditolak, kosong boleh', async () => {
     const check = async (jobType?: unknown) =>
-      (await validate(plainToInstance(ServiceIntakeDto, { customer: { name: 'A', phone: '1' }, complaint: 'x', jobType }))).filter(
+      (await validate(plainToInstance(ServiceIntakeDto, { customer: { name: 'A', phone: '1' }, complaint: 'x', scheduledDate: '2026-11-10', jobType }))).filter(
         (e) => e.property === 'jobType',
       ).length;
     expect(await check('cuci')).toBe(0);
@@ -380,7 +393,12 @@ describe('ServiceOrdersService.intake — titik lokasi kerja per unit', () => {
 });
 
 describe('ServiceIntakeDto — validasi titik lokasi kerja', () => {
-  const base = { customer: { name: 'Budi', phone: '081234567890' }, complaint: 'x', units: [{ existingUnitId: 'u1' }] };
+  const base = {
+    customer: { name: 'Budi', phone: '081234567890' },
+    complaint: 'x',
+    scheduledDate: '2026-11-10',
+    units: [{ existingUnitId: 'u1' }],
+  };
   const errorsOf = async (extra: Record<string, unknown>) =>
     (await validate(plainToInstance(ServiceIntakeDto, { ...base, ...extra }), { whitelist: true })).length;
 
@@ -406,5 +424,29 @@ describe('ServiceIntakeDto — validasi titik lokasi kerja', () => {
     expect(await errorsOf({ locations: Array.from({ length: 21 }, () => ({ address: 'x' })) })).toBeGreaterThan(0);
     expect(await errorsOf({ units: [{ existingUnitId: 'u1', locationIndex: -1 }] })).toBeGreaterThan(0);
     expect(await errorsOf({ units: [{ existingUnitId: 'u1', locationIndex: 1.5 }] })).toBeGreaterThan(0);
+  });
+});
+
+// Jadwal servis WAJIB (2026-11): menentukan filter hari di Antrian Servis dan dashboard teknisi.
+describe('ServiceIntakeDto — jadwal wajib', () => {
+  const base = { customer: { name: 'Budi', phone: '081234567890' }, complaint: 'x', units: [{ existingUnitId: 'u1' }] };
+  const jadwalErrors = async (extra: Record<string, unknown>) =>
+    (await validate(plainToInstance(ServiceIntakeDto, { ...base, ...extra }))).filter((e) => e.property === 'scheduledDate');
+
+  it('tanpa jadwal ditolak dengan pesan jelas', async () => {
+    const e = await jadwalErrors({});
+    expect(e).toHaveLength(1);
+    expect(JSON.stringify(e[0].constraints)).toContain('Jadwal wajib diisi');
+    expect(await jadwalErrors({ scheduledDate: undefined })).toHaveLength(1);
+    expect(await jadwalErrors({ scheduledDate: '' })).toHaveLength(1);
+  });
+
+  it('format bukan tanggal ditolak', async () => {
+    expect(await jadwalErrors({ scheduledDate: 'besok' })).toHaveLength(1);
+    expect(await jadwalErrors({ scheduledDate: '10/11/2026' })).toHaveLength(1);
+  });
+
+  it('tanggal YYYY-MM-DD yang benar diterima', async () => {
+    expect(await jadwalErrors({ scheduledDate: '2026-11-10' })).toHaveLength(0);
   });
 });

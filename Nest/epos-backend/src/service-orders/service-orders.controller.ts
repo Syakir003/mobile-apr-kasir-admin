@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -7,6 +7,7 @@ import type { CurrentUserPayload } from '../auth/decorators/current-user.decorat
 import { ServiceOrdersService } from './service-orders.service';
 import { ServiceIntakeDto } from './dto/service-intake.dto';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
+import { UpdateServiceOrderDto } from './dto/update-service-order.dto';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -51,5 +52,13 @@ export class ServiceOrdersController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.serviceOrders.findOne(id);
+  }
+
+  // Koreksi data order (jadwal, jenis pekerjaan, note, titik lokasi kerja per unit) — ADMIN saja, walau controller ini
+  // terbuka untuk kasir. Kasir yang salah input meminta admin mengoreksinya.
+  @Roles('admin')
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateServiceOrderDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.serviceOrders.update(id, dto, user.sub);
   }
 }

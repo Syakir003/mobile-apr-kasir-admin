@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
@@ -9,6 +10,7 @@ import { IntakeUnitDto, ServiceIntakeDto } from './dto/service-intake.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
+import { UpdateServiceOrderDto } from './dto/update-service-order.dto';
 
 /**
  * Siklus 2 — Servis Masuk Mandiri: jalur masuk servis yang BUKAN dari
@@ -322,6 +324,93 @@ export class ServiceOrdersService {
         serviceOrderUnits: { include: { unit: { include: UNIT_PRODUCTS_SELECT } } },
         units: { include: { technician: { select: { id: true, displayName: true } } } },
       },
+    });
+  }
+
+  /**
+   * PATCH /service-orders/:id (admin) — koreksi data order yang salah dimasukkan saat Terima Servis: jadwal, jenis
+   * pekerjaan, dan Note Pekerjaan (berlaku untuk SELURUH order), serta titik lokasi kerja per unit. Hanya job yang belum
+   * selesai/dibatalkan yang diubah; order yang semua jobnya sudah selesai/dibatalkan ditolak. Jenis pekerjaan order
+   * pemasangan (POS) tidak bisa diganti. Data pelanggan diedit lewat Ubah Member. Dicatat di audit log (nilai lama dan baru).
+   */
+  async update(orderId: string, dto: UpdateServiceOrderDto, actorId: string) {
+    const locations = dto.unitLocations ?? [];
+    if (dto.scheduledDate === undefined && dto.jobType === undefined && dto.note === undefined && locations.length === 0) {
+      throw new BadRequestException('Tidak ada perubahan yang dikirim');
+    }
+    if (new Set(locations.map((l) => l.jobId)).size !== locations.length) {
+      throw new BadRequestException('Titik lokasi kerja satu unit dikirim lebih dari sekali');
+    }
+    const FINISHED: string[] = [TechnicianJobStatus.selesai, TechnicianJobStatus.dibatalkan];
+
+    return this.prisma.$transaction(async (tx) => {
+      // Kunci semua job order ini (urut id) supaya tidak berbarengan dengan Ajukan Selesai/Setujui (pola submitOrderForReview).
+      await tx.$executeRaw`SELECT id FROM technician_jobs WHERE order_id = ${orderId} ORDER BY id FOR UPDATE`;
+      const order = await tx.serviceOrder.findUnique({ where: { id: orderId }, include: { units: { orderBy: { createdAt: 'asc' } } } });
+      if (!order) throw new NotFoundException('Order tidak ditemukan');
+      const open = order.units.filter((j) => !FINISHED.includes(j.status));
+      if (open.length === 0) {
+        throw new BadRequestException('Order ini sudah selesai atau dibatalkan, datanya tidak bisa diubah lagi');
+      }
+      if (dto.jobType !== undefined && (order.type === 'pemasangan' || open.some((j) => j.type === 'pemasangan'))) {
+        throw new BadRequestException('Jenis pekerjaan order pemasangan tidak bisa diganti');
+      }
+
+      const changes: Record<string, unknown> = {};
+      const orderData: Prisma.ServiceOrderUpdateInput = {};
+      const jobData: Prisma.TechnicianJobUpdateManyMutationInput = {};
+      if (dto.scheduledDate !== undefined) {
+        const date = new Date(dto.scheduledDate);
+        orderData.scheduledDate = date;
+        jobData.scheduledDate = date;
+        changes.scheduledDate = { dari: order.scheduledDate?.toISOString() ?? null, jadi: date.toISOString() };
+      }
+      if (dto.jobType !== undefined) {
+        orderData.type = dto.jobType;
+        jobData.type = dto.jobType;
+        changes.jobType = { dari: order.type, jadi: dto.jobType };
+      }
+      if (dto.note !== undefined) {
+        const note = dto.note.trim() || null;
+        orderData.note = note;
+        changes.note = { dari: order.note, jadi: note };
+      }
+      if (Object.keys(orderData).length > 0) {
+        await tx.serviceOrder.update({ where: { id: orderId }, data: orderData });
+      }
+      if (Object.keys(jobData).length > 0) {
+        await tx.technicianJob.updateMany({
+          where: { orderId, status: { notIn: [TechnicianJobStatus.selesai, TechnicianJobStatus.dibatalkan] } },
+          data: { ...jobData, updatedAt: new Date() },
+        });
+      }
+
+      const lokasi: unknown[] = [];
+      for (const loc of locations) {
+        const job = open.find((j) => j.id === loc.jobId);
+        if (!job) {
+          throw new BadRequestException('Unit tidak ditemukan di order ini, atau job-nya sudah selesai/dibatalkan');
+        }
+        const workAddress = loc.address?.trim() || null;
+        const workMapsUrl = loc.mapsUrl?.trim() || null;
+        await tx.technicianJob.update({ where: { id: job.id }, data: { workAddress, workMapsUrl, updatedAt: new Date() } });
+        lokasi.push({
+          jobId: job.id,
+          dari: { workAddress: job.workAddress, workMapsUrl: job.workMapsUrl },
+          jadi: { workAddress, workMapsUrl },
+        });
+      }
+      if (lokasi.length > 0) changes.lokasiKerja = lokasi;
+
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'order.update',
+          target: orderId,
+          detail: { changes, jobIds: open.map((j) => j.id) } as Prisma.InputJsonObject,
+        },
+      });
+      return { ok: true, orderId, updatedJobs: open.length };
     });
   }
 }
