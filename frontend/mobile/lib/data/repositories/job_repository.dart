@@ -102,6 +102,8 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
     'work_address': j['workAddress'],
     'work_maps_url': j['workMapsUrl'],
     'has_before_photo': j['hasBeforePhoto'],
+    'complaint_of_job_id': j['complaintOfJobId'],
+    if (j['complaintOf'] is Map) 'complaint_of': j['complaintOf'],
     // Hanya GET /technician-jobs/:id yang membawa `order`; di daftar dibiarkan true.
     if (j['order'] is Map) 'priced': (j['order'] as Map)['invoiceId'] != null,
     'started_at': j['startedAt'],

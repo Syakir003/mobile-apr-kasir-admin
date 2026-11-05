@@ -920,10 +920,59 @@ class _HeaderCard extends StatelessWidget {
                 StatusBadge(label: job.status.label, color: color),
               ],
             ),
+            if (job.isComplaint) ...[
+              const SizedBox(height: 12),
+              _ComplaintBanner(job: job),
+            ],
             const SizedBox(height: 12),
             _JobSteps(status: job.status),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Penanda job komplain. Tanpa tautan ke job awal: teknisi tidak boleh membukanya (403).
+class _ComplaintBanner extends StatelessWidget {
+  const _ComplaintBanner({required this.job});
+  final TechnicianJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    final done = job.complaintOfCompletedAt;
+    final by = job.complaintOfTechnicianName;
+    final info = [
+      if (done != null) 'Pengerjaan awal selesai ${_formatDate(done)}',
+      if (by != null && by.isNotEmpty) 'oleh $by',
+    ].join(' ');
+    return Container(
+      key: const Key('complaint-banner'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.replay_outlined, size: 18, color: AppColors.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Job komplain - pengerjaan ulang',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
+                const SizedBox(height: 2),
+                Text('Tanpa tagihan baru.${info.isEmpty ? '' : ' $info.'}',
+                    style: const TextStyle(fontSize: 12, color: AppColors.slate600)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1833,7 +1882,8 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
                       ),
                       const SizedBox(height: 10),
                     ],
-                    if (widget.canUpload)
+                    // Job komplain tidak ditagih: backend menolak send-findings (400), jadi kartunya disembunyikan.
+                    if (widget.canUpload && !widget.job.isComplaint)
                       _SendFindingsBar(
                         job: widget.job,
                         findings: findings,

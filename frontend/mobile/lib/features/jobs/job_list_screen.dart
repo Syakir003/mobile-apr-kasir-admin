@@ -204,7 +204,22 @@ class JobCard extends StatelessWidget {
               const SizedBox(width: 10),
               // Boleh memendek di layar sempit / huruf besar, bukan meluap.
               Flexible(
-                child: StatusBadge(label: status.label, color: color, constrained: true),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    StatusBadge(label: status.label, color: color, constrained: true),
+                    // Job komplain bertipe perbaikan: lencana supaya tak tertukar dengan Perbaikan biasa.
+                    if ((group.isEmpty ? [job] : group).any((j) => j.isComplaint)) ...[
+                      const SizedBox(height: 4),
+                      const StatusBadge(
+                          key: Key('complaint-badge'),
+                          label: 'Komplain',
+                          color: AppColors.warning,
+                          constrained: true),
+                    ],
+                  ],
+                ),
               ),
             ],
           ),

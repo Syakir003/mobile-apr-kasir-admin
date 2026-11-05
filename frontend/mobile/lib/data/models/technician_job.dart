@@ -124,6 +124,9 @@ class TechnicianJob {
     this.handovers = const [],
     this.unitAwaitingData = false,
     this.findingHeads = const [],
+    this.complaintOfJobId,
+    this.complaintOfCompletedAt,
+    this.complaintOfTechnicianName,
   });
 
   final String id;
@@ -190,6 +193,14 @@ class TechnicianJob {
   /// Ringkasan temuan (judul + pencatat) untuk riwayat unit; tanpa foto.
   final List<({String title, String? by})> findingHeads;
 
+  /// Job komplain (pengerjaan ulang tanpa tagihan): menunjuk job selesai yang dikomplain. Teknisi tak boleh
+  /// membuka job awal (403), jadi hanya info ringkasnya yang dibawa.
+  final String? complaintOfJobId;
+  final DateTime? complaintOfCompletedAt;
+  final String? complaintOfTechnicianName;
+
+  bool get isComplaint => complaintOfJobId != null;
+
   /// Sudah discan = sudah dimulai (start mewajibkan scan barcode). Job yang dialihkan saat
   /// sedang dikerjakan kembali ke `assigned`: startedAt tetap terisi tapi wajib scan ulang.
   bool get scanned =>
@@ -245,6 +256,10 @@ class TechnicianJob {
           JobHandover.fromNest(Map<String, dynamic>.from(h as Map)),
       ],
       unitAwaitingData: unit?['status'] == 'menunggu_data',
+      complaintOfJobId: data['complaint_of_job_id'] as String?,
+      complaintOfCompletedAt: _toDate((data['complaint_of'] as Map?)?['completedAt']),
+      complaintOfTechnicianName:
+          ((data['complaint_of'] as Map?)?['technician'] as Map?)?['displayName'] as String?,
       findingHeads: [
         for (final f in (data['findings'] as List? ?? const []))
           (
