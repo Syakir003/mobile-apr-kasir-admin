@@ -13,7 +13,7 @@ import '../../core/widgets/page_header.dart';
 import '../../data/models/app_user.dart';
 import '../jobs/job_providers.dart';
 import '../jobs/teknisi_dashboard_sections.dart';
-import '../jobs/teknisi_tutorial.dart';
+import '../../data/models/technician_job.dart';
 import '../keluar_gudang/keluar_gudang_providers.dart';
 import '../notifications/notification_bell.dart';
 import '../pos/cart_state.dart' show formatRupiah;
@@ -36,18 +36,47 @@ class DashboardScreen extends ConsumerWidget {
     final user = ref.watch(currentUserProvider).value;
     final role = user?.role;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('APR-POS'),
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 8),
-            child: _RealtimeBadge(),
+    final appBar = AppBar(
+      title: const Text('APR-POS'),
+      actions: const [
+        Padding(
+          padding: EdgeInsets.only(right: 8),
+          child: _RealtimeBadge(),
+        ),
+        NotificationBell(),
+        SizedBox(width: 8),
+      ],
+    );
+
+    // Teknisi: dashboard lapangan sendiri (teknisi_dashboard_sections.dart),
+    // tarik ke bawah = muat ulang job.
+    if (role == UserRole.teknisi) {
+      return Scaffold(
+        appBar: appBar,
+        body: RefreshIndicator(
+          onRefresh: () async {
+            ref.invalidate(jobHistoryProvider(1));
+            await ref.refresh(jobQueueProvider.future).catchError((_) => <TechnicianJob>[]);
+          },
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              // Tetap bisa ditarik walau isinya pendek.
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.all(AppSpacing.pageFor(constraints.maxWidth)),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: _contentMaxWidth),
+                  child: const TeknisiDashboard(),
+                ),
+              ),
+            ),
           ),
-          NotificationBell(),
-          SizedBox(width: 8),
-        ],
-      ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: appBar,
       body: LayoutBuilder(
         builder: (context, constraints) => SingleChildScrollView(
           padding: EdgeInsets.all(AppSpacing.pageFor(constraints.maxWidth)),
@@ -67,13 +96,7 @@ class DashboardScreen extends ConsumerWidget {
                       title: 'Dashboard',
                       subtitle: formatTanggalPanjang(DateTime.now()),
                       subtitleIcon: Icons.calendar_today_outlined,
-                      action: role == UserRole.teknisi
-                          ? PageHeaderAction(
-                              icon: Icons.help_outline,
-                              label: 'Tutorial',
-                              onPressed: () => showTeknisiTutorial(context),
-                            )
-                          : role == UserRole.gudang
+                      action: role == UserRole.gudang
                           ? null
                           : PageHeaderAction(
                               icon: Icons.download_outlined,
@@ -86,11 +109,7 @@ class DashboardScreen extends ConsumerWidget {
                   // Gudang tidak boleh melihat angka penjualan/keuangan: hanya
                   // angka stok & antrean keluar gudang.
                   AppRevealIn.at(1, child: _Metrics(role: role)),
-                  if (role == UserRole.teknisi) ...[
-                    const SizedBox(height: AppSpacing.section),
-                    AppRevealIn.at(2, child: const TeknisiDashboardSections()),
-                  ],
-                  if (role != UserRole.teknisi && role != UserRole.gudang) ...[
+                  if (role != UserRole.gudang) ...[
                     const SizedBox(height: AppSpacing.section),
                     AppRevealIn.at(2, child: const _SalesTrend()),
                     const SizedBox(height: AppSpacing.section),
@@ -119,29 +138,6 @@ class _Metrics extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (role == null) return const SizedBox.shrink();
-
-    if (role == UserRole.teknisi) {
-      // Sama seperti dashboard web: berjalan = antrean aktif, selesai = total riwayat.
-      final aktif = ref.watch(jobQueueProvider).value?.length ?? 0;
-      final selesai = ref.watch(jobHistoryProvider(1)).value?.total ?? 0;
-      return _grid([
-        MetricCard(
-          label: 'Job Berjalan',
-          value: '$aktif',
-          icon: Icons.handyman_outlined,
-          sub: 'Dari ${aktif + selesai} job ditugaskan',
-          featured: true,
-          onTap: () => context.go('/jobs'),
-        ),
-        MetricCard(
-          label: 'Job Selesai',
-          value: '$selesai',
-          icon: Icons.task_alt,
-          sub: 'Total sepanjang waktu',
-          onTap: () => context.go('/riwayat'),
-        ),
-      ]);
-    }
 
     if (role == UserRole.gudang) return _gudangMetrics(context, ref);
 

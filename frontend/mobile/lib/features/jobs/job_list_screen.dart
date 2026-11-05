@@ -202,7 +202,10 @@ class JobCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              StatusBadge(label: status.label, color: color),
+              // Boleh memendek di layar sempit / huruf besar, bukan meluap.
+              Flexible(
+                child: StatusBadge(label: status.label, color: color, constrained: true),
+              ),
             ],
           ),
         ),

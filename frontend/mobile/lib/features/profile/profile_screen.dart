@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../data/repositories/auth_repository.dart';
-import '../jobs/job_providers.dart' show signedPhotoUrlProvider;
+import 'user_avatar.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
@@ -114,22 +114,6 @@ class _ProfileCardState extends ConsumerState<_ProfileCard> {
   @override
   Widget build(BuildContext context) {
     final user = widget.user;
-    final initial = (user.displayName.trim().isEmpty
-            ? (user.email.isEmpty ? '?' : user.email)
-            : user.displayName.trim())
-        .characters
-        .first
-        .toUpperCase();
-    final initialText = Text(
-      initial,
-      style: const TextStyle(
-        color: AppColors.teal700,
-        fontSize: 40,
-        fontWeight: FontWeight.bold,
-      ),
-    );
-    final path = user.avatarPath;
-    final photoUrl = path == null ? null : ref.watch(signedPhotoUrlProvider(path)).value;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -162,15 +146,7 @@ class _ProfileCardState extends ConsumerState<_ProfileCard> {
                       alignment: Alignment.center,
                       child: _busy
                           ? const CircularProgressIndicator(strokeWidth: 2)
-                          : photoUrl == null
-                              ? initialText
-                              : Image.network(
-                                  photoUrl,
-                                  width: 96,
-                                  height: 96,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => initialText,
-                                ),
+                          : UserAvatar(user: user, size: 88),
                     ),
                     Positioned(
                       right: 0,
