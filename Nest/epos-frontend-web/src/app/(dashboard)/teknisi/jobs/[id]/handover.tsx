@@ -120,7 +120,7 @@ export function ReassignPanel({
       <Button
         type="button"
         size="sm"
-        className="justify-self-start"
+        className="w-full"
         disabled={!selected || mutation.isPending}
         onClick={submit}
       >

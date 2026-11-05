@@ -97,6 +97,17 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
       ],
     },
     {
+      label: 'Pelanggan',
+      icon: HeartHandshake,
+      children: [
+        { href: '/members', label: 'Member', icon: Users },
+        // Siklus WA/Fonnte — admin-only: pengaturan siklus servis + redaksi
+        // template pesan digabung 1 halaman 2 tab, riwayat kirim terpisah.
+        { href: '/reminder-wa', label: 'Pengingat WA', icon: Bell },
+        { href: '/reminder-wa/riwayat', label: 'Riwayat WA', icon: History },
+      ],
+    },
+    {
       label: 'Stok & Gudang',
       icon: Warehouse,
       children: [
@@ -107,17 +118,6 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
         // Barang Masuk (stock-in) sengaja tidak punya menu: form-nya nempel
         // di dialog "Lihat Batch"/"Stok" pada Master > Produk & Sparepart.
         { href: '/stock/opname', label: 'Opname Stok', icon: ClipboardCheck },
-      ],
-    },
-    {
-      label: 'Pelanggan',
-      icon: HeartHandshake,
-      children: [
-        { href: '/members', label: 'Member', icon: Users },
-        // Siklus WA/Fonnte — admin-only: pengaturan siklus servis + redaksi
-        // template pesan digabung 1 halaman 2 tab, riwayat kirim terpisah.
-        { href: '/reminder-wa', label: 'Pengingat WA', icon: Bell },
-        { href: '/reminder-wa/riwayat', label: 'Riwayat WA', icon: History },
       ],
     },
     {
@@ -145,7 +145,7 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
         { href: '/administrasi/data-lampau', label: 'Input Data Lampau', icon: FilePlus2 },
         // Log Audit — GET /audit-logs, admin-only.
         { href: '/audit', label: 'Log Audit', icon: ScrollText },
-        { href: '/pengaturan', label: 'Pengaturan Toko', icon: SlidersHorizontal },
+        { href: '/pengaturan', label: 'Pengaturan Sistem', icon: SlidersHorizontal },
       ],
     },
     { href: '/profil', label: 'Profil', icon: UserCircle },

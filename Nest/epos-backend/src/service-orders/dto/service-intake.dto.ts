@@ -131,5 +131,6 @@ export class ServiceIntakeDto {
   locations?: IntakeLocationDto[];
 
   @IsOptional() @IsString() technicianId?: string;
-  @IsOptional() @IsDateString() scheduledDate?: string;
+  // WAJIB (2026-11): jadwal servis menentukan tampilan antrean (filter hari) dan dashboard teknisi. Format YYYY-MM-DD.
+  @IsDateString({}, { message: 'Jadwal wajib diisi (format YYYY-MM-DD)' }) scheduledDate: string;
 }

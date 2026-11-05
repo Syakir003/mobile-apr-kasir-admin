@@ -27,6 +27,7 @@ import {
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate, formatDateTime, statusLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { wibDateKey } from '@/lib/wib-date';
 import type { Role } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -96,6 +97,8 @@ export interface TechnicianJob {
   orderId?: string;
   // Harga jasa JOB INI sudah ditetapkan (pada servis banyak AC invoice order dipakai bersama).
   billingDerived?: boolean;
+  // Job komplain (pengerjaan ulang atas keluhan pelanggan): menunjuk pekerjaan awal yang selesai.
+  complaintOfJobId?: string | null;
 }
 
 interface QueueRow {
@@ -202,15 +205,7 @@ function rowSearchText(row: QueueRow, includeTechnician: boolean): string {
     .toLowerCase();
 }
 
-// Tanggal bisnis memakai WIB. Kunci tanggal berbentuk 'YYYY-MM-DD'; aritmetikanya kalender murni lewat UTC.
-function wibDateKey(value: string | Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(typeof value === 'string' ? new Date(value) : value);
-}
+// Kunci tanggal 'YYYY-MM-DD' (WIB, lihat lib/wib-date); aritmetikanya kalender murni lewat UTC.
 const keyToUtc = (key: string) => {
   const [y, m, d] = key.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d));
@@ -522,6 +517,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
             // Perlu harga: temuan sudah dikirim ATAU sudah diajukan selesai (teknisi tidak perlu menunggu harga).
             const needsPrice = row.jobs.some(
               (j) =>
+                !j.complaintOfJobId && // job komplain tidak ditagih, tidak pernah perlu harga
                 (!!j.findingsSentAt || j.status === 'menunggu_review') &&
                 (many ? !j.billingDerived : !j.order?.invoiceId),
             );
@@ -626,6 +622,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                         <TypeIcon className="size-3" />
                         {meta.label}
                       </span>
+                      {row.jobs.some((j) => j.complaintOfJobId) && <Badge variant="warning">Komplain</Badge>}
                       {scheduled && (
                         <span className="inline-flex items-center gap-1">
                           <CalendarCheck className="size-3.5 text-primary" />

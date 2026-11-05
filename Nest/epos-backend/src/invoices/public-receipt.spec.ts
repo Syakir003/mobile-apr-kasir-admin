@@ -97,19 +97,19 @@ describe('struk publik - ringkasan pengerjaan & foto', () => {
     expect(JSON.stringify(work)).not.toContain('/uploads');
   });
 
-  it('banyak unit: progres = rata-rata tahap, nama unit ikut di foto; unit dibatalkan tidak dihitung', async () => {
+  it('banyak unit: status tetap 100% Selesai walau ada unit belum rampung; nama unit ikut di foto', async () => {
     orderFindMany.mockResolvedValue([
       { units: [job('selesai', 'Kamar 1', [{ id: 'a', kind: 'sebelum' }]), job('sedang_dikerjakan', 'Kamar 2')] },
     ]);
     const { work } = await service.findPublicReceipt(token);
-    expect(work).toMatchObject({ progress: 75, label: 'Sedang dikerjakan', done: false });
+    expect(work).toMatchObject({ progress: 100, label: 'Selesai', done: true });
     expect(work!.gallery[0].unit).toBe('Daikin SK (Kamar 1)');
     expect(orderFindMany.mock.calls[0][0].select.units.where).toEqual({ status: { not: 'dibatalkan' } });
   });
 
-  it('belum dimulai: 5%/0% tidak dianggap berjalan', async () => {
+  it('job belum dimulai pun tetap tampil 100% Selesai (status tidak mengikuti tahap job)', async () => {
     orderFindMany.mockResolvedValue([{ units: [job('assigned', 'Kamar')] }]);
-    expect((await service.findPublicReceipt(token)).work).toMatchObject({ progress: 10, label: 'Belum dimulai' });
+    expect((await service.findPublicReceipt(token)).work).toMatchObject({ progress: 100, label: 'Selesai', done: true });
   });
 
   it('foto: hanya milik nota dengan token ini; token/id berformat salah atau foto lain = 404', async () => {

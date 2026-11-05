@@ -13,6 +13,7 @@ import { apiClient, ApiError } from '@/lib/api-client';
 import { numberOrUndefined, trimmedOrUndefined } from '@/lib/form-number';
 import { MAPS_INPUT_PLACEHOLDER, mapsInputDisplay } from '@/lib/maps-input';
 import { phoneError } from '@/lib/phone';
+import { wibDateKey } from '@/lib/wib-date';
 import { statusLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Role } from '@/lib/session';
@@ -66,6 +67,9 @@ interface AcUnitRow {
   status: string;
   // Job yang belum selesai/dibatalkan pada unit ini (maks. 1): unit seperti ini tidak bisa dibuatkan job servis baru.
   technicianJobs?: { id: string; status: string }[];
+  // Siklus servis unit (GET /members/:id mengirim semua kolom unit): dasar "jatuh tempo" pada isian otomatis.
+  nextServiceDate?: string | null;
+  reminderEnabled?: boolean;
 }
 interface MemberDetail {
   id: string;
@@ -126,6 +130,8 @@ interface WorkLocationRow {
 }
 const DEFAULT_LOC_KEY = 0;
 const MAX_LOCATIONS = 10;
+// Daftar unit terdaftar milik member: maks. baris ke bawah sebelum mengalir ke kolom berikutnya (digeser ke samping).
+const MAX_UNIT_ROWS = 10;
 const blankLocation = (key: number): WorkLocationRow => ({ key, address: '', mapsUrl: '' });
 function locationLabel(l: WorkLocationRow, i: number): string {
   const t = l.address.trim() || (l.mapsUrl.trim() ? 'link Maps' : '');
@@ -140,11 +146,20 @@ const intakeSchema = z.object({
   jobType: z.enum(['perbaikan', 'cuci', 'maintenance']),
   workDescription: z.string().optional(),
   complaint: z.string().trim().min(1, 'Keluhan awal wajib diisi (kalau tidak ada, isi pekerjaannya, mis. Cuci AC)'),
-  scheduledDate: z.string().optional(),
+  scheduledDate: z.string().min(1, 'Jadwal wajib diisi'),
 });
 type IntakeFormValues = z.infer<typeof intakeSchema>;
 
-export function ServiceIntakeClient({ role }: { role: Role }) {
+// Isian otomatis: pelanggan terpilih, unit tercentang, jenis Cuci AC. Jadwal sengaja kosong.
+// - dueOnly (notifikasi "servis jatuh tempo"): semua unit jatuh tempo (siklus <= 3 hari lagi, termasuk yang sudah lewat).
+// - unitIds (tombol Buat Job Servis di halaman jadwal pelanggan): unit yang dipilih admin di sana.
+export interface IntakePrefill {
+  memberId: string;
+  dueOnly: boolean;
+  unitIds?: string[];
+}
+
+export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: IntakePrefill }) {
   const router = useRouter();
   const isAdmin = role === 'admin';
 
@@ -169,6 +184,15 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
     enabled: !!selectedMember,
   });
   const memberUnits = memberDetailQuery.data?.acUnits ?? [];
+  // Member dengan banyak unit (mis. rumah sakit): daftar mengalir ke samping per kolom, maks. MAX_UNIT_ROWS baris ke
+  // bawah, dan digeser kanan-kiri. Sampai MAX_UNIT_ROWS unit tampilannya tetap satu daftar ke bawah seperti biasa.
+  const unitColumns = Math.ceil(memberUnits.length / MAX_UNIT_ROWS);
+  const unitRows = Math.min(MAX_UNIT_ROWS, memberUnits.length);
+  // Unit yang masih punya job aktif tidak bisa dipilih (backend menolak job ganda), jadi tidak ikut "Pilih semua".
+  const selectableUnitIds = memberUnits.filter((u) => (u.technicianJobs?.length ?? 0) === 0).map((u) => u.id);
+  const busyUnitCount = memberUnits.length - selectableUnitIds.length;
+  const allExistingSelected =
+    selectableUnitIds.length > 0 && selectableUnitIds.every((id) => existingUnitIds.includes(id));
   const defaultRows = memberUnits.length > 0 ? [] : [blankRow(DEFAULT_ROW_KEY)];
   const newUnits = rowsState ?? defaultRows;
   const totalUnits = existingUnitIds.length + newUnits.length;
@@ -189,6 +213,12 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
   }
   function toggleExisting(id: string, checked: boolean) {
     setExistingUnitIds((cur) => (checked ? [...cur, id] : cur.filter((x) => x !== id)));
+  }
+  function selectAllExisting() {
+    setExistingUnitIds((cur) => [...new Set([...cur, ...selectableUnitIds])]);
+  }
+  function clearExisting() {
+    setExistingUnitIds([]);
   }
 
   // Titik lokasi kerja. Pembaruan fungsional supaya klik beruntun tidak saling menimpa.
@@ -261,6 +291,58 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
       scheduledDate: '',
     },
   });
+
+  // Isian otomatis. Dijalankan sekali per pelanggan; hasilnya diterapkan dari callback async (bukan langsung di effect).
+  const [prefillNote, setPrefillNote] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!prefill) return;
+    let cancelled = false;
+    apiClient
+      .get<MemberSearchResult & { acUnits?: AcUnitRow[] }>(`/members/${prefill.memberId}`)
+      .then((m) => {
+        if (cancelled) return;
+        selectMember(m);
+        const wanted = prefill.unitIds;
+        if (!prefill.dueOnly && !wanted) return; // hanya memilih pelanggan
+        const limit = wibDateKey(new Date(Date.now() + 3 * 86400000));
+        // Unit dengan job aktif tidak bisa dibuatkan job baru, jadi tidak ikut tercentang.
+        const dueIds = (m.acUnits ?? [])
+          .filter((u) =>
+            wanted
+              ? wanted.includes(u.id) && (u.technicianJobs?.length ?? 0) === 0
+              : (u.technicianJobs?.length ?? 0) === 0 &&
+                u.status === 'aktif' &&
+                u.reminderEnabled !== false &&
+                !!u.nextServiceDate &&
+                wibDateKey(u.nextServiceDate) <= limit,
+          )
+          .map((u) => u.id);
+        setExistingUnitIds(dueIds);
+        form.setValue('jobType', 'cuci');
+        form.setValue('complaint', 'Cuci AC rutin (siklus servis)', { shouldValidate: true });
+        let note: string;
+        if (wanted) {
+          const skipped = wanted.length - dueIds.length;
+          note =
+            dueIds.length > 0
+              ? `Terisi otomatis dari jadwal servis ${m.name}: ${dueIds.length} unit AC pilihan sudah tercentang dan jenisnya Cuci AC${skipped > 0 ? ` (${skipped} unit dilewati karena sudah punya job aktif)` : ''}. Tentukan jadwal lalu buat job.`
+              : `Data ${m.name} terisi otomatis, tetapi unit yang dipilih sudah punya job aktif. Pilih unit yang diservis, tentukan jadwal, lalu buat job.`;
+        } else {
+          note =
+            dueIds.length > 0
+              ? `Terisi otomatis dari siklus servis ${m.name}: ${dueIds.length} unit AC jatuh tempo sudah tercentang dan jenisnya Cuci AC. Tentukan jadwal lalu buat job.`
+              : `Data ${m.name} terisi otomatis, tetapi tidak ada unit yang jatuh tempo atau bebas dari job aktif. Pilih unit yang diservis, tentukan jadwal, lalu buat job.`;
+        }
+        setPrefillNote(note);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Gagal memuat data pelanggan untuk diisi otomatis. Pilih pelanggan secara manual.');
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sekali per pelanggan; fungsi/state di dalamnya stabil.
+  }, [prefill?.memberId, prefill?.dueOnly, prefill?.unitIds?.join(',')]);
 
   const intakeMutation = useMutation({
     mutationFn: async (values: IntakeFormValues) => {
@@ -368,6 +450,12 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
           Servis lebih dari satu AC dalam satu order juga bisa (tetap satu nota).
         </p>
       </div>
+
+      {prefillNote && (
+        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm lg:max-w-2xl" role="status">
+          {prefillNote}
+        </div>
+      )}
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-6 lg:max-w-2xl">
@@ -484,7 +572,41 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                         Centang semua unit yang diservis. Tiap unit dapat temuan, foto sebelum/sesudah,
                         dan riwayat servisnya sendiri.
                       </p>
-                      <ul className="grid gap-2">
+                      {memberUnits.length > 1 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={selectableUnitIds.length === 0 || allExistingSelected}
+                            onClick={selectAllExisting}
+                          >
+                            Pilih semua
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={existingUnitIds.length === 0}
+                            onClick={clearExisting}
+                          >
+                            Kosongkan
+                          </Button>
+                          <span className="text-xs text-muted-foreground">
+                            {existingUnitIds.length} dari {memberUnits.length} unit dipilih
+                            {busyUnitCount > 0 && ` (${busyUnitCount} unit tidak bisa dipilih: masih ada job aktif)`}
+                          </span>
+                        </div>
+                      )}
+                      {unitColumns > 1 && (
+                        <p className="text-xs font-medium text-muted-foreground">
+                          {memberUnits.length} unit - geser ke kanan untuk melihat unit lainnya.
+                        </p>
+                      )}
+                      <ul
+                        className={cn('grid gap-2', unitColumns > 1 && 'auto-cols-[minmax(21rem,1fr)] grid-flow-col overflow-x-auto pb-2')}
+                        style={unitColumns > 1 ? { gridTemplateRows: `repeat(${unitRows}, auto)` } : undefined}
+                      >
                         {memberUnits.map((u) => {
                           const checked = existingUnitIds.includes(u.id);
                           const busy = (u.technicianJobs?.length ?? 0) > 0;
@@ -682,7 +804,7 @@ export function ServiceIntakeClient({ role }: { role: Role }) {
                 name="scheduledDate"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Jadwal (opsional)</FormLabel>
+                    <FormLabel>Jadwal</FormLabel>
                     <FormControl>
                       <Input type="date" {...field} />
                     </FormControl>

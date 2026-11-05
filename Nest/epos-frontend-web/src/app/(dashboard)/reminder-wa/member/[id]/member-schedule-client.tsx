@@ -9,9 +9,11 @@ import { ArrowLeft, MoreHorizontal } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
+import { wibDateKey } from '@/lib/wib-date';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   DropdownMenu,
@@ -44,10 +46,17 @@ import {
 // Jadwal servis semua set AC milik SATU pelanggan (dibuka dari daftar Monitoring Jadwal). Aksi per set AC
 // (kirim pengingat sekarang, atur siklus) ada di sini, bukan di daftar utama.
 
+// Batas "jatuh tempo" (sama dengan isian otomatis form Terima Servis): siklus <= hari ini + 3 hari (WIB), yang terlambat ikut.
+function dueLimitKey(): string {
+  return wibDateKey(new Date(Date.now() + 3 * 86400000));
+}
+
 export function MemberScheduleClient({ memberId }: { memberId: string }) {
   const router = useRouter();
   const [editing, setEditing] = React.useState<ScheduleItem | null>(null);
   const [sending, setSending] = React.useState<ScheduleItem | null>(null);
+  // Unit yang dipilih untuk Buat Job Servis. null = admin belum mengubah apa pun, jadi yang tercentang = unit jatuh tempo.
+  const [picked, setPicked] = React.useState<Set<string> | null>(null);
 
   const query = useQuery({
     queryKey: ['reminders', 'schedule', 'member', memberId],
@@ -56,6 +65,32 @@ export function MemberScheduleClient({ memberId }: { memberId: string }) {
   });
   const items = query.data?.items ?? [];
   const member = items[0]?.member;
+
+  // Unit dengan job aktif tidak bisa dipilih (backend menolak job baru untuk unit yang masih punya job belum selesai).
+  const limit = dueLimitKey();
+  const selectableIds = items.filter((u) => !u.adaJobBerjalan).map((u) => u.id);
+  const dueIds = items
+    .filter(
+      (u) =>
+        !u.adaJobBerjalan &&
+        u.unitStatus === 'aktif' &&
+        u.reminderEnabled &&
+        !!u.nextServiceDate &&
+        wibDateKey(u.nextServiceDate) <= limit,
+    )
+    .map((u) => u.id);
+  const selectedIds = new Set(picked ?? dueIds);
+  const selectedList = items.filter((u) => !u.adaJobBerjalan && selectedIds.has(u.id)).map((u) => u.id);
+
+  function toggleUnit(id: string, on: boolean) {
+    const next = new Set(selectedIds);
+    if (on) next.add(id);
+    else next.delete(id);
+    setPicked(next);
+  }
+  function toggleAll(on: boolean) {
+    setPicked(on ? new Set(selectableIds) : new Set());
+  }
 
   // Kembali ke daftar dengan pencarian/filter/halaman yang tadi dipakai (tersimpan di URL daftar).
   function goBack() {
@@ -119,7 +154,17 @@ export function MemberScheduleClient({ memberId }: { memberId: string }) {
         </p>
       )}
 
-      {items.length > 0 && <UnitScheduleTable items={items} onEdit={setEditing} onSend={setSending} />}
+      {items.length > 0 && (
+        <UnitScheduleTable
+          items={items}
+          onEdit={setEditing}
+          onSend={setSending}
+          selectedIds={selectedIds}
+          onToggle={toggleUnit}
+          onToggleAll={toggleAll}
+          createJobHref={`/service-orders/intake?memberId=${memberId}&unitIds=${selectedList.join(',')}`}
+        />
+      )}
 
       {editing && <AturDialog key={editing.id} item={editing} onClose={() => setEditing(null)} />}
       {sending && <KirimDialog key={sending.id} item={sending} onClose={() => setSending(null)} />}
@@ -127,23 +172,60 @@ export function MemberScheduleClient({ memberId }: { memberId: string }) {
   );
 }
 
-/** Tabel set AC satu pelanggan: servis terakhir, siklus, jadwal berikutnya, WA terakhir, dan aksi. */
+/**
+ * Tabel set AC satu pelanggan: servis terakhir, siklus, jadwal berikutnya, WA terakhir, dan aksi. Centang unit lalu
+ * Buat Job Servis membuka form Terima Servis dengan unit-unit itu sudah terpilih.
+ */
 export function UnitScheduleTable({
   items,
   onEdit,
   onSend,
+  selectedIds,
+  onToggle,
+  onToggleAll,
+  createJobHref,
 }: {
   items: ScheduleItem[];
   onEdit: (u: ScheduleItem) => void;
   onSend: (u: ScheduleItem) => void;
+  selectedIds: Set<string>;
+  onToggle: (id: string, on: boolean) => void;
+  onToggleAll: (on: boolean) => void;
+  createJobHref: string;
 }) {
+  const selectable = items.filter((u) => !u.adaJobBerjalan);
+  const selectedCount = selectable.filter((u) => selectedIds.has(u.id)).length;
+  const allSelected = selectable.length > 0 && selectedCount === selectable.length;
+
   return (
     <Card className="gap-0 overflow-hidden py-0">
-      <PanelTitle title="Set AC milik pelanggan" count={items.length} />
+      <PanelTitle
+        title="Set AC milik pelanggan"
+        count={items.length}
+        actions={
+          selectedCount > 0 ? (
+            <Button asChild size="sm">
+              <Link href={createJobHref}>Buat Job Servis ({selectedCount} unit)</Link>
+            </Button>
+          ) : (
+            <Button size="sm" disabled title="Centang minimal satu unit AC">
+              Buat Job Servis
+            </Button>
+          )
+        }
+      />
       <CardContent className="p-0">
         <Table>
           <TableHeader className="bg-muted/50">
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  aria-label="Pilih semua unit"
+                  checked={allSelected}
+                  disabled={selectable.length === 0}
+                  onCheckedChange={(v) => onToggleAll(v === true)}
+                />
+              </TableHead>
               <TableHead>AC</TableHead>
               <TableHead>Servis terakhir</TableHead>
               <TableHead>Siklus</TableHead>
@@ -157,6 +239,15 @@ export function UnitScheduleTable({
               const noPhone = !u.member.phone;
               return (
                 <TableRow key={u.id} className={cn(u.status === 'mati' && 'opacity-60')}>
+                  <TableCell className="w-10">
+                    <Checkbox
+                      aria-label={`Pilih ${u.label}${u.roomLocation ? ` - ${u.roomLocation}` : ''}`}
+                      checked={selectedIds.has(u.id) && !u.adaJobBerjalan}
+                      disabled={u.adaJobBerjalan}
+                      title={u.adaJobBerjalan ? 'Masih ada job aktif' : undefined}
+                      onCheckedChange={(v) => onToggle(u.id, v === true)}
+                    />
+                  </TableCell>
                   <TableCell>
                     <div className="font-medium">{u.label}</div>
                     <div className="text-xs text-muted-foreground">

@@ -24,6 +24,13 @@ import {
 } from '@/components/ui/form';
 import { ResetScopeDialog } from '@/components/pengaturan/reset-scope-dialog';
 
+// Kartu "Umum" (Pajak Default, Format Nomor Invoice, Nama Printer Struk, Catatan Footer Invoice) DINONAKTIFKAN:
+// keempat key app_config itu memang tersimpan di database, tetapi belum dibaca kode mana pun (POS web mulai dari pajak
+// kosong, nomor invoice dibuat formatInvoiceNumber di backend dengan pola tetap INV-YYYYMMDD-NNNN, struk memakai footer
+// tetap di receipt-view.tsx & invoice-print-client.tsx, printer dipilih lewat dialog browser). Kodenya sengaja tidak
+// dihapus: ubah ke true untuk menampilkannya lagi, tetapi hubungkan dulu tiap key ke tempat pemakaiannya.
+const UMUM_AKTIF = false;
+
 // Padanan RESET_SCOPES/RESET_CONFIRM_TEXT backend
 // (src/system-reset/dto/reset-database.dto.ts) — sengaja di-hardcode
 // duplikat di sini, gak ada package shared antara backend & frontend.
@@ -137,6 +144,7 @@ export default function PengaturanPage() {
   const configQuery = useQuery({
     queryKey: ['app-config'],
     queryFn: () => apiClient.get<AppConfig>('/app-config'),
+    enabled: UMUM_AKTIF, // tidak perlu memanggil /app-config selama kartu Umum disembunyikan
   });
 
   const form = useForm<SettingsValues>({
@@ -184,9 +192,11 @@ export default function PengaturanPage() {
   return (
     <div className="grid max-w-2xl gap-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Pengaturan</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Pengaturan Sistem</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Konfigurasi umum yang dipakai di seluruh aplikasi (POS, invoice, struk).
+          {UMUM_AKTIF
+            ? 'Konfigurasi umum yang dipakai di seluruh aplikasi (POS, invoice, struk).'
+            : 'Pemeliharaan data sistem (khusus admin).'}
         </p>
       </div>
 
@@ -195,7 +205,7 @@ export default function PengaturanPage() {
         <p className="text-sm text-destructive">Gagal memuat pengaturan.</p>
       )}
 
-      {configQuery.data && (
+      {UMUM_AKTIF && configQuery.data && (
         <Card panel>
           <CardHeader>
             <CardTitle className="text-base">Umum</CardTitle>

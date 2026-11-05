@@ -15,14 +15,6 @@ import { InvoiceHistoryQueryDto } from './dto/invoice-history-query.dto';
 import { CreateManualInvoiceDto } from './dto/create-manual-invoice.dto';
 import { unitInvoiceLabel } from '../common/services/job-billing.service';
 
-// Bobot progres tiap tahap job untuk halaman struk publik (persen). Unit dibatalkan tidak dihitung.
-const JOB_PROGRESS: Record<string, number> = {
-  menunggu_penugasan: 0,
-  assigned: 10,
-  sedang_dikerjakan: 50,
-  menunggu_review: 90,
-  selesai: 100,
-};
 
 /** Bagian transaksi dari CreateManualInvoiceDto (tanpa penentu member). */
 export type ManualInvoiceCore = Pick<
@@ -230,8 +222,8 @@ export class InvoicesService {
   }
 
   /**
-   * Ringkasan pengerjaan untuk halaman struk publik: progres (rata-rata tahap tiap unit; unit dibatalkan tidak dihitung)
-   * dan foto sebelum/sesudah per temuan. null = nota ini tidak punya pekerjaan teknisi (penjualan biasa). Hanya
+   * Ringkasan pengerjaan untuk halaman struk publik: status SELALU 100% Selesai (keputusan produk: nota baru dikirim ke
+   * pelanggan setelah pekerjaannya beres, jadi tahap job tidak ditampilkan) dan foto sebelum/sesudah per temuan. null = nota ini tidak punya pekerjaan teknisi (penjualan biasa). Hanya
    * id foto yang keluar (bukan path file); fotonya diambil lewat findPublicReceiptPhotoPath, terikat ke token ini.
    */
   private async findPublicWork(token: string) {
@@ -255,9 +247,6 @@ export class InvoicesService {
     const jobs = orders.flatMap((o) => o.units);
     if (jobs.length === 0) return null;
 
-    const progress = Math.round(jobs.reduce((sum, j) => sum + (JOB_PROGRESS[j.status] ?? 0), 0) / jobs.length);
-    const done = jobs.every((j) => j.status === 'selesai');
-    const started = jobs.some((j) => (JOB_PROGRESS[j.status] ?? 0) >= JOB_PROGRESS.sedang_dikerjakan);
     const multiUnit = jobs.length > 1;
     const gallery = jobs.flatMap((j) =>
       j.findings
@@ -271,7 +260,7 @@ export class InvoicesService {
           after: f.photos.filter((p) => p.kind === 'sesudah').map((p) => p.id),
         })),
     );
-    return { progress, label: done ? 'Selesai' : started ? 'Sedang dikerjakan' : 'Belum dimulai', done, gallery };
+    return { progress: 100, label: 'Selesai', done: true, gallery };
   }
 
   /** Path tersimpan satu foto pengerjaan untuk halaman struk publik — hanya bila foto itu milik nota dengan token ini. */

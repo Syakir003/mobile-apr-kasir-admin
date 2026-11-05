@@ -3,9 +3,11 @@ import { RemindersService } from './reminders.service';
 import { RemindersController } from './reminders.controller';
 import { ServiceScheduleService } from './service-schedule.service';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [WhatsappModule],
+  // NotificationsModule: bel notifikasi admin saat unit jatuh tempo (RemindersService.notifyAdminsServiceDue).
+  imports: [WhatsappModule, NotificationsModule],
   controllers: [RemindersController],
   providers: [RemindersService, ServiceScheduleService],
   // Dipakai TechnicianJobsModule — approveComplete() manggil
