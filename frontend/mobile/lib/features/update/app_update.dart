@@ -75,6 +75,17 @@ final appUpdateProvider = FutureProvider<AppUpdate?>((ref) async {
   }
 });
 
+/// Versi app terpasang, mis. "Versi 1.0.6 (2007)" — ditampilkan di Profil supaya
+/// gampang memastikan update sudah terpasang. Null bila tak terbaca.
+final appVersionLabelProvider = FutureProvider<String?>((ref) async {
+  try {
+    final p = await PackageInfo.fromPlatform();
+    return 'Versi ${p.version} (${p.buildNumber})';
+  } catch (_) {
+    return null;
+  }
+});
+
 /// Unduh APK di dalam app lalu buka dialog pasang Android (paket ota_update). Android tetap meminta satu ketukan
 /// "Instal" untuk APK di luar Play Store; yang dihemat: tidak lewat browser & tidak perlu mencari file unduhan.
 /// Provider supaya tes bisa menggantinya dengan aliran event palsu.

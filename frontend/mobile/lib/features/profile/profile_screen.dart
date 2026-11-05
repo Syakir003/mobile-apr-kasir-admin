@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../data/repositories/auth_repository.dart';
 import 'user_avatar.dart';
+import '../update/app_update.dart' show appVersionLabelProvider;
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
@@ -50,6 +51,13 @@ class ProfileScreen extends ConsumerWidget {
                     style: AppButtonStyles.destructive(),
                   ),
                 ),
+                if (ref.watch(appVersionLabelProvider).value case final v?) ...[
+                  const SizedBox(height: 16),
+                  Text(v,
+                      key: const Key('app-version-label'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.slate400, fontSize: 12)),
+                ],
               ],
             ),
     );
