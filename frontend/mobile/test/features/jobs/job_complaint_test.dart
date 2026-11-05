@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:epos_ac/core/router/app_router.dart';
 import 'package:epos_ac/core/theme/app_theme.dart';
 import 'package:epos_ac/data/models/app_user.dart';
@@ -37,6 +39,8 @@ Widget _detail(TechnicianJob job) => ProviderScope(
         jobProvider.overrideWith((ref, id) => Future.value(job)),
         jobFindingsProvider.overrideWith((ref, id) => Future.value(const <JobFinding>[])),
         jobRequestsProvider.overrideWith((ref, id) => Future.value(const <MaterialRequest>[])),
+        // Tanpa data tagihan (banner bayar tidak tampil), tidak memanggil API.
+        jobPaymentInfoProvider.overrideWith((ref, id) => Completer<JobPaymentInfo>().future),
       ],
       child: MaterialApp(theme: AppTheme.light(), home: const JobDetailScreen(jobId: '1')),
     );
