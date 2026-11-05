@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import type { SessionUser } from '@/lib/session';
+import { UserAvatar } from '@/components/user-avatar';
 import { isNavGroup, NAV_BY_ROLE, type NavItem } from './nav-config';
 import { NotificationBell } from './notification-bell';
 
@@ -203,9 +204,7 @@ export function DashboardShell({
               <p className="text-lg font-bold text-white">E-POS AC</p>
             </div>
             <div className="flex items-center gap-2.5 rounded-lg bg-white/8 px-2.5 py-2">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-sm font-semibold text-white">
-                {user.displayName.trim().charAt(0).toUpperCase()}
-              </span>
+              <UserAvatar user={user} className="size-8 bg-white/15 text-sm font-semibold text-white" />
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-white">{user.displayName}</p>
                 <p className="text-xs text-sidebar-foreground capitalize">{user.role}</p>

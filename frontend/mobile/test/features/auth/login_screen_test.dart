@@ -29,6 +29,9 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<void> changePassword({required String currentPassword, required String newPassword}) async {}
+
+  @override
+  Future<void> uploadAvatar({required List<int> bytes, required String ext, required String contentType}) async {}
 }
 
 Widget host(FakeAuthRepository fake) => ProviderScope(

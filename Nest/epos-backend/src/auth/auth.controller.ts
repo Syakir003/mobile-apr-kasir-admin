@@ -1,12 +1,17 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
   Patch,
   Post,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { photoUploadOptions } from '../common/uploads/photo-upload';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -61,5 +66,18 @@ export class AuthController {
       dto.currentPassword,
       dto.newPassword,
     );
+  }
+
+  // Foto profil SENDIRI — semua role. Field form-data `photo`, maks 5MB.
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  @Post('me/avatar')
+  @UseInterceptors(FileInterceptor('photo', photoUploadOptions('avatars', 5)))
+  setAvatar(
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    if (!file) throw new BadRequestException('Foto tidak terbaca. Pilih foto JPG/PNG/WEBP (maks 5MB).');
+    return this.authService.setAvatar(user.sub, `/uploads/avatars/${file.filename}`);
   }
 }

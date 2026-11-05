@@ -7,7 +7,20 @@ import {
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
+import { unlink } from 'fs/promises';
 import { BCRYPT_ROUNDS, passwordChangeStamp } from '../common/password.util';
+import { resolveUploadFile } from '../common/uploads/uploads.controller';
+
+type UserRow = { id: string; email: string; role: string; displayName: string; avatarPath: string | null };
+
+/** Bentuk user yang dikirim ke client (login, ganti password, ganti foto) — disimpan apa adanya di sesi web & HP. */
+const publicUser = (u: UserRow) => ({
+  id: u.id,
+  email: u.email,
+  role: u.role,
+  displayName: u.displayName,
+  avatarPath: u.avatarPath,
+});
 
 /**
  * Pengganti custom_access_token_hook Supabase (role disisipkan ke JWT dari
@@ -51,12 +64,7 @@ export class AuthService {
     const payload = { sub: user.id, role: user.role };
     return {
       accessToken: await this.jwt.signAsync(payload),
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        displayName: user.displayName,
-      },
+      user: publicUser(user),
     };
   }
 
@@ -117,12 +125,7 @@ export class AuthService {
     const payload = { sub: user.id, role: user.role };
     return {
       accessToken: await this.jwt.signAsync(payload),
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        displayName: user.displayName,
-      },
+      user: publicUser(user),
     };
   }
 
@@ -137,11 +140,20 @@ export class AuthService {
         email: true,
         displayName: true,
         role: true,
+        avatarPath: true,
         active: true,
         createdAt: true,
       },
     });
     if (!user) throw new NotFoundException('User tidak ditemukan');
     return user;
+  }
+
+  /** Ganti foto profil SENDIRI (POST /auth/me/avatar) — `userId` dari JWT. File lama dihapus (best-effort). */
+  async setAvatar(userId: string, avatarPath: string) {
+    const before = await this.prisma.user.findUnique({ where: { id: userId }, select: { avatarPath: true } });
+    const user = await this.prisma.user.update({ where: { id: userId }, data: { avatarPath } });
+    if (before?.avatarPath) await unlink(resolveUploadFile(before.avatarPath)).catch(() => undefined);
+    return publicUser(user);
   }
 }

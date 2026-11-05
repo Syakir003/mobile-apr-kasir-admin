@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../jobs/job_providers.dart' show signedPhotoUrlProvider;
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
@@ -54,45 +56,136 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-class _ProfileCard extends StatelessWidget {
+class _ProfileCard extends ConsumerStatefulWidget {
   const _ProfileCard({required this.user});
   final AppUser user;
 
   @override
+  ConsumerState<_ProfileCard> createState() => _ProfileCardState();
+}
+
+class _ProfileCardState extends ConsumerState<_ProfileCard> {
+  bool _busy = false;
+
+  Future<void> _changePhoto() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Kamera'),
+              onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Galeri'),
+              onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    // Foto profil cukup kecil: hemat kuota & jauh di bawah batas 5MB server.
+    final file = await ImagePicker().pickImage(source: source, maxWidth: 800, imageQuality: 85);
+    if (file == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = true);
+    try {
+      await ref.read(authRepositoryProvider).uploadAvatar(
+            bytes: await file.readAsBytes(),
+            ext: file.name.contains('.') ? file.name.split('.').last : 'jpg',
+            contentType: file.mimeType ?? 'image/jpeg',
+          );
+      messenger.showSnackBar(const SnackBar(content: Text('Foto profil diperbarui.')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text('Gagal mengganti foto: ${errorMessage(e)}'),
+        backgroundColor: AppColors.danger,
+      ));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final user = widget.user;
     final initial = (user.displayName.trim().isEmpty
             ? (user.email.isEmpty ? '?' : user.email)
             : user.displayName.trim())
         .characters
         .first
         .toUpperCase();
+    final initialText = Text(
+      initial,
+      style: const TextStyle(
+        color: AppColors.teal700,
+        fontSize: 40,
+        fontWeight: FontWeight.bold,
+      ),
+    );
+    final path = user.avatarPath;
+    final photoUrl = path == null ? null : ref.watch(signedPhotoUrlProvider(path)).value;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            Container(
-              width: 96,
-              height: 96,
-              decoration: BoxDecoration(
-                color: AppColors.teal100,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 4),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.slate900.withValues(alpha: 0.08),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                initial,
-                style: const TextStyle(
-                  color: AppColors.teal700,
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold,
+            Semantics(
+              button: true,
+              label: 'Ganti foto profil',
+              child: GestureDetector(
+                key: const Key('profile-avatar'),
+                onTap: _busy ? null : _changePhoto,
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 96,
+                      height: 96,
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        color: AppColors.teal100,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 4),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.slate900.withValues(alpha: 0.08),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      alignment: Alignment.center,
+                      child: _busy
+                          ? const CircularProgressIndicator(strokeWidth: 2)
+                          : photoUrl == null
+                              ? initialText
+                              : Image.network(
+                                  photoUrl,
+                                  width: 96,
+                                  height: 96,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => initialText,
+                                ),
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: AppColors.teal700,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: const Icon(Icons.photo_camera, size: 16, color: Colors.white),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
