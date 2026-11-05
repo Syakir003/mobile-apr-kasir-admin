@@ -260,3 +260,51 @@ describe('job komplain tidak ditagih', () => {
     await expect(pricing.set('jk', { lines: [] } as any, 'admin1')).rejects.toThrow(/Job komplain tidak ditagih/);
   });
 });
+
+describe('TechnicianJobsService.updateNotes (Keterangan teknisi)', () => {
+  const make = (job: Record<string, unknown> = {}) => {
+    const prisma: any = {
+      technicianJob: {
+        findUnique: jest.fn(async () => ({ id: 'j1', orderId: 'o1', technicianId: 't1', status: 'sedang_dikerjakan', ...job })),
+        update: jest.fn(async () => ({ id: 'j1' })),
+        updateMany: jest.fn(async () => ({ count: 3 })),
+        findUniqueOrThrow: jest.fn(async () => ({ id: 'j1', notes: 'x' })),
+      },
+    };
+    const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
+    return { svc, prisma };
+  };
+
+  it('satu job: hanya job itu yang diubah (perilaku lama)', async () => {
+    const { svc, prisma } = make();
+    await svc.updateNotes('j1', 'Cuci 2 unit, dibayar cash 75 ribu', 't1', 'teknisi');
+    expect(prisma.technicianJob.update).toHaveBeenCalledWith({
+      where: { id: 'j1' },
+      data: { notes: 'Cuci 2 unit, dibayar cash 75 ribu' },
+    });
+    expect(prisma.technicianJob.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('allInOrder (teknisi): disalin ke job aktif milik teknisi itu di order yang sama', async () => {
+    const { svc, prisma } = make();
+    await svc.updateNotes('j1', 'Minta penawaran ganti kapasitor', 't1', 'teknisi', { allInOrder: true });
+    expect(prisma.technicianJob.updateMany).toHaveBeenCalledWith({
+      where: { orderId: 'o1', status: { in: ['assigned', 'sedang_dikerjakan'] }, technicianId: 't1' },
+      data: { notes: 'Minta penawaran ganti kapasitor' },
+    });
+    expect(prisma.technicianJob.update).not.toHaveBeenCalled();
+  });
+
+  it('allInOrder (admin): semua job aktif order itu; job yang sudah diajukan/selesai tidak bisa diubah', async () => {
+    const admin = make();
+    await admin.svc.updateNotes('j1', 'x', 'admin1', 'admin', { allInOrder: true });
+    expect(admin.prisma.technicianJob.updateMany).toHaveBeenCalledWith({
+      where: { orderId: 'o1', status: { in: ['assigned', 'sedang_dikerjakan'] } },
+      data: { notes: 'x' },
+    });
+    const done = make({ status: 'menunggu_review' });
+    await expect(done.svc.updateNotes('j1', 'x', 't1', 'teknisi', { allInOrder: true })).rejects.toThrow(
+      /Catatan cuma bisa diubah selama job aktif/,
+    );
+  });
+});

@@ -413,7 +413,7 @@ export class TechnicianJobsController {
     @Body() dto: UpdateNotesDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.jobs.updateNotes(id, dto.notes, user.sub, user.role);
+    return this.jobs.updateNotes(id, dto.notes, user.sub, user.role, { allInOrder: dto.allInOrder });
   }
 
   // Ganti PATCH :id/complete (dulu teknisi langsung nutup job sendiri).

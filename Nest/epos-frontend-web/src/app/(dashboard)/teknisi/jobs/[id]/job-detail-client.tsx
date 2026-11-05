@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, CheckCircle2, ChevronDown, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
-import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
+import { formatDate, formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
 import { formatStock } from '@/lib/sparepart-mode';
 import type { Role } from '@/lib/session';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,8 @@ import { BarcodeScanner } from '@/components/barcode-scanner';
 import { BarcodeQr } from '@/components/barcode-qr';
 import { SendFindingsBar, ServicePricingCard } from './service-pricing-card';
 import { AddUnitButton } from './add-unit';
+import { EditOrderButton } from './edit-order-dialog';
+import { ComplaintButton } from './complaint-dialog';
 import { HandoverHistoryCard, ReassignPanel, mergeHandovers, type HandoverRow } from './handover';
 import { ReminderScheduleFields, intervalError } from '@/components/reminder-schedule-fields';
 import { Button } from '@/components/ui/button';
@@ -145,6 +147,11 @@ interface JobDetail {
   siblings?: { id: string; createdAt: string }[];
   // Riwayat alih tugas job ini (kosong = tidak pernah dialihkan).
   handovers?: HandoverRow[];
+  // Job komplain (pengerjaan ulang atas keluhan pelanggan): menunjuk pekerjaan awal yang selesai. null = job biasa.
+  complaintOfJobId?: string | null;
+  complaintOf?: { id: string; completedAt: string | null; orderId: string; technician: { displayName: string } | null } | null;
+  // Pekerjaan selesai: komplain yang pernah diajukan atasnya (kosong = tidak ada).
+  complaints?: { id: string; status: string; createdAt: string; orderId: string }[];
 }
 interface UserRow {
   id: string;
@@ -225,6 +232,8 @@ export function JobDetailClient({
 
   const [scanInput, setScanInput] = React.useState('');
   const [sendBackNote, setSendBackNote] = React.useState('');
+  // Keterangan teknisi (kartu di bagian bawah halaman); dipanggil sebelum early return supaya urutan hook tetap.
+  const keterangan = useKeterangan(jobId, jobQuery.data?.notes ?? null, false);
 
   const startMutation = useJobAction<{ scannedBarcode: string }>(jobId, '/start', 'Job dimulai.');
   const submitForReviewMutation = useJobAction(jobId, '/submit-for-review', 'Diajukan untuk review.');
@@ -267,13 +276,9 @@ export function JobDetailClient({
   // Halaman ini untuk admin/kasir = memantau pekerjaan teknisi (read-only), jadi kontrolnya
   // hanya tampil untuk teknisi pemilik job.
   const canEditFindings = isTeknisi && ['assigned', 'sedang_dikerjakan'].includes(job.status);
-  // Konsep "Diagnosa / Catatan Pengerjaan" niru app mobile teknisi (lama) —
-  // field catatan bebas yang bisa diisi teknisi selama job aktif, dipisah
-  // dari checklist temuan terstruktur. Backend-nya (PATCH :id/notes) masih
-  // ada & belum kepakai sama sekali di web sebelum ini. Digatekan ke teknisi
-  // aja (bukan admin) biar cocok sama peran field ini di konsep aslinya —
-  // "catatan kerja milik teknisi", admin tetap liat versi read-only-nya.
-  const notesEditable = isTeknisi && ['assigned', 'sedang_dikerjakan'].includes(job.status);
+  // Keterangan teknisi (dulu "Diagnosa / Catatan Pengerjaan" di tengah kartu unit): kini kartu tersendiri di bagian
+  // paling bawah. Hanya teknisi yang mengisi, selama job aktif; admin/kasir membacanya (lihat KeteranganCard).
+  const keteranganEditable = isTeknisi && ['assigned', 'sedang_dikerjakan'].includes(job.status);
   // Sama kayak gate start() di backend — minimal 1 foto 'sebelum' di
   // salah satu temuan job ini. Dihitung dari data yang udah ke-fetch, jadi
   // gak perlu request tambahan.
@@ -303,7 +308,8 @@ export function JobDetailClient({
   // Harga jasa BUKAN syarat mengajukan selesai: teknisi cukup melengkapi temuan + foto, lalu admin menetapkan harga
   // saat review. Harga (invoice ada; banyak AC: tiap unit punya harga sendiri) jadi syarat admin MENYETUJUI selesai
   // (sama dengan gate approveComplete di backend). Pembayaran bukan syarat.
-  const priced = !!job.order?.invoice && (!embedded || job.billingDerived === true);
+  // Job komplain tidak ditagih lagi, jadi tidak ada harga jasa yang ditunggu.
+  const priced = !!job.complaintOfJobId || (!!job.order?.invoice && (!embedded || job.billingDerived === true));
   const submitForReviewReady = job.findings.length > 0 && findingsMissingPhotos.length === 0;
   const submitForReviewBlockedReason =
     job.findings.length === 0
@@ -406,10 +412,6 @@ export function JobDetailClient({
                   </div>
                 </div>
               )}
-              {/* Kalau lagi bisa diedit (lihat NotesEditor di bawah), jangan
-                  dobel ditampilin di sini juga - biar gak ada 2 sumber
-                  kebenaran yang keliatan beda pas belum di-save. */}
-              {job.notes && !notesEditable && <DetailRow label="Catatan" value={job.notes} />}
               {job.startedAt && isScanned(job) && (
                 <DetailRow label="Dimulai" value={formatDateTime(job.startedAt)} />
               )}
@@ -436,8 +438,6 @@ export function JobDetailClient({
             </p>
           )}
 
-          {notesEditable && <NotesEditor key={job.id} jobId={job.id} initialNotes={job.notes} />}
-
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Temuan &amp; Foto Sebelum/Sesudah</CardTitle>
@@ -456,7 +456,7 @@ export function JobDetailClient({
                 />
               ))}
               {canEditFindings && <AddFindingForm jobId={job.id} />}
-              {canEditFindings && (
+              {canEditFindings && !job.complaintOfJobId && (
                 <SendFindingsBar
                   jobId={job.id}
                   findingCount={job.findings.length}
@@ -504,6 +504,7 @@ export function JobDetailClient({
               ? ` · ${[job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'}${job.unit.roomLocation ? ` (${job.unit.roomLocation})` : ''}`
               : ''}
           </p>
+          {job.complaintOf && <ComplaintBanner from={job.complaintOf} linkable={!isTeknisi} />}
           <div className="mt-3">
             <JobSteps status={job.status} />
           </div>
@@ -522,8 +523,14 @@ export function JobDetailClient({
         >
           {!embedded && (
             <Card className={cn(isAdmin && job.status === 'menunggu_review' && 'order-last')}>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-base">Detail Order</CardTitle>
+                <div className="flex items-center gap-1">
+                  {/* Koreksi data order yang salah input (jadwal, jenis, note, lokasi kerja): khusus admin. */}
+                  {isAdmin && job.order && (
+                    <EditOrderButton orderId={job.order.id} memberId={job.member?.id} note={job.order.note} jobs={[job]} />
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="grid gap-2 text-sm">
                   <DetailRow
@@ -548,7 +555,10 @@ export function JobDetailClient({
                     value="-"
                     valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
                   />
+                <DetailRow label="Jadwal" value={job.scheduledDate ? formatDate(job.scheduledDate) : '-'} />
                 <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />
+                {/* Komplain pelanggan: sengaja di bagian bawah (bukan header) supaya order ini tidak disangka order komplain. */}
+                {isAdmin && <ComplaintButton anchorJobId={job.id} jobs={[job]} technicians={technicians} />}
               </CardContent>
             </Card>
           )}
@@ -562,6 +572,7 @@ export function JobDetailClient({
           )}
 
           {!embedded && <HandoverHistoryCard items={job.handovers ?? []} />}
+          {!embedded && !isTeknisi && <ComplaintHistoryCard items={job.complaints ?? []} />}
 
           {/* Unit: Detail Unit + temuan & foto. Satu unit memakai section yang sama dengan tiap unit di halaman banyak AC. */}
           {embedded ? (
@@ -572,7 +583,11 @@ export function JobDetailClient({
             </UnitSection>
           )}
 
-          {(isAdmin || role === 'kasir') && !embedded && <ServicePricingCard jobId={job.id} />}
+          {/* Keterangan teknisi dibaca admin/kasir sebelum menetapkan harga jasa. */}
+          {!isTeknisi && !embedded && <KeteranganCard keterangan={keterangan} editable={false} />}
+
+          {/* Job komplain tidak ditagih: tidak ada harga jasa untuk ditetapkan. */}
+          {(isAdmin || role === 'kasir') && !embedded && !job.complaintOfJobId && <ServicePricingCard jobId={job.id} />}
 
           {/* Pengajuan sparepart tambahan — backend (material-requests
               module) udah lama ada & dipakai app mobile teknisi lama,
@@ -604,6 +619,9 @@ export function JobDetailClient({
               </CardContent>
             </Card>
           )}
+
+          {/* Keterangan: paling bawah, sebelum Ajukan Selesai. */}
+          {isTeknisi && !embedded && <KeteranganCard keterangan={keterangan} editable={keteranganEditable} />}
         </div>
 
         {embedded ? (
@@ -694,7 +712,7 @@ export function JobDetailClient({
               <div className="grid gap-1.5">
                 <Button
                   disabled={!submitForReviewReady || submitForReviewMutation.isPending}
-                  onClick={() => submitForReviewMutation.mutate()}
+                  onClick={() => keterangan.flush().then(() => submitForReviewMutation.mutate(), () => undefined)}
                 >
                   {submitForReviewMutation.isPending ? 'Memproses...' : 'Ajukan Selesai'}
                 </Button>
@@ -881,6 +899,10 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
     enabled: isAdmin,
   });
   const technicians = (techniciansQuery.data ?? []).filter((u) => u.role === 'teknisi' && u.active);
+  // Keterangan teknisi: satu untuk seluruh order (disalin ke semua job aktif). Nilai awal = isian pertama yang ada.
+  const orderNotes = jobs.find((j) => j.notes)?.notes ?? null;
+  const keterangan = useKeterangan(job.id, orderNotes, true);
+  const keteranganEditable = isTeknisi && jobs.some((j) => ['assigned', 'sedang_dikerjakan'].includes(j.status));
 
 
   // ---- Aksi seluruh order: Ajukan Selesai (teknisi) dan Setujui / Kembalikan (admin) berlaku untuk SEMUA unit
@@ -946,7 +968,10 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
   const scheduleUnits = waitingReview.filter((j) => needsScheduleType(j.type));
   const scheduleInvalid = scheduleUnits.some((j) => schedOn(j) && !!intervalError(schedDays(j)));
   // Harga jasa tiap unit ditetapkan admin/kasir SETELAH teknisi mengajukan; syarat untuk menyetujui, bukan mengajukan.
-  const unpricedWaiting = waitingReview.filter((j) => j.type !== 'pemasangan' && j.billingDerived !== true);
+  // (Job komplain tidak ditagih, jadi tidak pernah menunggu harga.)
+  const unpricedWaiting = waitingReview.filter(
+    (j) => j.type !== 'pemasangan' && j.billingDerived !== true && !j.complaintOfJobId,
+  );
   // Panel Aksi Job (kanan) hanya ada bila ada yang bisa dikerjakan peran ini; kalau tidak, daftar unit memakai lebar penuh.
   const hasAside =
     (isTeknisi && (working.length > 0 || notStarted.length > 0)) || (isAdmin && (canAssign || waitingReview.length > 0));
@@ -987,15 +1012,23 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           {jobTypeLabel(job.type)} · {scannedCount} dari {activeJobs.length} unit sudah discan
-          {finishedCount > 0 ? ` · ${finishedCount} selesai` : ''} · satu nota untuk semua unit
+          {finishedCount > 0 ? ` · ${finishedCount} selesai` : ''}
+          {job.complaintOfJobId ? ' · komplain, tanpa nota baru' : ' · satu nota untuk semua unit'}
         </p>
+        {job.complaintOf && <ComplaintBanner from={job.complaintOf} linkable={!isTeknisi} />}
       </div>
 
       <div className={cn('grid items-start gap-6', hasAside && 'xl:grid-cols-[1fr_360px]')}>
         <div className="grid min-w-0 gap-6">
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Detail Order</CardTitle>
+          <div className="flex items-center gap-1">
+            {/* Koreksi data order yang salah input (jadwal, jenis, note, lokasi kerja per unit): khusus admin. */}
+            {isAdmin && job.order && (
+              <EditOrderButton orderId={job.order.id} memberId={job.member?.id} note={job.order.note} jobs={jobs} />
+            )}
+          </div>
         </CardHeader>
         <CardContent className="grid gap-2 text-sm">
           <DetailRow
@@ -1017,6 +1050,14 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
             value="-"
             valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
           />
+          <DetailRow
+            label="Jadwal"
+            value={
+              jobs.find((j) => j.scheduledDate)?.scheduledDate
+                ? formatDate(jobs.find((j) => j.scheduledDate)!.scheduledDate as string)
+                : '-'
+            }
+          />
           <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />
           {invoice && (
             <DetailRow
@@ -1031,6 +1072,8 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
               }
             />
           )}
+          {/* Komplain pelanggan: di bagian bawah (bukan header) supaya order ini tidak disangka order komplain; pilih unit di dialog. */}
+          {isAdmin && <ComplaintButton anchorJobId={job.id} jobs={jobs} technicians={technicians} />}
         </CardContent>
       </Card>
 
@@ -1039,6 +1082,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
       )}
 
       <HandoverHistoryCard items={mergeHandovers(jobs.map((j) => j.handovers ?? []))} />
+      {!isTeknisi && <ComplaintHistoryCard items={jobs.flatMap((j) => j.complaints ?? [])} />}
 
           <div className="grid gap-4">
             {entries.map((e, i) => (
@@ -1051,9 +1095,12 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
             ))}
           </div>
 
+          {/* Keterangan teknisi dibaca admin/kasir sebelum menetapkan harga jasa. */}
+          {!isTeknisi && <KeteranganCard keterangan={keterangan} editable={false} />}
+
           {/* Harga jasa: SATU untuk seluruh job (bukan per unit), seperti servis satu unit. Disimpan di job pemegang harga
               (job pertama yang belum dibatalkan); id job mana pun di order ini menunjuk ke sana. */}
-          {(isAdmin || role === 'kasir') && <ServicePricingCard jobId={job.id} />}
+          {(isAdmin || role === 'kasir') && !job.complaintOfJobId && <ServicePricingCard jobId={job.id} />}
 
           {/* Pengajuan sparepart: SATU untuk seluruh job (tidak dipisah per AC). Secara data melekat pada unit aktif
               pertama; daftar di sini menggabungkan pengajuan semua unit. */}
@@ -1072,6 +1119,9 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
               {isTeknisi && requestJob && <AddMaterialRequestForm jobId={requestJob.id} />}
             </CardContent>
           </Card>
+
+          {/* Keterangan: paling bawah, sebelum Ajukan Selesai (satu untuk seluruh order). */}
+          {isTeknisi && <KeteranganCard keterangan={keterangan} editable={keteranganEditable} />}
         </div>
         {/* Panel aksi di samping seperti halaman satu unit (menempel di desktop; di layar sempit tampil di bawah). */}
         <div className={cn('xl:sticky xl:top-6', !hasAside && 'hidden')}>
@@ -1183,8 +1233,10 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                       </ul>
                       <Button
                         disabled={!canSubmitAll || submitAllMutation.isPending}
-                        onClick={() => submitAllMutation.mutate({ allInOrder: true })}
-                        className="sm:justify-self-start"
+                        onClick={() =>
+                          keterangan.flush().then(() => submitAllMutation.mutate({ allInOrder: true }), () => undefined)
+                        }
+                        className="w-full"
                       >
                         {submitAllMutation.isPending ? 'Memproses...' : `Ajukan Selesai (${working.length} unit)`}
                       </Button>
@@ -1244,7 +1296,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                           : {}),
                       })
                     }
-                    className="sm:justify-self-start"
+                    className="w-full"
                   >
                     {approveAllMutation.isPending ? 'Memproses...' : `Setujui Selesai (${waitingReview.length} unit)`}
                   </Button>
@@ -1260,7 +1312,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                       variant="outline"
                       disabled={!sendBackNote.trim() || sendBackAllMutation.isPending}
                       onClick={() => sendBackAllMutation.mutate({ allInOrder: true, note: sendBackNote.trim() })}
-                      className="sm:justify-self-start"
+                      className="w-full"
                     >
                       {sendBackAllMutation.isPending ? 'Memproses...' : 'Kembalikan'}
                     </Button>
@@ -1431,55 +1483,144 @@ function DetailRow({
   );
 }
 
-/** Field catatan kerja bebas teknisi (beda dari checklist temuan terstruktur
- * di bawah) — konsep diambil dari app mobile teknisi lama (`_DiagnosisField`
- * di job_detail_screen.dart), yang endpoint backend-nya (`PATCH :id/notes`)
- * ternyata masih hidup tapi belum ada UI web-nya sama sekali. `initialNotes`
- * cuma dipakai buat nilai awal (state lokal, gak disinkron ulang tiap
- * refetch) — mutasi sukses tetap invalidate query supaya card "Detail" di
- * atas ikutan update begitu berpindah keluar dari mode edit. */
-function NotesEditor({
-  jobId,
-  initialNotes,
-}: {
-  jobId: string;
-  initialNotes: string | null;
-}) {
+/**
+ * Keterangan teknisi: catatan bebas untuk admin (mis. "Cuci 2 unit AC dibayar cash 75 ribu" atau "Pelanggan minta penawaran
+ * ganti kapasitor, bisa dikerjakan besok"), diisi di bagian paling bawah halaman sebelum Ajukan Selesai. Disimpan di kolom
+ * `notes` job lewat PATCH :id/notes (endpoint yang sama dengan "Diagnosa / Catatan Pengerjaan" di app mobile). Servis
+ * banyak AC: satu keterangan untuk seluruh order (`allInOrder`, disalin ke semua job yang masih aktif).
+ */
+function useKeterangan(jobId: string, serverNotes: string | null, allInOrder: boolean) {
   const queryClient = useQueryClient();
-  const [notes, setNotes] = React.useState(initialNotes ?? '');
-
-  const saveMutation = useMutation({
-    mutationFn: () => apiClient.patch(`/technician-jobs/${jobId}/notes`, { notes: notes.trim() }),
-    onSuccess: () => {
-      toast.success('Catatan disimpan.');
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
-    },
+  // draft null = teknisi belum mengubah apa pun, jadi yang tampil isi dari server.
+  const [draft, setDraft] = React.useState<string | null>(null);
+  const value = draft ?? serverNotes ?? '';
+  const dirty = draft !== null && draft.trim() !== (serverNotes ?? '').trim();
+  const save = useMutation({
+    mutationFn: (text: string) =>
+      apiClient.patch(`/technician-jobs/${jobId}/notes`, {
+        notes: text.trim(),
+        ...(allInOrder ? { allInOrder: true } : {}),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['technician-jobs'] }),
     onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : 'Gagal menyimpan catatan.');
+      toast.error(err instanceof ApiError ? err.message : 'Gagal menyimpan keterangan.');
     },
   });
+  return {
+    value,
+    dirty,
+    saving: save.isPending,
+    setValue: setDraft,
+    /** Tombol "Simpan Keterangan". Galatnya sudah ditampilkan lewat toast. */
+    save: () =>
+      save.mutateAsync(value).then(
+        () => {
+          toast.success('Keterangan disimpan.');
+        },
+        () => undefined,
+      ),
+    /** Sebelum Ajukan Selesai: keterangan yang belum disimpan ikut tersimpan. Menolak bila gagal supaya pengajuan tidak jalan. */
+    flush: (): Promise<void> => (dirty ? save.mutateAsync(value).then(() => undefined) : Promise.resolve()),
+  };
+}
+type Keterangan = ReturnType<typeof useKeterangan>;
 
+/**
+ * Kartu Keterangan. Teknisi (job aktif): kolom isian di bagian paling bawah, tepat sebelum Ajukan Selesai. Selain itu
+ * (admin/kasir, atau teknisi setelah diajukan): hanya tampil bila ada isinya, supaya admin membacanya saat menetapkan
+ * harga jasa dan menyetujui.
+ */
+function KeteranganCard({ keterangan, editable }: { keterangan: Keterangan; editable: boolean }) {
+  if (!editable && !keterangan.value.trim()) return null;
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Diagnosa / Catatan Pengerjaan</CardTitle>
+        <CardTitle className="text-base">{editable ? 'Keterangan' : 'Keterangan Teknisi'}</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-2">
-        <Textarea
-          rows={3}
-          placeholder="Tuliskan hasil pengecekan atau tindakan..."
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-        <Button
-          type="button"
-          size="sm"
-          className="justify-self-start"
-          disabled={saveMutation.isPending}
-          onClick={() => saveMutation.mutate()}
-        >
-          {saveMutation.isPending ? 'Menyimpan...' : 'Simpan Catatan'}
-        </Button>
+        {editable ? (
+          <>
+            <Textarea
+              rows={3}
+              maxLength={1000}
+              value={keterangan.value}
+              onChange={(e) => keterangan.setValue(e.target.value)}
+              placeholder='Catatan untuk admin, mis. "Cuci 2 unit AC, dibayar cash 75 ribu" atau "Pelanggan minta penawaran ganti kapasitor, bisa dikerjakan besok"'
+            />
+            <p className="text-xs text-muted-foreground">
+              Isi sebelum Ajukan Selesai. Yang belum disimpan ikut tersimpan otomatis saat Ajukan Selesai.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              className="justify-self-start"
+              disabled={keterangan.saving || !keterangan.dirty}
+              onClick={() => void keterangan.save()}
+            >
+              {keterangan.saving ? 'Menyimpan...' : 'Simpan Keterangan'}
+            </Button>
+          </>
+        ) : (
+          <p className="whitespace-pre-wrap text-sm">{keterangan.value}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Penanda di job komplain: pengerjaan ulang atas pekerjaan yang sudah selesai (tanpa harga jasa/tagihan baru). */
+function ComplaintBanner({ from, linkable }: { from: NonNullable<JobDetail['complaintOf']>; linkable: boolean }) {
+  return (
+    <div className="mt-3 rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-sm">
+      <p className="font-medium">Job komplain - pengerjaan ulang</p>
+      <p className="text-xs text-muted-foreground">
+        Atas pekerjaan yang selesai{from.completedAt ? ` ${formatDate(from.completedAt)}` : ''}
+        {from.technician ? ` oleh ${from.technician.displayName}` : ''}. Temuan dan foto di sini terpisah dari pekerjaan awal,
+        tanpa harga jasa dan tagihan baru.
+        {linkable && (
+          <>
+            {' '}
+            <Link href={`/teknisi/jobs/${from.id}`} className="font-medium text-primary underline">
+              Lihat pekerjaan awal
+            </Link>
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
+// Urutan tahap job; komplain satu keluhan (beberapa unit) ditampilkan dengan tahap yang paling awal.
+const COMPLAINT_STAGE = ['menunggu_penugasan', 'assigned', 'sedang_dikerjakan', 'menunggu_review', 'selesai', 'dibatalkan'];
+
+/** Di pekerjaan yang selesai: daftar komplain yang pernah diajukan atasnya, masing-masing menaut ke job komplainnya. */
+function ComplaintHistoryCard({
+  items,
+}: {
+  items: { id: string; status: string; createdAt: string; orderId: string }[];
+}) {
+  if (items.length === 0) return null;
+  // Satu keluhan bisa mencakup beberapa unit (satu order komplain): dikelompokkan per order.
+  const groups = new Map<string, typeof items>();
+  for (const it of items) groups.set(it.orderId, [...(groups.get(it.orderId) ?? []), it]);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Komplain atas pekerjaan ini</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-2 text-sm">
+        {[...groups.values()].map((g) => {
+          const status = [...g].sort((a, b) => COMPLAINT_STAGE.indexOf(a.status) - COMPLAINT_STAGE.indexOf(b.status))[0].status;
+          return (
+            <div key={g[0].orderId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2">
+              <Link href={`/teknisi/jobs/${g[0].id}`} className="font-medium hover:underline">
+                Komplain {formatDate(g[0].createdAt)}
+                {g.length > 1 ? ` · ${g.length} unit` : ''}
+              </Link>
+              <Badge variant={statusBadgeVariant(status)}>{statusLabel(status)}</Badge>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );

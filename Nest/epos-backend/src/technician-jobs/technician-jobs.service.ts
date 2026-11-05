@@ -1083,7 +1083,7 @@ export class TechnicianJobsService {
     });
   }
 
-  async updateNotes(jobId: string, notes: string, actorId: string, role: Role) {
+  async updateNotes(jobId: string, notes: string, actorId: string, role: Role, opts: { allInOrder?: boolean } = {}) {
     const job = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
     });
@@ -1101,6 +1101,19 @@ export class TechnicianJobsService {
       throw new BadRequestException(
         'Catatan cuma bisa diubah selama job aktif',
       );
+    }
+    if (opts.allInOrder) {
+      // Servis banyak AC: Keterangan teknisi satu untuk seluruh order. Disalin ke semua job order ini yang masih aktif
+      // (milik teknisi yang sama; admin: semua), supaya tampil sama di tiap job dan tidak ada yang tertinggal.
+      await this.prisma.technicianJob.updateMany({
+        where: {
+          orderId: job.orderId,
+          status: { in: [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] },
+          ...(role === 'admin' ? {} : { technicianId: actorId }),
+        },
+        data: { notes },
+      });
+      return this.prisma.technicianJob.findUniqueOrThrow({ where: { id: jobId } });
     }
     return this.prisma.technicianJob.update({
       where: { id: jobId },
