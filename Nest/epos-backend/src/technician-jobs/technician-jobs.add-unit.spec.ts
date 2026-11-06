@@ -405,11 +405,14 @@ describe('TechnicianJobsService.unitLabels — data label untuk cetak oleh tekni
           member: { id: 'm1', name: 'Bu Sari' },
           ...job,
         })),
+        // Titik lokasi kerja per unit (kosong = ikut alamat member): lihat technician-jobs.unit-labels.spec.ts.
+        findMany: jest.fn(async () => []),
       },
       serviceOrderUnit: {
         findMany: jest.fn(async () => [
           {
             id: 'ou1',
+            unitId: 'u9',
             unit: { id: 'u9', barcodeValue: 'ACUNIT-20261104-0009' },
           },
         ]),
@@ -446,7 +449,7 @@ describe('TechnicianJobsService.unitLabels — data label untuk cetak oleh tekni
       id: 'o1',
       member: { id: 'm1', name: 'Bu Sari' },
       serviceOrderUnits: [
-        { id: 'ou1', unit: { id: 'u9', barcodeValue: 'ACUNIT-20261104-0009' } },
+        { id: 'ou1', unit: { id: 'u9', barcodeValue: 'ACUNIT-20261104-0009' }, workAddress: null },
       ],
     });
   });

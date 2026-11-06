@@ -21,6 +21,11 @@ interface WaTemplateRow {
   updatedAt: string | null;
 }
 
+// Template yang DISEMBUNYIKAN dari tab ini: 'selesai_servis' (WA otomatis saat job disetujui) dinonaktifkan karena pelanggan
+// cukup menerima nota dari admin (saklar KIRIM_WA_SELESAI_SERVIS di backend). Datanya tetap ada; kosongkan daftar ini untuk
+// menampilkannya lagi.
+const TEMPLATE_DISEMBUNYIKAN = ['selesai_servis'];
+
 const TEMPLATE_META: Record<string, { title: string; hint: string }> = {
   invoice: { title: 'Struk', hint: 'Dikirim saat tombol "Kirim WA" di halaman detail invoice diklik. Bergaya nota: kop toko, rincian, status pembayaran, dan tautan struk. Maksimal 2.500 karakter.' },
   selesai_servis: { title: 'Selesai servis', hint: 'Dikirim otomatis begitu admin menyetujui job servis selesai.' },
@@ -126,7 +131,8 @@ function TemplatePesanTab() {
     return <p className="text-sm text-destructive">Gagal memuat template pesan.</p>;
   }
 
-  const dirty = query.data.some((t) => (drafts[t.kind] ?? t.body) !== t.body);
+  const templates = query.data.filter((t) => !TEMPLATE_DISEMBUNYIKAN.includes(t.kind));
+  const dirty = templates.some((t) => (drafts[t.kind] ?? t.body) !== t.body);
 
   return (
     <div className="grid max-w-5xl gap-4">
@@ -135,7 +141,7 @@ function TemplatePesanTab() {
         tercantum di tiap kartu, isian lain ditolak saat disimpan. Perubahan hanya berlaku untuk
         pesan berikutnya, pesan yang sudah terkirim tidak ikut berubah.
       </p>
-      {query.data.map((tmpl) => {
+      {templates.map((tmpl) => {
         const body = drafts[tmpl.kind] ?? tmpl.body;
         const placeholders = PLACEHOLDERS_BY_KIND[tmpl.kind] ?? [];
         return (

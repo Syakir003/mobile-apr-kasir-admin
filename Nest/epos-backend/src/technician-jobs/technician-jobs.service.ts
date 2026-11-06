@@ -749,10 +749,18 @@ export class TechnicianJobsService {
       },
       include: { unit: { include: UNIT_PRODUCTS_SELECT } },
     });
+    // Titik lokasi kerja tiap unit (job di order ini): label menampilkan alamat tempat unit berada, bukan selalu alamat member.
+    const orderJobs = await this.prisma.technicianJob.findMany({
+      where: { orderId: job.orderId, status: { not: TechnicianJobStatus.dibatalkan } },
+      select: { unitId: true, workAddress: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const workAddress = new Map<string, string | null>();
+    for (const j of orderJobs) if (j.unitId && !workAddress.has(j.unitId)) workAddress.set(j.unitId, j.workAddress);
     return {
       id: job.orderId,
       member: job.member,
-      serviceOrderUnits: rows.map((r) => ({ id: r.id, unit: r.unit })),
+      serviceOrderUnits: rows.map((r) => ({ id: r.id, unit: r.unit, workAddress: workAddress.get(r.unitId) ?? null })),
     };
   }
 
