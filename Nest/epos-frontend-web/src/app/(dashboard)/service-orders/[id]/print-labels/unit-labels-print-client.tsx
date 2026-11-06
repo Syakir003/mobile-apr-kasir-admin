@@ -26,7 +26,10 @@ interface ServiceOrderDetail {
   // Member pembeli/pemilik unit — nama + alamatnya tercetak di tiap label, biar label yang sudah dicetak/tercecer bisa
   // langsung ketahuan punya siapa tanpa perlu scan dulu.
   member: { id: string; name: string; address?: string | null } | null;
-  serviceOrderUnits: { id: string; unit: AcUnit }[];
+  // Teknisi (GET /technician-jobs/:id/unit-labels): alamat kerja per unit sudah disertakan di tiap baris.
+  serviceOrderUnits: { id: string; unit: AcUnit; workAddress?: string | null }[];
+  // Admin/kasir (GET /service-orders/:id): job per unit, memuat titik lokasi kerjanya (null = ikut alamat member).
+  units?: { unitId: string | null; status: string; workAddress?: string | null }[];
 }
 
 export function UnitLabelsPrintClient({
@@ -54,9 +57,13 @@ export function UnitLabelsPrintClient({
   if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Memuat label unit...</p>;
   if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat label unit.</p>;
 
-  const units = data.serviceOrderUnits
-    .map((su) => su.unit)
-    .filter((u) => !onlyUnitIds || onlyUnitIds.includes(u.id));
+  const rows = data.serviceOrderUnits.filter((su) => !onlyUnitIds || onlyUnitIds.includes(su.unit.id));
+  const units = rows.map((su) => su.unit);
+  // Alamat di label = titik lokasi kerja unit itu (satu member bisa punya AC di beberapa tempat); kosong = alamat member.
+  const addressOf = (su: (typeof rows)[number]) =>
+    su.workAddress ??
+    data.units?.find((j) => j.unitId === su.unit.id && j.status !== 'dibatalkan')?.workAddress ??
+    data.member?.address;
   if (units.length === 0) {
     return (
       <div className="p-6">
@@ -93,21 +100,21 @@ export function UnitLabelsPrintClient({
       </div>
 
       <div className={UNIT_LABEL_SHEET_CLASS}>
-        {units.map((unit) => (
+        {rows.map((su) => (
           <UnitLabelCard
-            key={unit.id}
+            key={su.unit.id}
             unit={{
-              barcodeValue: unit.barcodeValue,
-              status: unit.status,
-              brand: unit.brand,
-              model: unit.model,
-              pk: unit.pk,
-              roomLocation: unit.roomLocation,
-              indoorName: unit.indoorProduct?.name,
-              outdoorName: unit.outdoorProduct?.name,
+              barcodeValue: su.unit.barcodeValue,
+              status: su.unit.status,
+              brand: su.unit.brand,
+              model: su.unit.model,
+              pk: su.unit.pk,
+              roomLocation: su.unit.roomLocation,
+              indoorName: su.unit.indoorProduct?.name,
+              outdoorName: su.unit.outdoorProduct?.name,
             }}
             memberName={data.member?.name}
-            memberAddress={data.member?.address}
+            memberAddress={addressOf(su)}
           />
         ))}
       </div>
