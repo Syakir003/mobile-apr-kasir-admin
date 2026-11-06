@@ -2,7 +2,7 @@ name: epos_ac
 description: APR-POS - aplikasi kasir, admin, dan teknisi AC.
 publish_to: 'none'
 # Angka setelah + = versionCode Android: WAJIB naik tiap rilis APK (dibandingkan dengan /app-version di server).
-version: 1.0.7+8
+version: 1.0.8+9
 
 environment:
   sdk: ^3.4.0
