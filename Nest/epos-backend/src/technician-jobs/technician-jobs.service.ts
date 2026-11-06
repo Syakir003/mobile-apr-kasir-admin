@@ -34,6 +34,13 @@ import { INTAKE_JOB_TYPES } from '../service-orders/dto/service-intake.dto';
 type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
 
 /**
+ * WA otomatis "pekerjaan selesai" saat admin menyetujui job: DINONAKTIFKAN sementara (keputusan produk 2026-11 — pelanggan
+ * cukup menerima nota yang dikirim admin). Kodenya sengaja tidak dihapus: ubah ke true untuk menyalakan lagi.
+ * Tidak memengaruhi siklus servis (nextServiceDate tetap diisi) maupun pengingat berkala H-3/H+7.
+ */
+export const KIRIM_WA_SELESAI_SERVIS = false;
+
+/**
  * Siklus 5 (revisi) — checklist temuan servis + review admin. Vokabuler
  * status: menunggu_penugasan -> assigned -> sedang_dikerjakan ->
  * menunggu_review -> selesai / dibatalkan (+ jalur balik
@@ -1510,7 +1517,7 @@ export class TechnicianJobsService {
         // ada jadwal berikutnya. Cuma dibuat baris 'pending' DI SINI (dalam
         // transaksi); provider WA beneran dipanggil SETELAH transaksi ini
         // commit biar gak nahan lock Postgres sambil nunggu network I/O.
-        if (schedule.touch && schedule.enabled && nextService) {
+        if (KIRIM_WA_SELESAI_SERVIS && schedule.touch && schedule.enabled && nextService) {
           const log = await this.reminders.enqueueJobCompleteMessageTx(tx, {
             jobId,
             memberId: updatedUnit.memberId,
