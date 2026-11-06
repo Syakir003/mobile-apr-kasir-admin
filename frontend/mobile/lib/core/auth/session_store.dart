@@ -101,7 +101,7 @@ class SessionStore {
 }
 
 /// Bentuk `user` dari POST /auth/login dan GET /auth/me Nest:
-/// `{ id, email?, role, displayName }`. Role tak dikenal = null (gak boleh masuk).
+/// `{ id, email?, role, displayName, avatarPath? }`. Role tak dikenal = null (gak boleh masuk).
 AppUser? userFromJson(Object? json) {
   if (json is! Map) return null;
   final role = UserRole.fromClaim(json['role']);
@@ -112,6 +112,7 @@ AppUser? userFromJson(Object? json) {
     email: (json['email'] as String?) ?? '',
     displayName: (json['displayName'] as String?) ?? '',
     role: role,
+    avatarPath: json['avatarPath'] is String ? json['avatarPath'] as String : null,
   );
 }
 
@@ -120,4 +121,5 @@ Map<String, dynamic> userToJson(AppUser u) => {
       'email': u.email,
       'displayName': u.displayName,
       'role': u.role.name,
+      'avatarPath': u.avatarPath,
     };

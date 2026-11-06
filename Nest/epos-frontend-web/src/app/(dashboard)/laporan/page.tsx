@@ -8,9 +8,12 @@ import { Printer } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { formatRupiah, formatDate, statusLabel } from '@/lib/format';
 import { TIER_LABEL, type PriceTier } from '@/lib/price-tier';
+import { SPAREPART_GROUP, groupLabel, groupStockRows, hideEmptyRows } from '@/lib/stock-group';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -72,6 +75,8 @@ interface StockReportRow {
   itemKind: 'product' | 'sparepart';
   refId: string;
   name: string;
+  // Merk produk (sparepart tidak punya merk): dasar pengelompokan per merk, sama dengan laporan stok gudang.
+  brand?: string | null;
   unit: string;
   category: string | null;
   stokAwal: number;
@@ -189,6 +194,29 @@ export default function LaporanPage() {
       ),
     enabled: tab === 'stok' && rangeValid,
   });
+
+  // Filter Merk + sembunyikan barang tanpa stok (aturan sama dengan halaman Laporan Stok gudang dan halaman cetaknya).
+  const [stokBrand, setStokBrand] = React.useState('all');
+  const [stokShowEmpty, setStokShowEmpty] = React.useState(false);
+  const stokBrands = React.useMemo(() => groupStockRows(stockQuery.data?.items ?? []).map((g) => g.label), [stockQuery.data]);
+  const { shown: stokShown, hiddenCount: stokHiddenCount } = React.useMemo(() => {
+    const items = (stockQuery.data?.items ?? []).filter((r) => stokBrand === 'all' || groupLabel(r) === stokBrand);
+    return stokShowEmpty ? { shown: items, hiddenCount: 0 } : hideEmptyRows(items);
+  }, [stockQuery.data, stokBrand, stokShowEmpty]);
+  const stokGroups = React.useMemo(() => groupStockRows(stokShown), [stokShown]);
+  // Kartu ringkasan: total seluruh laporan dari backend; bila satu merk dipilih, jumlah baris merk itu.
+  const stokRingkasan = React.useMemo(() => {
+    const data = stockQuery.data;
+    if (!data) return { totalModalTersisa: 0, totalOmzetTerjual: 0, totalUntungTerjual: 0 };
+    if (stokBrand === 'all') return data.ringkasan;
+    const rows = data.items.filter((r) => groupLabel(r) === stokBrand);
+    return {
+      totalModalTersisa: rows.reduce((t, r) => t + r.modalTersisa, 0),
+      totalOmzetTerjual: rows.reduce((t, r) => t + r.omzetTerjual, 0),
+      totalUntungTerjual: rows.reduce((t, r) => t + r.untungTerjual, 0),
+    };
+  }, [stockQuery.data, stokBrand]);
+  const fmtDateSlash = (d: string) => d.split('-').reverse().join('/');
 
   const grafikMingguan = groupByWeek(salesQuery.data?.grafikHarian ?? []);
   const maxMingguan = Math.max(1, ...grafikMingguan.map((w) => w.total));
@@ -509,12 +537,18 @@ export default function LaporanPage() {
         </TabsContent>
 
         <TabsContent value="stok" className="mt-4 grid gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="stok-kind" className="text-sm text-muted-foreground">
-                Jenis
-              </Label>
-              <Select value={stokKind} onValueChange={(v) => setStokKind(v as typeof stokKind)}>
+          {/* Sama dengan halaman Laporan Stok gudang (filter Jenis/Merk, sembunyikan barang tanpa stok, kelompok per
+              merk) ditambah kolom dan kartu keuangan khusus admin (backend membuangnya untuk role gudang). */}
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="stok-kind">Jenis</Label>
+              <Select
+                value={stokKind}
+                onValueChange={(v) => {
+                  setStokKind(v as typeof stokKind);
+                  setStokBrand('all');
+                }}
+              >
                 <SelectTrigger id="stok-kind" className="w-40">
                   <SelectValue />
                 </SelectTrigger>
@@ -525,9 +559,34 @@ export default function LaporanPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="stok-brand">Merk</Label>
+              <Select value={stokBrand} onValueChange={setStokBrand}>
+                <SelectTrigger id="stok-brand" className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua merk</SelectItem>
+                  {stokBrands.map((b) => (
+                    <SelectItem key={b} value={b}>
+                      {b}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2 pb-2">
+              <Checkbox id="stok-show-empty" checked={stokShowEmpty} onCheckedChange={(v) => setStokShowEmpty(v === true)} />
+              <Label htmlFor="stok-show-empty" className="font-normal">
+                Tampilkan juga barang tanpa stok
+              </Label>
+            </div>
             {rangeValid && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/laporan/stok/print?from=${from}&to=${to}${stokKind !== 'all' ? `&kind=${stokKind}` : ''}`} target="_blank">
+              <Button variant="outline" size="sm" asChild className="ml-auto">
+                <Link
+                  href={`/laporan/stok/print?from=${from}&to=${to}${stokKind !== 'all' ? `&kind=${stokKind}` : ''}${stokBrand !== 'all' ? `&brand=${encodeURIComponent(stokBrand)}` : ''}${stokShowEmpty ? '&semua=1' : ''}`}
+                  target="_blank"
+                >
                   <Printer className="size-4" />
                   Cetak PDF
                 </Link>
@@ -540,16 +599,17 @@ export default function LaporanPage() {
           {stockQuery.data && (
             <>
               <div className="grid gap-4 sm:grid-cols-3">
-                <SummaryCard label="Modal Tersisa (stok saat ini)" value={formatRupiah(stockQuery.data.ringkasan.totalModalTersisa)} />
-                <SummaryCard label="Omzet Terjual (rentang ini)" value={formatRupiah(stockQuery.data.ringkasan.totalOmzetTerjual)} />
-                <SummaryCard label="Untung Terjual (rentang ini)" value={formatRupiah(stockQuery.data.ringkasan.totalUntungTerjual)} />
+                <SummaryCard label={`Modal Tersisa (stok saat ini)${stokBrand !== 'all' ? ` - ${stokBrand}` : ''}`} value={formatRupiah(stokRingkasan.totalModalTersisa)} />
+                <SummaryCard label={`Omzet Terjual (rentang ini)${stokBrand !== 'all' ? ` - ${stokBrand}` : ''}`} value={formatRupiah(stokRingkasan.totalOmzetTerjual)} />
+                <SummaryCard label={`Untung Terjual (rentang ini)${stokBrand !== 'all' ? ` - ${stokBrand}` : ''}`} value={formatRupiah(stokRingkasan.totalUntungTerjual)} />
               </div>
 
               <Card className="shadow-none">
                 <CardHeader>
-                  <CardTitle className="text-base">Rincian per Item</CardTitle>
+                  <CardTitle className="text-base">Rincian per Merk</CardTitle>
                   <CardDescription>
-                    Produk AC paket: baris Outdoor ditampilin menjorok tepat di bawah Indoor-nya (sekali aja), dengan info jumlah paket lengkap yang siap dijual.
+                    Indoor dan Outdoor yang berpasangan ditandai garis di kiri dan dihitung sebagai satu set.
+                    {stokHiddenCount > 0 && ` ${stokHiddenCount} barang tanpa stok disembunyikan.`}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -557,58 +617,96 @@ export default function LaporanPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Nama</TableHead>
-                        <TableHead className="text-right">Stok Awal</TableHead>
-                        <TableHead className="text-right">Masuk</TableHead>
-                        <TableHead className="text-right">Keluar</TableHead>
-                        <TableHead className="text-right">Sisa</TableHead>
+                        <TableHead>Jenis</TableHead>
+                        <TableHead className="text-right">
+                          Stok Awal
+                          <span className="block text-xs font-normal text-muted-foreground">sebelum {fmtDateSlash(from)}</span>
+                        </TableHead>
+                        <TableHead className="text-right">
+                          Masuk
+                          <span className="block text-xs font-normal text-muted-foreground">selama periode</span>
+                        </TableHead>
+                        <TableHead className="text-right">
+                          Keluar
+                          <span className="block text-xs font-normal text-muted-foreground">selama periode</span>
+                        </TableHead>
+                        <TableHead className="text-right">
+                          Stok Sekarang
+                          <span className="block text-xs font-normal text-muted-foreground">menurut sistem</span>
+                        </TableHead>
                         <TableHead className="text-right">Modal Tersisa</TableHead>
                         <TableHead className="text-right">Omzet</TableHead>
                         <TableHead className="text-right">Untung</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {stockQuery.data.items.length === 0 && (
+                      {stokGroups.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
-                            Tidak ada item.
+                          <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
+                            {stokHiddenCount === 0
+                              ? 'Tidak ada item.'
+                              : 'Belum ada barang yang punya stok. Centang "Tampilkan juga barang tanpa stok" untuk melihat semuanya.'}
                           </TableCell>
                         </TableRow>
                       )}
-                      {stockQuery.data.items.map((row, i, rows) => {
-                        // Paket AC Split (2026-09-30) — Outdoor sebuah paket
-                        // udah ditaruh backend persis di bawah Indoor-nya;
-                        // tampil SEKALI, menjorok (gak ada lagi baris
-                        // ringkasan "↳ Unit ..." terpisah yang dobel).
-                        const isPackageOutdoor = row.pairRole === 'outdoor' && rows[i - 1]?.unitGabungan?.namaPasangan === row.name;
-                        return (
-                          <TableRow key={`${row.itemKind}-${row.refId}`} className={isPackageOutdoor ? 'bg-muted/30' : undefined}>
-                            <TableCell className={isPackageOutdoor ? 'pl-8' : undefined}>
-                              {isPackageOutdoor && <span className="mr-1 text-muted-foreground">↳</span>}
-                              {row.name}
-                              <Badge variant="outline" className="ml-2 capitalize">
-                                {row.pairRole ?? row.itemKind}
-                              </Badge>
-                              {row.unitGabungan && (
-                                <p className="mt-0.5 text-xs text-muted-foreground">
-                                  Paket lengkap siap: {row.unitGabungan.sisaStok} (pasangan: {row.unitGabungan.namaPasangan})
-                                </p>
-                              )}
-                              {row.jualSatuanTanpaModal ? (
-                                <p className="mt-0.5 text-xs text-amber-700">
-                                  {row.jualSatuanTanpaModal} unit dijual satuan - modal tidak dialokasikan
-                                </p>
-                              ) : null}
+                      {stokGroups.map((g) => (
+                        <React.Fragment key={g.label}>
+                          <TableRow className="bg-muted hover:bg-muted">
+                            <TableCell colSpan={5} className="font-semibold">
+                              {g.label}
+                              <span className="ml-2 text-xs font-normal text-muted-foreground">{g.rows.length} item</span>
                             </TableCell>
-                            <TableCell className="text-right">{row.stokAwal}</TableCell>
-                            <TableCell className="text-right">{row.stokMasuk}</TableCell>
-                            <TableCell className="text-right">{row.stokKeluar}</TableCell>
-                            <TableCell className="text-right">{row.sisaStok}</TableCell>
-                            <TableCell className="text-right">{formatRupiah(row.modalTersisa)}</TableCell>
-                            <TableCell className="text-right">{formatRupiah(row.omzetTerjual)}</TableCell>
-                            <TableCell className="text-right">{formatRupiah(row.untungTerjual)}</TableCell>
+                            <TableCell className="text-right font-semibold">{g.label === SPAREPART_GROUP ? '' : g.totalSisa}</TableCell>
+                            <TableCell className="text-right font-semibold">{formatRupiah(g.rows.reduce((t, r) => t + r.modalTersisa, 0))}</TableCell>
+                            <TableCell className="text-right font-semibold">{formatRupiah(g.rows.reduce((t, r) => t + r.omzetTerjual, 0))}</TableCell>
+                            <TableCell className="text-right font-semibold">{formatRupiah(g.rows.reduce((t, r) => t + r.untungTerjual, 0))}</TableCell>
                           </TableRow>
-                        );
-                      })}
+                          {g.rows.map((row, i, rows) => {
+                            // Paket AC Split: Outdoor sebuah paket sudah ditaruh backend persis di bawah Indoor-nya;
+                            // tampil SEKALI, menjorok, ditandai garis di kiri.
+                            const isPackageOutdoor = row.pairRole === 'outdoor' && rows[i - 1]?.unitGabungan?.namaPasangan === row.name;
+                            return (
+                              <TableRow key={`${row.itemKind}-${row.refId}`} className={isPackageOutdoor ? 'bg-muted/30' : undefined}>
+                                <TableCell
+                                  className={cn(
+                                    isPackageOutdoor && 'pl-8',
+                                    (isPackageOutdoor || row.unitGabungan) && 'border-l-4 border-l-primary/40',
+                                  )}
+                                >
+                                  {isPackageOutdoor && <span className="mr-1 text-muted-foreground">↳</span>}
+                                  {row.name}
+                                  {row.unitGabungan && (
+                                    <p className="mt-0.5 text-xs text-muted-foreground">
+                                      Set lengkap siap jual: {row.unitGabungan.sisaStok}
+                                    </p>
+                                  )}
+                                  {row.jualSatuanTanpaModal ? (
+                                    <p className="mt-0.5 text-xs text-status-warning-foreground dark:text-status-warning">
+                                      {row.jualSatuanTanpaModal} unit dijual satuan - modal tidak dialokasikan
+                                    </p>
+                                  ) : null}
+                                </TableCell>
+                                <TableCell>
+                                  {row.pairRole ? (
+                                    <Badge variant="outline" className="capitalize">
+                                      {row.pairRole}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right">{row.stokAwal}</TableCell>
+                                <TableCell className="text-right">{row.stokMasuk}</TableCell>
+                                <TableCell className="text-right">{row.stokKeluar}</TableCell>
+                                <TableCell className="text-right font-medium">{row.sisaStok}</TableCell>
+                                <TableCell className="text-right">{formatRupiah(row.modalTersisa)}</TableCell>
+                                <TableCell className="text-right">{formatRupiah(row.omzetTerjual)}</TableCell>
+                                <TableCell className="text-right">{formatRupiah(row.untungTerjual)}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </React.Fragment>
+                      ))}
                     </TableBody>
                   </Table>
                 </CardContent>

@@ -51,6 +51,9 @@ model User {
   // semua token lama tetap sah.
   passwordChangedAt DateTime? @map("password_changed_at")
 
+  // Foto profil sendiri ("/uploads/avatars/<uuid>.jpg"), NULL = pakai inisial.
+  avatarPath String? @map("avatar_path")
+
   // Relasi balik (dipakai untuk audit trail & penugasan)
   auditLogs          AuditLog[]
   deviceTokens       DeviceToken[]
@@ -68,6 +71,9 @@ model User {
   jobPhotosUploaded  JobPhoto[]           @relation("PhotoUploadedBy")
   findingsCreated    JobFinding[]         @relation("FindingCreatedBy")
   findingPhotosUploaded JobFindingPhoto[] @relation("FindingPhotoUploadedBy")
+  handoversFrom      JobHandover[]        @relation("HandoverFrom")
+  handoversTo        JobHandover[]        @relation("HandoverTo")
+  handoversMade      JobHandover[]        @relation("HandoverBy")
   manualPaymentsMade ManualPayment[]      @relation("PaymentCreatedBy")
   notifications      Notification[]
   stockMovementsMade StockMovement[]      @relation("StockCreatedBy")
@@ -749,6 +755,9 @@ model ServiceOrder {
   createdAt     DateTime  @default(now()) @map("created_at")
   note          String?
   scheduledDate DateTime? @map("scheduled_date")
+  // Keterangan teknisi: catatan SATU ORDER untuk admin (mis. "Cuci 2 unit AC dibayar cash 75 ribu"), diisi teknisi di bagian
+  // paling bawah halaman job sebelum Ajukan Selesai. BEDA dari technician_jobs.notes = Diagnosa / Catatan Pengerjaan per unit.
+  technicianNote String? @map("technician_note")
 
   units TechnicianJob[]
   serviceOrderUnits ServiceOrderUnit[]
@@ -835,12 +844,47 @@ model TechnicianJob {
   // ditetapkan lewat halaman job. false = jalur lama (POS pemasangan / belum dihargai).
   billingDerived Boolean @default(false) @map("billing_derived")
   serviceLines   JobServiceLine[]
+  // Titik lokasi kerja unit ini bila BERBEDA dari alamat pelanggan (Terima Servis: kartu "Titik Lokasi Kerja"; satu
+  // order bisa punya beberapa titik). Keduanya null = lokasi kerja sama dengan alamat/link member. workMapsUrl hanya
+  // http/https; tanpa link, tombol "Buka di Maps" mencari teks workAddress di Google Maps (nama daerah pun cukup).
+  workAddress    String? @map("work_address")
+  workMapsUrl    String? @map("work_maps_url")
+  // Job KOMPLAIN: pengerjaan ulang atas keluhan pelanggan setelah job selesai. Menunjuk job SELESAI yang dikomplain
+  // (job itu beserta temuan, foto, dan tagihannya dibiarkan utuh). Job komplain punya temuan & foto sendiri dan TIDAK
+  // memakai penetapan harga jasa/tagihan baru. null = job biasa.
+  complaintOfJobId String? @map("complaint_of_job_id")
+  complaintOf      TechnicianJob?  @relation("JobComplaint", fields: [complaintOfJobId], references: [id], onDelete: SetNull)
+  complaints       TechnicianJob[] @relation("JobComplaint")
 
   photos           JobPhoto[]
   findings         JobFinding[]
   materialRequests MaterialRequest[]
+  handovers        JobHandover[]
 
+  @@index([complaintOfJobId])
   @@map("technician_jobs")
+}
+
+// Riwayat alih tugas: job dialihkan admin/kasir ke teknisi lain (kapan saja selama belum review/selesai, mis. teknisi
+// berhalangan atau pekerjaan dilanjut hari lain). Satu baris per pergantian; pergantian pertama dari kosong
+// (menunggu_penugasan) ke teknisi BUKAN alih tugas dan tidak dicatat di sini.
+model JobHandover {
+  id               String        @id @default(uuid())
+  jobId            String        @map("job_id")
+  job              TechnicianJob @relation(fields: [jobId], references: [id])
+  fromTechnicianId String        @map("from_technician_id")
+  fromTechnician   User          @relation("HandoverFrom", fields: [fromTechnicianId], references: [id])
+  toTechnicianId   String        @map("to_technician_id")
+  toTechnician     User          @relation("HandoverTo", fields: [toTechnicianId], references: [id])
+  handedById       String        @map("handed_by_id")
+  handedBy         User          @relation("HandoverBy", fields: [handedById], references: [id])
+  // Status job saat dialihkan ('assigned' = belum mulai, 'sedang_dikerjakan' = sudah dikerjakan sebagian).
+  statusAtHandover String        @map("status_at_handover")
+  reason           String?
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  @@index([jobId, createdAt])
+  @@map("job_handovers")
 }
 
 // Foto level-job (model LAMA). Dibiarkan ada di schema untuk data historis

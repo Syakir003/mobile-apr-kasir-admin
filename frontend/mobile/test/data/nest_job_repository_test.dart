@@ -104,6 +104,25 @@ void main() {
       expect(parse({'status': 'assigned'}).priced, true);
     });
 
+    test('Keterangan teknisi (order.technicianNote) dipetakan; tanpa data order -> null', () {
+      expect(
+        parse({'status': 'assigned', 'order': {'technicianNote': 'Cuci 2 unit, cash 75 ribu'}}).technicianNote,
+        'Cuci 2 unit, cash 75 ribu',
+      );
+      expect(parse({'status': 'assigned', 'order': {'technicianNote': null}}).technicianNote, isNull);
+      expect(parse({'status': 'assigned'}).technicianNote, isNull);
+    });
+
+    test('Keterangan (order) terpisah dari Diagnosa (notes job)', () {
+      final j = parse({
+        'status': 'sedang_dikerjakan',
+        'notes': 'freon kurang',
+        'order': {'technicianNote': 'minta penawaran kapasitor'},
+      });
+      expect(j.notes, 'freon kurang');
+      expect(j.technicianNote, 'minta penawaran kapasitor');
+    });
+
     test('findingsSentAt diparse', () {
       final j = parse({'status': 'assigned', 'findingsSentAt': '2026-10-23T10:00:00.000Z'});
       expect(j.findingsSentAt, isNotNull);
@@ -129,6 +148,20 @@ void main() {
       expect(job.unitParts, 'Indoor AC FT123 · Outdoor AC FK123');
       expect(job.hasBeforePhoto, false);
       expect(job.memberMapsUrl, 'https://maps.app.goo.gl/x');
+    });
+
+    test('titik lokasi kerja job terbawa (camelCase Nest -> field model)', () {
+      final job = TechnicianJob.fromMap(
+        'j1',
+        technicianJobRowFromNest({
+          'status': 'assigned',
+          'workAddress': 'Ruko Blok B',
+          'workMapsUrl': 'https://www.google.com/maps/search/?api=1&query=Ruko',
+        }),
+      );
+      expect(job.workAddress, 'Ruko Blok B');
+      expect(job.workMapsUrl, startsWith('https://'));
+      expect(job.hasWorkLocation, isTrue);
     });
 
     test('tanpa paket -> kosong; hasBeforePhoto null bila daftar tak membawanya', () {

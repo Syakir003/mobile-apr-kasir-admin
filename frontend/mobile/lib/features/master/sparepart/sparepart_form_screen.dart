@@ -117,6 +117,7 @@ class _SparepartFormScreenState extends ConsumerState<SparepartFormScreen> {
             .read(itemCostRepositoryProvider)
             .save(CostKind.sparepart, id, parseRupiahInput(_buyPrice.text));
       }
+      ref.invalidate(sparepartListProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Sparepart tersimpan.')),

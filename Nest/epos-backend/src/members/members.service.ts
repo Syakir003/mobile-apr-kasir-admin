@@ -1,24 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Member } from '@prisma/client';
+import { Prisma, Member, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MemberListQueryDto } from './dto/member-list-query.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import type { PriceTierName } from '../common/price-tier.util';
+import { normalizePhone } from '../common/phone.util';
 
 @Injectable()
 export class MembersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Port 1:1 dari normalize_phone() (pos_functions.sql) / phone.ts lama. */
+  /** Normalisasi nomor HP (kunci pencarian member); aturannya di common/phone.util.ts. */
   normalizePhone(raw: string): string {
-    const cleaned = raw.replace(/[\s\-.()]/g, '');
-    if (cleaned.startsWith('+62')) return cleaned;
-    if (cleaned.startsWith('628')) return '+' + cleaned;
-    if (cleaned.startsWith('08')) return '+62' + cleaned.substring(1);
-    if (cleaned.startsWith('8')) return '+62' + cleaned;
-    return cleaned;
+    return normalizePhone(raw);
   }
 
   async findOrCreate(
@@ -227,7 +223,19 @@ export class MembersService {
     const member = await this.prisma.member.findUnique({
       where: { id },
       include: {
-        acUnits: { orderBy: { createdAt: "desc" }, include: UNIT_PRODUCTS_SELECT },
+        acUnits: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            ...UNIT_PRODUCTS_SELECT,
+            // Job yang belum final pada unit ini (maks. 1): form intake menandai unit yang masih dikerjakan,
+            // karena unit dengan job aktif tidak boleh dibuatkan job servis baru.
+            technicianJobs: {
+              where: { status: { notIn: [TechnicianJobStatus.selesai, TechnicianJobStatus.dibatalkan] } },
+              select: { id: true, status: true },
+              take: 1,
+            },
+          },
+        },
         invoices: {
           orderBy: { createdAt: 'desc' },
           // buyPriceSnapshot = harga modal, jangan sampai kebaca kasir.

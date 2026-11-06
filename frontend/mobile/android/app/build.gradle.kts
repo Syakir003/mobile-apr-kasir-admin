@@ -1,8 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
+}
+
+// Kunci rilis: android/key.properties (di-gitignore) menunjuk keystore di luar repo. Update APK di HP hanya jalan bila
+// ditandatangani kunci yang SAMA, jadi keystore + key.properties wajib dicadangkan. Tanpa file itu build memakai kunci
+// debug (cukup untuk uji lokal, TIDAK untuk APK yang dibagikan ke teknisi).
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("key.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
@@ -28,11 +38,23 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (keystoreProps.getProperty("storeFile") != null) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: run {
+                logger.warn("PERINGATAN: android/key.properties tidak ada, APK release ditandatangani kunci DEBUG.")
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

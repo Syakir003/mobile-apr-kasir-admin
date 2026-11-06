@@ -1,8 +1,12 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Build DEBUG/PROFILE menambah INTERNET otomatis lewat manifest varian-nya,
          tapi build RILIS tidak. Tanpa baris ini APK rilis tak bisa menjangkau
          cloud Supabase / FCM sama sekali — login gagal seolah backend mati. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Plugin ota_update menyimpan APK di folder internal app; izin penyimpanan
+         eksternal yang ikut ter-merge dari plugin tidak dipakai, jadi dibuang. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>
     <application
         android:label="APR-POS"
         android:name="${applicationName}"
@@ -35,6 +39,17 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="epos_push_high" />
+        <!-- Update APK di dalam app (ota_update): file APK hasil unduhan dibagikan
+             ke installer Android lewat FileProvider ini. -->
+        <provider
+            android:name="sk.fourq.otaupdate.OtaUpdateFileProvider"
+            android:authorities="${applicationId}.ota_update_provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -1,10 +1,11 @@
 'use client';
 
+import * as React from 'react';
 import Link from 'next/link';
 import { UnitPartsList, type UnitPartProduct } from '@/components/ac-unit-parts';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { apiClient, ApiError } from '@/lib/api-client';
@@ -21,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { EditMemberDialog } from './edit-member-dialog';
 import {
   Table,
   TableBody,
@@ -87,12 +89,16 @@ function unitStatusVariant(status: string): 'success' | 'secondary' | 'warning' 
 export function MemberDetailClient({
   memberId,
   canEditTier,
+  canEdit,
 }: {
   memberId: string;
   canEditTier: boolean;
+  // Ubah data member (nama, HP, alamat, link Maps, dst.): admin & kasir, sama dengan PATCH /members/:id.
+  canEdit: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [editOpen, setEditOpen] = React.useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['members', memberId],
@@ -134,6 +140,7 @@ export function MemberDetailClient({
 
   return (
     <div className="grid gap-6">
+      {canEdit && <EditMemberDialog open={editOpen} onOpenChange={setEditOpen} member={data} />}
       <div>
         <Link
           href="/members"
@@ -154,8 +161,13 @@ export function MemberDetailClient({
       <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
         {/* Tiap section: panel dengan pita judul abu-abu dan bayangan tipis, supaya terpisah dari latar halaman. */}
         <Card className="h-fit gap-0 overflow-hidden py-0 shadow-sm">
-          <CardHeader className="border-b bg-muted/60 py-4">
+          <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/60 py-3">
             <CardTitle className="text-base">Data Member</CardTitle>
+            {canEdit && (
+              <Button variant="ghost" size="icon" title="Edit" onClick={() => setEditOpen(true)}>
+                <Pencil className="size-4" />
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="grid gap-2 py-5 text-sm">
             <DetailRow label="No. HP" value={data.phone || '-'} />

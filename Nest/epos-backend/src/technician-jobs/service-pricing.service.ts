@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InvoiceStatus, TechnicianJobStatus } from '@prisma/client';
+import { InvoiceStatus, Prisma, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CountersService } from '../counters/counters.service';
 import { formatInvoiceNumber } from '../pos/pos-calc.util';
@@ -22,11 +22,16 @@ function requestAmount(r: MaterialRequestLike): number {
 }
 
 /**
- * Harga jasa servis. Jasa servis tidak punya harga baku: teknisi mengirim temuan,
+ * Harga jasa servis (SATU untuk seluruh job). Jasa servis tidak punya harga baku: teknisi mengirim temuan,
  * lalu kasir/admin menetapkan harga (sesuai tingkat kesulitan), dan boleh menambah
  * transport (Transport 1-5 = Rp 100.000 x N) sebagai baris sendiri ATAU dibagi rata
  * ke baris jasa + sparepart. Servis mandiri baru punya invoice saat harga pertama
  * kali ditetapkan; tagihannya lalu dihitung ulang dari sumbernya (JobBillingService).
+ *
+ * Servis banyak AC (satu order, satu job per unit): harga jasa & transport ditetapkan SEKALI untuk seluruh job, seperti
+ * servis satu unit. Datanya disimpan di "job pemegang harga" (job pertama yang belum dibatalkan); job lain di order itu
+ * hanya ditandai sudah dihargai (billingDerived) dan tidak punya baris jasa sendiri. Memanggil get/set dengan id job
+ * mana pun di order itu selalu bekerja pada job pemegang harga yang sama.
  */
 @Injectable()
 export class ServicePricingService {
@@ -36,8 +41,25 @@ export class ServicePricingService {
     private readonly billing: JobBillingService,
   ) {}
 
+  /**
+   * Job pemegang harga untuk order job ini: servis banyak AC = job pertama (paling awal dibuat) yang belum dibatalkan;
+   * pemasangan (invoice dari POS) dan order satu job = job itu sendiri.
+   */
+  private async resolveOwnerId(db: Prisma.TransactionClient, jobId: string): Promise<string> {
+    const job = await db.technicianJob.findUnique({ where: { id: jobId }, select: { orderId: true, type: true } });
+    if (!job) throw new NotFoundException('Job tidak ditemukan');
+    if (job.type === 'pemasangan') return jobId;
+    const owner = await db.technicianJob.findFirst({
+      where: { orderId: job.orderId, status: { not: TechnicianJobStatus.dibatalkan } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true },
+    });
+    return owner?.id ?? jobId;
+  }
+
   /** Ringkasan untuk panel "Harga Jasa" di halaman job (admin & kasir). */
-  async get(jobId: string) {
+  async get(requestedJobId: string) {
+    const jobId = await this.resolveOwnerId(this.prisma, requestedJobId);
     const job = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
       include: {
@@ -48,19 +70,25 @@ export class ServicePricingService {
             invoice: { select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true } },
           },
         },
-        materialRequests: {
-          where: { status: 'approved' },
-          include: { items: true, adjustments: { select: { id: true }, take: 1 } },
-          orderBy: { createdAt: 'asc' },
-        },
       },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
 
+    // Servis banyak AC: tagihan & sparepart yang disetujui dari SEMUA unit order ini tampil di satu panel harga.
+    const orderJobIds =
+      job.type === 'pemasangan'
+        ? [jobId]
+        : (await this.prisma.technicianJob.findMany({ where: { orderId: job.orderId }, select: { id: true } })).map((j) => j.id);
+    const materialRequests = await this.prisma.materialRequest.findMany({
+      where: { jobId: { in: orderJobIds }, status: 'approved' },
+      include: { items: true, adjustments: { select: { id: true }, take: 1 } },
+      orderBy: { createdAt: 'asc' },
+    });
+
     // Baris yang benar-benar tampil di tagihan/struk untuk job ini (sudah termasuk bagian transport).
     const billed = job.order.invoiceId
       ? await this.prisma.invoiceItem.findMany({
-          where: { invoiceId: job.order.invoiceId, jobId },
+          where: { invoiceId: job.order.invoiceId, jobId: { in: orderJobIds } },
           select: { id: true, kind: true, name: true, unit: true, qty: true, unitPrice: true, lineTotal: true },
           orderBy: { id: 'asc' },
         })
@@ -94,8 +122,8 @@ export class ServicePricingService {
         lineTotal: Number(b.lineTotal),
       })),
       sparepart: {
-        total: job.materialRequests.reduce((s, r) => s + requestAmount(r), 0),
-        requests: job.materialRequests.map((r) => ({
+        total: materialRequests.reduce((s, r) => s + requestAmount(r), 0),
+        requests: materialRequests.map((r) => ({
           id: r.id,
           amount: requestAmount(r),
           used: !!r.usedAt,
@@ -113,16 +141,22 @@ export class ServicePricingService {
     };
   }
 
-  async set(jobId: string, dto: SetServicePricingDto, actorId: string) {
+  async set(requestedJobId: string, dto: SetServicePricingDto, actorId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const base = await tx.technicianJob.findUnique({ where: { id: jobId }, select: { orderId: true } });
+      const base = await tx.technicianJob.findUnique({ where: { id: requestedJobId }, select: { orderId: true } });
       if (!base) throw new NotFoundException('Job tidak ditemukan');
       // Kunci order dulu: dua job dari satu order bisa menetapkan harga bersamaan,
       // jangan sampai membuat dua invoice.
       await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${base.orderId} FOR UPDATE`;
+      // Harga satu untuk seluruh job: selalu ditulis ke job pemegang harga order ini.
+      const jobId = await this.resolveOwnerId(tx, requestedJobId);
       await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
       const job = await tx.technicianJob.findUnique({ where: { id: jobId } });
       if (!job) throw new NotFoundException('Job tidak ditemukan');
+      // Job komplain (pengerjaan ulang atas keluhan pelanggan) tidak ditagih lagi.
+      if (job.complaintOfJobId) {
+        throw new BadRequestException('Job komplain tidak ditagih, jadi tidak ada harga jasa yang perlu ditetapkan');
+      }
       if (job.status === TechnicianJobStatus.selesai || job.status === TechnicianJobStatus.dibatalkan) {
         throw new BadRequestException('Harga jasa tidak bisa diubah setelah job selesai atau dibatalkan');
       }
@@ -183,6 +217,24 @@ export class ServicePricingService {
         },
       });
       const result = await this.billing.rebuild(tx, jobId, actorId);
+
+      // Servis banyak AC: unit lain di order ini TIDAK punya harga sendiri — tandai sudah dihargai (syarat admin menyetujui
+      // selesai) dan bersihkan sisa baris jasa/transport lama per unit (data sebelum harga jadi satu), lalu hitung ulang
+      // tagihannya (tinggal sparepart bila ada).
+      if (job.type !== 'pemasangan') {
+        const siblings = await tx.technicianJob.findMany({
+          where: { orderId: job.orderId, id: { not: jobId }, status: { not: TechnicianJobStatus.dibatalkan } },
+          select: { id: true },
+        });
+        for (const sib of siblings) {
+          await tx.jobServiceLine.deleteMany({ where: { jobId: sib.id } });
+          await tx.technicianJob.update({
+            where: { id: sib.id },
+            data: { billingDerived: true, transportLevel: 0, transportMode: 'individu' },
+          });
+          await this.billing.rebuild(tx, sib.id, actorId);
+        }
+      }
 
       await tx.auditLog.create({
         data: {

@@ -10,6 +10,7 @@ import { KeyRound, MoreHorizontal, Plus } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
+import { UserAvatar } from '@/components/user-avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -61,6 +62,7 @@ interface AppUser {
   email: string;
   displayName: string;
   role: 'admin' | 'kasir' | 'teknisi' | 'gudang';
+  avatarPath: string | null;
   active: boolean;
   createdAt: string;
 }
@@ -295,7 +297,12 @@ export default function PenggunaPage() {
             <TableBody>
               {filtered.map((u) => (
                 <TableRow key={u.id}>
-                  <TableCell className="font-medium">{u.displayName}</TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-3">
+                      <UserAvatar user={u} className="size-9 bg-primary/10 text-sm font-semibold text-primary" />
+                      {u.displayName}
+                    </div>
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{u.email}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{ROLE_LABEL[u.role]}</Badge>

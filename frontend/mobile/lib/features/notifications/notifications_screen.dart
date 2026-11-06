@@ -65,6 +65,8 @@ class _NotificationTile extends StatelessWidget {
       'request_decided' => (Icons.fact_check_outlined, AppColors.success),
       'service_priced' => (Icons.payments_outlined, AppColors.success),
       'findings_sent' => (Icons.assignment_outlined, AppColors.warning),
+      // Teknisi lama: job sudah pindah dari antriannya (tidak bisa dibuka lagi), jadi tanpa navigasi.
+      'job_handover' => (Icons.swap_horiz, AppColors.slate500),
       _ => (Icons.notifications_outlined, AppColors.slate500),
     };
     return ListTile(

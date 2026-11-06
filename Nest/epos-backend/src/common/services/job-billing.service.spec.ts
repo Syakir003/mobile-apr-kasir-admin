@@ -1,4 +1,4 @@
-import { buildJobInvoiceLines } from './job-billing.service';
+import { JobBillingService, buildJobInvoiceLines, unitInvoiceLabel } from './job-billing.service';
 
 const jasa = (name: string, qty: number, unitPrice: number) => ({ refId: null, name, unit: 'jasa', qty, unitPrice });
 const part = (name: string, qty: number, unitPrice: number) => ({ refId: 'sp', name, unit: 'kg', qty, unitPrice });
@@ -64,5 +64,64 @@ describe('buildJobInvoiceLines', () => {
     const lines = buildJobInvoiceLines({ services: [], spareparts: [], transport: 100000, mode: 'dibagi' });
     expect(lines).toHaveLength(1);
     expect(lines[0].name).toBe('Biaya transport');
+  });
+});
+
+describe('nama unit di baris nota servis banyak AC', () => {
+  it('unitInvoiceLabel: merk+model dan ruangan; QR dulu pakai ruangan, lalu kode QR', () => {
+    expect(unitInvoiceLabel({ brand: 'Daikin', model: 'FTV25', roomLocation: 'Kamar Utama', barcodeValue: 'ACUNIT-1' })).toBe(
+      'Daikin FTV25 (Kamar Utama)',
+    );
+    expect(unitInvoiceLabel({ brand: 'LG', model: null, roomLocation: null, barcodeValue: 'ACUNIT-1' })).toBe('LG');
+    expect(unitInvoiceLabel({ brand: null, model: null, roomLocation: ' Kamar Anak ', barcodeValue: 'ACUNIT-2' })).toBe('Kamar Anak');
+    expect(unitInvoiceLabel({ brand: null, model: null, roomLocation: '  ', barcodeValue: 'ACUNIT-3' })).toBe('ACUNIT-3');
+  });
+});
+
+// rebuild() dengan tx tiruan: baris invoice ditulis apa adanya (tanpa nama unit) walau order punya banyak job.
+function rebuildSetup(jobsInOrder: number, unit: Record<string, unknown> | null) {
+  const created: any[] = [];
+  const tx: any = {
+    technicianJob: {
+      findUnique: jest.fn(async () => ({
+        id: 'j1',
+        orderId: 'o1',
+        status: 'sedang_dikerjakan',
+        billingDerived: true,
+        transportLevel: 0,
+        transportMode: 'individu',
+        serviceLines: [{ serviceId: null, name: 'Cuci AC', qty: 1, unitPrice: 100000 }],
+        order: { invoiceId: 'inv1' },
+        unit,
+      })),
+      count: jest.fn(async () => jobsInOrder),
+    },
+    materialRequest: { findMany: jest.fn(async () => []), updateMany: jest.fn() },
+    $queryRaw: jest.fn(async () => [{ grand_total: '0', subtotal: '0', total_paid: '0', status: 'belum_dibayar' }]),
+    invoiceItem: {
+      findMany: jest.fn(async () => []),
+      deleteMany: jest.fn(),
+      create: jest.fn(async ({ data }: any) => created.push(data)),
+    },
+    invoice: { update: jest.fn() },
+  };
+  return { tx, created };
+}
+
+describe('JobBillingService.rebuild — harga jasa satu untuk seluruh job', () => {
+  const unit = { brand: 'Daikin', model: 'FTV25', roomLocation: 'Kamar Utama', barcodeValue: 'ACUNIT-1' };
+
+  it('order banyak unit: baris tagihan tetap apa adanya (tanpa nama unit), total benar', async () => {
+    const { tx, created } = rebuildSetup(3, unit);
+    const res = await new JobBillingService().rebuild(tx, 'j1');
+    expect(created.map((c) => c.name)).toEqual(['Cuci AC']);
+    expect(created[0].lineTotal).toBe(100000);
+    expect(res?.newTotal).toBe(100000);
+  });
+
+  it('order satu unit: sama saja', async () => {
+    const { tx, created } = rebuildSetup(1, unit);
+    await new JobBillingService().rebuild(tx, 'j1');
+    expect(created.map((c) => c.name)).toEqual(['Cuci AC']);
   });
 });

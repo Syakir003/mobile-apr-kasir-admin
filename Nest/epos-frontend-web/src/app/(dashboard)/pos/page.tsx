@@ -12,6 +12,7 @@ import { Minus, Package, Plus, Search, ShoppingCart, Ticket, Trash2, TriangleAle
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
 import { optionalNumberField, trimmedOrUndefined } from '@/lib/form-number';
+import { phoneError } from '@/lib/phone';
 import { Button } from '@/components/ui/button';
 import { MemberPicker } from '@/components/member-picker';
 import { Input } from '@/components/ui/input';
@@ -1033,6 +1034,12 @@ export default function PosPage() {
   });
 
   function onSubmit(values: CheckoutFormValues) {
+    // Batas nomor HP standar Indonesia; dilewati bila member lama dipilih (backend memakai data member di database).
+    const phoneErr = selectedMember ? null : phoneError(values.phone);
+    if (phoneErr) {
+      form.setError('phone', { message: phoneErr });
+      return;
+    }
     if (lines.length === 0) {
       toast.error('Keranjang masih kosong.');
       return;
@@ -1638,7 +1645,7 @@ export default function PosPage() {
                     <FormItem>
                       <FormLabel>Nomor HP</FormLabel>
                       <FormControl>
-                        <Input placeholder="08xxxxxxxxxx" {...field} />
+                        <Input placeholder="Mis. 0855xxxxxxxx atau 62855xxxxxxxx" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

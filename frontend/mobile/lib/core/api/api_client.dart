@@ -134,6 +134,20 @@ class ApiClient {
     throw mapErrorResponse(response.statusCode, decoded);
   }
 
+  /// GET TANPA token, untuk endpoint publik yang dicek sebelum login (mis. `/app-version`). Timeout pendek:
+  /// dipanggil saat app dibuka, jangan sampai menahan apa pun.
+  Future<dynamic> getPublic(String path) async {
+    http.Response response;
+    try {
+      response = await http.get(Uri.parse('$_baseUrl$path')).timeout(const Duration(seconds: 8));
+    } catch (e) {
+      throw NestApiConnectionException();
+    }
+    final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+    if (response.statusCode >= 200 && response.statusCode < 300) return decoded;
+    throw mapErrorResponse(response.statusCode, decoded);
+  }
+
   Future<dynamic> _handle(http.Response response) async {
     final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
     if (response.statusCode >= 200 && response.statusCode < 300) {

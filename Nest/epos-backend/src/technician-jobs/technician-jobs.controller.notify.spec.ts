@@ -43,7 +43,7 @@ describe('TechnicianJobsController — kabari teknisi', () => {
 
   it('cancel: teknisi dapat notifikasi job dibatalkan', async () => {
     const { ctrl, notifications } = setup({ id: 'j1', status: 'dibatalkan', technicianId: 't1' });
-    await ctrl.cancel('j1', admin);
+    await ctrl.cancel('j1', admin, {});
     expect(notifications.notify).toHaveBeenCalledWith(
       't1',
       expect.objectContaining({ type: 'job_cancelled', target: 'j1' }),
@@ -53,7 +53,7 @@ describe('TechnicianJobsController — kabari teknisi', () => {
   it('cancel tetap berhasil walau notifikasi gagal', async () => {
     const { ctrl, notifications } = setup({ id: 'j1', status: 'dibatalkan', technicianId: 't1' });
     notifications.notify.mockRejectedValue(new Error('push down'));
-    await expect(ctrl.cancel('j1', admin)).resolves.toMatchObject({ status: 'dibatalkan' });
+    await expect(ctrl.cancel('j1', admin, {})).resolves.toMatchObject({ status: 'dibatalkan' });
     await flush();
   });
 });

@@ -99,7 +99,11 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
     'notes': j['notes'],
     'review_note': j['reviewNote'],
     'findings_sent_at': j['findingsSentAt'],
+    'work_address': j['workAddress'],
+    'work_maps_url': j['workMapsUrl'],
     'has_before_photo': j['hasBeforePhoto'],
+    'complaint_of_job_id': j['complaintOfJobId'],
+    if (j['complaintOf'] is Map) 'complaint_of': j['complaintOf'],
     // Hanya GET /technician-jobs/:id yang membawa `order`; di daftar dibiarkan true.
     if (j['order'] is Map) 'priced': (j['order'] as Map)['invoiceId'] != null,
     'started_at': j['startedAt'],
@@ -119,9 +123,16 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
         'pk': numFromNest(unit['pk']),
         'room_location': unit['roomLocation'],
         'barcode_value': unit['barcodeValue'],
+        'status': unit['status'],
         'parts': _unitParts(unit),
       },
     if (technician != null) 'technician_name': technician['displayName'],
+    if (j['siblings'] is List)
+      'sibling_ids': [for (final sib in j['siblings'] as List) (sib as Map)['id']],
+    if (j['order'] is Map) 'order_note': (j['order'] as Map)['note'],
+    if (j['order'] is Map) 'order_technician_note': (j['order'] as Map)['technicianNote'],
+    if (j['handovers'] is List) 'handovers': j['handovers'],
+    if (j['findings'] is List) 'findings': j['findings'],
   };
 }
 

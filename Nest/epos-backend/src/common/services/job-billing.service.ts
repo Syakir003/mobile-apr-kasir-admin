@@ -59,6 +59,24 @@ export function buildJobInvoiceLines(input: {
   ];
 }
 
+export interface UnitLabelSource {
+  brand?: string | null;
+  model?: string | null;
+  roomLocation?: string | null;
+  barcodeValue: string;
+}
+
+/**
+ * Nama unit AC untuk baris nota servis banyak AC: "Merk Model (Ruangan)". Unit "QR dulu" yang tipenya belum diisi
+ * memakai ruangannya, dan kalau itu juga kosong, kode QR-nya — selalu ada yang membedakan antarunit.
+ */
+export function unitInvoiceLabel(unit: UnitLabelSource): string {
+  const type = [unit.brand, unit.model].filter(Boolean).join(' ');
+  const room = unit.roomLocation?.trim();
+  if (type && room) return `${type} (${room})`;
+  return type || room || unit.barcodeValue;
+}
+
 /**
  * Tagihan servis yang DIHITUNG ULANG dari sumbernya setiap ada perubahan:
  * baris jasa (job_service_lines), pengajuan sparepart yang disetujui (jumlah
@@ -78,6 +96,7 @@ export class JobBillingService {
       include: {
         serviceLines: { orderBy: { position: 'asc' } },
         order: { select: { invoiceId: true } },
+        unit: { select: { brand: true, model: true, roomLocation: true, barcodeValue: true } },
       },
     });
     if (!job || !job.billingDerived || !job.order.invoiceId) return null;
@@ -108,12 +127,15 @@ export class JobBillingService {
           qty: Number(l.qty),
           unitPrice: Number(l.unitPrice),
         }));
-    const lines = buildJobInvoiceLines({
+    const built = buildJobInvoiceLines({
       services,
       spareparts,
       transport: cancelled ? 0 : job.transportLevel * TRANSPORT_STEP,
       mode: job.transportMode === 'dibagi' ? 'dibagi' : 'individu',
     });
+    // Servis banyak AC: harga jasa SATU untuk seluruh job (disimpan di job pemegang harga, lihat ServicePricingService),
+    // jadi baris tagihan apa adanya seperti servis satu unit — tidak diberi nama unit.
+    const lines = built;
 
     const rows = await tx.$queryRaw<
       { grand_total: string; subtotal: string; total_paid: string; status: InvoiceStatus }[]

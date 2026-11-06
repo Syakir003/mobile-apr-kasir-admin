@@ -1,5 +1,3 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
-
 import '../../core/api/api_client.dart';
 
 /// Jenis barang yang punya harga modal. Nilai `value` harus sama persis dengan
@@ -30,50 +28,7 @@ abstract interface class ItemCostRepository {
   Future<Map<String, int>> fetchAll(CostKind kind);
 }
 
-class SupabaseItemCostRepository implements ItemCostRepository {
-  SupabaseItemCostRepository(this._client);
-
-  final SupabaseClient _client;
-  static const _table = 'item_costs';
-
-  @override
-  Future<int> fetch(CostKind kind, String refId) async {
-    if (refId.isEmpty) return 0;
-    final row = await _client
-        .from(_table)
-        .select('buy_price')
-        .eq('kind', kind.value)
-        .eq('ref_id', refId)
-        .maybeSingle();
-    return (row?['buy_price'] as num?)?.toInt() ?? 0;
-  }
-
-  @override
-  Future<void> save(CostKind kind, String refId, int buyPrice) async {
-    if (refId.isEmpty) return;
-    await _client.from(_table).upsert({
-      'kind': kind.value,
-      'ref_id': refId,
-      'buy_price': buyPrice,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
-    }, onConflict: 'kind,ref_id');
-  }
-
-  @override
-  Future<Map<String, int>> fetchAll(CostKind kind) async {
-    final rows = await _client
-        .from(_table)
-        .select('ref_id,buy_price')
-        .eq('kind', kind.value);
-    return {
-      for (final r in (rows as List))
-        '${(r as Map)['ref_id']}': ((r['buy_price'] as num?) ?? 0).toInt(),
-    };
-  }
-}
-
-/// Implementasi lewat backend NestJS (`GET/PUT /item-costs/...`) — pengganti
-/// [SupabaseItemCostRepository] pada migrasi Flutter -> Nest.
+/// Implementasi lewat backend NestJS (`GET/PUT /item-costs/...`).
 ///
 /// Endpoint di-guard admin-only sama seperti RLS tabel `item_costs` (migrasi
 /// 0021): dipanggil dari peran lain akan dibalas 403. [fetch]/[fetchAll]

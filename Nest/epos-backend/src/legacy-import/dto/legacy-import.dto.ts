@@ -14,6 +14,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { IsIndonesianPhone } from '../../common/is-indonesian-phone.decorator';
 import { ManualInvoiceItemDto } from '../../invoices/dto/create-manual-invoice.dto';
 
 /**
@@ -25,7 +26,7 @@ import { ManualInvoiceItemDto } from '../../invoices/dto/create-manual-invoice.d
 export class LegacyMemberDto {
   @IsOptional() @IsString() memberId?: string;
   @IsOptional() @IsString() @IsNotEmpty() name?: string;
-  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() @IsIndonesianPhone() phone?: string;
   @IsOptional() @IsString() address?: string;
   @IsOptional() @IsIn(['rumah', 'perusahaan', 'toko']) customerType?: string;
 }

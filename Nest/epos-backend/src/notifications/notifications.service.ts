@@ -205,12 +205,16 @@ export class NotificationsService {
   /** Padanan trigger Supabase notify_job_assigned: job LAHIR dengan teknisi
    * (POS pemasangan, intake, order servis) — sebelumnya cuma PATCH assign
    * yang ngabarin teknisi. Dipanggil controller SETELAH commit. */
-  async notifyJobsAssigned(jobs: { jobId: string; technicianId: string | null }[]) {
+  async notifyJobsAssigned(jobs: { jobId: string; technicianId: string | null; unitCount?: number }[]) {
     for (const j of jobs) {
       if (!j.technicianId) continue;
       await this.notify(j.technicianId, {
         title: 'Job Baru Ditugaskan',
-        body: 'Kamu dapat penugasan job servis baru.',
+        // Servis banyak AC: satu notifikasi untuk seluruh order (jobId = salah satu job-nya, halamannya memuat semua unit).
+        body:
+          j.unitCount && j.unitCount > 1
+            ? `Kamu dapat penugasan servis ${j.unitCount} unit AC.`
+            : 'Kamu dapat penugasan job servis baru.',
         type: 'job_assigned',
         target: j.jobId,
       }).catch(() => {});

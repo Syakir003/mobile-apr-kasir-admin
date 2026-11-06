@@ -1,58 +1,7 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
-
 import '../../core/api/api_client.dart';
+import '../../core/utils/snake_keys.dart';
 import '../models/installation_package.dart';
 import 'crud_repository.dart';
-
-/// CRUD paket instalasi: parent `installation_packages` + anak
-/// `installation_package_items` (dulu array `items[]` dalam satu dokumen
-/// Firestore). Tulis lewat RPC `save_installation_package` supaya parent dan
-/// item tersimpan dalam SATU transaksi.
-class SupabasePackageRepository implements CrudRepository<InstallationPackage> {
-  SupabasePackageRepository(this._client);
-
-  final SupabaseClient _client;
-
-  @override
-  Stream<List<InstallationPackage>> watchAll() {
-    // Stream Realtime tidak mendukung join → tiap perubahan pada tabel parent
-    // memicu select ulang lengkap dengan item (alias `items`). Semua edit
-    // lewat RPC selalu menyentuh parent, jadi perubahan item ikut terpantau.
-    return _client
-        .from('installation_packages')
-        .stream(primaryKey: ['id'])
-        .asyncMap((_) async {
-          final rows = await _client
-              .from('installation_packages')
-              .select('*, items:installation_package_items(*)')
-              .order('name', ascending: true);
-          return rows
-              .map((row) => InstallationPackage.fromMap(
-                    row['id'] as String,
-                    row,
-                  ))
-              .toList(growable: false);
-        });
-  }
-
-  @override
-  Future<String> create(InstallationPackage item) => _save(null, item);
-
-  @override
-  Future<void> update(String id, InstallationPackage item) => _save(id, item);
-
-  Future<String> _save(String? id, InstallationPackage item) async {
-    final result = await _client.rpc('save_installation_package', params: {
-      'p_id': id,
-      'p_name': item.name,
-      'p_description': item.description,
-      'p_active': item.active,
-      'p_items':
-          item.items.map((e) => e.toMap()).toList(growable: false),
-    });
-    return result as String;
-  }
-}
 
 /// Body camelCase untuk `POST/PATCH /installation-packages` — Nest.
 /// `PackageItem` sudah camelCase persis sama dengan
@@ -73,24 +22,26 @@ Map<String, dynamic> installationPackageToNestBody(InstallationPackage p) => {
           .toList(growable: false),
     };
 
-/// Implementasi [CrudRepository] paket instalasi lewat backend NestJS —
-/// pengganti [SupabasePackageRepository] pada migrasi Flutter -> Nest.
+/// [CrudRepository] paket instalasi lewat backend NestJS.
 /// `POST /installation-packages` (create) & `PATCH /installation-packages/:id`
-/// (update) sama-sama full-replace item dalam SATU transaksi Prisma, port 1:1
-/// dari RPC `save_installation_package` (lihat
-/// `installation-packages.service.ts`) — jadi semantiknya tetap sama.
-///
-/// [watchAll] TETAP lewat Supabase Realtime (delegasi ke
-/// [SupabasePackageRepository] internal) — realtime belum dipindah ke Nest.
+/// (update) sama-sama full-replace item dalam SATU transaksi Prisma.
+/// [watchAll] = sekali GET `?status=all`; form simpan me-`ref.invalidate` daftarnya.
 class NestPackageRepository implements CrudRepository<InstallationPackage> {
-  NestPackageRepository(SupabaseClient client, this._api)
-      : _watcher = SupabasePackageRepository(client);
+  const NestPackageRepository(this._api);
 
   final ApiClient _api;
-  final SupabasePackageRepository _watcher;
 
   @override
-  Stream<List<InstallationPackage>> watchAll() => _watcher.watchAll();
+  Stream<List<InstallationPackage>> watchAll() async* {
+    final rows = await _api.get('/installation-packages?status=all') as List;
+    yield [
+      for (final r in rows)
+        InstallationPackage.fromMap((r as Map)['id'] as String, {
+          ...snakeKeys(r),
+          'items': [for (final i in (r['items'] as List? ?? const [])) snakeKeys(i as Map)],
+        }),
+    ];
+  }
 
   @override
   Future<String> create(InstallationPackage item) async {

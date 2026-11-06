@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
 import '../../core/router/app_router.dart';
 import '../../data/models/app_user.dart';
+import '../../data/models/ac_unit.dart';
 import '../../data/models/invoice.dart';
 import '../../data/models/job_finding.dart';
 import '../../data/models/material_request.dart';
 import '../../data/models/service_order.dart';
 import '../../data/models/technician_job.dart';
+import '../../data/repositories/ac_unit_repository.dart' show acUnitRowFromNest;
 import '../../data/repositories/job_repository.dart';
 import '../../core/utils/num_parse.dart';
 
@@ -29,6 +31,26 @@ final jobsForCurrentUserProvider =
       ? repo.fetchJobs(technicianId: user.uid)
       : repo.fetchJobs();
 });
+
+/// Servis banyak AC (satu order, satu job per unit) tampil sebagai SATU baris; layar jobnya memuat section
+/// tiap unit. Pemasangan dari POS tetap per job. Urutan baris mengikuti kemunculan pertama tiap order.
+List<List<TechnicianJob>> groupJobsByOrder(List<TechnicianJob> jobs) {
+  final rows = <List<TechnicianJob>>[];
+  final byOrder = <String, List<TechnicianJob>>{};
+  for (final j in jobs) {
+    if (j.orderId.isNotEmpty && j.type != 'pemasangan') {
+      final existing = byOrder[j.orderId];
+      if (existing != null) {
+        existing.add(j);
+        continue;
+      }
+      rows.add(byOrder[j.orderId] = [j]);
+      continue;
+    }
+    rows.add([j]);
+  }
+  return rows;
+}
 
 /// Antrean teknisi (job aktif milik sendiri; memuat `hasBeforePhoto`). Dipakai dashboard.
 final jobQueueProvider = FutureProvider.autoDispose<List<TechnicianJob>>(
@@ -81,25 +103,75 @@ final signedPhotoUrlProvider =
 Future<void> saveJobNotes(String jobId, String notes) =>
     _api.patch('/technician-jobs/$jobId/notes', body: {'notes': notes});
 
+/// `PATCH /technician-jobs/:id/keterangan` — simpan Keterangan teknisi (catatan SATU ORDER untuk admin, disimpan di
+/// `service_orders.technician_note`). BEDA dari [saveJobNotes] (Diagnosa per unit). [jobId] = job aktif mana pun di
+/// order itu; kosong = hapus keterangan.
+Future<void> saveJobKeterangan(String jobId, String keterangan) =>
+    _api.patch('/technician-jobs/$jobId/keterangan', body: {'keterangan': keterangan});
+
+/// Isian "Tambah Unit AC": unit berlabel (`barcode`) ATAU AC tanpa label (`newUnit`, QR baru dicetak teknisi).
+typedef AddUnitInput = ({
+  String jobType,
+  String complaint,
+  String? barcode,
+  bool newUnit,
+  String? roomLocation,
+});
+
+/// Hasil `POST /technician-jobs/:id/add-unit`. `needsLabel` = unit baru, labelnya harus dicetak teknisi.
+typedef AddUnitResult = ({String unitId, bool needsLabel, bool needsData});
+
+/// `POST /technician-jobs/:id/add-unit` — teknisi menambah unit AC ke jobnya (Ditugaskan/Sedang Dikerjakan);
+/// unit tambahan jadi job baru di order yang sama. Server yang memeriksa kepemilikan, status, dan pelanggan unit.
+Future<AddUnitResult> addUnitToJob(String jobId, AddUnitInput input) async {
+  final r = await _api.post('/technician-jobs/$jobId/add-unit', body: {
+    if (input.barcode != null) 'barcode': input.barcode,
+    if (input.newUnit) 'newUnit': true,
+    if ((input.roomLocation ?? '').isNotEmpty) 'roomLocation': input.roomLocation,
+    'jobType': input.jobType,
+    'complaint': input.complaint,
+  }) as Map;
+  return (
+    unitId: r['unitId'] as String,
+    needsLabel: r['needsLabel'] == true,
+    needsData: r['needsData'] == true,
+  );
+}
+
+/// `GET /technician-jobs/:id/unit-labels?units=<unitId>` — data unit untuk cetak label QR oleh teknisi
+/// (server hanya memberi unit yang job-nya milik teknisi itu). Null bila unit tak ditemukan.
+Future<AcUnit?> fetchUnitForLabel(String jobId, String unitId) async {
+  final r = await _api.get('/technician-jobs/$jobId/unit-labels?units=${Uri.encodeQueryComponent(unitId)}') as Map;
+  for (final row in (r['serviceOrderUnits'] as List? ?? const [])) {
+    final unit = (row as Map)['unit'] as Map;
+    if (unit['id'] == unitId) return AcUnit.fromMap(unitId, acUnitRowFromNest(unit));
+  }
+  return null;
+}
+
 /// Kenapa Ajukan Selesai belum boleh (sama dengan gate `submitForReview` di server),
-/// atau null bila sudah siap. Murni supaya bisa diuji.
+/// atau null bila sudah siap. Harga jasa BUKAN syarat teknisi — admin yang menunggu harga saat menyetujui.
+/// Murni supaya bisa diuji.
 String? submitBlockedReason(TechnicianJob job, List<JobFinding> findings) {
   if (findings.isEmpty) {
     return 'Tambah minimal 1 temuan dulu sebelum bisa mengajukan selesai.';
   }
   final missing = findings.where((f) => !f.hasBefore || !f.hasAfter).length;
   if (missing > 0) return '$missing temuan belum lengkap foto sebelum/sesudahnya.';
-  if (!job.priced) {
-    return job.findingsSentAt == null
-        ? 'Harga jasa belum ditetapkan kasir/admin. Kirim temuan dan tunggu konfirmasi harganya.'
-        : 'Temuan sudah terkirim. Menunggu kasir/admin menetapkan harga jasa.';
-  }
   return null;
 }
 
 /// `POST /technician-jobs/:id/send-findings` — teknisi menandai temuan sudah diinput;
 /// kasir/admin dinotifikasi untuk menetapkan harga jasa. Boleh dikirim ulang.
 Future<void> sendFindings(String jobId) => _api.post('/technician-jobs/$jobId/send-findings');
+
+/// `PATCH /technician-jobs/:jobId/findings/:findingId` — ubah deskripsi temuan (kosong = hapus).
+Future<void> updateFindingNote(String jobId, String findingId, String note) =>
+    _api.patch('/technician-jobs/$jobId/findings/$findingId', body: {'note': note});
+
+/// `DELETE /technician-jobs/:jobId/findings/:findingId/photos/:photoId` — hapus foto temuan (selama job aktif).
+Future<void> deleteFindingPhoto(String jobId, String findingId, String photoId) =>
+    _api.delete('/technician-jobs/$jobId/findings/$findingId/photos/$photoId');
 
 /// `POST /technician-jobs/:jobId/findings` — tambah temuan (kategori diketik
 /// bebas; kategori baru otomatis dibuat server).
@@ -327,6 +399,11 @@ Future<void> callUpdateJobStatus(
       return;
     case 'complete':
     case 'submit_review':
+      // Servis banyak AC: satu pengajuan untuk SEMUA unit order (catatan disimpan per unit terpisah).
+      if (payload['allInOrder'] == true) {
+        await patch('/technician-jobs/$jobId/submit-for-review', body: {'allInOrder': true});
+        return;
+      }
       final notes = (payload['notes'] as String?)?.trim();
       if (notes != null && notes.isNotEmpty) {
         await patch('/technician-jobs/$jobId/notes', body: {'notes': notes});

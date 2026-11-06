@@ -89,8 +89,19 @@ export class AcUnitLabelsService {
       where: { id: { in: clean } },
       include: { member: { select: { id: true, name: true, phone: true, address: true } }, ...UNIT_PRODUCTS_SELECT },
     });
+    // Titik lokasi kerja unit (job yang sedang berjalan; satu unit paling banyak punya satu job aktif): label menampilkan
+    // alamat tempat unit itu berada, bukan selalu alamat utama member. null = ikut alamat member.
+    const jobs = await this.prisma.technicianJob.findMany({
+      where: { unitId: { in: clean }, status: { notIn: ['selesai', 'dibatalkan'] } },
+      select: { unitId: true, workAddress: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const workAddress = new Map<string, string | null>();
+    for (const j of jobs) if (j.unitId && !workAddress.has(j.unitId)) workAddress.set(j.unitId, j.workAddress);
     const byId = new Map(rows.map((r) => [r.id, r]));
-    return clean.filter((id) => byId.has(id)).map((id) => this.toLabel(byId.get(id)!));
+    return clean
+      .filter((id) => byId.has(id))
+      .map((id) => ({ ...this.toLabel(byId.get(id)!), workAddress: workAddress.get(id) ?? null }));
   }
 
   /** Tandai label sudah dicetak. Tidak menimpa unit yang sudah tercetak. */

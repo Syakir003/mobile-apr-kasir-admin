@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Prisma, TechnicianJobStatus, WhatsappMessageKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { waPhone, formatTanggalId } from '../whatsapp/wa-format.util';
 import { wibDayRange, wibDateKey, wibDateOnly } from '../common/wib-date.util';
 import { SaveReminderSettingsDto } from './dto/save-reminder-settings.dto';
@@ -14,6 +15,9 @@ import { SetUnitIntervalDto } from './dto/set-unit-interval.dto';
  * 'pemasangan'/'bongkar'/'bongkar_pasang'/'service' sekali kerja, gak ada
  * siklus berikutnya yang bisa diprediksi. */
 export const SCHEDULABLE_JOB_TYPES = ['cuci', 'maintenance'] as const;
+
+/** Tipe notifikasi bel untuk admin: unit pelanggan jatuh tempo servis (target = id pelanggan). */
+export const SERVICE_DUE_NOTIFICATION = 'service_due';
 
 // 'invoice' ditambah belakangan (awalnya redaksi invoice hardcoded di
 // InvoicesService) — user minta itu ikut bisa diedit admin juga, sama kayak
@@ -90,6 +94,7 @@ export class RemindersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsappService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ======================================================== Pengaturan siklus
@@ -392,7 +397,7 @@ export class RemindersService {
   async handleDailyCron() {
     const result = await this.runDailyEnqueue();
     this.logger.log(
-      `Pengingat servis harian: ${result.enqueued} pesan diantre, ${result.sent} terkirim, ${result.failed} gagal.`,
+      `Pengingat servis harian: ${result.enqueued} pesan diantre, ${result.sent} terkirim, ${result.failed} gagal; ${result.adminNotified} notifikasi admin.`,
     );
   }
 
@@ -400,7 +405,7 @@ export class RemindersService {
    * testing/manual trigger tanpa nunggu jam 9 pagi). Aman dipanggil
    * berkali-kali sehari — dedupeKey unik yang menjaga, bukan jadwal yang
    * harus tepat sekali jalan (sama seperti catatan di SQL asli). */
-  async runDailyEnqueue(): Promise<{ enqueued: number; sent: number; failed: number }> {
+  async runDailyEnqueue(): Promise<{ enqueued: number; sent: number; failed: number; adminNotified: number }> {
     const now = new Date();
     const plus3 = wibDayRange(new Date(now.getTime() + 3 * 86400000));
     const minus7 = wibDayRange(new Date(now.getTime() - 7 * 86400000));
@@ -494,7 +499,69 @@ export class RemindersService {
       }
     }
 
-    return { enqueued, sent, failed };
+    // Kabari admin juga (terpisah dari WA: tetap jalan untuk pelanggan opt-out/tanpa HP). Gagalnya tidak boleh menjatuhkan
+    // pengingat WA yang sudah diproses di atas.
+    const adminNotified = await this.notifyAdminsServiceDue(now).catch((e) => {
+      this.logger.warn(`Notifikasi admin servis jatuh tempo gagal: ${e}`);
+      return 0;
+    });
+
+    return { enqueued, sent, failed, adminNotified };
+  }
+
+  /**
+   * Bel notifikasi ke ADMIN: unit AC yang siklus servis cuci-nya jatuh tempo 3 hari lagi (H-3, hari yang sama dengan WA H-3
+   * ke pelanggan), SATU notifikasi per pelanggan berisi jumlah unitnya. Beda dari WA, tidak menyaring opt-out/tanpa HP
+   * (justru admin perlu tahu pelanggan itu). Unit yang sudah punya job berjalan dilewati. `target` = id pelanggan: klik
+   * notifikasi membuka form Terima Servis yang sudah terisi (lihat notificationHref di web). Aman dipanggil berkali-kali
+   * sehari (run-now): admin yang sudah menerima notifikasi pelanggan itu hari ini tidak dikirimi lagi.
+   * Mengembalikan jumlah notifikasi yang dibuat.
+   */
+  async notifyAdminsServiceDue(now: Date = new Date()): Promise<number> {
+    const plus3 = wibDayRange(new Date(now.getTime() + 3 * 86400000));
+    const units = await this.prisma.memberAcUnit.findMany({
+      where: {
+        status: 'aktif',
+        reminderEnabled: true,
+        nextServiceDate: { gte: plus3.start, lte: plus3.end },
+        member: { active: true },
+        technicianJobs: {
+          none: { status: { notIn: [TechnicianJobStatus.selesai, TechnicianJobStatus.dibatalkan] } },
+        },
+      },
+      select: { memberId: true, nextServiceDate: true, member: { select: { name: true } } },
+    });
+    if (units.length === 0) return 0;
+    const admins = await this.prisma.user.findMany({ where: { role: 'admin', active: true }, select: { id: true } });
+    if (admins.length === 0) return 0;
+
+    const byMember = new Map<string, { name: string; count: number; dueDate: Date }>();
+    for (const u of units) {
+      if (!u.nextServiceDate) continue;
+      const g = byMember.get(u.memberId);
+      if (g) g.count += 1;
+      else byMember.set(u.memberId, { name: u.member.name, count: 1, dueDate: wibDateOnly(u.nextServiceDate) });
+    }
+
+    const todayStart = wibDayRange(now).start;
+    let created = 0;
+    for (const [memberId, g] of byMember) {
+      for (const admin of admins) {
+        const sudah = await this.prisma.notification.findFirst({
+          where: { userId: admin.id, type: SERVICE_DUE_NOTIFICATION, target: memberId, createdAt: { gte: todayStart } },
+          select: { id: true },
+        });
+        if (sudah) continue;
+        await this.notifications.notify(admin.id, {
+          title: `Servis AC jatuh tempo: ${g.name}`,
+          body: `${g.count} unit AC jatuh tempo ${formatTanggalId(g.dueDate)}. Buat job servis cuci AC.`,
+          type: SERVICE_DUE_NOTIFICATION,
+          target: memberId,
+        });
+        created += 1;
+      }
+    }
+    return created;
   }
 
   /** PUT /reminders/unit-interval — port 1:1 RPC set_unit_service_interval

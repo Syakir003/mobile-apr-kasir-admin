@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/supabase/supabase_providers.dart';
 import '../../data/models/member.dart';
 import 'cart_state.dart';
 
@@ -155,28 +154,22 @@ class CartNotifier extends Notifier<Cart> {
 
 final cartProvider = NotifierProvider<CartNotifier, Cart>(CartNotifier.new);
 
-/// Teknisi aktif untuk dropdown pemasangan: tabel `users` dengan
-/// `role == 'teknisi'` dan `active == true`, dipetakan dari id +
-/// kolom `display_name`. (Stream Realtime hanya mendukung satu filter,
-/// jadi `active` disaring di client.)
+/// Teknisi aktif untuk dropdown pemasangan/penugasan, dari `GET /users`.
+/// Endpoint itu khusus admin (aturan web: kasir tidak memilih teknisi), jadi
+/// 403 untuk peran lain dibaca sebagai daftar kosong ("Belum ditentukan").
 final techniciansProvider =
-    StreamProvider<List<({String uid, String name})>>((ref) {
-  final client = ref.watch(supabaseProvider);
-  return client
-      .from('users')
-      .stream(primaryKey: ['id'])
-      .eq('role', 'teknisi')
-      .map(
-        (rows) => rows
-            .where((row) => (row['active'] as bool?) ?? false)
-            .map(
-              (row) => (
-                uid: row['id'] as String,
-                name: (row['display_name'] as String?) ?? '',
-              ),
-            )
-            .toList(),
-      );
+    StreamProvider<List<({String uid, String name})>>((ref) async* {
+  try {
+    final rows = await const ApiClient().get('/users') as List;
+    yield [
+      for (final r in rows.cast<Map>())
+        if (r['role'] == 'teknisi' && r['active'] == true)
+          (uid: r['id'] as String, name: (r['displayName'] as String?) ?? ''),
+    ];
+  } on NestApiException catch (e) {
+    if (e.statusCode != 403) rethrow;
+    yield const [];
+  }
 });
 
 /// Memanggil `POST /pos/checkout` (dulu RPC `checkout_transaction` langsung

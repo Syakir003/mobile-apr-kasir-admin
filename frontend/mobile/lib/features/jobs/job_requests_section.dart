@@ -23,9 +23,13 @@ Color requestStatusColor(RequestStatus s) => switch (s) {
 /// Kartu "Pengajuan Tambahan" di detail job: teknisi pemilik mengajukan
 /// sparepart/produk saat job aktif; admin/kasir menyetujui/menolak yang pending.
 class JobRequestsSection extends ConsumerWidget {
-  const JobRequestsSection({super.key, required this.job});
+  const JobRequestsSection({super.key, required this.job, this.otherJobIds = const []});
 
+  /// Job yang memegang pengajuan baru (servis banyak AC: unit aktif pertama).
   final TechnicianJob job;
+
+  /// Servis banyak AC: id job unit lain; daftar menggabungkan pengajuan semua unit (satu pengajuan untuk seluruh job).
+  final List<String> otherJobIds;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -40,6 +44,7 @@ class JobRequestsSection extends ConsumerWidget {
     final canUse = role == UserRole.admin ||
         (role == UserRole.teknisi && job.technicianId == user?.uid);
     final requestsAsync = ref.watch(jobRequestsProvider(job.id));
+    final others = [for (final id in otherJobIds) ref.watch(jobRequestsProvider(id))];
 
     return Card(
       child: Padding(
@@ -71,7 +76,11 @@ class JobRequestsSection extends ConsumerWidget {
               ),
               error: (e, _) => Text('Gagal memuat pengajuan: ${errorMessage(e)}',
                   style: const TextStyle(color: AppColors.slate500)),
-              data: (requests) {
+              data: (mine) {
+                final requests = [
+                  ...mine,
+                  for (final o in others) ...?o.value,
+                ]..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
                 if (requests.isEmpty) {
                   return const Padding(
                     padding: EdgeInsets.symmetric(vertical: 6),
@@ -84,7 +93,7 @@ class JobRequestsSection extends ConsumerWidget {
                     for (final r in requests)
                       _RequestCard(
                         request: r,
-                        jobId: job.id,
+                        jobId: r.jobId.isEmpty ? job.id : r.jobId,
                         canDecide: canDecide,
                         canUse: canUse,
                       ),

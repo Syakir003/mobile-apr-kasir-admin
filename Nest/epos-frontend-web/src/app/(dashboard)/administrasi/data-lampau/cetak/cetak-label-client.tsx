@@ -6,7 +6,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Printer } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
-import { BarcodeQr } from '@/components/barcode-qr';
+import { UNIT_LABEL_SHEET_CLASS, UNIT_LABEL_SHEET_CSS, UnitLabelCard } from '@/components/unit-label-card';
 import { Button } from '@/components/ui/button';
 
 interface LabelUnit {
@@ -22,9 +22,8 @@ interface LabelUnit {
   member: { id: string; name: string; phone: string | null; address: string | null };
 }
 
-// Lembar stiker A4, 2 kolom. Setiap label SELALU memuat nama member +
-// alamat + ruangan supaya tim yang keliling tahu tujuannya tanpa buka sistem.
-// Unit 'menunggu_data' diberi tanda "TIPE BELUM DIKETAHUI" — teknisi
+// Lembar stiker A4, 2 kolom (tampilan stiker sama dengan cetak label di job teknisi: lihat UnitLabelCard). Unit
+// 'menunggu_data' (tipe belum diketahui) tidak diberi tulisan apa pun di baris tipe, dibiarkan kosong — teknisi
 // melengkapi datanya saat scan di lokasi.
 export function CetakLabelClient({ ids }: { ids: string }) {
   const router = useRouter();
@@ -48,7 +47,7 @@ export function CetakLabelClient({ ids }: { ids: string }) {
 
   return (
     <div>
-      <style>{'@page { size: A4; margin: 8mm; }'}</style>
+      <style>{UNIT_LABEL_SHEET_CSS}</style>
       <div className="mb-4 flex items-center justify-between print:hidden">
         <Button variant="ghost" onClick={() => router.back()}>
           <ArrowLeft className="size-4" />
@@ -60,38 +59,24 @@ export function CetakLabelClient({ ids }: { ids: string }) {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 bg-white text-black">
-        {data.map((u) => {
-          const tipe = [u.brand, u.model].filter(Boolean).join(' ');
-          return (
-            <div
-              key={u.id}
-              className="flex h-[62mm] items-center gap-3 border border-dashed border-neutral-400 p-3"
-              style={{ breakInside: 'avoid' }}
-            >
-              <div className="flex flex-col items-center gap-1">
-                <BarcodeQr value={u.barcodeValue} size={96} />
-                <p className="text-[9px] leading-none">{u.barcodeValue}</p>
-              </div>
-              <div className="min-w-0 flex-1 text-xs leading-snug">
-                <p className="text-[10px] font-bold uppercase tracking-wide">AYUB AC</p>
-                <p className="text-sm font-bold">{u.member.name}</p>
-                <p className="mt-0.5 line-clamp-3">{u.member.address || '-'}</p>
-                {u.roomLocation && <p className="mt-0.5 font-medium">Ruang: {u.roomLocation}</p>}
-                {u.status === 'menunggu_data' ? (
-                  <p className="mt-1 inline-block border border-black px-1 text-[10px] font-bold">
-                    TIPE BELUM DIKETAHUI
-                  </p>
-                ) : (
-                  <p className="mt-0.5">
-                    {tipe || '-'}
-                    {u.pk != null ? ` · ${u.pk} PK` : ''}
-                  </p>
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div className={UNIT_LABEL_SHEET_CLASS}>
+        {data.map((u) => (
+          <UnitLabelCard
+            key={u.id}
+            unit={{
+              barcodeValue: u.barcodeValue,
+              status: u.status,
+              brand: u.brand,
+              model: u.model,
+              pk: u.pk,
+              roomLocation: u.roomLocation,
+              indoorName: u.indoorProduct?.name,
+              outdoorName: u.outdoorProduct?.name,
+            }}
+            memberName={u.member.name}
+            memberAddress={u.member.address || '-'}
+          />
+        ))}
       </div>
     </div>
   );

@@ -12,12 +12,18 @@ import '../../data/models/technician_job.dart';
 /// [materials] (mis. item pengajuan yang disetujui) jadi baris tambahan.
 /// GARANSI dibiarkan titik-titik kosong, sama seperti formulir kertasnya —
 /// diisi tangan sesuai kesepakatan di lapangan.
+///
+/// Servis banyak AC: isi [orderJobs] dengan SEMUA job order (satu laporan untuk seluruh job) —
+/// satu baris pekerjaan per unit, [materials] gabungan semua unit, petugas dan waktu dari seluruh
+/// unit. Unit yang dibatalkan tidak ikut. [job] tetap job yang dibuka (nomor, pelanggan).
 Future<Uint8List> buildJobReportPdf(
   TechnicianJob job,
-  List<MaterialRequestItem> materials,
-) async {
+  List<MaterialRequestItem> materials, {
+  List<TechnicianJob> orderJobs = const [],
+}) async {
   final doc = pw.Document(theme: await pdfTheme());
   final logo = await pdfLogo();
+  final report = _ReportData.of(job, materials, orderJobs);
   doc.addPage(
     pw.Page(
       pageFormat: PdfPageFormat.a4,
@@ -25,11 +31,11 @@ Future<Uint8List> buildJobReportPdf(
       build: (context) => pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
-          _header(job, logo),
+          _header(job, report, logo),
           pw.SizedBox(height: 12),
-          _workTable(job, materials),
+          _workTable(report.rows),
           pw.SizedBox(height: 10),
-          _petugasTable(job),
+          _petugasTable(report),
           pw.SizedBox(height: 16),
           _notes(),
         ],
@@ -39,14 +45,88 @@ Future<Uint8List> buildJobReportPdf(
   return doc.save();
 }
 
+/// Isi laporan yang sudah dihitung: satu job, atau gabungan seluruh unit satu order.
+class _ReportData {
+  _ReportData({
+    required this.number,
+    required this.refDate,
+    required this.rows,
+    required this.petugas,
+    required this.start,
+    required this.end,
+  });
+
+  final String number;
+  final DateTime? refDate;
+  final List<({String qty, String text})> rows;
+  final String petugas;
+  final DateTime? start;
+  final DateTime? end;
+
+  factory _ReportData.of(
+      TechnicianJob job, List<MaterialRequestItem> materials, List<TechnicianJob> orderJobs) {
+    final matRows = [
+      for (final m in materials) (qty: '${_trimZero(m.qty)} ${m.unit}'.trim(), text: m.name),
+    ];
+    String keterangan(TechnicianJob j) {
+      final unitDesc = [j.unitTitle, if (j.unitRoom.isNotEmpty) j.unitRoom]
+          .where((s) => s.isNotEmpty)
+          .join(' — ');
+      final k = [j.typeLabel, unitDesc].where((s) => s.isNotEmpty).join(' - ');
+      return k.isEmpty ? '-' : k;
+    }
+
+    String numberOf(String id) =>
+        id.length >= 8 ? id.substring(0, 8).toUpperCase() : id.toUpperCase();
+
+    // Teknisi sebelumnya (alih tugas) lalu teknisi sekarang, tanpa duplikat.
+    String petugasOf(List<TechnicianJob> jobs) => {
+          for (final j in jobs) ...[
+            for (final h in j.handovers) h.fromName,
+            j.technicianName,
+          ],
+        }.where((n) => n.isNotEmpty && n != '-').join(', ');
+
+    final jobs = orderJobs.where((j) => j.status != JobStatus.dibatalkan).toList();
+    if (jobs.length < 2) {
+      return _ReportData(
+        number: numberOf(job.id),
+        refDate: job.completedAt ?? job.startedAt ?? job.createdAt,
+        rows: [(qty: '1 unit', text: keterangan(job)), ...matRows],
+        petugas: petugasOf([job]),
+        start: job.startedAt,
+        end: job.completedAt,
+      );
+    }
+    final starts = jobs.map((j) => j.startedAt).whereType<DateTime>().toList()..sort();
+    final ends = jobs.map((j) => j.completedAt).whereType<DateTime>().toList()..sort();
+    // Selesai = saat unit TERAKHIR disetujui, dan hanya bila semua unit sudah selesai.
+    final allDone =
+        jobs.every((j) => j.status == JobStatus.selesai) && ends.length == jobs.length;
+    final start = starts.isEmpty ? null : starts.first;
+    final end = allDone ? ends.last : null;
+    return _ReportData(
+      number: numberOf(job.orderId.isEmpty ? job.id : job.orderId),
+      refDate: end ?? start ?? job.createdAt,
+      rows: [
+        for (final j in jobs) (qty: '1 unit', text: keterangan(j)),
+        ...matRows,
+      ],
+      petugas: petugasOf(jobs),
+      start: start,
+      end: end,
+    );
+  }
+}
+
 pw.Widget _boxed(pw.Widget child) => pw.Container(
       padding: const pw.EdgeInsets.all(8),
       decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.8)),
       child: child,
     );
 
-pw.Widget _header(TechnicianJob job, pw.MemoryImage logo) {
-  final refDate = job.completedAt ?? job.startedAt ?? job.createdAt;
+pw.Widget _header(TechnicianJob job, _ReportData report, pw.MemoryImage logo) {
+  final refDate = report.refDate;
   return pw.Row(
     crossAxisAlignment: pw.CrossAxisAlignment.start,
     children: [
@@ -100,9 +180,7 @@ pw.Widget _header(TechnicianJob job, pw.MemoryImage logo) {
             1: pw.FlexColumnWidth(5),
           },
           children: [
-            _infoRow('NO.', job.id.length >= 8
-                ? job.id.substring(0, 8).toUpperCase()
-                : job.id.toUpperCase()),
+            _infoRow('NO.', report.number),
             _infoRow('TGL.', refDate != null ? _formatDate(refDate) : ''),
             _infoRow('NAMA', job.memberName),
             _infoRow('ALAMAT', job.memberAddress),
@@ -129,13 +207,7 @@ pw.TableRow _infoRow(String label, String value) => pw.TableRow(
       ],
     );
 
-pw.Widget _workTable(TechnicianJob job, List<MaterialRequestItem> materials) {
-  final unitDesc = [job.unitTitle, if (job.unitRoom.isNotEmpty) job.unitRoom]
-      .where((s) => s.isNotEmpty)
-      .join(' — ');
-  final keteranganUtama =
-      [job.typeLabel, unitDesc].where((s) => s.isNotEmpty).join(' - ');
-
+pw.Widget _workTable(List<({String qty, String text})> items) {
   return pw.Table(
     border: pw.TableBorder.all(width: 0.8),
     columnWidths: const {
@@ -152,25 +224,20 @@ pw.Widget _workTable(TechnicianJob job, List<MaterialRequestItem> materials) {
           _cell('KETERANGAN', bold: true, align: pw.TextAlign.center),
         ],
       ),
-      pw.TableRow(children: [
-        _cell('1', align: pw.TextAlign.center),
-        _cell('1 unit', align: pw.TextAlign.center),
-        _cell(keteranganUtama.isEmpty ? '-' : keteranganUtama),
-      ]),
-      for (var i = 0; i < materials.length; i++)
+      for (var i = 0; i < items.length; i++)
         pw.TableRow(children: [
-          _cell('${i + 2}', align: pw.TextAlign.center),
-          _cell('${_trimZero(materials[i].qty)} ${materials[i].unit}',
-              align: pw.TextAlign.center),
-          _cell(materials[i].name),
+          _cell('${i + 1}', align: pw.TextAlign.center),
+          _cell(items[i].qty, align: pw.TextAlign.center),
+          _cell(items[i].text),
         ]),
-      for (var i = 0; i < (6 - materials.length).clamp(0, 6); i++)
+      // Baris kosong seperti formulir kertas: 6 dikurangi jumlah baris tambahan (selain baris pekerjaan pertama).
+      for (var i = 0; i < (6 - (items.length - 1)).clamp(0, 6); i++)
         pw.TableRow(children: [_cell(''), _cell(''), _cell('')]),
     ],
   );
 }
 
-pw.Widget _petugasTable(TechnicianJob job) {
+pw.Widget _petugasTable(_ReportData report) {
   return pw.Table(
     border: pw.TableBorder.all(width: 0.8),
     columnWidths: const {
@@ -190,11 +257,10 @@ pw.Widget _petugasTable(TechnicianJob job) {
         ],
       ),
       pw.TableRow(children: [
-        _cell(job.technicianName.isEmpty ? '-' : job.technicianName,
+        _cell(report.petugas.isEmpty ? '-' : report.petugas, align: pw.TextAlign.center),
+        _cell(report.start != null ? _formatTime(report.start!) : '-',
             align: pw.TextAlign.center),
-        _cell(job.startedAt != null ? _formatTime(job.startedAt!) : '-',
-            align: pw.TextAlign.center),
-        _cell(job.completedAt != null ? _formatTime(job.completedAt!) : '-',
+        _cell(report.end != null ? _formatTime(report.end!) : '-',
             align: pw.TextAlign.center),
         _cell('.......... Bln', align: pw.TextAlign.center),
       ]),

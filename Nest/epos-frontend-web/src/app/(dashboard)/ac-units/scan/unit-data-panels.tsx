@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { PencilLine } from 'lucide-react';
 
@@ -29,6 +29,7 @@ function F({ label, children }: { label: string; children: React.ReactNode }) {
  */
 export function CompleteDataPanel({ data, onDone }: { data: AcUnitDetail; onDone: () => void }) {
   const unit = data.unit;
+  const queryClient = useQueryClient();
   const [brand, setBrand] = React.useState('');
   const [model, setModel] = React.useState('');
   const [pk, setPk] = React.useState('');
@@ -41,6 +42,8 @@ export function CompleteDataPanel({ data, onDone }: { data: AcUnitDetail; onDone
     mutationFn: (payload: unknown) => apiClient.post(`/ac-units/${unit.id}/complete-data`, payload),
     onSuccess: () => {
       toast.success('Data unit tersimpan.');
+      // Halaman job yang memuat unit ini (banner "belum dilengkapi") harus ikut segar saat teknisi kembali.
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
       onDone();
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Gagal menyimpan data unit.'),

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -13,20 +14,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { randomUUID } from 'crypto';
-
-// Whitelist ekstensi foto — dicocokkan dari mimetype yang beneran dideteksi
-// multer (bukan dari nama file client, yang gampang dipalsu). Nama file
-// FINAL selalu di-generate server (randomUUID), TIDAK PERNAH pakai
-// file.originalname mentah — cegah path traversal (mis. originalname
-// "../../../../src/main.js") yang sebelumnya bisa nembus destination folder
-// lewat path.join di multer diskStorage.
-const ALLOWED_PHOTO_MIME: Record<string, string> = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-};
+import { photoUploadOptions } from '../common/uploads/photo-upload';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -34,14 +22,20 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { TechnicianJobsService } from './technician-jobs.service';
 import { AssignJobDto } from './dto/assign-job.dto';
+import { AddUnitDto } from './dto/add-unit.dto';
+import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { StartJobDto } from './dto/start-job.dto';
 import { UpdateNotesDto } from './dto/update-notes.dto';
+import { UpdateKeteranganDto } from './dto/update-keterangan.dto';
 import { HistoryQueryDto } from './dto/history-query.dto';
 import { FindAllJobsQueryDto } from './dto/find-all-jobs-query.dto';
 import { AddFindingDto } from './dto/add-finding.dto';
+import { UpdateFindingDto } from './dto/update-finding.dto';
 import { SetServicePricingDto } from './dto/set-service-pricing.dto';
 import { ServicePricingService } from './service-pricing.service';
 import { SendBackDto } from './dto/send-back.dto';
+import { SubmitForReviewDto } from './dto/submit-for-review.dto';
+import { CancelJobDto } from './dto/cancel-job.dto';
 import { ApproveCompleteDto } from './dto/approve-complete.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { SyncBatchDto } from './dto/sync-batch.dto';
@@ -140,26 +134,114 @@ export class TechnicianJobsController {
     return this.jobs.findOne(id, user.sub, user.role);
   }
 
+  // Data label QR unit-unit order ini untuk halaman cetak label TEKNISI (GET /service-orders/:id 403 untuk teknisi).
+  // ?units=a,b menyaring unit tertentu; teknisi hanya mendapat unit yang job-nya miliknya.
+  @Roles('admin', 'teknisi')
+  @Get(':id/unit-labels')
+  unitLabels(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('units') units?: string,
+  ) {
+    const unitIds = units ? units.split(',').map((u) => u.trim()).filter(Boolean) : undefined;
+    return this.jobs.unitLabels(id, user.sub, user.role, unitIds);
+  }
+
   @Roles('admin', 'kasir')
   @Patch(':id/assign')
-  async assign(@Param('id') id: string, @Body() dto: AssignJobDto) {
-    const result = await this.jobs.assign(id, dto.technicianId);
+  async assign(
+    @Param('id') id: string,
+    @Body() dto: AssignJobDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const result = await this.jobs.assign(id, dto.technicianId, {
+      allInOrder: dto.allInOrder,
+      actorId: user.sub,
+      role: user.role,
+      reason: dto.reason,
+    });
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,
     });
+    const handedOver = result.previousTechnicianIds.length > 0;
     // Notifikasi push ke teknisi yang baru ditugaskan — .catch() biar
     // gagal kirim notifikasi (mis. push FCM error) gak nge-throw balik ke
     // response assign() yang aksi utamanya udah sukses & ke-commit (sama
     // pola kayak MaterialRequestsController.decide()).
     this.notifications
       .notify(dto.technicianId, {
-        title: 'Job Baru Ditugaskan',
-        body: 'Kamu dapat penugasan job servis baru.',
+        title: handedOver ? 'Job Dialihkan ke Kamu' : 'Job Baru Ditugaskan',
+        body: handedOver
+          ? result.status === 'menunggu_review'
+            ? 'Job servis dialihkan ke kamu. Pekerjaannya sudah diajukan dan sedang menunggu review admin.'
+            : 'Job servis dialihkan ke kamu. Scan ulang barcode unit lalu lanjutkan dari temuan & foto teknisi sebelumnya.'
+          : 'Kamu dapat penugasan job servis baru.',
         type: 'job_assigned',
         target: id,
       })
       .catch(() => {});
+    // Teknisi sebelumnya: kabari bahwa job sudah dialihkan (hilang dari antriannya).
+    for (const prevId of result.previousTechnicianIds) {
+      this.notifications
+        .notify(prevId, {
+          title: 'Job Dialihkan',
+          body: 'Job servis kamu dialihkan ke teknisi lain.',
+          type: 'job_handover',
+          target: id,
+        })
+        .catch(() => {});
+    }
+    return result;
+  }
+
+  // Teknisi menambah unit AC ke job yang sedang dikerjakan (customer minta AC lain ikut diservis di tempat):
+  // unit berlabel (scan barcode) atau AC tanpa label (QR baru, dicetak teknisi). Admin & kasir dikabari supaya
+  // meninjau harga jasa.
+  @Roles('admin', 'teknisi')
+  @Post(':id/add-unit')
+  async addUnit(
+    @Param('id') id: string,
+    @Body() dto: AddUnitDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const result = await this.jobs.addUnit(id, dto, user.sub, user.role);
+    this.realtime.emitToAdmin('job.unit_added', { jobId: id, newJobId: result.jobId });
+    void this.notifications
+      .notifyRoles(['admin', 'kasir'], {
+        title: 'Unit AC Ditambahkan ke Job',
+        body: `${result.technicianName ?? 'Teknisi'} menambah 1 unit AC${result.customerName ? ` untuk ${result.customerName}` : ''} di tengah servis${result.needsPricing ? '. Tinjau dan perbarui harga jasa.' : '.'}`,
+        type: 'unit_added',
+        target: id,
+      })
+      .catch(() => undefined);
+    return result;
+  }
+
+  // Komplain pelanggan atas job yang sudah selesai (admin): membuat job komplain baru dari data job awal, tanpa penagihan
+  // baru. Teknisi dikabari lewat lonceng seperti penugasan biasa.
+  @Roles('admin')
+  @Post(':id/complaint')
+  async createComplaint(
+    @Param('id') id: string,
+    @Body() dto: CreateComplaintDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const result = await this.jobs.createComplaint(id, dto, user.sub);
+    this.realtime.emitToAdmin('job.status_changed', {
+      jobId: result.jobId,
+      status: result.technicianId ? 'assigned' : 'menunggu_penugasan',
+    });
+    if (result.technicianId) {
+      void this.notifications
+        .notify(result.technicianId, {
+          title: 'Job Komplain Ditugaskan',
+          body: `Pelanggan${result.customerName ? ` ${result.customerName}` : ''} mengajukan komplain. Kerjakan ulang (scan unit dulu); tanpa penagihan baru.`,
+          type: 'job_assigned',
+          target: result.jobId,
+        })
+        .catch(() => undefined);
+    }
     return result;
   }
 
@@ -195,41 +277,25 @@ export class TechnicianJobsController {
     return this.jobs.addFinding(id, dto, user.sub, user.role);
   }
 
+  // Teknisi menulis/mengubah deskripsi tambahan pada satu temuan (mis. penjelasan per unit AC).
+  @Roles('admin', 'teknisi')
+  @Patch(':id/findings/:findingId')
+  updateFinding(
+    @Param('id') id: string,
+    @Param('findingId') findingId: string,
+    @Body() dto: UpdateFindingDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.jobs.updateFindingNote(id, findingId, dto.note, user.sub, user.role);
+  }
+
   // Ganti POST /technician-jobs/:id/photos (model lama, level-job) — foto
   // sekarang melekat ke satu temuan (JobFinding), bisa dipanggil berkali-kali
   // per kind (tidak dibatasi cuma 1 foto).
   @Roles('admin', 'teknisi')
   @Post(':id/findings/:findingId/photos')
-  @UseInterceptors(
-    FileInterceptor('photo', {
-      storage: diskStorage({
-        destination: './uploads/job-photos',
-        // Nama file di-generate SERVER (UUID + ekstensi dari mimetype
-        // ter-whitelist) — file.originalname TIDAK PERNAH dipakai buat path,
-        // biar gak bisa path-traversal ataupun nyelundup ekstensi berbahaya
-        // (mis. .html/.svg yang bisa stored-XSS lewat static /uploads).
-        filename: (_, file, cb) => {
-          const ext = ALLOWED_PHOTO_MIME[file.mimetype];
-          if (!ext)
-            return cb(
-              new BadRequestException('Tipe file harus JPG/PNG/WEBP'),
-              '',
-            );
-          cb(null, `${randomUUID()}${ext}`);
-        },
-      }),
-      fileFilter: (_, file, cb) => {
-        if (!ALLOWED_PHOTO_MIME[file.mimetype]) {
-          return cb(
-            new BadRequestException('Tipe file harus JPG/PNG/WEBP'),
-            false,
-          );
-        }
-        cb(null, true);
-      },
-      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB — cukup buat foto HP, cegah upload segede-gedenya
-    }),
-  )
+  // 10MB — cukup buat foto HP, cegah upload segede-gedenya.
+  @UseInterceptors(FileInterceptor('photo', photoUploadOptions('job-photos', 10)))
   // Siklus 9 — nerima field opsional `clientActionId` di form-data (Flutter
   // isi ini kalau upload ini adalah "tahap 1" dari alur foto offline: foto
   // diambil offline, disimpan lokal, baru di-upload ke sini begitu online
@@ -296,6 +362,18 @@ export class TechnicianJobsController {
     }
   }
 
+  // Hapus satu foto temuan (salah upload). Gate peran/status ada di service.
+  @Roles('admin', 'teknisi')
+  @Delete(':id/findings/:findingId/photos/:photoId')
+  deleteFindingPhoto(
+    @Param('id') id: string,
+    @Param('findingId') findingId: string,
+    @Param('photoId') photoId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.jobs.deleteFindingPhoto(id, findingId, photoId, user.sub, user.role);
+  }
+
   // Teknisi menandai temuan sudah diinput -> kasir & admin dinotifikasi buat
   // menetapkan tindakan + harga jasa.
   @Roles('admin', 'teknisi')
@@ -352,6 +430,17 @@ export class TechnicianJobsController {
     return this.jobs.updateNotes(id, dto.notes, user.sub, user.role);
   }
 
+  // Keterangan teknisi (satu order, bagian bawah halaman job): beda dari :id/notes (Diagnosa per unit).
+  @Roles('admin', 'teknisi')
+  @Patch(':id/keterangan')
+  updateKeterangan(
+    @Param('id') id: string,
+    @Body() dto: UpdateKeteranganDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.jobs.updateKeterangan(id, dto.keterangan, user.sub, user.role);
+  }
+
   // Ganti PATCH :id/complete (dulu teknisi langsung nutup job sendiri).
   // Sekarang teknisi cuma mengajukan — job masuk 'menunggu_review', Admin
   // yang menyetujui lewat approve-complete di bawah.
@@ -360,8 +449,9 @@ export class TechnicianJobsController {
   async submitForReview(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: SubmitForReviewDto,
   ) {
-    const result = await this.jobs.submitForReview(id, user.sub, user.role);
+    const result = await this.jobs.submitForReview(id, user.sub, user.role, { allInOrder: dto?.allInOrder });
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,
@@ -391,7 +481,7 @@ export class TechnicianJobsController {
     @Body() dto: SendBackDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    const result = await this.jobs.sendBack(id, dto.note, user.role);
+    const result = await this.jobs.sendBack(id, dto.note, user.role, { allInOrder: dto.allInOrder });
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,
@@ -417,8 +507,11 @@ export class TechnicianJobsController {
   async cancel(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: CancelJobDto,
   ) {
-    const result = await this.jobs.cancel(id, user.sub, user.role);
+    const result = await this.jobs.cancel(id, user.sub, user.role, {
+      moveRequestsToSibling: dto?.moveRequestsToSibling,
+    });
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,
