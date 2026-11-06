@@ -144,6 +144,43 @@ describe('TechnicianJobsService.updateFindingNote — deskripsi per temuan', () 
   });
 });
 
+describe('TechnicianJobsService.deleteFindingPhoto — hapus foto temuan', () => {
+  function photoSetup(over: { status?: string; photoFindingId?: string; photoJobId?: string } = {}) {
+    const prisma: any = {
+      technicianJob: {
+        findUnique: jest.fn(async () => ({ id: 'j1', technicianId: 't1', status: over.status ?? 'sedang_dikerjakan' })),
+      },
+      jobFindingPhoto: {
+        findUnique: jest.fn(async () => ({
+          id: 'p1',
+          path: '/uploads/job-photos/tidak-ada.jpg',
+          finding: { id: over.photoFindingId ?? 'f1', jobId: over.photoJobId ?? 'j1' },
+        })),
+        delete: jest.fn(async () => ({})),
+      },
+    };
+    return { svc: new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any), prisma };
+  }
+
+  it('teknisi pemilik menghapus foto; file yang sudah hilang di disk tidak menggagalkan', async () => {
+    const { svc, prisma } = photoSetup();
+    await expect(svc.deleteFindingPhoto('j1', 'f1', 'p1', 't1', 'teknisi')).resolves.toEqual({ ok: true });
+    expect(prisma.jobFindingPhoto.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
+  });
+
+  it('ditolak: job tidak aktif, foto bukan milik temuan/job ini, teknisi lain', async () => {
+    const a = photoSetup({ status: 'menunggu_review' });
+    await expect(a.svc.deleteFindingPhoto('j1', 'f1', 'p1', 't1', 'teknisi')).rejects.toThrow(/saat job aktif/);
+    const b = photoSetup({ photoFindingId: 'f9' });
+    await expect(b.svc.deleteFindingPhoto('j1', 'f1', 'p1', 't1', 'teknisi')).rejects.toThrow(/Foto tidak ditemukan/);
+    const c = photoSetup({ photoJobId: 'j9' });
+    await expect(c.svc.deleteFindingPhoto('j1', 'f1', 'p1', 't1', 'teknisi')).rejects.toThrow(/Foto tidak ditemukan/);
+    const d = photoSetup();
+    await expect(d.svc.deleteFindingPhoto('j1', 'f1', 'p1', 't-lain', 'teknisi')).rejects.toThrow(/bukan milik Anda/);
+    for (const s of [a, b, c, d]) expect(s.prisma.jobFindingPhoto.delete).not.toHaveBeenCalled();
+  });
+});
+
 function findOneSetup(orderType: string) {
   const job = { id: 'j1', orderId: 'o1', technicianId: 't1', unit: null, order: { type: orderType, invoice: null } };
   const siblingRows = [{ id: 'j2', createdAt: new Date('2026-11-03') }];

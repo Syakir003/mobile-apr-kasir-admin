@@ -1879,6 +1879,8 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
                         showAuthors: widget.job.handovers.isNotEmpty,
                         onAdd: (kind) => _addPhoto(f, kind),
                         onEditNote: () => _editNote(f),
+                        onDeletePhoto: (p) => _guard(
+                            () => deleteFindingPhoto(widget.job.id, f.id, p.id), 'Foto dihapus.'),
                       ),
                       const SizedBox(height: 10),
                     ],
@@ -2150,6 +2152,7 @@ class _FindingTile extends StatelessWidget {
     required this.busy,
     required this.onAdd,
     required this.onEditNote,
+    required this.onDeletePhoto,
     this.showAuthors = false,
   });
 
@@ -2158,6 +2161,7 @@ class _FindingTile extends StatelessWidget {
   final bool busy;
   final ValueChanged<PhotoKind> onAdd;
   final VoidCallback onEditNote;
+  final ValueChanged<JobFindingPhoto> onDeletePhoto;
 
   /// Job pernah dialihkan: tampilkan siapa yang mencatat temuan dan mengunggah foto.
   final bool showAuthors;
@@ -2227,6 +2231,7 @@ class _FindingTile extends StatelessWidget {
               canUpload: canUpload,
               busy: busy,
               onAdd: () => onAdd(kind),
+              onDelete: onDeletePhoto,
             ),
             if (kind != PhotoKind.values.last) const SizedBox(height: 10),
           ],
@@ -2244,6 +2249,7 @@ class _PhotoGroup extends StatelessWidget {
     required this.canUpload,
     required this.busy,
     required this.onAdd,
+    required this.onDelete,
   });
 
   final PhotoKind kind;
@@ -2251,6 +2257,7 @@ class _PhotoGroup extends StatelessWidget {
   final bool canUpload;
   final bool busy;
   final VoidCallback onAdd;
+  final ValueChanged<JobFindingPhoto> onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -2268,7 +2275,8 @@ class _PhotoGroup extends StatelessWidget {
           child: ListView(
             scrollDirection: Axis.horizontal,
             children: [
-              for (final p in photos) _Thumb(photo: p),
+              for (final p in photos)
+                _Thumb(photo: p, onDelete: canUpload && !busy ? () => onDelete(p) : null),
               if (canUpload) _AddTile(busy: busy, onTap: onAdd),
               if (photos.isEmpty && !canUpload)
                 const _EmptyThumb(),
@@ -2281,8 +2289,11 @@ class _PhotoGroup extends StatelessWidget {
 }
 
 class _Thumb extends ConsumerWidget {
-  const _Thumb({required this.photo});
+  const _Thumb({required this.photo, this.onDelete});
   final JobFindingPhoto photo;
+
+  /// Non-null = pemanggil boleh menghapus (teknisi pemilik job, job aktif); tombolnya ada di penampil foto.
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2317,6 +2328,32 @@ class _Thumb extends ConsumerWidget {
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
           title: Text(photo.kind.label),
+          actions: [
+            if (onDelete != null)
+              Builder(
+                builder: (ctx) => IconButton(
+                  tooltip: 'Hapus foto',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: ctx,
+                      builder: (d) => AlertDialog(
+                        title: const Text('Hapus foto ini?'),
+                        content: const Text('Foto dihapus permanen dan tidak bisa dikembalikan.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.of(d).pop(false), child: const Text('Batal')),
+                          FilledButton(
+                              onPressed: () => Navigator.of(d).pop(true), child: const Text('Hapus')),
+                        ],
+                      ),
+                    );
+                    if (ok != true || !ctx.mounted) return;
+                    Navigator.of(ctx).pop();
+                    onDelete!();
+                  },
+                ),
+              ),
+          ],
         ),
         body: Center(
           child: InteractiveViewer(

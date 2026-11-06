@@ -1834,6 +1834,16 @@ function FindingPhotoGroup({
   canEdit: boolean;
   showAuthors?: boolean;
 }) {
+  const queryClient = useQueryClient();
+  const deletePhoto = useMutation({
+    mutationFn: (photoId: string) =>
+      apiClient.delete(`/technician-jobs/${jobId}/findings/${findingId}/photos/${photoId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
+      toast.success('Foto dihapus.');
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Gagal menghapus foto.'),
+  });
   const uploaders = showAuthors
     ? [...new Set(photos.map((p) => p.uploadedBy?.displayName).filter((n): n is string => !!n))]
     : [];
@@ -1845,7 +1855,23 @@ function FindingPhotoGroup({
       <div className="flex flex-wrap items-center gap-1.5">
         {photos.map((p) => (
           // Foto lewat proxy same-origin (/api/proxy/uploads/...), tidak perlu BACKEND_URL publik.
-          <PhotoThumb key={p.id} src={`/api/proxy${p.path}`} label={label} />
+          <div key={p.id} className="relative">
+            <PhotoThumb src={`/api/proxy${p.path}`} label={label} />
+            {canEdit && (
+              <button
+                type="button"
+                aria-label={`Hapus foto ${label.toLowerCase()}`}
+                title="Hapus foto"
+                disabled={deletePhoto.isPending}
+                onClick={() => {
+                  if (confirm('Hapus foto ini? Tidak bisa dikembalikan.')) deletePhoto.mutate(p.id);
+                }}
+                className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-destructive text-white shadow focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              >
+                <X className="size-3" />
+              </button>
+            )}
+          </div>
         ))}
         {canEdit && (
           <FindingPhotoUploadButton jobId={jobId} findingId={findingId} kind={kind} />

@@ -169,6 +169,10 @@ Future<void> sendFindings(String jobId) => _api.post('/technician-jobs/$jobId/se
 Future<void> updateFindingNote(String jobId, String findingId, String note) =>
     _api.patch('/technician-jobs/$jobId/findings/$findingId', body: {'note': note});
 
+/// `DELETE /technician-jobs/:jobId/findings/:findingId/photos/:photoId` — hapus foto temuan (selama job aktif).
+Future<void> deleteFindingPhoto(String jobId, String findingId, String photoId) =>
+    _api.delete('/technician-jobs/$jobId/findings/$findingId/photos/$photoId');
+
 /// `POST /technician-jobs/:jobId/findings` — tambah temuan (kategori diketik
 /// bebas; kategori baru otomatis dibuat server).
 Future<void> addFinding(String jobId, {required String categoryName, String? note}) =>

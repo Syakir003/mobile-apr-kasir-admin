@@ -11,6 +11,8 @@ import {
   ProblemCategory,
   TechnicianJobStatus,
 } from '@prisma/client';
+import { unlink } from 'fs/promises';
+import { resolveUploadFile } from '../common/uploads/uploads.controller';
 import { PrismaService } from '../prisma/prisma.service';
 import { JobBillingService, unitInvoiceLabel } from '../common/services/job-billing.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
@@ -1081,6 +1083,29 @@ export class TechnicianJobsService {
     return this.prisma.jobFindingPhoto.create({
       data: { findingId, kind, path, uploadedById: actorId },
     });
+  }
+
+  /** Hapus satu foto temuan (salah upload). Selama job aktif; hanya teknisi pemilik job / admin. */
+  async deleteFindingPhoto(jobId: string, findingId: string, photoId: string, actorId: string, role: Role) {
+    const job = await this.prisma.technicianJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new NotFoundException('Job tidak ditemukan');
+    this.assertOwnerOrAdmin(job, actorId, role);
+    if (
+      !([TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]).includes(job.status)
+    ) {
+      throw new BadRequestException('Foto hanya bisa dihapus saat job aktif');
+    }
+    const photo = await this.prisma.jobFindingPhoto.findUnique({
+      where: { id: photoId },
+      include: { finding: { select: { id: true, jobId: true } } },
+    });
+    if (!photo || photo.finding.id !== findingId || photo.finding.jobId !== jobId) {
+      throw new NotFoundException('Foto tidak ditemukan pada temuan ini');
+    }
+    await this.prisma.jobFindingPhoto.delete({ where: { id: photoId } });
+    // File fisik dibersihkan terpisah; gagal hapus file tidak boleh menggagalkan hapus data.
+    await unlink(resolveUploadFile(photo.path)).catch(() => undefined);
+    return { ok: true };
   }
 
   async updateNotes(jobId: string, notes: string, actorId: string, role: Role) {

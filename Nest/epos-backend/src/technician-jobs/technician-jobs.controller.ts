@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -359,6 +360,18 @@ export class TechnicianJobsController {
       await this.offlineSync.releasePhotoUpload(clientActionId);
       throw err;
     }
+  }
+
+  // Hapus satu foto temuan (salah upload). Gate peran/status ada di service.
+  @Roles('admin', 'teknisi')
+  @Delete(':id/findings/:findingId/photos/:photoId')
+  deleteFindingPhoto(
+    @Param('id') id: string,
+    @Param('findingId') findingId: string,
+    @Param('photoId') photoId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.jobs.deleteFindingPhoto(id, findingId, photoId, user.sub, user.role);
   }
 
   // Teknisi menandai temuan sudah diinput -> kasir & admin dinotifikasi buat
