@@ -112,16 +112,19 @@ export class ReportsService {
         AND completed_at BETWEEN ${start} AND ${end}
     `;
 
-    // 3) performa per teknisi — jumlah job selesai
+    // 3) performa per teknisi — jumlah job selesai. Job yang dikerjakan beberapa teknisi dihitung untuk SEMUA teknisinya
+    //    (tabel assignees), jadi jumlah baris per teknisi bisa melebihi total job; total per status/rata-rata waktu di
+    //    atas tetap per job.
     const byTechnician = await this.prisma.$queryRaw<
       { technician_id: string; display_name: string; completed_count: string }[]
     >`
-      SELECT tj.technician_id, u.display_name, COUNT(*) AS completed_count
-      FROM technician_jobs tj
-      JOIN users u ON u.id = tj.technician_id
+      SELECT a.technician_id, u.display_name, COUNT(*) AS completed_count
+      FROM technician_job_assignees a
+      JOIN technician_jobs tj ON tj.id = a.job_id
+      JOIN users u ON u.id = a.technician_id
       WHERE tj.status = 'selesai'
         AND tj.completed_at BETWEEN ${start} AND ${end}
-      GROUP BY tj.technician_id, u.display_name
+      GROUP BY a.technician_id, u.display_name
       ORDER BY completed_count DESC
     `;
 
