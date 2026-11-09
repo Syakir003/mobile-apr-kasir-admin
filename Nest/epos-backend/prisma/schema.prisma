@@ -61,6 +61,7 @@ model User {
   invoicesMade       Invoice[]            @relation("InvoiceCreatedBy")
   serviceOrdersMade  ServiceOrder[]       @relation("ServiceOrderCreatedBy")
   technicianJobs     TechnicianJob[]      @relation("JobTechnician")
+  jobAssignments     TechnicianJobAssignee[]
   jobsCreated        TechnicianJob[]      @relation("JobCreatedBy")
   materialRequestsBy MaterialRequest[]    @relation("RequestCreatedBy")
   materialDecidedBy  MaterialRequest[]    @relation("RequestDecidedBy")
@@ -860,9 +861,25 @@ model TechnicianJob {
   findings         JobFinding[]
   materialRequests MaterialRequest[]
   handovers        JobHandover[]
+  // SEMUA teknisi job ini (setara). technicianId di atas = teknisi pertama, dipertahankan untuk kode/APK lama.
+  assignees        TechnicianJobAssignee[]
 
   @@index([complaintOfJobId])
   @@map("technician_jobs")
+}
+
+// Penugasan beberapa teknisi per job: semua teknisi setara (sama-sama melihat & mengerjakan job). Dijaga sinkron dengan
+// technician_jobs.technician_id (= teknisi pertama) lewat setJobAssignees() di technician-jobs/job-assignees.ts.
+model TechnicianJobAssignee {
+  jobId        String        @map("job_id")
+  job          TechnicianJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technicianId String        @map("technician_id")
+  technician   User          @relation(fields: [technicianId], references: [id])
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  @@id([jobId, technicianId])
+  @@index([technicianId])
+  @@map("technician_job_assignees")
 }
 
 // Riwayat alih tugas: job dialihkan admin/kasir ke teknisi lain (kapan saja selama belum review/selesai, mis. teknisi
