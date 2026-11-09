@@ -113,6 +113,14 @@ export class TechnicianJobsController {
     return this.jobs.history(user.sub, query.page ?? 1, query.pageSize ?? 20);
   }
 
+  // Beban kerja teknisi (job sedang_dikerjakan per teknisi) untuk peringatan sibuk saat menugaskan. Route statis,
+  // WAJIB sebelum ':id'. Teknisi tidak boleh melihat beban kerja teknisi lain.
+  @Roles('admin', 'kasir')
+  @Get('workload')
+  workload() {
+    return this.jobs.workload();
+  }
+
   // Siklus 5 (revisi) — autocomplete kategori temuan. Route statis
   // 'categories/search' juga WAJIB sebelum ':id', sama alasannya kayak 'history'.
   @Roles('admin', 'teknisi')

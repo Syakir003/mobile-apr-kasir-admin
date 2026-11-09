@@ -251,6 +251,38 @@ export class TechnicianJobsService {
   }
 
   /**
+   * Beban kerja teknisi untuk peringatan saat penugasan ("sedang mengerjakan job lain"): per teknisi aktif, daftar job
+   * berstatus `sedang_dikerjakan` (job 'assigned'/'menunggu_review' tidak dihitung sibuk). Job bersama dihitung untuk
+   * SEMUA assignee-nya. Sengaja sempit: tanpa harga/tagihan/telepon — hanya admin & kasir yang memanggilnya.
+   */
+  async workload() {
+    const jobs = await this.prisma.technicianJob.findMany({
+      where: { status: TechnicianJobStatus.sedang_dikerjakan },
+      select: {
+        id: true,
+        workAddress: true,
+        member: { select: { name: true } },
+        unit: { select: { roomLocation: true } },
+        assignees: { select: { technician: { select: { id: true, active: true, role: true } } } },
+      },
+      orderBy: { startedAt: 'asc' },
+    });
+    const byTechnician = new Map<string, { jobId: string; customerName: string | null; location: string | null }[]>();
+    for (const j of jobs) {
+      const entry = {
+        jobId: j.id,
+        customerName: j.member?.name ?? null,
+        location: j.workAddress ?? j.unit?.roomLocation ?? null,
+      };
+      for (const { technician } of j.assignees) {
+        if (!technician.active || technician.role !== 'teknisi') continue;
+        byTechnician.set(technician.id, [...(byTechnician.get(technician.id) ?? []), entry]);
+      }
+    }
+    return [...byTechnician].map(([technicianId, list]) => ({ technicianId, jobs: list }));
+  }
+
+  /**
    * Siklus 9 (Mode Offline Teknisi) — payload GEMUK buat precache harian:
    * semua job aktif milik teknisi ini (dijadwalkan hari ini ATAU masih
    * berjalan dari hari sebelumnya) LENGKAP dengan temuan+foto+material
