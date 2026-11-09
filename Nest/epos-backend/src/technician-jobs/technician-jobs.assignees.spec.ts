@@ -272,3 +272,147 @@ describe('createForOrder dengan banyak teknisi', () => {
     expect(tx.technicianJobAssignee.createMany).not.toHaveBeenCalled();
   });
 });
+
+// ---- Task 4: assign set penuh (banyak teknisi setara) ----
+
+describe('TechnicianJobsService.assign — set penuh banyak teknisi', () => {
+  type J = { id: string; orderId: string; status: string; technicianId: string | null; assignees: string[] };
+
+  // DB simulasi: job + daftar assignees-nya; baris disalin seperti dari DB sungguhan.
+  function assignDb(list: J[], inactive: string[] = []) {
+    const jobs = new Map(list.map((j) => [j.id, { ...j }]));
+    const row = (id: string) => {
+      const { assignees: _a, ...rest } = jobs.get(id)!;
+      return { ...rest };
+    };
+    const tx: any = {
+      $executeRaw: jest.fn(async () => 1),
+      technicianJobAssignee: {
+        findMany: jest.fn(async ({ where }: any) =>
+          [...jobs.values()]
+            .filter((j) => where.jobId.in.includes(j.id))
+            .flatMap((j) => j.assignees.map((technicianId) => ({ jobId: j.id, technicianId }))),
+        ),
+        deleteMany: jest.fn(async ({ where }: any) => {
+          jobs.get(where.jobId)!.assignees = [];
+        }),
+        createMany: jest.fn(async ({ data }: any) => {
+          for (const d of data) jobs.get(d.jobId)!.assignees.push(d.technicianId);
+        }),
+      },
+      technicianJob: {
+        findUnique: jest.fn(async ({ where }: any) => (jobs.has(where.id) ? row(where.id) : null)),
+        findMany: jest.fn(async ({ where }: any) =>
+          [...jobs.values()]
+            .filter((j) => j.orderId === where.orderId && j.id !== where.id.not && where.status.in.includes(j.status))
+            .map((j) => row(j.id)),
+        ),
+        update: jest.fn(async ({ where, data }: any) => {
+          Object.assign(jobs.get(where.id)!, data);
+          return row(where.id);
+        }),
+      },
+      user: { findMany: jest.fn(async ({ where }: any) => where.id.in.map((id: string) => ({ id, displayName: `Nama-${id}` }))) },
+      jobHandover: { create: jest.fn(async () => ({})) },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    const prisma: any = {
+      user: {
+        findMany: jest.fn(async ({ where }: any) =>
+          where.id.in.map((id: string) => ({ id, role: 'teknisi', active: !inactive.includes(id) })),
+        ),
+      },
+      $transaction: jest.fn(async (fn: any) => fn(tx)),
+    };
+    const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
+    return { svc, tx, prisma, jobs };
+  }
+  const j = (id: string, status: string, assignees: string[]): J => ({
+    id,
+    orderId: 'o1',
+    status,
+    technicianId: assignees[0] ?? null,
+    assignees,
+  });
+  const admin = { actorId: 'adm1', role: 'admin' as const };
+
+  it('penugasan pertama ke beberapa teknisi: assigned, technicianId = pertama, semua tercatat masuk', async () => {
+    const { svc, jobs } = assignDb([j('j1', 'menunggu_penugasan', [])]);
+    const res: any = await svc.assign('j1', ['t1', 't2'], admin);
+    expect(res).toMatchObject({ status: 'assigned', technicianId: 't1', previousTechnicianIds: [], addedTechnicianIds: ['t1', 't2'] });
+    expect(jobs.get('j1')!.assignees).toEqual(['t1', 't2']);
+  });
+
+  it('menambah teknisi ke job sedang_dikerjakan: status TETAP (tidak wajib scan ulang), tanpa riwayat alih tugas', async () => {
+    const { svc, tx, jobs } = assignDb([j('j1', 'sedang_dikerjakan', ['t1', 't2'])]);
+    const res: any = await svc.assign('j1', ['t1', 't2', 't3'], admin);
+    expect(res).toMatchObject({ status: 'sedang_dikerjakan', previousTechnicianIds: [], addedTechnicianIds: ['t3'] });
+    expect(jobs.get('j1')!.assignees).toEqual(['t1', 't2', 't3']);
+    expect(tx.jobHandover.create).not.toHaveBeenCalled();
+  });
+
+  it('mengurangi sebagian (masih ada irisan) pada sedang_dikerjakan: status tetap, yang keluar tercatat di audit', async () => {
+    const { svc, tx } = assignDb([j('j1', 'sedang_dikerjakan', ['t1', 't2'])]);
+    const res: any = await svc.assign('j1', ['t1'], admin);
+    expect(res).toMatchObject({ status: 'sedang_dikerjakan', previousTechnicianIds: ['t2'], addedTechnicianIds: [] });
+    expect(tx.jobHandover.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'job.assignees_changed',
+        target: 'j1',
+        detail: expect.objectContaining({ sebelum: ['Nama-t1', 'Nama-t2'], sesudah: ['Nama-t1'] }),
+      }),
+    });
+  });
+
+  it('ganti penuh satu-ke-satu pada sedang_dikerjakan: kembali ke assigned (scan ulang) + satu catatan alih tugas', async () => {
+    const { svc, tx } = assignDb([j('j1', 'sedang_dikerjakan', ['t1'])]);
+    const res: any = await svc.assign('j1', ['t9'], { ...admin, reason: 'sakit' });
+    expect(res).toMatchObject({ status: 'assigned', technicianId: 't9', previousTechnicianIds: ['t1'], addedTechnicianIds: ['t9'] });
+    expect(tx.jobHandover.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ fromTechnicianId: 't1', toTechnicianId: 't9', statusAtHandover: 'sedang_dikerjakan', reason: 'sakit' }),
+    });
+  });
+
+  it('ganti penuh banyak-ke-banyak (tanpa irisan): kembali ke assigned, TANPA baris alih tugas tapi ada audit', async () => {
+    const { svc, tx } = assignDb([j('j1', 'sedang_dikerjakan', ['t1', 't2'])]);
+    const res: any = await svc.assign('j1', ['t3'], admin);
+    expect(res.status).toBe('assigned');
+    expect(res.previousTechnicianIds.sort()).toEqual(['t1', 't2']);
+    expect(tx.jobHandover.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: 'job.assignees_changed', detail: expect.objectContaining({ sesudah: ['Nama-t3'] }) }),
+    });
+  });
+
+  it('set yang sama (urutan apa pun) pada job yang sudah jalan ditolak 400 tanpa perubahan', async () => {
+    const { svc, tx } = assignDb([j('j1', 'sedang_dikerjakan', ['t1', 't2'])]);
+    await expect(svc.assign('j1', ['t2', 't1'], admin)).rejects.toThrow('Job ini sudah dipegang teknisi tersebut');
+    expect(tx.technicianJob.update).not.toHaveBeenCalled();
+  });
+
+  it('kasir ditolak 403 untuk job sedang_dikerjakan / menunggu_review', async () => {
+    const { svc, tx } = assignDb([j('j1', 'sedang_dikerjakan', ['t1'])]);
+    await expect(svc.assign('j1', ['t1', 't2'], { actorId: 'k1', role: 'kasir' })).rejects.toThrow(/Hanya admin/);
+    expect(tx.technicianJob.update).not.toHaveBeenCalled();
+  });
+
+  it('allInOrder: set yang sama dipasang ke saudara yang masih bisa dialihkan', async () => {
+    const { svc, jobs } = assignDb([j('j1', 'assigned', ['t1']), j('j2', 'menunggu_penugasan', []), j('j3', 'selesai', ['t1'])]);
+    await svc.assign('j1', ['t1', 't2'], { ...admin, allInOrder: true });
+    expect(jobs.get('j1')!.assignees).toEqual(['t1', 't2']);
+    expect(jobs.get('j2')!.assignees).toEqual(['t1', 't2']);
+    expect(jobs.get('j3')!.assignees).toEqual(['t1']); // sudah selesai: tidak disentuh
+  });
+
+  it('kosong, >5, nonaktif ditolak 400 sebelum ada yang berubah; duplikat dilebur', async () => {
+    const a = assignDb([j('j1', 'assigned', ['t1'])], ['t3']);
+    await expect(a.svc.assign('j1', [], admin)).rejects.toThrow('Pilih minimal satu teknisi');
+    await expect(a.svc.assign('j1', ['a', 'b', 'c', 'd', 'e', 'f'], admin)).rejects.toThrow('Maksimal 5 teknisi per job');
+    await expect(a.svc.assign('j1', ['t2', 't3'], admin)).rejects.toThrow('Teknisi tidak valid atau tidak aktif');
+    expect(a.prisma.$transaction).not.toHaveBeenCalled();
+    const res: any = await a.svc.assign('j1', ['t2', 't2'], admin);
+    expect(a.jobs.get('j1')!.assignees).toEqual(['t2']);
+    expect(res.technicianId).toBe('t2');
+  });
+});

@@ -13,7 +13,13 @@ import {
 } from '@prisma/client';
 import { unlink } from 'fs/promises';
 import { resolveUploadFile } from '../common/uploads/uploads.controller';
-import { assertValidTechnicians, assignedTo, isJobAssignee, normalizeTechnicianIds } from './job-assignees';
+import {
+  assertValidTechnicians,
+  assignedTo,
+  isJobAssignee,
+  normalizeTechnicianIds,
+  setJobAssignees,
+} from './job-assignees';
 import { PrismaService } from '../prisma/prisma.service';
 import { JobBillingService, unitInvoiceLabel } from '../common/services/job-billing.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
@@ -839,26 +845,27 @@ export class TechnicianJobsService {
   }
 
   /**
-   * Admin/kasir menugaskan atau mengalihtugaskan teknisi (Task 5.1). Alih tugas boleh KAPAN SAJA selama job belum
-   * selesai/dibatalkan: sebelum mulai ('assigned'), sudah dikerjakan sebagian ('sedang_dikerjakan': teknisi
-   * berhalangan / pekerjaan dilanjut hari lain), atau sudah diajukan ('menunggu_review') — dua yang terakhir HANYA
-   * admin. Job yang sedang dikerjakan kembali ke 'assigned' setelah dialihkan: temuan & foto teknisi sebelumnya tetap,
-   * tetapi teknisi baru wajib scan ulang barcode unit (Mulai Job) sebelum melanjutkan. Job 'menunggu_review' tetap
-   * menunggu review (pekerjaan sudah selesai, tidak perlu dikembalikan/scan ulang): admin tetap bisa menyetujuinya
-   * siapa pun teknisinya. Tiap pergantian dari teknisi lama ke teknisi lain dicatat di JobHandover (+ audit log).
-   * Servis banyak AC (`allInOrder`): semua unit order yang masih bisa dialihkan ikut pindah ke teknisi yang sama.
+   * Admin/kasir menugaskan teknisi ke job (Task 5.1) — SET PENUH: `technicianIds` menggantikan seluruh teknisi job
+   * (maks 5, semua setara; teknisi pertama = `technician_id`). Boleh KAPAN SAJA selama job belum selesai/dibatalkan:
+   * sebelum mulai ('assigned'), sudah dikerjakan sebagian ('sedang_dikerjakan'), atau sudah diajukan
+   * ('menunggu_review') — dua yang terakhir HANYA admin. Status:
+   *  - menunggu_penugasan -> assigned;
+   *  - sedang_dikerjakan kembali ke 'assigned' (teknisi baru wajib scan ulang, temuan & foto tetap) HANYA bila set baru
+   *    sama sekali tidak beririsan dengan set lama (pergantian penuh); menambah/mengurangi sebagian tidak mereset;
+   *  - menunggu_review tetap menunggu review (admin tetap bisa menyetujuinya).
+   * Pergantian satu teknisi ke satu teknisi lain dicatat di JobHandover (+ audit `job.handover`); perubahan set lainnya
+   * (tanpa baris JobHandover) dicatat di audit `job.assignees_changed` berisi nama sebelum/sesudah. Penugasan pertama
+   * (dari kosong) tidak dicatat. Servis banyak AC (`allInOrder`): set yang sama dipasang ke semua unit order yang masih
+   * bisa dialihkan.
    */
   async assign(
     jobId: string,
-    technicianId: string,
+    technicianIds: string[],
     opts: { allInOrder?: boolean; actorId: string; role: Role; reason?: string },
   ) {
-    const technician = await this.prisma.user.findUnique({
-      where: { id: technicianId },
-    });
-    if (!technician || technician.role !== 'teknisi' || !technician.active) {
-      throw new BadRequestException('Teknisi tidak valid atau tidak aktif');
-    }
+    const ids = normalizeTechnicianIds({ technicianIds });
+    if (ids.length === 0) throw new BadRequestException('Pilih minimal satu teknisi');
+    await assertValidTechnicians(this.prisma, ids);
     const reassignable = [
       TechnicianJobStatus.menunggu_penugasan,
       TechnicianJobStatus.assigned,
@@ -868,6 +875,7 @@ export class TechnicianJobsService {
     // Status yang sudah melewati titik "mulai": hanya admin yang boleh mengalihkannya.
     const adminOnly = [TechnicianJobStatus.sedang_dikerjakan, TechnicianJobStatus.menunggu_review] as TechnicianJobStatus[];
     const reason = opts.reason?.trim() || null;
+    const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
     return this.prisma.$transaction(async (tx) => {
       const base = await tx.technicianJob.findUnique({ where: { id: jobId }, select: { orderId: true } });
@@ -880,9 +888,6 @@ export class TechnicianJobsService {
       if (!reassignable.includes(job.status)) {
         throw new BadRequestException('Job yang selesai/dibatalkan tidak bisa di-assign ulang');
       }
-      if (adminOnly.includes(job.status) && job.technicianId === technicianId) {
-        throw new BadRequestException('Job ini sudah dipegang teknisi tersebut');
-      }
 
       const targets = [job];
       if (opts.allInOrder) {
@@ -894,6 +899,21 @@ export class TechnicianJobsService {
         );
       }
 
+      // Teknisi saat ini per job (technicianId = pertama, lalu sisanya).
+      const rows = await tx.technicianJobAssignee.findMany({
+        where: { jobId: { in: targets.map((t) => t.id) } },
+        select: { jobId: true, technicianId: true },
+      });
+      const currentOf = (t: { id: string; technicianId: string | null }) =>
+        normalizeTechnicianIds({
+          technicianIds: [t.technicianId, ...rows.filter((r) => r.jobId === t.id).map((r) => r.technicianId)].filter(
+            (x): x is string => !!x,
+          ),
+        });
+
+      if (adminOnly.includes(job.status) && sameSet(currentOf(job), ids)) {
+        throw new BadRequestException('Job ini sudah dipegang teknisi tersebut');
+      }
       // Mengalihkan job yang sedang dikerjakan / menunggu review hanya boleh admin (kasir tetap boleh menugaskan/mengganti
       // sebelum mulai).
       if (opts.role !== 'admin' && targets.some((t) => adminOnly.includes(t.status))) {
@@ -901,39 +921,43 @@ export class TechnicianJobsService {
       }
 
       // Nama teknisi untuk catatan audit (detail audit dibaca manusia, bukan id).
+      const involved = [...new Set([...ids, ...targets.flatMap((t) => currentOf(t))])];
       const nameOf = new Map(
-        (
-          await tx.user.findMany({
-            where: { id: { in: [technicianId, ...targets.map((t) => t.technicianId).filter((x): x is string => !!x)] } },
-            select: { id: true, displayName: true },
-          })
-        ).map((u) => [u.id, u.displayName]),
+        (await tx.user.findMany({ where: { id: { in: involved } }, select: { id: true, displayName: true } })).map((u) => [
+          u.id,
+          u.displayName,
+        ]),
       );
+      const names = (list: string[]) => list.map((id) => nameOf.get(id) ?? id);
 
       const now = new Date();
-      const previousTechnicianIds = new Set<string>();
+      const removed = new Set<string>();
+      const added = new Set<string>();
       let updatedBase = job;
       for (const t of targets) {
-        // Saudara yang sudah dipegang teknisi yang sama (sedang jalan / menunggu review): tidak ada yang berubah.
-        if (adminOnly.includes(t.status) && t.technicianId === technicianId) continue;
-        const updated = await tx.technicianJob.update({
-          where: { id: t.id },
-          data: {
-            technicianId,
-            // Job yang sedang dikerjakan kembali ke 'assigned' (teknisi baru wajib scan ulang, start()). Job yang
-            // menunggu review tetap menunggu review — pekerjaannya sudah selesai, admin tinggal menyetujui.
-            status: t.status === TechnicianJobStatus.menunggu_review ? TechnicianJobStatus.menunggu_review : TechnicianJobStatus.assigned,
-            updatedAt: now,
-          },
-        });
+        const prev = currentOf(t);
+        // Saudara yang sudah dipegang set yang sama (sedang jalan / menunggu review): tidak ada yang berubah.
+        if (adminOnly.includes(t.status) && sameSet(prev, ids)) continue;
+        const overlaps = prev.some((id) => ids.includes(id));
+        const status =
+          t.status === TechnicianJobStatus.menunggu_review
+            ? TechnicianJobStatus.menunggu_review
+            : t.status === TechnicianJobStatus.sedang_dikerjakan && overlaps
+              ? TechnicianJobStatus.sedang_dikerjakan
+              : TechnicianJobStatus.assigned;
+        await setJobAssignees(tx, t.id, ids);
+        const updated = await tx.technicianJob.update({ where: { id: t.id }, data: { status, updatedAt: now } });
         if (t.id === jobId) updatedBase = updated;
-        if (t.technicianId && t.technicianId !== technicianId) {
-          previousTechnicianIds.add(t.technicianId);
+
+        prev.filter((id) => !ids.includes(id)).forEach((id) => removed.add(id));
+        ids.filter((id) => !prev.includes(id)).forEach((id) => added.add(id));
+        if (prev.length === 0) continue; // penugasan pertama: bukan alih tugas
+        if (prev.length === 1 && ids.length === 1 && prev[0] !== ids[0]) {
           await tx.jobHandover.create({
             data: {
               jobId: t.id,
-              fromTechnicianId: t.technicianId,
-              toTechnicianId: technicianId,
+              fromTechnicianId: prev[0],
+              toTechnicianId: ids[0],
               handedById: opts.actorId,
               statusAtHandover: t.status,
               reason,
@@ -944,17 +968,21 @@ export class TechnicianJobsService {
               actorUid: opts.actorId,
               action: 'job.handover',
               target: t.id,
-              detail: {
-                dari: nameOf.get(t.technicianId) ?? t.technicianId,
-                ke: nameOf.get(technicianId) ?? technicianId,
-                statusAtHandover: t.status,
-                reason,
-              },
+              detail: { dari: names(prev)[0], ke: names(ids)[0], statusAtHandover: t.status, reason },
+            },
+          });
+        } else if (!sameSet(prev, ids)) {
+          await tx.auditLog.create({
+            data: {
+              actorUid: opts.actorId,
+              action: 'job.assignees_changed',
+              target: t.id,
+              detail: { sebelum: names(prev), sesudah: names(ids), statusAtHandover: t.status, reason },
             },
           });
         }
       }
-      return { ...updatedBase, previousTechnicianIds: [...previousTechnicianIds] };
+      return { ...updatedBase, previousTechnicianIds: [...removed], addedTechnicianIds: [...added] };
     });
   }
 

@@ -155,9 +155,7 @@ export class TechnicianJobsController {
     @Body() dto: AssignJobDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    const technicianIds = normalizeTechnicianIds(dto);
-    if (technicianIds.length === 0) throw new BadRequestException('Pilih minimal satu teknisi');
-    const result = await this.jobs.assign(id, technicianIds[0], {
+    const result = await this.jobs.assign(id, normalizeTechnicianIds(dto), {
       allInOrder: dto.allInOrder,
       actorId: user.sub,
       role: user.role,
@@ -168,23 +166,25 @@ export class TechnicianJobsController {
       status: result.status,
     });
     const handedOver = result.previousTechnicianIds.length > 0;
-    // Notifikasi push ke teknisi yang baru ditugaskan — .catch() biar
+    // Notifikasi push ke teknisi yang BARU masuk (yang tetap di job tidak dikabari ulang) — .catch() biar
     // gagal kirim notifikasi (mis. push FCM error) gak nge-throw balik ke
     // response assign() yang aksi utamanya udah sukses & ke-commit (sama
     // pola kayak MaterialRequestsController.decide()).
-    this.notifications
-      .notify(technicianIds[0], {
-        title: handedOver ? 'Job Dialihkan ke Kamu' : 'Job Baru Ditugaskan',
-        body: handedOver
-          ? result.status === 'menunggu_review'
-            ? 'Job servis dialihkan ke kamu. Pekerjaannya sudah diajukan dan sedang menunggu review admin.'
-            : 'Job servis dialihkan ke kamu. Scan ulang barcode unit lalu lanjutkan dari temuan & foto teknisi sebelumnya.'
-          : 'Kamu dapat penugasan job servis baru.',
-        type: 'job_assigned',
-        target: id,
-      })
-      .catch(() => {});
-    // Teknisi sebelumnya: kabari bahwa job sudah dialihkan (hilang dari antriannya).
+    for (const technicianId of result.addedTechnicianIds) {
+      this.notifications
+        .notify(technicianId, {
+          title: handedOver ? 'Job Dialihkan ke Kamu' : 'Job Baru Ditugaskan',
+          body: handedOver
+            ? result.status === 'menunggu_review'
+              ? 'Job servis dialihkan ke kamu. Pekerjaannya sudah diajukan dan sedang menunggu review admin.'
+              : 'Job servis dialihkan ke kamu. Scan ulang barcode unit lalu lanjutkan dari temuan & foto teknisi sebelumnya.'
+            : 'Kamu dapat penugasan job servis baru.',
+          type: 'job_assigned',
+          target: id,
+        })
+        .catch(() => {});
+    }
+    // Teknisi yang dikeluarkan: kabari bahwa job sudah dialihkan (hilang dari antriannya).
     for (const prevId of result.previousTechnicianIds) {
       this.notifications
         .notify(prevId, {
@@ -235,9 +235,9 @@ export class TechnicianJobsController {
       jobId: result.jobId,
       status: result.technicianId ? 'assigned' : 'menunggu_penugasan',
     });
-    if (result.technicianId) {
+    for (const technicianId of result.technicianIds) {
       void this.notifications
-        .notify(result.technicianId, {
+        .notify(technicianId, {
           title: 'Job Komplain Ditugaskan',
           body: `Pelanggan${result.customerName ? ` ${result.customerName}` : ''} mengajukan komplain. Kerjakan ulang (scan unit dulu); tanpa penagihan baru.`,
           type: 'job_assigned',

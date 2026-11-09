@@ -246,7 +246,14 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
     const jobs = new Map(jobList.map((j) => [j.id, { ...j }]));
     const tx: any = {
       $executeRaw: jest.fn(async () => 1),
-      technicianJobAssignee: ownerAssignee,
+      // Teknisi job disimulasikan dari kolom technicianId (satu teknisi per job di blok tes ini; set penuh diuji di assignees.spec).
+      technicianJobAssignee: {
+        findMany: jest.fn(async ({ where }: any) =>
+          [...jobs.values()].filter((j) => where.jobId.in.includes(j.id) && j.technicianId).map((j) => ({ jobId: j.id, technicianId: j.technicianId })),
+        ),
+        deleteMany: jest.fn(async () => ({})),
+        createMany: jest.fn(async () => ({})),
+      },
       technicianJob: {
         findUnique: jest.fn(async ({ where }: any) => (jobs.has(where.id) ? { ...jobs.get(where.id)! } : null)), // salinan, seperti baris dari DB
         findMany: jest.fn(async ({ where }: any) =>
@@ -269,7 +276,7 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
       auditLog: { create: jest.fn(async () => ({})) },
     };
     const prisma: any = {
-      user: { findUnique: jest.fn(async () => ({ id: 't9', role: 'teknisi', active: true })) },
+      user: { findMany: jest.fn(async () => [{ id: 't9', role: 'teknisi', active: true }]) },
       $transaction: jest.fn(async (fn: any) => fn(tx)),
     };
     const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
@@ -280,7 +287,7 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
 
   it('penugasan pertama (belum ada teknisi): jadi assigned, TIDAK dicatat sebagai alih tugas', async () => {
     const { svc, tx } = assignSetup([job('j1', 'menunggu_penugasan', null)]);
-    const res: any = await svc.assign('j1', 't9', opts);
+    const res: any = await svc.assign('j1', ['t9'], opts);
     expect(res.status).toBe('assigned');
     expect(res.previousTechnicianIds).toEqual([]);
     expect(tx.jobHandover.create).not.toHaveBeenCalled();
@@ -288,7 +295,7 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
 
   it('ganti teknisi sebelum mulai: tetap assigned dan alih tugas tercatat dengan alasannya', async () => {
     const { svc, tx } = assignSetup([job('j1', 'assigned')]);
-    const res: any = await svc.assign('j1', 't9', { ...opts, reason: '  Teknisi sakit ' });
+    const res: any = await svc.assign('j1', ['t9'], { ...opts, reason: '  Teknisi sakit ' });
     expect(res.technicianId).toBe('t9');
     expect(res.previousTechnicianIds).toEqual(['t1']);
     expect(tx.jobHandover.create).toHaveBeenCalledWith({
@@ -314,7 +321,7 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
 
   it('job SUDAH dikerjakan (sedang_dikerjakan) boleh dialihkan admin: kembali ke assigned (wajib scan ulang), teknisi lama tercatat', async () => {
     const { svc, tx } = assignSetup([job('j1', 'sedang_dikerjakan')]);
-    const res: any = await svc.assign('j1', 't9', opts);
+    const res: any = await svc.assign('j1', ['t9'], opts);
     expect(res.status).toBe('assigned');
     expect(res.technicianId).toBe('t9');
     expect(tx.jobHandover.create).toHaveBeenCalledWith({
@@ -326,29 +333,29 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
     const kasir = { actorId: 'k1', role: 'kasir' as const };
     for (const status of ['sedang_dikerjakan', 'menunggu_review']) {
       const busy = assignSetup([job('j1', status)]);
-      await expect(busy.svc.assign('j1', 't9', kasir)).rejects.toThrow(/Hanya admin yang boleh mengalihkan/);
+      await expect(busy.svc.assign('j1', ['t9'], kasir)).rejects.toThrow(/Hanya admin yang boleh mengalihkan/);
       expect(busy.tx.technicianJob.update).not.toHaveBeenCalled();
     }
     const idle = assignSetup([job('j1', 'assigned')]);
-    const res: any = await idle.svc.assign('j1', 't9', kasir);
+    const res: any = await idle.svc.assign('j1', ['t9'], kasir);
     expect(res.technicianId).toBe('t9');
   });
 
   it('kasir allInOrder ditolak seluruhnya kalau ada unit yang sedang dikerjakan', async () => {
     const { svc, tx } = assignSetup([job('j1', 'assigned'), job('j2', 'sedang_dikerjakan')]);
-    await expect(svc.assign('j1', 't9', { actorId: 'k1', role: 'kasir', allInOrder: true })).rejects.toThrow(/Hanya admin/);
+    await expect(svc.assign('j1', ['t9'], { actorId: 'k1', role: 'kasir', allInOrder: true })).rejects.toThrow(/Hanya admin/);
     expect(tx.technicianJob.update).not.toHaveBeenCalled();
   });
 
   it('job yang sedang dikerjakan teknisi yang sama ditolak (bukan alih tugas)', async () => {
     const { svc, tx } = assignSetup([job('j1', 'sedang_dikerjakan', 't9')]);
-    await expect(svc.assign('j1', 't9', opts)).rejects.toThrow(/sudah dipegang teknisi tersebut/);
+    await expect(svc.assign('j1', ['t9'], opts)).rejects.toThrow(/sudah dipegang teknisi tersebut/);
     expect(tx.technicianJob.update).not.toHaveBeenCalled();
   });
 
   it('job menunggu_review boleh dialihkan admin TANPA dikembalikan: tetap menunggu_review (tanpa scan ulang), admin tetap bisa menyetujui', async () => {
     const { svc, tx } = assignSetup([job('j1', 'menunggu_review')]);
-    const res: any = await svc.assign('j1', 't9', opts);
+    const res: any = await svc.assign('j1', ['t9'], opts);
     expect(res.status).toBe('menunggu_review');
     expect(res.technicianId).toBe('t9');
     expect(tx.jobHandover.create).toHaveBeenCalledWith({
@@ -358,12 +365,12 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
 
   it('job menunggu_review yang sudah dipegang teknisi tujuan ditolak', async () => {
     const { svc } = assignSetup([job('j1', 'menunggu_review', 't9')]);
-    await expect(svc.assign('j1', 't9', opts)).rejects.toThrow(/sudah dipegang teknisi tersebut/);
+    await expect(svc.assign('j1', ['t9'], opts)).rejects.toThrow(/sudah dipegang teknisi tersebut/);
   });
 
   it.each(['selesai', 'dibatalkan'])('job %s tidak bisa dialihkan', async (status) => {
     const { svc, tx } = assignSetup([job('j1', status)]);
-    await expect(svc.assign('j1', 't9', opts)).rejects.toThrow(/tidak bisa di-assign ulang/);
+    await expect(svc.assign('j1', ['t9'], opts)).rejects.toThrow(/tidak bisa di-assign ulang/);
     expect(tx.technicianJob.update).not.toHaveBeenCalled();
   });
 
@@ -375,8 +382,10 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
       job('j4', 'selesai'),
       job('j5', 'sedang_dikerjakan', 't9'), // sudah di teknisi tujuan: dilewati
     ]);
-    const res: any = await svc.assign('j1', 't9', { ...opts, allInOrder: true });
-    const updates = tx.technicianJob.update.mock.calls.map((c: any) => [c[0].where.id, c[0].data.status]);
+    const res: any = await svc.assign('j1', ['t9'], { ...opts, allInOrder: true });
+    const updates = tx.technicianJob.update.mock.calls
+      .filter((c: any) => c[0].data.status)
+      .map((c: any) => [c[0].where.id, c[0].data.status]);
     expect(updates).toEqual([
       ['j1', 'assigned'],
       ['j2', 'assigned'],
@@ -388,8 +397,8 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
 
   it('teknisi tidak valid ditolak sebelum menyentuh job', async () => {
     const { svc, prisma, tx } = assignSetup([job('j1', 'assigned')]);
-    prisma.user.findUnique.mockResolvedValueOnce({ id: 't9', role: 'kasir', active: true });
-    await expect(svc.assign('j1', 't9', { ...opts, allInOrder: true })).rejects.toBeInstanceOf(BadRequestException);
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 't9', role: 'kasir', active: true }]);
+    await expect(svc.assign('j1', ['t9'], { ...opts, allInOrder: true })).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.technicianJob.update).not.toHaveBeenCalled();
   });
 });
