@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import { unlink } from 'fs/promises';
 import { resolveUploadFile } from '../common/uploads/uploads.controller';
+import { assignedTo, isJobAssignee } from './job-assignees';
 import { PrismaService } from '../prisma/prisma.service';
 import { JobBillingService, unitInvoiceLabel } from '../common/services/job-billing.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
@@ -30,6 +31,11 @@ import { assertNoActiveJob } from './active-job.util';
 import { AddUnitDto } from './dto/add-unit.dto';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { INTAKE_JOB_TYPES } from '../service-orders/dto/service-intake.dto';
+
+// Daftar teknisi job (semua setara); dibentuk ulang jadi technicianIds/technicians oleh withAssignees().
+const ASSIGNEES_INCLUDE = {
+  assignees: { include: { technician: { select: { id: true, displayName: true } } } },
+} as const;
 
 type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
 
@@ -68,14 +74,32 @@ export class TechnicianJobsService {
     private readonly acUnits: AcUnitsService,
   ) {}
 
-  private assertOwnerOrAdmin(
-    job: { technicianId: string | null },
+  /** Admin selalu lolos; teknisi harus termasuk assignees job (semua teknisi job setara). */
+  private async assertOwnerOrAdmin(
+    job: { id: string },
     actorId: string,
     role: Role,
+    db: Parameters<typeof isJobAssignee>[0] = this.prisma,
   ) {
-    if (role !== 'admin' && job.technicianId !== actorId) {
+    if (role !== 'admin' && !(await isJobAssignee(db, job.id, actorId))) {
       throw new ForbiddenException('Job ini bukan milik Anda');
     }
+  }
+
+  /** Bentuk respons: `assignees` mentah diganti `technicianIds` + `technicians` (technicianId lama tetap ada). */
+  private withAssignees<
+    T extends { technicianId?: string | null; assignees?: { technician: { id: string; displayName: string } }[] },
+  >(job: T) {
+    const { assignees = [], ...rest } = job;
+    // Teknisi pertama (= technicianId) di depan, sisanya urut penugasan.
+    const people = [...assignees]
+      .map((a) => a.technician)
+      .sort((a, b) => Number(b.id === job.technicianId) - Number(a.id === job.technicianId));
+    return {
+      ...rest,
+      technicianIds: people.map((t) => t.id),
+      technicians: people.map((t) => ({ id: t.id, displayName: t.displayName })),
+    };
   }
 
   /** Pola sama seperti MembersService.findOrCreate: cari case-insensitive
@@ -181,28 +205,31 @@ export class TechnicianJobsService {
    * (app mobile). queue cuma assigned/sedang_dikerjakan & history cuma
    * selesai, jadi job menunggu_review/dibatalkan gak kelihatan di mana pun. */
   async mine(technicianId: string) {
-    return this.prisma.technicianJob.findMany({
-      where: { technicianId },
+    const jobs = await this.prisma.technicianJob.findMany({
+      where: assignedTo(technicianId),
       include: {
         member: true,
         unit: true,
         technician: { select: { id: true, displayName: true, email: true } },
         order: true,
+        ...ASSIGNEES_INCLUDE,
       },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
+    return jobs.map((j) => this.withAssignees(j));
   }
 
   async myQueue(technicianId: string) {
     const jobs = await this.prisma.technicianJob.findMany({
       where: {
-        technicianId,
+        ...assignedTo(technicianId),
         status: { in: [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] },
       },
       include: {
         member: true,
         unit: { include: UNIT_PRODUCTS_SELECT },
+        ...ASSIGNEES_INCLUDE,
         findings: {
           select: {
             photos: { where: { kind: 'sebelum' }, select: { id: true }, take: 1 },
@@ -212,7 +239,7 @@ export class TechnicianJobsService {
       orderBy: { scheduledDate: 'asc' },
     });
     return jobs.map(({ findings, ...job }) => ({
-      ...job,
+      ...this.withAssignees(job),
       hasBeforePhoto: findings.some((f) => f.photos.length > 0),
     }));
   }
@@ -239,7 +266,7 @@ export class TechnicianJobsService {
 
     const jobs = await this.prisma.technicianJob.findMany({
       where: {
-        technicianId,
+        ...assignedTo(technicianId),
         OR: [
           { scheduledDate: { gte: startOfToday, lte: endOfToday } },
           {
@@ -253,6 +280,7 @@ export class TechnicianJobsService {
         member: true,
         unit: { include: UNIT_PRODUCTS_SELECT },
         order: true,
+        ...ASSIGNEES_INCLUDE,
         findings: {
           include: {
             category: true,
@@ -270,7 +298,7 @@ export class TechnicianJobsService {
 
     const topSpareparts = await this.topUsedSpareparts();
 
-    return { generatedAt: new Date(), jobs, topSpareparts };
+    return { generatedAt: new Date(), jobs: jobs.map((j) => this.withAssignees(j)), topSpareparts };
   }
 
   /** Top 20 sparepart terlaris 30 hari terakhir — buat precache autocomplete
@@ -315,16 +343,18 @@ export class TechnicianJobsService {
    * langsung query Supabase). Tidak ada di RPC manapun, murni CRUD read.
    */
   async findAll(status?: TechnicianJobStatus) {
-    return this.prisma.technicianJob.findMany({
+    const jobs = await this.prisma.technicianJob.findMany({
       where: status ? { status } : undefined,
       include: {
         member: true,
         unit: { include: UNIT_PRODUCTS_SELECT },
         technician: { select: { id: true, displayName: true, email: true } },
         order: true,
+        ...ASSIGNEES_INCLUDE,
       },
       orderBy: { createdAt: 'desc' },
     });
+    return jobs.map((j) => this.withAssignees(j));
   }
 
   /**
@@ -344,6 +374,7 @@ export class TechnicianJobsService {
         member: true,
         unit: { include: UNIT_PRODUCTS_SELECT },
         technician: { select: { id: true, displayName: true, email: true } },
+        ...ASSIGNEES_INCLUDE,
         // order.invoice = pengganti RPC job_payment_info (app mobile): cuma
         // field yang sama dengan RPC-nya, teknisi cuma bisa buka job miliknya.
         order: {
@@ -386,7 +417,7 @@ export class TechnicianJobsService {
       },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
-    if (role === 'teknisi' && job.technicianId !== actorId) {
+    if (role === 'teknisi' && !job.assignees.some((a) => a.technician.id === actorId)) {
       throw new ForbiddenException('Job ini bukan milik Anda');
     }
     // Servis banyak AC: job lain di order yang sama (satu job per unit). Halaman job menampilkan semuanya sebagai
@@ -399,15 +430,16 @@ export class TechnicianJobsService {
             where: {
               orderId: job.orderId,
               id: { not: job.id },
-              ...(role === 'teknisi' ? { technicianId: actorId } : {}),
+              ...(role === 'teknisi' ? assignedTo(actorId) : {}),
             },
             select: { id: true, createdAt: true },
             orderBy: { createdAt: 'asc' },
           });
     // `unit.labeled`: QR unit sudah pernah dilabeli (ada riwayat sebelum job ini) — kartu QR di halaman job menampilkannya.
-    if (!job.unit) return { ...job, siblings };
+    const shaped = this.withAssignees(job);
+    if (!job.unit) return { ...shaped, siblings };
     return {
-      ...job,
+      ...shaped,
       siblings,
       unit: { ...job.unit, labeled: await isUnitLabeled(this.prisma, job.unit, job.createdAt) },
     };
@@ -525,7 +557,7 @@ export class TechnicianJobsService {
         },
       });
       if (!job) throw new NotFoundException('Job tidak ditemukan');
-      this.assertOwnerOrAdmin(job, actorId, role);
+      await this.assertOwnerOrAdmin(job, actorId, role, tx);
       // Ditugaskan juga boleh: customer sering minta tambah AC begitu teknisi tiba, sebelum sempat memulai job.
       if (job.status !== TechnicianJobStatus.assigned && job.status !== TechnicianJobStatus.sedang_dikerjakan) {
         throw new BadRequestException('Unit AC baru hanya bisa ditambahkan saat job Ditugaskan atau Sedang Dikerjakan');
@@ -735,16 +767,16 @@ export class TechnicianJobsService {
   async unitLabels(jobId: string, actorId: string, role: Role, unitIds?: string[]) {
     const job = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
-      select: { orderId: true, technicianId: true, member: { select: { id: true, name: true, address: true } } },
+      select: { id: true, orderId: true, member: { select: { id: true, name: true, address: true } } },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
-    this.assertOwnerOrAdmin(job, actorId, role);
+    await this.assertOwnerOrAdmin(job, actorId, role);
     const rows = await this.prisma.serviceOrderUnit.findMany({
       where: {
         orderId: job.orderId,
         ...(unitIds?.length ? { unitId: { in: unitIds } } : {}),
         ...(role === 'teknisi'
-          ? { unit: { technicianJobs: { some: { orderId: job.orderId, technicianId: actorId } } } }
+          ? { unit: { technicianJobs: { some: { orderId: job.orderId, ...assignedTo(actorId) } } } }
           : {}),
       },
       include: { unit: { include: UNIT_PRODUCTS_SELECT } },
@@ -773,18 +805,18 @@ export class TechnicianJobsService {
     const skip = (page - 1) * pageSize;
     const [items, total] = await this.prisma.$transaction([
       this.prisma.technicianJob.findMany({
-        where: { technicianId, status: TechnicianJobStatus.selesai },
-        include: { member: true, unit: { include: UNIT_PRODUCTS_SELECT }, order: true },
+        where: { ...assignedTo(technicianId), status: TechnicianJobStatus.selesai },
+        include: { member: true, unit: { include: UNIT_PRODUCTS_SELECT }, order: true, ...ASSIGNEES_INCLUDE },
         orderBy: { completedAt: 'desc' },
         skip,
         take: pageSize,
       }),
       this.prisma.technicianJob.count({
-        where: { technicianId, status: TechnicianJobStatus.selesai },
+        where: { ...assignedTo(technicianId), status: TechnicianJobStatus.selesai },
       }),
     ]);
     return {
-      items,
+      items: items.map((j) => this.withAssignees(j)),
       total,
       page,
       pageSize,
@@ -940,8 +972,10 @@ export class TechnicianJobsService {
       include: { unit: { include: UNIT_PRODUCTS_SELECT } },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
-    this.assertOwnerOrAdmin(job, actorId, role);
+    await this.assertOwnerOrAdmin(job, actorId, role);
 
+    // Beberapa teknisi setara: yang kedua menekan "Mulai" setelah rekannya tidak error dan tidak transisi ganda.
+    if (job.status === TechnicianJobStatus.sedang_dikerjakan) return job;
     if (job.status !== TechnicianJobStatus.assigned) {
       throw new BadRequestException(
         'Job harus berstatus Ditugaskan untuk dimulai',
@@ -1014,7 +1048,7 @@ export class TechnicianJobsService {
       where: { id: jobId },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
-    this.assertOwnerOrAdmin(job, actorId, role);
+    await this.assertOwnerOrAdmin(job, actorId, role);
     if (
       !(
         [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]
@@ -1045,7 +1079,7 @@ export class TechnicianJobsService {
   async updateFindingNote(jobId: string, findingId: string, note: string, actorId: string, role: Role) {
     const job = await this.prisma.technicianJob.findUnique({ where: { id: jobId } });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
-    this.assertOwnerOrAdmin(job, actorId, role);
+    await this.assertOwnerOrAdmin(job, actorId, role);
     if (
       !([TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]).includes(job.status)
     ) {
@@ -1078,7 +1112,7 @@ export class TechnicianJobsService {
       where: { id: jobId },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
-    this.assertOwnerOrAdmin(job, actorId, role);
+    await this.assertOwnerOrAdmin(job, actorId, role);
     if (
       !(
         [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]
@@ -1104,7 +1138,7 @@ export class TechnicianJobsService {
   async deleteFindingPhoto(jobId: string, findingId: string, photoId: string, actorId: string, role: Role) {
     const job = await this.prisma.technicianJob.findUnique({ where: { id: jobId } });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
-    this.assertOwnerOrAdmin(job, actorId, role);
+    await this.assertOwnerOrAdmin(job, actorId, role);
     if (
       !([TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]).includes(job.status)
     ) {
@@ -1128,7 +1162,7 @@ export class TechnicianJobsService {
       where: { id: jobId },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
-    this.assertOwnerOrAdmin(job, actorId, role);
+    await this.assertOwnerOrAdmin(job, actorId, role);
     // Sebelumnya gak ada guard status sama sekali — catatan job yang udah
     // 'selesai'/'dibatalkan' (closed, sudah lewat approveComplete) bisa
     // diubah diam-diam tanpa jejak, ngerusak audit trail histori job yang
@@ -1159,7 +1193,7 @@ export class TechnicianJobsService {
       select: { id: true, orderId: true, technicianId: true, status: true },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
-    this.assertOwnerOrAdmin(job, actorId, role);
+    await this.assertOwnerOrAdmin(job, actorId, role);
     if (!([TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]).includes(job.status)) {
       throw new BadRequestException('Keterangan cuma bisa diubah selama job aktif');
     }
@@ -1185,7 +1219,7 @@ export class TechnicianJobsService {
         },
       });
       if (!job) throw new NotFoundException('Job tidak ditemukan');
-      this.assertOwnerOrAdmin(job, actorId, role);
+      await this.assertOwnerOrAdmin(job, actorId, role, tx);
       if (
         !(
           [TechnicianJobStatus.assigned, TechnicianJobStatus.sedang_dikerjakan] as TechnicianJobStatus[]
@@ -1264,7 +1298,7 @@ export class TechnicianJobsService {
     await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
     const job = await tx.technicianJob.findUnique({ where: { id: jobId } });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
-    this.assertOwnerOrAdmin(job, actorId, role);
+    await this.assertOwnerOrAdmin(job, actorId, role);
 
     if (job.status !== TechnicianJobStatus.sedang_dikerjakan) {
       throw new BadRequestException(
@@ -1360,10 +1394,10 @@ export class TechnicianJobsService {
   private async submitOrderForReview(jobId: string, actorId: string, role: Role) {
     const base = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
-      select: { orderId: true, technicianId: true },
+      select: { id: true, orderId: true },
     });
     if (!base) throw new NotFoundException('Job tidak ditemukan');
-    this.assertOwnerOrAdmin(base, actorId, role);
+    await this.assertOwnerOrAdmin(base, actorId, role);
 
     const { updated, count } = await this.prisma.$transaction(async (tx) => {
       // Kunci semua job order ini (urut id supaya dua pengajuan bersamaan tidak saling menunggu / deadlock).

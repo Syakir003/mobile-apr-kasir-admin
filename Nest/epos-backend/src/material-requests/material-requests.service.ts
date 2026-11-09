@@ -9,6 +9,7 @@ import { CreateMaterialRequestDto, MaterialRequestItemDto } from './dto/create-m
 import { DecideMaterialRequestDto } from './dto/decide-material-request.dto';
 import { MaterialRequestQueryDto } from './dto/material-request-query.dto';
 import { MarkUsedDto } from './dto/mark-used.dto';
+import { isJobAssignee } from '../technician-jobs/job-assignees';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 
 type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
@@ -144,7 +145,7 @@ export class MaterialRequestsService {
       await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
       const job = await tx.technicianJob.findUnique({ where: { id: jobId } });
       if (!job) throw new NotFoundException('Job tidak ditemukan');
-      if (role !== 'admin' && job.technicianId !== actorId) {
+      if (role !== 'admin' && !(await isJobAssignee(tx, job.id, actorId))) {
         throw new ForbiddenException('Job ini bukan milik Anda');
       }
       if (
@@ -360,7 +361,7 @@ export class MaterialRequestsService {
         include: { items: true, job: true },
       });
       if (!request) throw new NotFoundException('Pengajuan tidak ditemukan');
-      if (role !== 'admin' && request.job.technicianId !== actorId) {
+      if (role !== 'admin' && !(await isJobAssignee(tx, request.job.id, actorId))) {
         throw new ForbiddenException('Job ini bukan milik Anda');
       }
       if (request.status !== 'approved') {

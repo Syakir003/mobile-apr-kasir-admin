@@ -462,6 +462,7 @@ export class AcUnitsService {
         unit: true,
         technician: { select: { id: true, displayName: true, email: true } },
         order: true,
+        assignees: { select: { technicianId: true } },
         // Riwayat unit di mobile: alih tugas + pencatat temuan (sama dengan riwayat servis unit di web).
         findings: {
           select: { id: true, title: true, origin: true, createdBy: { select: { id: true, displayName: true } } },
@@ -484,7 +485,7 @@ export class AcUnitsService {
     });
     const ids = jobs.map((j) => j.id);
     const isTech = actor.role === 'teknisi';
-    const ownIds = new Set(jobs.filter((j) => j.technicianId === actor.sub).map((j) => j.id));
+    const ownIds = new Set(jobs.filter((j) => j.assignees.some((a) => a.technicianId === actor.sub)).map((j) => j.id));
     const photoIds = isTech && ownIds.size === 0 ? [] : ids;
     const materialIds = isTech ? ids.filter((id) => ownIds.has(id)) : ids;
 

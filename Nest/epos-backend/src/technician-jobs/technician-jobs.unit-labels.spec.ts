@@ -1,6 +1,12 @@
 import { TechnicianJobsService } from './technician-jobs.service';
 import { AcUnitLabelsService } from '../ac-units/ac-unit-labels.service';
 
+// Guard akses job kini berbasis tabel assignees (semua teknisi job setara); di tes ini pemilik job = 't1'.
+const ownerAssignee = {
+  count: jest.fn(async ({ where }: any) => (where.technicianId === 't1' ? 1 : 0)),
+};
+
+
 // @nestjs/schedule ESM-only; terseret lewat reminders. Cron tidak dipakai di test ini.
 jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
 
@@ -9,6 +15,7 @@ jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
 describe('TechnicianJobsService.unitLabels — alamat kerja per unit', () => {
   it('tiap unit membawa workAddress dari job-nya di order itu (null = ikut alamat member); job dibatalkan tidak dipakai', async () => {
     const prisma: any = {
+      technicianJobAssignee: ownerAssignee,
       technicianJob: {
         findUnique: jest.fn(async () => ({ orderId: 'o1', technicianId: 't1', member: { id: 'm1', name: 'Bu Sari', address: 'Jl. Melati' } })),
         findMany: jest.fn(async () => [
@@ -45,6 +52,7 @@ describe('AcUnitLabelsService.labelData — alamat kerja dari job yang sedang be
           { id: 'u3', barcodeValue: 'B3', status: 'aktif', member, pk: null },
         ]),
       },
+      technicianJobAssignee: ownerAssignee,
       technicianJob: {
         findMany: jest.fn(async () => [
           { unitId: 'u1', workAddress: 'Ruko A, Mojokerto' }, // terbaru

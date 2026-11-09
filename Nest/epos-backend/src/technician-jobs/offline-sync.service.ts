@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TechnicianJobsService } from './technician-jobs.service';
 import { MaterialRequestsService } from '../material-requests/material-requests.service';
 import { SyncActionDto } from './dto/sync-action.dto';
+import { isJobAssignee } from './job-assignees';
 
 type SyncStatus = 'applied' | 'skipped_duplicate' | 'conflict' | 'error';
 type SyncResult = { clientActionId: string; status: SyncStatus; detail: unknown };
@@ -81,7 +82,7 @@ export class OfflineSyncService {
       await this.releaseClaim(action.clientActionId);
       return { clientActionId: action.clientActionId, status: 'error', detail: { message: 'Job tidak ditemukan' } };
     }
-    if (job.technicianId !== technicianId) {
+    if (!(await isJobAssignee(this.prisma, job.id, technicianId))) {
       await this.releaseClaim(action.clientActionId);
       return {
         clientActionId: action.clientActionId,

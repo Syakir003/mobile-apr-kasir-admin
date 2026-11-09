@@ -2,6 +2,12 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TechnicianJobsService } from './technician-jobs.service';
 import { ServicePricingService } from './service-pricing.service';
 
+// Guard akses job kini berbasis tabel assignees (semua teknisi job setara); di tes ini pemilik job = 't1'.
+const ownerAssignee = {
+  count: jest.fn(async ({ where }: any) => (where.technicianId === 't1' ? 1 : 0)),
+};
+
+
 // @nestjs/schedule ESM-only; terseret lewat reminders. Cron tidak dipakai di test ini.
 jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
 
@@ -36,6 +42,7 @@ function setup(
   const users = opts.users ?? { t1: { role: 'teknisi', active: true }, t2: { role: 'teknisi', active: true } };
   const tx: any = {
     $executeRaw: jest.fn(async () => 1),
+    technicianJobAssignee: ownerAssignee,
     technicianJob: {
       findUnique: jest.fn(async () => (opts.baseExists === false ? null : { orderId: 'o1' })),
       // Dua pemanggil: pengambilan job sumber (where.id) dan assertNoActiveJob (where.unitId = job aktif pada unit itu).
@@ -186,6 +193,7 @@ describe('job komplain tidak ditagih', () => {
   it('approveComplete: job komplain TIDAK memeriksa harga jasa, job biasa tetap diperiksa', async () => {
     const make = (complaintOfJobId: string | null) => {
       const prisma: any = {
+        technicianJobAssignee: ownerAssignee,
         technicianJob: {
           findUnique: jest.fn(async () => ({
             id: 'jk',
@@ -222,6 +230,7 @@ describe('job komplain tidak ditagih', () => {
   it('sendFindings: job komplain ditolak (tidak ada harga yang perlu ditetapkan)', async () => {
     const tx: any = {
       $executeRaw: jest.fn(async () => 1),
+      technicianJobAssignee: ownerAssignee,
       technicianJob: {
         findUnique: jest.fn(async () => ({
           id: 'jk',
@@ -244,6 +253,7 @@ describe('job komplain tidak ditagih', () => {
   it('ServicePricingService.set: job komplain tidak bisa diberi harga jasa', async () => {
     const tx: any = {
       $executeRaw: jest.fn(async () => 1),
+      technicianJobAssignee: ownerAssignee,
       technicianJob: {
         findUnique: jest.fn(async () => ({
           id: 'jk',

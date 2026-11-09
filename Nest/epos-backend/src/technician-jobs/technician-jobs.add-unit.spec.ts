@@ -5,6 +5,12 @@ import {
 } from '@nestjs/common';
 import { TechnicianJobsService } from './technician-jobs.service';
 
+// Guard akses job kini berbasis tabel assignees (semua teknisi job setara); di tes ini pemilik job = 't1'.
+const ownerAssignee = {
+  count: jest.fn(async ({ where }: any) => (where.technicianId === 't1' ? 1 : 0)),
+};
+
+
 // @nestjs/schedule ESM-only; terseret lewat reminders. Cron tidak dipakai di test ini.
 jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
 
@@ -43,6 +49,7 @@ function setup(
   };
   const tx: any = {
     $executeRaw: jest.fn(async () => 1),
+    technicianJobAssignee: ownerAssignee,
     technicianJob: {
       findUnique: jest.fn(async () => job),
       count: jest.fn(async () => opts.sameOrderCount ?? 0),
@@ -398,6 +405,7 @@ describe('TechnicianJobsService.addUnit — validasi masukan (sebelum menyentuh 
 describe('TechnicianJobsService.unitLabels — data label untuk cetak oleh teknisi', () => {
   function labelsSetup(job: Record<string, unknown> = {}) {
     const prisma: any = {
+      technicianJobAssignee: ownerAssignee,
       technicianJob: {
         findUnique: jest.fn(async () => ({
           orderId: 'o1',
@@ -440,7 +448,7 @@ describe('TechnicianJobsService.unitLabels — data label untuk cetak oleh tekni
           orderId: 'o1',
           unitId: { in: ['u9'] },
           unit: {
-            technicianJobs: { some: { orderId: 'o1', technicianId: 't1' } },
+            technicianJobs: { some: { orderId: 'o1', assignees: { some: { technicianId: 't1' } } } },
           },
         },
       }),

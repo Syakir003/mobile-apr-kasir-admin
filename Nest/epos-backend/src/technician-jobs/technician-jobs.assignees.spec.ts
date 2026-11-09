@@ -1,4 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { TechnicianJobsService } from './technician-jobs.service';
 import {
   assertValidTechnicians,
   assignedTo,
@@ -6,6 +7,9 @@ import {
   normalizeTechnicianIds,
   setJobAssignees,
 } from './job-assignees';
+
+// @nestjs/schedule ESM-only; terseret lewat reminders. Cron tidak dipakai di test ini.
+jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
 
 // Penugasan beberapa teknisi per job: helper tunggal untuk normalisasi id, validasi, penulisan assignees,
 // dan pengecekan keanggotaan (dipakai semua guard akses job).
@@ -102,5 +106,126 @@ describe('isJobAssignee / assignedTo', () => {
 
   it('assignedTo membangun filter keanggotaan', () => {
     expect(assignedTo('t2')).toEqual({ assignees: { some: { technicianId: 't2' } } });
+  });
+});
+
+// ---- Task 2: guard akses & query teknisi berbasis assignees ----
+
+const tech = (id: string, displayName: string) => ({ technician: { id, displayName } });
+
+function makeSvc(assigneeIds: string[] = ['t1', 't2']) {
+  const tx: any = { jobFinding: { create: jest.fn(async () => ({ id: 'f1' })) } };
+  const prisma: any = {
+    technicianJob: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(async () => []),
+      count: jest.fn(async () => 0),
+      update: jest.fn(),
+    },
+    technicianJobAssignee: {
+      count: jest.fn(async ({ where }: any) => (assigneeIds.includes(where.technicianId) ? 1 : 0)),
+    },
+    materialRequestItem: { groupBy: jest.fn(async () => []) },
+    $transaction: jest.fn(async (arg: any) => (typeof arg === 'function' ? arg(tx) : Promise.all(arg))),
+  };
+  const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
+  jest.spyOn(svc as any, 'findOrCreateCategory').mockResolvedValue({ id: 'c1', name: 'Bocor' });
+  return { svc, prisma, tx };
+}
+
+const activeJob = (extra: Record<string, unknown> = {}) => ({
+  id: 'j1',
+  orderId: 'o1',
+  technicianId: 't1',
+  status: 'assigned',
+  startedAt: null,
+  unit: null,
+  ...extra,
+});
+
+describe('guard akses job berbasis assignees', () => {
+  it('assignee kedua (bukan technicianId pertama) boleh menambah temuan', async () => {
+    const { svc, prisma, tx } = makeSvc();
+    prisma.technicianJob.findUnique.mockResolvedValue(activeJob());
+    await expect(svc.addFinding('j1', { categoryName: 'Bocor' }, 't2', 'teknisi')).resolves.toBeDefined();
+    expect(tx.jobFinding.create).toHaveBeenCalled();
+  });
+
+  it('teknisi yang BUKAN assignee ditolak 403 (temuan dan mulai job)', async () => {
+    const { svc, prisma } = makeSvc();
+    prisma.technicianJob.findUnique.mockResolvedValue(activeJob());
+    const msg = new ForbiddenException('Job ini bukan milik Anda');
+    await expect(svc.addFinding('j1', { categoryName: 'Bocor' }, 't9', 'teknisi')).rejects.toThrow(msg);
+    await expect(svc.start('j1', 'BC', 't9', 'teknisi')).rejects.toThrow(msg);
+  });
+
+  it('admin selalu lolos tanpa cek assignees', async () => {
+    const { svc, prisma } = makeSvc();
+    prisma.technicianJob.findUnique.mockResolvedValue(activeJob());
+    await expect(svc.addFinding('j1', { categoryName: 'Bocor' }, 'admin1', 'admin')).resolves.toBeDefined();
+    expect(prisma.technicianJobAssignee.count).not.toHaveBeenCalled();
+  });
+
+  it('start oleh assignee ketika job sudah sedang_dikerjakan idempoten: kembalikan job apa adanya, tanpa update', async () => {
+    const { svc, prisma } = makeSvc();
+    const running = activeJob({ status: 'sedang_dikerjakan', startedAt: new Date() });
+    prisma.technicianJob.findUnique.mockResolvedValue(running);
+    await expect(svc.start('j1', 'BC', 't2', 'teknisi')).resolves.toBe(running);
+    expect(prisma.technicianJob.update).not.toHaveBeenCalled();
+  });
+
+  it('findOne: non-assignee 403, assignee lolos dan saudara order dibatasi ke job miliknya', async () => {
+    const { svc, prisma } = makeSvc();
+    const job = activeJob({
+      order: { type: 'perbaikan' },
+      assignees: [tech('t1', 'Ani'), tech('t2', 'Budi')],
+    });
+    prisma.technicianJob.findUnique.mockResolvedValue(job);
+    await expect(svc.findOne('j1', 't9', 'teknisi')).rejects.toThrow(ForbiddenException);
+    await expect(svc.findOne('j1', 't2', 'teknisi')).resolves.toMatchObject({ id: 'j1' });
+    expect(prisma.technicianJob.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { orderId: 'o1', id: { not: 'j1' }, assignees: { some: { technicianId: 't2' } } },
+      }),
+    );
+  });
+});
+
+describe('query teknisi memakai assignees', () => {
+  const mine = [{ id: 'j1', technicianId: 't1', assignees: [tech('t1', 'Ani'), tech('t2', 'Budi')] }];
+
+  it('mine, myQueue, todayBundle, history memfilter lewat assignees.some', async () => {
+    const { svc, prisma } = makeSvc();
+    const f = { assignees: { some: { technicianId: 't2' } } };
+    await svc.mine('t2');
+    expect(prisma.technicianJob.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: f }));
+    await svc.myQueue('t2');
+    expect(prisma.technicianJob.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: expect.objectContaining(f) }),
+    );
+    await svc.todayBundle('t2');
+    expect(prisma.technicianJob.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: expect.objectContaining(f) }),
+    );
+    await svc.history('t2', 1, 20);
+    expect(prisma.technicianJob.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: expect.objectContaining(f) }),
+    );
+    expect(prisma.technicianJob.count).toHaveBeenLastCalledWith({ where: expect.objectContaining(f) });
+  });
+
+  it('respons job memuat technicianIds + technicians (urutan assignees) tanpa field mentah assignees', async () => {
+    const { svc, prisma } = makeSvc();
+    prisma.technicianJob.findMany.mockResolvedValue(mine);
+    const [job] = await svc.mine('t2');
+    expect(job).toMatchObject({
+      technicianId: 't1',
+      technicianIds: ['t1', 't2'],
+      technicians: [
+        { id: 't1', displayName: 'Ani' },
+        { id: 't2', displayName: 'Budi' },
+      ],
+    });
+    expect(job).not.toHaveProperty('assignees');
   });
 });

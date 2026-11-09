@@ -1,18 +1,25 @@
 import { MaterialRequestsService } from './material-requests.service';
 
+// Guard akses job kini berbasis tabel assignees (semua teknisi job setara); di tes ini pemilik job = 't1'.
+const ownerAssignee = {
+  count: jest.fn(async ({ where }: any) => (where.technicianId === 't1' ? 1 : 0)),
+};
+
+
 const approved = {
   id: 'r1',
   jobId: 'j1',
   status: 'approved',
   usedAt: null,
   invoiceId: null,
-  job: { technicianId: 't1', billingDerived: false },
+  job: { id: 'j1', technicianId: 't1', billingDerived: false },
   items: [{ id: 'i1', kind: 'sparepart', refId: 'sp1', name: 'Freon R32', qty: 2, lineTotal: 20000, unitPrice: 10000 }],
 };
 
 function setup() {
   const tx: any = {
     $executeRaw: jest.fn(),
+    technicianJobAssignee: ownerAssignee,
     materialRequest: {
       findUnique: jest.fn(async () => approved),
       update: jest.fn(async () => ({ id: 'r1', items: [] })),

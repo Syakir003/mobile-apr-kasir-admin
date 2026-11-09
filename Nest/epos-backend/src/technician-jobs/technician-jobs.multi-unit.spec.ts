@@ -1,6 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 import { TechnicianJobsService } from './technician-jobs.service';
 
+// Guard akses job kini berbasis tabel assignees (semua teknisi job setara); di tes ini pemilik job = 't1'.
+const ownerAssignee = {
+  count: jest.fn(async ({ where }: any) => (where.technicianId === 't1' ? 1 : 0)),
+};
+
+
 // @nestjs/schedule ESM-only; terseret lewat reminders. Cron tidak dipakai di test ini.
 jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
 
@@ -22,6 +28,7 @@ function submitSetup(opts: { job?: Record<string, unknown>; invoiceId?: string |
   };
   const tx: any = {
     $executeRaw: jest.fn(async () => 1),
+    technicianJobAssignee: ownerAssignee,
     technicianJob: {
       findUnique: jest.fn(async () => job),
       count: jest.fn(async () => opts.siblingJobs ?? 0),
@@ -67,6 +74,7 @@ describe('TechnicianJobsService.approveComplete — gate harga jasa (pindahan da
       ...opts.job,
     };
     const prisma: any = {
+      technicianJobAssignee: ownerAssignee,
       technicianJob: {
         findUnique: jest.fn(async () => job),
         count: jest.fn(async () => opts.siblingJobs ?? 0),
@@ -114,6 +122,7 @@ describe('TechnicianJobsService.approveComplete — gate harga jasa (pindahan da
 describe('TechnicianJobsService.updateFindingNote — deskripsi per temuan', () => {
   function noteSetup(over: { status?: string; findingJobId?: string } = {}) {
     const prisma: any = {
+      technicianJobAssignee: ownerAssignee,
       technicianJob: {
         findUnique: jest.fn(async () => ({ id: 'j1', technicianId: 't1', status: over.status ?? 'sedang_dikerjakan' })),
       },
@@ -147,6 +156,7 @@ describe('TechnicianJobsService.updateFindingNote — deskripsi per temuan', () 
 describe('TechnicianJobsService.deleteFindingPhoto — hapus foto temuan', () => {
   function photoSetup(over: { status?: string; photoFindingId?: string; photoJobId?: string } = {}) {
     const prisma: any = {
+      technicianJobAssignee: ownerAssignee,
       technicianJob: {
         findUnique: jest.fn(async () => ({ id: 'j1', technicianId: 't1', status: over.status ?? 'sedang_dikerjakan' })),
       },
@@ -182,9 +192,17 @@ describe('TechnicianJobsService.deleteFindingPhoto — hapus foto temuan', () =>
 });
 
 function findOneSetup(orderType: string) {
-  const job = { id: 'j1', orderId: 'o1', technicianId: 't1', unit: null, order: { type: orderType, invoice: null } };
+  const job = {
+    id: 'j1',
+    orderId: 'o1',
+    technicianId: 't1',
+    unit: null,
+    order: { type: orderType, invoice: null },
+    assignees: [{ technician: { id: 't1', displayName: 'Ani' } }],
+  };
   const siblingRows = [{ id: 'j2', createdAt: new Date('2026-11-03') }];
   const prisma: any = {
+    technicianJobAssignee: ownerAssignee,
     technicianJob: {
       findUnique: jest.fn(async () => job),
       findMany: jest.fn(async () => siblingRows),
@@ -210,7 +228,7 @@ describe('TechnicianJobsService.findOne — job saudara (servis banyak AC)', () 
     const { svc, prisma } = findOneSetup('perbaikan');
     await svc.findOne('j1', 't1', 'teknisi');
     expect(prisma.technicianJob.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { orderId: 'o1', id: { not: 'j1' }, technicianId: 't1' } }),
+      expect.objectContaining({ where: { orderId: 'o1', id: { not: 'j1' }, assignees: { some: { technicianId: 't1' } } } }),
     );
   });
 
@@ -228,6 +246,7 @@ describe('TechnicianJobsService.assign — penugasan & alih tugas', () => {
     const jobs = new Map(jobList.map((j) => [j.id, { ...j }]));
     const tx: any = {
       $executeRaw: jest.fn(async () => 1),
+      technicianJobAssignee: ownerAssignee,
       technicianJob: {
         findUnique: jest.fn(async ({ where }: any) => (jobs.has(where.id) ? { ...jobs.get(where.id)! } : null)), // salinan, seperti baris dari DB
         findMany: jest.fn(async ({ where }: any) =>
@@ -398,6 +417,7 @@ function orderSetup(jobList: Record<string, unknown>[], opts: { findings?: Recor
   const jobs: Record<string, any> = Object.fromEntries(jobList.map((j: any) => [j.id, j]));
   const tx: any = {
     $executeRaw: jest.fn(async () => 1),
+    technicianJobAssignee: ownerAssignee,
     technicianJob: {
       findMany: jest.fn(async () => Object.values(jobs).filter((j: any) => j.status !== 'dibatalkan')),
       findUnique: jest.fn(async ({ where }: any) => jobs[where.id] ?? null),
@@ -411,6 +431,7 @@ function orderSetup(jobList: Record<string, unknown>[], opts: { findings?: Recor
   };
   const notifications: any = { notifyRoles: jest.fn(async () => undefined) };
   const prisma: any = {
+    technicianJobAssignee: ownerAssignee,
     technicianJob: {
       findUnique: jest.fn(async ({ where }: any) => ({ ...jobs[where.id], technician: { displayName: 'Andi' }, member: { name: 'Budi' } })),
       findMany: tx.technicianJob.findMany,
@@ -616,6 +637,7 @@ describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () 
       transportMode: 'dibagi',
     };
     const tx: any = {
+      technicianJobAssignee: ownerAssignee,
       technicianJob: {
         update: jest.fn(async ({ data }: any) => ({ ...job, ...data })),
         findFirst: jest.fn(async () => (over.successor === undefined ? { id: 'j2', billingDerived: true } : over.successor)),
@@ -634,6 +656,7 @@ describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () 
       },
     };
     const prisma: any = {
+      technicianJobAssignee: ownerAssignee,
       technicianJob: { findUnique: jest.fn(async () => job) },
       $transaction: jest.fn(async (fn: any) => fn(tx)),
     };
@@ -715,11 +738,13 @@ describe('TechnicianJobsService.start — job yang dialihkan harus di-scan ulang
       ...job,
     };
     const tx: any = {
+      technicianJobAssignee: { count: jest.fn(async () => 1) }, // t2 = teknisi baru, assignee job ini
       technicianJob: { update: jest.fn(async ({ data }: any) => ({ ...full, ...data })) },
       serviceOrderUnit: { updateMany: jest.fn(async () => ({ count: 1 })) },
       memberAcUnit: { update: jest.fn(async () => ({})) },
     };
     const prisma: any = {
+      technicianJobAssignee: { count: jest.fn(async () => 1) }, // t2 = teknisi baru, assignee job ini
       technicianJob: { findUnique: jest.fn(async () => full) },
       jobFindingPhoto: { count: jest.fn(async () => 1) }, // foto sebelum dari teknisi sebelumnya
       $transaction: jest.fn(async (fn: any) => fn(tx)),

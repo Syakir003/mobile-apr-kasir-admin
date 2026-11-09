@@ -1,6 +1,12 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { TechnicianJobsService } from './technician-jobs.service';
 
+// Guard akses job kini berbasis tabel assignees (semua teknisi job setara); di tes ini pemilik job = 't1'.
+const ownerAssignee = {
+  count: jest.fn(async ({ where }: any) => (where.technicianId === 't1' ? 1 : 0)),
+};
+
+
 // @nestjs/schedule ESM-only; terseret lewat reminders. Cron tidak dipakai di test ini.
 jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
 
@@ -8,6 +14,7 @@ jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
 // Pengerjaan (technician_jobs.notes, per unit): keduanya tidak boleh saling menimpa.
 function setup(job: Record<string, unknown> | null = {}) {
   const prisma: any = {
+    technicianJobAssignee: ownerAssignee,
     technicianJob: {
       findUnique: jest.fn(async () => (job === null ? null : { id: 'j1', orderId: 'o1', technicianId: 't1', status: 'sedang_dikerjakan', ...job })),
       update: jest.fn(async () => ({})),
