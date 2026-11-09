@@ -4,8 +4,7 @@ import { unitPartsText, type UnitPartProduct } from '@/components/ac-unit-parts'
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import {
   CalendarCheck,
   CalendarDays,
@@ -24,7 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import { apiClient, ApiError } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { formatDate, formatDateTime, statusLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { wibDateKey } from '@/lib/wib-date';
@@ -33,14 +32,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { UserAvatar } from '@/components/user-avatar';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { TechnicianAssignDialog, technicianNames } from '@/components/technician-multi-picker';
 
 // Menu "Servis & Teknisi" dipakai admin DAN teknisi lewat rute yang sama
 // (nav-config.ts), tapi datanya beda: teknisi cuma lihat job miliknya
@@ -84,6 +76,9 @@ export interface TechnicianJob {
   member: JobMember | null;
   unit: JobUnit | null;
   technician: JobTechnician | null;
+  // Semua teknisi job (setara); technician di atas = teknisi pertama.
+  technicianIds?: string[];
+  technicians?: { id: string; displayName: string }[];
   // Titik lokasi kerja job ini bila berbeda dari alamat member (kosong = ikut alamat member).
   workAddress?: string | null;
   // Cuma keisi dari GET /technician-jobs/queue (myQueue) — dipakai dashboard
@@ -198,7 +193,7 @@ function rowSearchText(row: QueueRow, includeTechnician: boolean): string {
       jobLocation(j),
       j.notes,
       typeMeta(j.type).label,
-      includeTechnician ? j.technician?.displayName : undefined,
+      includeTechnician ? technicianNames(j) : undefined,
     ])
     .filter(Boolean)
     .join(' ')
@@ -241,7 +236,6 @@ function matchesDay(job: TechnicianJob, filter: DayFilter, todayKey: string): bo
 export function TeknisiQueueClient({ role }: { role: Role }) {
   const isTeknisi = role === 'teknisi';
   const isAdmin = role === 'admin';
-  const queryClient = useQueryClient();
   const router = useRouter();
   const [showDone, setShowDone] = React.useState(false);
   // Pencarian + filter hari (jadwal). Tanggal "hari ini" dikunci saat halaman dibuka (WIB).
@@ -269,18 +263,6 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const technicians = (techniciansQuery.data ?? []).filter(
     (u) => u.role === 'teknisi' && u.active,
   );
-
-  const assignMutation = useMutation({
-    mutationFn: ({ jobId, technicianId, allInOrder }: { jobId: string; technicianId: string; allInOrder?: boolean }) =>
-      apiClient.patch(`/technician-jobs/${jobId}/assign`, { technicianId, ...(allInOrder ? { allInOrder: true } : {}) }),
-    onSuccess: () => {
-      toast.success('Teknisi ditugaskan.');
-      queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'all'] });
-    },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : 'Gagal menugaskan teknisi.');
-    },
-  });
 
   const jobs = jobsQuery.data ?? [];
   // Query teknisi (/queue) sudah difilter aktif dari server — toggle
@@ -576,34 +558,12 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                       </Link>
                       <div className="flex max-w-full flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
                         {showAssign && (
-                          <Select
-                            value={assignTarget.technician?.id ?? undefined}
-                            onValueChange={(technicianId) =>
-                              assignMutation.mutate({ jobId: assignTarget.id, technicianId, allInOrder: many })
-                            }
-                          >
-                            <SelectTrigger size="sm" className="w-44">
-                              <SelectValue placeholder={many ? 'Tugaskan (semua unit)' : 'Tugaskan teknisi'} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {technicians.length === 0 && (
-                                <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                                  Belum ada teknisi aktif
-                                </p>
-                              )}
-                              {technicians.map((t) => (
-                                <SelectItem key={t.id} value={t.id}>
-                                  <span className="flex items-center gap-2">
-                                    <UserAvatar
-                                      user={t}
-                                      className="size-5 bg-primary/10 text-[10px] font-semibold text-primary"
-                                    />
-                                    {t.displayName}
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <TechnicianAssignDialog
+                            jobId={assignTarget.id}
+                            allInOrder={many}
+                            current={assignTarget.technicianIds ?? (assignTarget.technician ? [assignTarget.technician.id] : [])}
+                            technicians={technicians}
+                          />
                         )}
                         <Badge variant={statusBadgeVariant(rowStatus)} className="gap-1.5">
                           <span className="size-1.5 rounded-full bg-current" />
@@ -635,7 +595,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                         <span className="inline-flex items-center gap-1">
                           <UserRound className="size-3.5 text-primary" />
                           <span className="font-medium text-foreground">
-                            {job.technician?.displayName || 'Belum ditugaskan'}
+                            {technicianNames(job)}
                           </span>
                         </span>
                       )}

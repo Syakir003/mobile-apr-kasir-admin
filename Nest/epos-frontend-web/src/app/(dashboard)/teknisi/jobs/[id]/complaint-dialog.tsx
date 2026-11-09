@@ -22,12 +22,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TechnicianMultiPicker } from '@/components/technician-multi-picker';
 
 export interface ComplaintJob {
   id: string;
   status: string;
   technician: { id: string } | null;
+  technicianIds?: string[];
   unit: { brand: string | null; model: string | null; roomLocation: string | null } | null;
 }
 export interface ComplaintTechnician {
@@ -35,8 +36,6 @@ export interface ComplaintTechnician {
   displayName: string;
 }
 
-// Nilai khusus pilihan "Belum ditentukan" (Radix Select tidak menerima nilai string kosong).
-const NO_TECHNICIAN = '__none__';
 
 const unitLabel = (j: ComplaintJob) =>
   `${[j.unit?.brand, j.unit?.model].filter(Boolean).join(' ') || 'Unit AC'}${j.unit?.roomLocation ? ` (${j.unit.roomLocation})` : ''}`;
@@ -119,9 +118,10 @@ function ComplaintForm({
   const [picked, setPicked] = React.useState<Set<string>>(() => (finished.length === 1 ? new Set([finished[0].id]) : new Set()));
   const [complaint, setComplaint] = React.useState('');
   // Teknisi bawaan = teknisi pekerjaan awal (bila masih aktif), seperti yang dilakukan backend.
-  const [technicianId, setTechnicianId] = React.useState(() => {
-    const prev = finished[0]?.technician?.id;
-    return prev && technicians.some((t) => t.id === prev) ? prev : NO_TECHNICIAN;
+  const [technicianIds, setTechnicianIds] = React.useState<string[]>(() => {
+    const first = finished[0];
+    const prev = first?.technicianIds ?? (first?.technician ? [first.technician.id] : []);
+    return prev.filter((id) => technicians.some((t) => t.id === id));
   });
   const [date, setDate] = React.useState(todayKey);
   const [errors, setErrors] = React.useState<{ units?: string; complaint?: string; date?: string }>({});
@@ -163,7 +163,7 @@ function ComplaintForm({
     create.mutate({
       jobIds: finished.filter((j) => picked.has(j.id)).map((j) => j.id),
       complaint: complaint.trim(),
-      technicianId: technicianId === NO_TECHNICIAN ? null : technicianId,
+      technicianIds, // [] = belum ditentukan
       scheduledDate: date,
     });
   }
@@ -225,19 +225,7 @@ function ComplaintForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-1.5">
           <Label htmlFor="komplain-teknisi">Teknisi</Label>
-          <Select value={technicianId} onValueChange={setTechnicianId}>
-            <SelectTrigger id="komplain-teknisi" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_TECHNICIAN}>Belum ditentukan</SelectItem>
-              {technicians.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  {t.displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <TechnicianMultiPicker technicians={technicians} value={technicianIds} onChange={setTechnicianIds} />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="komplain-jadwal">Jadwal</Label>

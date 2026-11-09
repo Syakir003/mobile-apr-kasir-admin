@@ -20,6 +20,7 @@ import { AddUnitButton } from './add-unit';
 import { EditOrderButton } from './edit-order-dialog';
 import { ComplaintButton } from './complaint-dialog';
 import { HandoverHistoryCard, ReassignPanel, mergeHandovers, type HandoverRow } from './handover';
+import { technicianNames } from '@/components/technician-multi-picker';
 import { ReminderScheduleFields, intervalError } from '@/components/reminder-schedule-fields';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -122,6 +123,9 @@ interface JobDetail {
     status?: string;
   } | null;
   technician: { id: string; displayName: string; email: string } | null;
+  // Semua teknisi job (setara); technician di atas = teknisi pertama.
+  technicianIds?: string[];
+  technicians?: { id: string; displayName: string }[];
   findings: JobFinding[];
   materialRequests: MaterialRequestRow[];
   // ServiceOrder pembungkus job ini — SELALU ada (baik lewat instalasi POS
@@ -567,7 +571,7 @@ export function JobDetailClient({
                     valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
                   />
                 <DetailRow label="Jadwal" value={job.scheduledDate ? formatDate(job.scheduledDate) : '-'} />
-                <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />
+                <DetailRow label="Teknisi" value={technicianNames(job)} />
                 {/* Komplain pelanggan: sengaja di bagian bawah (bukan header) supaya order ini tidak disangka order komplain. */}
                 {isAdmin && <ComplaintButton anchorJobId={job.id} jobs={[job]} technicians={technicians} />}
               </CardContent>
@@ -663,8 +667,9 @@ export function JobDetailClient({
             {/* Servis banyak AC: penugasan teknisi untuk seluruh unit ada sekali di atas halaman (MultiUnitJobView). */}
             {!embedded && isAdmin && ['menunggu_penugasan', 'assigned', 'sedang_dikerjakan', 'menunggu_review'].includes(job.status) && (
               <ReassignPanel
+                key={(job.technicianIds ?? []).join(',')}
                 jobId={job.id}
-                currentTechnicianId={job.technician?.id ?? null}
+                currentTechnicianIds={job.technicianIds ?? (job.technician ? [job.technician.id] : [])}
                 started={job.status === 'sedang_dikerjakan'}
                 inReview={job.status === 'menunggu_review'}
                 technicians={technicians}
@@ -1070,7 +1075,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                 : '-'
             }
           />
-          <DetailRow label="Teknisi" value={job.technician?.displayName || 'Belum ditugaskan'} />
+          <DetailRow label="Teknisi" value={technicianNames(job)} />
           {invoice && (
             <DetailRow
               label="Nota"
@@ -1147,8 +1152,9 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
               {/* Alihkan tugas: untuk seluruh unit order (sama dengan penempatan di halaman satu unit). */}
               {canAssign && (
                 <ReassignPanel
+                  key={(job.technicianIds ?? []).join(',')}
                   jobId={job.id}
-                  currentTechnicianId={job.technician?.id ?? null}
+                  currentTechnicianIds={job.technicianIds ?? (job.technician ? [job.technician.id] : [])}
                   started={anyStarted}
                   inReview={anyInReview}
                   allInOrder

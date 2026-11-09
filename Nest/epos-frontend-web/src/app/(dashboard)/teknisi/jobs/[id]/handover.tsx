@@ -9,7 +9,7 @@ import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TechnicianMultiPicker } from '@/components/technician-multi-picker';
 import { Textarea } from '@/components/ui/textarea';
 
 /** Satu baris riwayat alih tugas (GET /technician-jobs/:id -> handovers). */
@@ -31,14 +31,15 @@ export interface HandoverRow {
  */
 export function ReassignPanel({
   jobId,
-  currentTechnicianId,
+  currentTechnicianIds,
   started,
   inReview,
   allInOrder,
   technicians,
 }: {
   jobId: string;
-  currentTechnicianId: string | null;
+  /** Teknisi job saat ini (semua setara); kosong = belum ditugaskan. */
+  currentTechnicianIds: string[];
   /** true = job sudah dikerjakan sebagian (status sedang_dikerjakan). */
   started: boolean;
   /** true = sudah diajukan selesai (status menunggu_review): dialihkan tetap menunggu review. */
@@ -48,21 +49,21 @@ export function ReassignPanel({
   technicians: { id: string; displayName: string }[];
 }) {
   const queryClient = useQueryClient();
-  const [selected, setSelected] = React.useState('');
+  const [selected, setSelected] = React.useState<string[]>(currentTechnicianIds);
   const [reason, setReason] = React.useState('');
-  const isHandover = !!currentTechnicianId;
-  const options = technicians.filter((t) => t.id !== currentTechnicianId);
+  const isHandover = currentTechnicianIds.length > 0;
+  const unchanged =
+    selected.length === currentTechnicianIds.length && selected.every((id) => currentTechnicianIds.includes(id));
 
   const mutation = useMutation({
     mutationFn: () =>
       apiClient.patch(`/technician-jobs/${jobId}/assign`, {
-        technicianId: selected,
+        technicianIds: selected,
         ...(allInOrder ? { allInOrder: true } : {}),
         ...(reason.trim() ? { reason: reason.trim() } : {}),
       }),
     onSuccess: () => {
-      toast.success(isHandover ? 'Job dialihkan ke teknisi lain.' : 'Teknisi ditugaskan.');
-      setSelected('');
+      toast.success(isHandover ? 'Penugasan teknisi diperbarui.' : 'Teknisi ditugaskan.');
       setReason('');
       queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
     },
@@ -72,8 +73,10 @@ export function ReassignPanel({
   });
 
   function submit() {
-    const name = technicians.find((t) => t.id === selected)?.displayName ?? 'teknisi ini';
-    const confirmText = started
+    const name = selected.map((id) => technicians.find((t) => t.id === id)?.displayName ?? 'teknisi').join(', ');
+    // Wajib scan ulang HANYA bila pergantian penuh (tidak ada teknisi lama yang tetap); menambah/mengurangi sebagian tidak.
+    const fullReplace = !selected.some((id) => currentTechnicianIds.includes(id));
+    const confirmText = started && fullReplace
       ? `Alihkan job yang sedang dikerjakan ke ${name}? Temuan & foto yang sudah ada tetap di job, tapi teknisi baru wajib scan ulang barcode unit sebelum melanjutkan.`
       : inReview
         ? `Alihkan job yang menunggu review ke ${name}? Job tetap menunggu review dan bisa langsung disetujui admin.`
@@ -85,21 +88,16 @@ export function ReassignPanel({
   return (
     <div className="grid gap-2 rounded-md border p-3">
       <label className="text-sm font-medium">
-        {isHandover ? 'Alihkan Tugas ke Teknisi Lain' : 'Tugaskan Teknisi'}
+        {isHandover ? 'Ubah / Alihkan Teknisi' : 'Tugaskan Teknisi'}
         {allInOrder ? ' (semua unit yang belum selesai)' : ''}
       </label>
-      <Select value={selected} onValueChange={setSelected}>
-        <SelectTrigger className="w-full">
-          <SelectValue placeholder="Pilih teknisi" />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((t) => (
-            <SelectItem key={t.id} value={t.id}>
-              {t.displayName}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <TechnicianMultiPicker
+        technicians={technicians}
+        value={selected}
+        onChange={setSelected}
+        excludeJobId={jobId}
+        disabled={mutation.isPending}
+      />
       {isHandover && (
         <Textarea
           rows={2}
@@ -121,10 +119,10 @@ export function ReassignPanel({
         type="button"
         size="sm"
         className="w-full"
-        disabled={!selected || mutation.isPending}
+        disabled={selected.length === 0 || unchanged || mutation.isPending}
         onClick={submit}
       >
-        {mutation.isPending ? 'Memproses...' : isHandover ? 'Alihkan' : 'Tugaskan'}
+        {mutation.isPending ? 'Memproses...' : isHandover ? 'Simpan perubahan' : 'Tugaskan'}
       </Button>
     </div>
   );

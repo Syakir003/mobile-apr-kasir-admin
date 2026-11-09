@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { MemberPicker } from '@/components/member-picker';
+import { TechnicianMultiPicker } from '@/components/technician-multi-picker';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -170,7 +171,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
   const [existingUnitIds, setExistingUnitIds] = React.useState<string[]>([]);
   const [rowsState, setRowsState] = React.useState<NewUnitRow[] | null>(null);
   const nextRowKey = React.useRef(1);
-  const [technicianId, setTechnicianId] = React.useState<string | undefined>(undefined);
+  const [technicianIds, setTechnicianIds] = React.useState<string[]>([]);
   // Titik lokasi kerja (bawaan satu titik kosong = ikut alamat pelanggan) + pilihan titik tiap unit terdaftar yang dicentang.
   const [locations, setLocations] = React.useState<WorkLocationRow[]>([blankLocation(DEFAULT_LOC_KEY)]);
   const [existingLoc, setExistingLoc] = React.useState<Record<string, number>>({});
@@ -382,7 +383,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
         ...(sendLocations
           ? { locations: locations.map((l) => ({ address: trimmedOrUndefined(l.address), mapsUrl: trimmedOrUndefined(l.mapsUrl) })) }
           : {}),
-        technicianId,
+        ...(technicianIds.length > 0 ? { technicianIds } : {}),
         scheduledDate: trimmedOrUndefined(values.scheduledDate),
       };
       return apiClient.post<IntakeResult>('/service-orders/intake', body);
@@ -779,23 +780,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
               {isAdmin && (
                 <div className="grid gap-1.5">
                   <FormLabel>Teknisi (opsional)</FormLabel>
-                  <Select value={technicianId} onValueChange={setTechnicianId}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Belum ditentukan" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {technicians.length === 0 && (
-                        <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                          Belum ada teknisi aktif
-                        </p>
-                      )}
-                      {technicians.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <TechnicianMultiPicker technicians={technicians} value={technicianIds} onChange={setTechnicianIds} />
                 </div>
               )}
 
