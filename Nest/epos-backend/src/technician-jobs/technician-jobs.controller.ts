@@ -22,6 +22,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { TechnicianJobsService } from './technician-jobs.service';
 import { AssignJobDto } from './dto/assign-job.dto';
+import { normalizeTechnicianIds } from './job-assignees';
 import { AddUnitDto } from './dto/add-unit.dto';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { StartJobDto } from './dto/start-job.dto';
@@ -154,7 +155,9 @@ export class TechnicianJobsController {
     @Body() dto: AssignJobDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    const result = await this.jobs.assign(id, dto.technicianId, {
+    const technicianIds = normalizeTechnicianIds(dto);
+    if (technicianIds.length === 0) throw new BadRequestException('Pilih minimal satu teknisi');
+    const result = await this.jobs.assign(id, technicianIds[0], {
       allInOrder: dto.allInOrder,
       actorId: user.sub,
       role: user.role,
@@ -170,7 +173,7 @@ export class TechnicianJobsController {
     // response assign() yang aksi utamanya udah sukses & ke-commit (sama
     // pola kayak MaterialRequestsController.decide()).
     this.notifications
-      .notify(dto.technicianId, {
+      .notify(technicianIds[0], {
         title: handedOver ? 'Job Dialihkan ke Kamu' : 'Job Baru Ditugaskan',
         body: handedOver
           ? result.status === 'menunggu_review'

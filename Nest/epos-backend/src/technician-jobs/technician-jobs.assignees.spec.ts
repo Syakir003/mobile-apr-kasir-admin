@@ -229,3 +229,46 @@ describe('query teknisi memakai assignees', () => {
     expect(job).not.toHaveProperty('assignees');
   });
 });
+
+// ---- Task 3: pembuatan job dengan banyak teknisi ----
+
+describe('createForOrder dengan banyak teknisi', () => {
+  function setupCreate() {
+    const tx: any = {
+      technicianJob: { create: jest.fn(async ({ data }: any) => ({ id: 'j1', ...data })) },
+      technicianJobAssignee: { createMany: jest.fn(async () => ({})) },
+    };
+    const svc = new TechnicianJobsService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    return { svc, tx };
+  }
+  const base = { orderId: 'o1', memberId: 'm1', unitId: 'u1', type: 'cuci', actorId: 'adm' };
+
+  it('technicianIds [a,b] -> assigned, technicianId = a, dua baris assignees', async () => {
+    const { svc, tx } = setupCreate();
+    await svc.createForOrder(tx, { ...base, technicianIds: ['a', 'b'] });
+    expect(tx.technicianJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ technicianId: 'a', status: 'assigned' }),
+    });
+    expect(tx.technicianJobAssignee.createMany).toHaveBeenCalledWith({
+      data: [
+        { jobId: 'j1', technicianId: 'a' },
+        { jobId: 'j1', technicianId: 'b' },
+      ],
+    });
+  });
+
+  it('jalur lama technicianId saja -> satu baris assignees', async () => {
+    const { svc, tx } = setupCreate();
+    await svc.createForOrder(tx, { ...base, technicianId: 'a' });
+    expect(tx.technicianJobAssignee.createMany).toHaveBeenCalledWith({ data: [{ jobId: 'j1', technicianId: 'a' }] });
+  });
+
+  it('tanpa teknisi -> menunggu_penugasan dan tidak ada baris assignees', async () => {
+    const { svc, tx } = setupCreate();
+    await svc.createForOrder(tx, base);
+    expect(tx.technicianJob.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ status: 'menunggu_penugasan' }),
+    });
+    expect(tx.technicianJobAssignee.createMany).not.toHaveBeenCalled();
+  });
+});

@@ -205,19 +205,24 @@ export class NotificationsService {
   /** Padanan trigger Supabase notify_job_assigned: job LAHIR dengan teknisi
    * (POS pemasangan, intake, order servis) — sebelumnya cuma PATCH assign
    * yang ngabarin teknisi. Dipanggil controller SETELAH commit. */
-  async notifyJobsAssigned(jobs: { jobId: string; technicianId: string | null; unitCount?: number }[]) {
+  async notifyJobsAssigned(
+    jobs: { jobId: string; technicianId?: string | null; technicianIds?: string[]; unitCount?: number }[],
+  ) {
     for (const j of jobs) {
-      if (!j.technicianId) continue;
-      await this.notify(j.technicianId, {
-        title: 'Job Baru Ditugaskan',
-        // Servis banyak AC: satu notifikasi untuk seluruh order (jobId = salah satu job-nya, halamannya memuat semua unit).
-        body:
-          j.unitCount && j.unitCount > 1
-            ? `Kamu dapat penugasan servis ${j.unitCount} unit AC.`
-            : 'Kamu dapat penugasan job servis baru.',
-        type: 'job_assigned',
-        target: j.jobId,
-      }).catch(() => {});
+      // Beberapa teknisi setara: tiap teknisi dikabari. `technicianId` tunggal = bentuk lama.
+      const ids = j.technicianIds ?? (j.technicianId ? [j.technicianId] : []);
+      for (const technicianId of ids) {
+        await this.notify(technicianId, {
+          title: 'Job Baru Ditugaskan',
+          // Servis banyak AC: satu notifikasi untuk seluruh order (jobId = salah satu job-nya, halamannya memuat semua unit).
+          body:
+            j.unitCount && j.unitCount > 1
+              ? `Kamu dapat penugasan servis ${j.unitCount} unit AC.`
+              : 'Kamu dapat penugasan job servis baru.',
+          type: 'job_assigned',
+          target: j.jobId,
+        }).catch(() => {});
+      }
     }
   }
 

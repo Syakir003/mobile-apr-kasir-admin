@@ -10,6 +10,7 @@ import { CreateServiceOrderDto } from './dto/create-service-order.dto';
 import { UpdateServiceOrderDto } from './dto/update-service-order.dto';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
+import { normalizeTechnicianIds } from '../technician-jobs/job-assignees';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin', 'kasir')
@@ -36,7 +37,7 @@ export class ServiceOrdersController {
     this.realtime.emitToAdmin('service_order.created', result);
     // Satu notifikasi per order (bukan per unit), supaya servis banyak AC tidak membanjiri teknisi.
     await this.notifications.notifyJobsAssigned([
-      { jobId: result.jobId, technicianId: dto.technicianId ?? null, unitCount: result.jobs.length },
+      { jobId: result.jobId, technicianIds: normalizeTechnicianIds(dto), unitCount: result.jobs.length },
     ]);
     return result;
   }

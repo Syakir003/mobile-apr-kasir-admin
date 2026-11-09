@@ -36,13 +36,18 @@ function setup(
     busy?: unknown[];
     baseExists?: boolean;
     users?: Record<string, { role: string; active: boolean }>;
+    // Teknisi job awal (tabel assignees); bawaan hanya t1.
+    assignees?: string[];
   } = {},
 ) {
   const sources = opts.sources ?? [source('j1')];
   const users = opts.users ?? { t1: { role: 'teknisi', active: true }, t2: { role: 'teknisi', active: true } };
   const tx: any = {
     $executeRaw: jest.fn(async () => 1),
-    technicianJobAssignee: ownerAssignee,
+    technicianJobAssignee: {
+      ...ownerAssignee,
+      findMany: jest.fn(async () => (opts.assignees ?? ['t1']).map((technicianId) => ({ technicianId }))),
+    },
     technicianJob: {
       findUnique: jest.fn(async () => (opts.baseExists === false ? null : { orderId: 'o1' })),
       // Dua pemanggil: pengambilan job sumber (where.id) dan assertNoActiveJob (where.unitId = job aktif pada unit itu).
@@ -50,7 +55,12 @@ function setup(
         args?.where?.id ? sources.filter((s) => args.where.id.in.includes(s.id)) : (opts.busy ?? []),
       ),
     },
-    user: { findUnique: jest.fn(async ({ where }: any) => users[where.id] ?? null) },
+    user: {
+      findUnique: jest.fn(async ({ where }: any) => users[where.id] ?? null),
+      findMany: jest.fn(async ({ where }: any) =>
+        where.id.in.filter((id: string) => users[id]).map((id: string) => ({ id, ...users[id] })),
+      ),
+    },
     serviceOrder: { create: jest.fn(async (a: any) => ({ id: 'o-new', ...a.data })) },
     serviceOrderUnit: { create: jest.fn(async () => ({})) },
     auditLog: { create: jest.fn(async () => ({})) },
@@ -95,7 +105,7 @@ describe('TechnicianJobsService.createComplaint', () => {
         orderId: 'o-new',
         memberId: 'm1',
         unitId: 'u-j1',
-        technicianId: 't1', // bawaan: teknisi job awal
+        technicianIds: ['t1'], // bawaan: teknisi job awal
         type: 'perbaikan', // bukan cuci: persetujuan tidak mengubah jadwal pengingat
         actorId: 'admin1',
         complaint: 'AC masih bocor setelah dicuci',
@@ -172,7 +182,7 @@ describe('TechnicianJobsService.createComplaint', () => {
     const none = setup();
     const r = await none.svc.createComplaint('j1', dto({ technicianId: null }) as any, 'a');
     expect(r.technicianId).toBeNull();
-    expect(none.createForOrder).toHaveBeenCalledWith(none.tx, expect.objectContaining({ technicianId: null }));
+    expect(none.createForOrder).toHaveBeenCalledWith(none.tx, expect.objectContaining({ technicianIds: [] }));
 
     const other = setup();
     expect((await other.svc.createComplaint('j1', dto({ technicianId: 't2' }) as any, 'a')).technicianId).toBe('t2');
@@ -268,5 +278,35 @@ describe('job komplain tidak ditagih', () => {
     const prisma: any = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
     const pricing = new ServicePricingService(prisma, {} as any, {} as any);
     await expect(pricing.set('jk', { lines: [] } as any, 'admin1')).rejects.toThrow(/Job komplain tidak ditagih/);
+  });
+});
+
+describe('TechnicianJobsService.createComplaint — banyak teknisi', () => {
+  const both = { t1: { role: 'teknisi', active: true }, t2: { role: 'teknisi', active: true } };
+
+  it('bawaan: mewarisi SEMUA assignee aktif role teknisi dari job awal (yang nonaktif dibuang)', async () => {
+    const { svc, tx, createForOrder } = setup({
+      assignees: ['t1', 't2', 't3'],
+      users: { ...both, t3: { role: 'teknisi', active: false } },
+    });
+    const r: any = await svc.createComplaint('j1', dto() as any, 'a');
+    expect(createForOrder).toHaveBeenCalledWith(tx, expect.objectContaining({ technicianIds: ['t1', 't2'] }));
+    expect(r).toMatchObject({ technicianId: 't1', technicianIds: ['t1', 't2'] });
+  });
+
+  it('technicianIds eksplisit dipakai apa adanya; [] = belum ditentukan', async () => {
+    const a = setup({ users: both });
+    const r: any = await a.svc.createComplaint('j1', dto({ technicianIds: ['t2', 't1'] }) as any, 'a');
+    expect(r.technicianIds).toEqual(['t2', 't1']);
+    const b = setup({ users: both });
+    const none: any = await b.svc.createComplaint('j1', dto({ technicianIds: [] }) as any, 'a');
+    expect(none).toMatchObject({ technicianId: null, technicianIds: [] });
+  });
+
+  it('technicianIds berisi teknisi nonaktif / tidak ada -> 400', async () => {
+    const { svc } = setup({ users: { ...both, t3: { role: 'teknisi', active: false } } });
+    await expect(svc.createComplaint('j1', dto({ technicianIds: ['t1', 't3'] }) as any, 'a')).rejects.toThrow(
+      /Teknisi tidak valid/,
+    );
   });
 });

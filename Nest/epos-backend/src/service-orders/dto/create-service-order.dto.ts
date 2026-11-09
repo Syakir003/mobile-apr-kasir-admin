@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsDateString, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 /** Payload RPC create_service_order (migrasi Supabase 0013): order servis
  * manual multi-unit untuk member yang sudah ada — dipakai app mobile.
@@ -7,6 +7,7 @@ export class CreateServiceOrderDto {
   @IsString() @IsNotEmpty() memberId: string;
   @IsIn(['service', 'maintenance', 'cuci']) type: 'service' | 'maintenance' | 'cuci';
   @IsOptional() @IsString() technicianId?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(5) @IsString({ each: true }) technicianIds?: string[];
   @IsOptional() @IsString() note?: string;
   @IsOptional() @IsDateString() scheduledDate?: string;
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) unitIds: string[];

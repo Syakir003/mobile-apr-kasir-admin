@@ -13,7 +13,7 @@ import {
 } from '@prisma/client';
 import { unlink } from 'fs/promises';
 import { resolveUploadFile } from '../common/uploads/uploads.controller';
-import { assignedTo, isJobAssignee } from './job-assignees';
+import { assertValidTechnicians, assignedTo, isJobAssignee, normalizeTechnicianIds } from './job-assignees';
 import { PrismaService } from '../prisma/prisma.service';
 import { JobBillingService, unitInvoiceLabel } from '../common/services/job-billing.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
@@ -463,6 +463,8 @@ export class TechnicianJobsService {
       memberId: string;
       unitId: string;
       technicianId?: string | null;
+      // Beberapa teknisi setara (menang atas technicianId). Pemanggil WAJIB sudah memvalidasi (assertValidTechnicians).
+      technicianIds?: string[];
       type: string;
       actorId: string;
       scheduledDate?: Date;
@@ -475,14 +477,15 @@ export class TechnicianJobsService {
     },
   ) {
     const now = new Date();
+    const technicianIds = normalizeTechnicianIds(params);
     const job = await tx.technicianJob.create({
       data: {
         orderId: params.orderId,
         memberId: params.memberId,
         unitId: params.unitId,
-        technicianId: params.technicianId ?? undefined,
+        technicianId: technicianIds[0] ?? undefined,
         type: params.type,
-        status: params.technicianId
+        status: technicianIds.length
           ? TechnicianJobStatus.assigned
           : TechnicianJobStatus.menunggu_penugasan,
         scheduledDate: params.scheduledDate,
@@ -493,6 +496,11 @@ export class TechnicianJobsService {
         updatedAt: now,
       },
     });
+    if (technicianIds.length) {
+      await tx.technicianJobAssignee.createMany({
+        data: technicianIds.map((technicianId) => ({ jobId: job.id, technicianId })),
+      });
+    }
 
     if (params.complaint?.trim()) {
       const category = await this.findOrCreateCategory(tx, {
@@ -554,6 +562,7 @@ export class TechnicianJobsService {
         include: {
           member: { select: { id: true, name: true } },
           technician: { select: { displayName: true } },
+          assignees: { select: { technicianId: true } },
         },
       });
       if (!job) throw new NotFoundException('Job tidak ditemukan');
@@ -604,7 +613,10 @@ export class TechnicianJobsService {
         orderId: job.orderId,
         memberId: job.memberId,
         unitId: unit.id,
-        technicianId: job.technicianId,
+        // Unit tambahan dipegang SEMUA teknisi job asal (teknisi pertama di depan).
+        technicianIds: normalizeTechnicianIds({
+          technicianIds: [job.technicianId, ...job.assignees.map((a) => a.technicianId)].filter((x): x is string => !!x),
+        }),
         type: jobType,
         actorId,
         scheduledDate: job.scheduledDate ?? undefined,
@@ -693,21 +705,22 @@ export class TechnicianJobsService {
       await assertNoActiveJob(tx, sources.map((s) => s.unitId as string));
 
       const first = sources[0];
-      let technicianId: string | null;
-      if (dto.technicianId === undefined) {
-        // Bawaan: teknisi job awal, kalau akunnya sudah nonaktif/bukan teknisi jadi "belum ditentukan" (admin menugaskan).
-        const prev = first.technicianId
-          ? await tx.user.findUnique({ where: { id: first.technicianId }, select: { role: true, active: true } })
-          : null;
-        technicianId = prev && prev.role === 'teknisi' && prev.active ? first.technicianId : null;
-      } else if (dto.technicianId === null) {
-        technicianId = null;
+      let technicianIds: string[];
+      if (dto.technicianIds !== undefined || dto.technicianId !== undefined) {
+        // Eksplisit: daftar teknisi dipakai apa adanya ([] / null = belum ditentukan, admin menugaskan belakangan).
+        technicianIds = normalizeTechnicianIds(dto);
+        await assertValidTechnicians(tx, technicianIds);
       } else {
-        const tech = await tx.user.findUnique({ where: { id: dto.technicianId }, select: { role: true, active: true } });
-        if (!tech || tech.role !== 'teknisi' || !tech.active) {
-          throw new BadRequestException('Teknisi tidak valid atau tidak aktif');
-        }
-        technicianId = dto.technicianId;
+        // Bawaan: SEMUA teknisi job awal yang akunnya masih aktif (yang nonaktif/bukan teknisi dibuang).
+        const prev = await tx.technicianJobAssignee.findMany({ where: { jobId: first.id }, select: { technicianId: true } });
+        const inherited = normalizeTechnicianIds({
+          technicianIds: [first.technicianId, ...prev.map((p) => p.technicianId)].filter((x): x is string => !!x),
+        });
+        const users = inherited.length
+          ? await tx.user.findMany({ where: { id: { in: inherited } }, select: { id: true, role: true, active: true } })
+          : [];
+        const ok = new Set(users.filter((u) => u.role === 'teknisi' && u.active).map((u) => u.id));
+        technicianIds = inherited.filter((id) => ok.has(id));
       }
 
       const order = await tx.serviceOrder.create({
@@ -728,7 +741,7 @@ export class TechnicianJobsService {
           orderId: order.id,
           memberId: s.memberId as string,
           unitId: s.unitId as string,
-          technicianId,
+          technicianIds,
           type: 'perbaikan',
           actorId,
           scheduledDate,
@@ -744,7 +757,7 @@ export class TechnicianJobsService {
             actorUid: actorId,
             action: 'job.complaint',
             target: newJob.id,
-            detail: { fromJobId: s.id, fromOrderId: base.orderId, orderId: order.id, unitId: s.unitId, technicianId },
+            detail: { fromJobId: s.id, fromOrderId: base.orderId, orderId: order.id, unitId: s.unitId, technicianIds },
           },
         });
       }
@@ -753,7 +766,8 @@ export class TechnicianJobsService {
         orderId: order.id,
         jobId: created[0].jobId,
         jobs: created,
-        technicianId,
+        technicianId: technicianIds[0] ?? null,
+        technicianIds,
         customerName: first.member?.name ?? null,
       };
     });

@@ -7,6 +7,7 @@ import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { PairableProduct } from '../ac-units/ac-unit-pair.util';
 import { TechnicianJobsService } from '../technician-jobs/technician-jobs.service';
+import { assertValidTechnicians, normalizeTechnicianIds } from '../technician-jobs/job-assignees';
 import { VouchersService } from '../vouchers/vouchers.service';
 import { CheckoutDto, CheckoutItemDto } from './dto/checkout.dto';
 import {
@@ -774,7 +775,7 @@ export class PosService {
 
         let serviceOrderId: string | null = null;
         const installedUnits: { unitId: string; barcodeValue: string; roomLocation: string | null }[] = [];
-        const assignedJobs: { jobId: string; technicianId: string | null }[] = [];
+        const assignedJobs: { jobId: string; technicianId: string | null; technicianIds: string[] }[] = [];
         if (dto.installations?.length) {
           const order = await tx.serviceOrder.create({
             data: { memberId: member.id, transactionId: transaction.id, invoiceId: invoice.id, type: 'pemasangan', status: 'terjadwal', createdById: actorId },
@@ -799,15 +800,17 @@ export class PosService {
             const unit = await this.acUnits.createForInstallation(tx, member.id, products, inst.roomLocation);
             installedUnits.push({ unitId: unit.id, barcodeValue: unit.barcodeValue, roomLocation: unit.roomLocation });
             await tx.serviceOrderUnit.create({ data: { orderId: order.id, unitId: unit.id, status: 'menunggu_pemasangan' } });
+            const technicianIds = normalizeTechnicianIds(inst);
+            await assertValidTechnicians(tx, technicianIds);
             const job = await this.technicianJobs.createForOrder(tx, {
               orderId: order.id,
               memberId: member.id,
               unitId: unit.id,
-              technicianId: inst.technicianId ?? null,
+              technicianIds,
               type: 'pemasangan',
               actorId,
             });
-            assignedJobs.push({ jobId: job.id, technicianId: job.technicianId });
+            assignedJobs.push({ jobId: job.id, technicianId: job.technicianId, technicianIds });
           }
           await tx.member.update({ where: { id: member.id }, data: { totalAcUnits: { increment: dto.installations.length } } });
         }

@@ -34,7 +34,15 @@ function setup() {
     serviceOrderUnit: { create: jest.fn(async () => ({})) },
     auditLog: { create: jest.fn(async () => ({})) },
   };
-  const prisma: any = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
+  const prisma: any = {
+    $transaction: jest.fn(async (fn: any) => fn(tx)),
+    // Semua id teknisi di tes ini valid (teknisi aktif); validasinya sendiri diuji di blok 'banyak teknisi'.
+    user: {
+      findMany: jest.fn(async ({ where }: any) =>
+        where.id.in.map((id: string) => ({ id, role: 'teknisi', active: true })),
+      ),
+    },
+  };
   const acUnits: any = {
     registerExisting: jest.fn(async () => ({ id: 'u-biasa', barcodeValue: 'ACUNIT-1', memberId: 'm1' })),
     createLegacy: jest.fn(async () => ({ id: 'u-qr', barcodeValue: 'ACUNIT-2', memberId: 'm1' })),
@@ -130,10 +138,10 @@ describe('ServiceOrdersService.intake — banyak unit AC dalam satu order', () =
     expect(tx.serviceOrder.create).toHaveBeenCalledTimes(1);
     expect(tx.serviceOrderUnit.create).toHaveBeenCalledTimes(3);
     expect(technicianJobs.createForOrder).toHaveBeenCalledTimes(3);
-    expect(technicianJobs.createForOrder.mock.calls.map((c: any) => [c[1].orderId, c[1].unitId, c[1].technicianId])).toEqual([
-      ['o1', 'u1', 't1'],
-      ['o1', 'u2', 't1'],
-      ['o1', 'u3', 't1'],
+    expect(technicianJobs.createForOrder.mock.calls.map((c: any) => [c[1].orderId, c[1].unitId, c[1].technicianIds])).toEqual([
+      ['o1', 'u1', ['t1']],
+      ['o1', 'u2', ['t1']],
+      ['o1', 'u3', ['t1']],
     ]);
     expect(res.jobs.map((j) => j.jobId)).toEqual(['j1', 'j2', 'j3']);
     expect(res.unitsToLabel).toEqual([]); // semua sudah terlabel -> frontend langsung ke halaman job
@@ -448,5 +456,73 @@ describe('ServiceIntakeDto — jadwal wajib', () => {
 
   it('tanggal YYYY-MM-DD yang benar diterima', async () => {
     expect(await jadwalErrors({ scheduledDate: '2026-11-10' })).toHaveLength(0);
+  });
+});
+
+describe('ServiceOrdersService.intake — banyak teknisi', () => {
+  const validUsers = () => ({
+    findMany: jest.fn(async ({ where }: any) => where.id.in.map((id: string) => ({ id, role: 'teknisi', active: true }))),
+  });
+
+  it('technicianIds diteruskan ke createForOrder; respons mencatat teknisinya', async () => {
+    const { svc, tx, technicianJobs, prisma } = setup();
+    prisma.user = validUsers();
+    await svc.intake({ customer, complaint: 'AC bocor', newUnit: { qrDulu: true }, technicianIds: ['a', 'b'] } as any, 'a1');
+    expect(technicianJobs.createForOrder).toHaveBeenCalledWith(tx, expect.objectContaining({ technicianIds: ['a', 'b'] }));
+  });
+
+  it('jalur lama technicianId tunggal tetap jalan (dianggap daftar berisi satu)', async () => {
+    const { svc, tx, technicianJobs, prisma } = setup();
+    prisma.user = validUsers();
+    await svc.intake({ customer, complaint: 'AC bocor', newUnit: { qrDulu: true }, technicianId: 'a' } as any, 'a1');
+    expect(technicianJobs.createForOrder).toHaveBeenCalledWith(tx, expect.objectContaining({ technicianIds: ['a'] }));
+  });
+
+  it('lebih dari 5 teknisi / bukan teknisi aktif ditolak 400 sebelum transaksi dibuka', async () => {
+    const { svc, prisma } = setup();
+    prisma.user = validUsers();
+    await expect(
+      svc.intake(
+        { customer, complaint: 'AC bocor', newUnit: { qrDulu: true }, technicianIds: ['a', 'b', 'c', 'd', 'e', 'f'] } as any,
+        'a1',
+      ),
+    ).rejects.toThrow(BadRequestException);
+    prisma.user = { findMany: jest.fn(async () => [{ id: 'k', role: 'kasir', active: true }]) };
+    await expect(
+      svc.intake({ customer, complaint: 'AC bocor', newUnit: { qrDulu: true }, technicianIds: ['k'] } as any, 'a1'),
+    ).rejects.toThrow(/Teknisi tidak valid/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('ServiceOrdersService.createManual — banyak teknisi', () => {
+  it('teknisi tidak valid ditolak sebelum order dibuat; yang valid diteruskan ke createForOrder + assignedJobs', async () => {
+    const tx: any = {
+      $executeRaw: jest.fn(async () => 1),
+      technicianJob: { findMany: jest.fn(async () => []) },
+      serviceOrder: { create: jest.fn(async () => ({ id: 'o1' })) },
+      serviceOrderUnit: { create: jest.fn(async () => ({})) },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    const prisma: any = {
+      member: { findUnique: jest.fn(async () => ({ id: 'm1', active: true })) },
+      memberAcUnit: { findMany: jest.fn(async () => [{ id: 'u1', memberId: 'm1' }]) },
+      user: { findMany: jest.fn(async () => [{ id: 'a', role: 'teknisi', active: true }, { id: 'b', role: 'teknisi', active: true }]) },
+      technicianJob: { findMany: jest.fn(async () => []) },
+      $transaction: jest.fn(async (fn: any) => fn(tx)),
+    };
+    const technicianJobs: any = { createForOrder: jest.fn(async () => ({ id: 'j1', technicianId: 'a' })) };
+    const svc = new ServiceOrdersService(prisma, {} as any, {} as any, technicianJobs);
+
+    const res: any = await svc.createManual({ memberId: 'm1', type: 'service', unitIds: ['u1'], technicianIds: ['a', 'b'] } as any, 'adm');
+    expect(technicianJobs.createForOrder).toHaveBeenCalledWith(tx, expect.objectContaining({ technicianIds: ['a', 'b'] }));
+    expect(res.assignedJobs).toEqual([{ jobId: 'j1', technicianId: 'a', technicianIds: ['a', 'b'] }]);
+
+    prisma.user.findMany = jest.fn(async () => [{ id: 'a', role: 'teknisi', active: true }]);
+    prisma.$transaction.mockClear();
+    await expect(
+      svc.createManual({ memberId: 'm1', type: 'service', unitIds: ['u1'], technicianIds: ['a', 'x'] } as any, 'adm'),
+    ).rejects.toThrow(/Teknisi tidak valid/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

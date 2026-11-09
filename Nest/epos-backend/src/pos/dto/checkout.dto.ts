@@ -1,6 +1,8 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsDefined,
   IsIn,
@@ -75,6 +77,7 @@ export class CheckoutInstallationDto {
   @IsInt({ each: true }) @Min(0, { each: true }) @ArrayMinSize(1) itemIndexes: number[];
   @IsOptional() @IsString() roomLocation?: string;
   @IsOptional() @IsString() technicianId?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(5) @IsString({ each: true }) technicianIds?: string[];
 
   // Paket instalasi (opsional) — item-item di paket ini (sparepart + biaya
   // tambahan per unit, lihat InstallationPackagesModule) otomatis jadi

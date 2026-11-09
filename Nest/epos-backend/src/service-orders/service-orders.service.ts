@@ -5,6 +5,7 @@ import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { TechnicianJobsService } from '../technician-jobs/technician-jobs.service';
 import { assertNoActiveJob } from '../technician-jobs/active-job.util';
+import { assertValidTechnicians, normalizeTechnicianIds } from '../technician-jobs/job-assignees';
 import { resolveWorkLocation } from './work-location.util';
 import { IntakeUnitDto, ServiceIntakeDto } from './dto/service-intake.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
@@ -36,12 +37,8 @@ export class ServiceOrdersService {
   async createManual(dto: CreateServiceOrderDto, actorId: string) {
     const member = await this.prisma.member.findUnique({ where: { id: dto.memberId } });
     if (!member || !member.active) throw new BadRequestException('Member tidak ditemukan atau nonaktif');
-    if (dto.technicianId) {
-      const tech = await this.prisma.user.findUnique({ where: { id: dto.technicianId } });
-      if (!tech || tech.role !== 'teknisi' || !tech.active) {
-        throw new BadRequestException('Teknisi tidak valid atau nonaktif');
-      }
-    }
+    const technicianIds = normalizeTechnicianIds(dto);
+    await assertValidTechnicians(this.prisma, technicianIds);
     const unitIds = [...new Set(dto.unitIds)];
     const units = await this.prisma.memberAcUnit.findMany({ where: { id: { in: unitIds } } });
     if (units.length !== unitIds.length) throw new NotFoundException('Unit AC tidak ditemukan');
@@ -62,26 +59,26 @@ export class ServiceOrdersService {
           createdById: actorId,
         },
       });
-      const assignedJobs: { jobId: string; technicianId: string | null }[] = [];
+      const assignedJobs: { jobId: string; technicianId: string | null; technicianIds: string[] }[] = [];
       for (const unitId of unitIds) {
         await tx.serviceOrderUnit.create({ data: { orderId: order.id, unitId, status: 'terjadwal' } });
         const job = await this.technicianJobs.createForOrder(tx, {
           orderId: order.id,
           memberId: member.id,
           unitId,
-          technicianId: dto.technicianId ?? null,
+          technicianIds,
           type: dto.type,
           actorId,
           scheduledDate,
         });
-        assignedJobs.push({ jobId: job.id, technicianId: job.technicianId });
+        assignedJobs.push({ jobId: job.id, technicianId: job.technicianId, technicianIds });
       }
       await tx.auditLog.create({
         data: {
           actorUid: actorId,
           action: 'order.create',
           target: order.id,
-          detail: { type: dto.type, jobs: unitIds.length, technicianId: dto.technicianId ?? null },
+          detail: { type: dto.type, jobs: unitIds.length, technicianId: technicianIds[0] ?? null, technicianIds },
         },
       });
       return { ok: true, orderId: order.id, jobCount: unitIds.length, assignedJobs };
@@ -127,6 +124,9 @@ export class ServiceOrdersService {
 
     // Titik lokasi kerja tiap unit (urut sama dengan entries). Dicek sebelum transaksi supaya pilihan yang salah jadi 400.
     const unitLocations = entries.map((e) => resolveWorkLocation(dto.locations, e.locationIndex));
+    // Teknisi (maks 5, semua setara) divalidasi sebelum transaksi: id salah/nonaktif jadi 400, bukan order setengah jadi.
+    const technicianIds = normalizeTechnicianIds(dto);
+    await assertValidTechnicians(this.prisma, technicianIds);
 
     return this.prisma.$transaction(async (tx) => {
       // Sama pola persis kayak PosService.checkout(): kalau admin/kasir milih
@@ -214,7 +214,7 @@ export class ServiceOrdersService {
             orderId: order.id,
             memberId: member.id,
             unitId: unit.id,
-            technicianId: dto.technicianId ?? null,
+            technicianIds,
             type: jobType,
             actorId,
             scheduledDate,

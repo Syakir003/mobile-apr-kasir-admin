@@ -38,6 +38,7 @@ function setup(
     scheduledDate: null,
     member: { id: 'm1', name: 'Bu Sari' },
     technician: { displayName: 'Andi' },
+    assignees: [{ technicianId: 't1' }],
     ...opts.job,
   };
   const labeledUnit = {
@@ -95,6 +96,14 @@ function setup(
   return { svc, tx, prisma, acUnits, createForOrder };
 }
 
+describe('TechnicianJobsService.addUnit — mewarisi semua teknisi job asal', () => {
+  it('unit tambahan dipegang SEMUA assignee job asal, bukan hanya teknisi pertama', async () => {
+    const { svc, tx, createForOrder } = setup({ job: { assignees: [{ technicianId: 't1' }, { technicianId: 't2' }] } });
+    await svc.addUnit('j1', { barcode: 'ACUNIT-20261001-0002', complaint: 'Cuci AC' }, 't1', 'teknisi');
+    expect(createForOrder).toHaveBeenCalledWith(tx, expect.objectContaining({ technicianIds: ['t1', 't2'] }));
+  });
+});
+
 describe('TechnicianJobsService.addUnit — unit sudah berlabel (scan barcode)', () => {
   it('membuat job baru di order yang sama untuk unit itu, dengan temuan awal dari keluhan', async () => {
     const { svc, tx, createForOrder, acUnits } = setup();
@@ -116,7 +125,7 @@ describe('TechnicianJobsService.addUnit — unit sudah berlabel (scan barcode)',
         orderId: 'o1',
         memberId: 'm1',
         unitId: 'u2',
-        technicianId: 't1',
+        technicianIds: ['t1'],
         type: 'perbaikan',
         actorId: 't1',
         complaint: 'Cuci AC kamar',
@@ -355,7 +364,7 @@ describe('TechnicianJobsService.addUnit — syarat job & pemilik', () => {
     // job tetap dipegang teknisi pemilik job, bukan admin
     expect(b.createForOrder).toHaveBeenCalledWith(
       b.tx,
-      expect.objectContaining({ technicianId: 't1', actorId: 'admin1' }),
+      expect.objectContaining({ technicianIds: ['t1'], actorId: 'admin1' }),
     );
   });
 

@@ -27,6 +27,9 @@ export class CreateComplaintDto {
   /** Tidak dikirim = teknisi job awal; null = belum ditentukan (admin menugaskan belakangan). */
   @IsOptional() @IsUUID() technicianId?: string | null;
 
+  /** Beberapa teknisi setara (maks 5); menang atas technicianId. [] = belum ditentukan. Tidak dikirim = semua teknisi aktif job awal. */
+  @IsOptional() @IsArray() @ArrayMaxSize(5) @IsUUID(undefined, { each: true }) technicianIds?: string[];
+
   /** Jadwal pengerjaan ulang (YYYY-MM-DD), wajib seperti Terima Servis. */
   @IsDateString({}, { message: 'Jadwal wajib diisi' }) scheduledDate: string;
 }
