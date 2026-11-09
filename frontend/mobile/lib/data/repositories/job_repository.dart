@@ -126,7 +126,14 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
         'status': unit['status'],
         'parts': _unitParts(unit),
       },
-    if (technician != null) 'technician_name': technician['displayName'],
+    // Beberapa teknisi: nama digabung koma supaya semua layar yang menampilkan technicianName ikut benar.
+    if (j['technicians'] is List && (j['technicians'] as List).isNotEmpty)
+      'technician_name': (j['technicians'] as List).map((t) => (t as Map)['displayName']).join(', ')
+    else if (technician != null)
+      'technician_name': technician['displayName'],
+    if (j['technicianIds'] is List) 'technician_ids': j['technicianIds'],
+    if (j['technicians'] is List)
+      'technician_names': [for (final t in j['technicians'] as List) (t as Map)['displayName']],
     if (j['siblings'] is List)
       'sibling_ids': [for (final sib in j['siblings'] as List) (sib as Map)['id']],
     if (j['order'] is Map) 'order_note': (j['order'] as Map)['note'],

@@ -36,13 +36,13 @@ class JobRequestsSection extends ConsumerWidget {
     final user = ref.watch(currentUserProvider).value;
     final role = user?.role;
     final canSubmit = role == UserRole.teknisi &&
-        job.technicianId == user?.uid &&
+        job.isAssignedTo(user?.uid) &&
         (job.status == JobStatus.assigned ||
             job.status == JobStatus.sedangDikerjakan);
     final canDecide = role == UserRole.admin || role == UserRole.kasir;
     // Menandai material dipakai: teknisi pemilik job atau admin (kasir tidak).
     final canUse = role == UserRole.admin ||
-        (role == UserRole.teknisi && job.technicianId == user?.uid);
+        (role == UserRole.teknisi && job.isAssignedTo(user?.uid));
     final requestsAsync = ref.watch(jobRequestsProvider(job.id));
     final others = [for (final id in otherJobIds) ref.watch(jobRequestsProvider(id))];
 

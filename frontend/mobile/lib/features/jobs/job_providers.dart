@@ -322,9 +322,39 @@ Future<void> callAssignTechnician(
   Map<String, dynamic> payload, {
   required Future<dynamic> Function(String path, {Object? body}) patch,
 }) {
+  // Set PENUH teknisi (semua setara, maks 5). Payload lama dengan `technicianId` tunggal tetap diterima.
+  final ids = payload['technicianIds'] is List
+      ? [for (final i in payload['technicianIds'] as List) '$i']
+      : ['${payload['technicianId'] ?? ''}'].where((i) => i.isNotEmpty).toList();
   return patch('/technician-jobs/${payload['jobId']}/assign',
-      body: {'technicianId': payload['technicianId']});
+      body: {'technicianIds': ids});
 }
+
+/// Satu job yang sedang dikerjakan seorang teknisi (untuk peringatan "sibuk" saat penugasan).
+typedef BusyJob = ({String jobId, String? customerName, String? location});
+
+/// Beban kerja teknisi: id teknisi -> job `sedang_dikerjakan`-nya (GET /technician-jobs/workload, admin & kasir).
+/// 403/404 (peran lain / server lama) dibaca kosong: picker tetap berfungsi, hanya tanpa peringatan.
+final technicianWorkloadProvider =
+    FutureProvider.autoDispose<Map<String, List<BusyJob>>>((ref) async {
+  try {
+    final rows = await _api.get('/technician-jobs/workload') as List;
+    return {
+      for (final r in rows.cast<Map>())
+        r['technicianId'] as String: [
+          for (final j in (r['jobs'] as List).cast<Map>())
+            (
+              jobId: j['jobId'] as String,
+              customerName: j['customerName'] as String?,
+              location: j['location'] as String?,
+            ),
+        ],
+    };
+  } on NestApiException catch (e) {
+    if (e.statusCode == 403 || e.statusCode == 404) return const {};
+    rethrow;
+  }
+});
 
 final assignTechnicianCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {

@@ -116,7 +116,7 @@ void main() {
           qty: 2,
           withInstallation: true,
           roomLocation: 'Ruang tamu',
-          technicianId: 't1',
+          technicianIds: ['t1'],
         ),
         CartLine(
           kind: CartItemKind.service,
@@ -158,7 +158,7 @@ void main() {
       expect(inst, {
         'itemIndex': 0,
         'roomLocation': 'Ruang tamu',
-        'technicianId': 't1',
+        'technicianIds': ['t1'],
       });
     }
 

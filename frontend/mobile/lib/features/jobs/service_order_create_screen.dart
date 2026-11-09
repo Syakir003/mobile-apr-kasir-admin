@@ -7,8 +7,8 @@ import '../../core/utils/error_message.dart';
 import '../../data/models/ac_unit.dart';
 import '../../data/models/member.dart';
 import '../members/member_providers.dart';
-import '../pos/pos_providers.dart' show techniciansProvider;
 import 'job_providers.dart';
+import 'technician_multi_picker.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
 
@@ -39,7 +39,7 @@ class _ServiceOrderCreateScreenState
   String? _memberId;
   final _unitIds = <String>{};
   _OrderType _type = _OrderType.service;
-  String? _technicianId;
+  List<String> _technicianIds = const [];
   DateTime? _scheduled;
   final _note = TextEditingController();
   bool _busy = false;
@@ -71,7 +71,7 @@ class _ServiceOrderCreateScreenState
         'memberId': _memberId,
         'type': _type.value,
         'unitIds': _unitIds.toList(),
-        if (_technicianId != null) 'technicianId': _technicianId,
+        if (_technicianIds.isNotEmpty) 'technicianIds': _technicianIds,
         if (_scheduled != null)
           'scheduledDate': _scheduled!.toUtc().toIso8601String(),
         if (_note.text.trim().isNotEmpty) 'note': _note.text.trim(),
@@ -166,10 +166,10 @@ class _ServiceOrderCreateScreenState
               ),
               const SizedBox(height: 16),
               _label('Teknisi (opsional)'),
-              _TechnicianDropdown(
-                value: _technicianId,
+              TechnicianMultiPicker(
+                value: _technicianIds,
                 enabled: !_busy,
-                onChanged: (v) => setState(() => _technicianId = v),
+                onChanged: (v) => setState(() => _technicianIds = v),
               ),
               const SizedBox(height: 16),
               _label('Keluhan / Catatan (opsional)'),
@@ -265,42 +265,6 @@ class _UnitPicker extends ConsumerWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _TechnicianDropdown extends ConsumerWidget {
-  const _TechnicianDropdown({
-    required this.value,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  final String? value;
-  final bool enabled;
-  final ValueChanged<String?> onChanged;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final techsAsync = ref.watch(techniciansProvider);
-    return techsAsync.when(
-      loading: () => const LinearProgressIndicator(),
-      error: (e, _) => Text('Gagal memuat teknisi: ${errorMessage(e)}',
-          style: const TextStyle(color: AppColors.slate500)),
-      data: (list) => DropdownButtonFormField<String?>(
-        key: const Key('order-technician'),
-        initialValue: list.any((t) => t.uid == value) ? value : null,
-        decoration: const InputDecoration(hintText: 'Belum ditentukan'),
-        items: [
-          const DropdownMenuItem<String?>(
-            value: null,
-            child: Text('Belum ditentukan'),
-          ),
-          for (final t in list)
-            DropdownMenuItem<String?>(value: t.uid, child: Text(t.name)),
-        ],
-        onChanged: enabled ? onChanged : null,
-      ),
     );
   }
 }

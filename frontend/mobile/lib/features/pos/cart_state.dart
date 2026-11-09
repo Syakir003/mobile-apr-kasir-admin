@@ -22,7 +22,7 @@ class CartLine {
     required this.qty,
     this.withInstallation = false,
     this.roomLocation = '',
-    this.technicianId,
+    this.technicianIds = const [],
     this.unitIds = const [],
   });
 
@@ -34,7 +34,9 @@ class CartLine {
   final num qty;
   final bool withInstallation;
   final String roomLocation;
-  final String? technicianId;
+
+  /// Teknisi baris ini (semua setara, maks 5); kosong = "Belum ditentukan".
+  final List<String> technicianIds;
 
   /// Unit AC member yang dikerjakan baris jasa ini (hanya untuk
   /// [CartItemKind.service]). Jumlahnya maksimal [qty] — satu unit = satu job
@@ -44,9 +46,6 @@ class CartLine {
   /// Subtotal baris: `round(qty * unitPrice)`, sama seperti rumus server.
   int get lineTotal => (qty * unitPrice).round();
 
-  /// [clearTechnicianId]: set true untuk secara eksplisit mengosongkan
-  /// [technicianId] (dropdown "Belum ditentukan"); tanpa flag ini,
-  /// `technicianId: null` diperlakukan sebagai "tidak diganti".
   CartLine copyWith({
     CartItemKind? kind,
     String? refId,
@@ -56,8 +55,7 @@ class CartLine {
     num? qty,
     bool? withInstallation,
     String? roomLocation,
-    String? technicianId,
-    bool clearTechnicianId = false,
+    List<String>? technicianIds,
     List<String>? unitIds,
   }) {
     return CartLine(
@@ -69,8 +67,7 @@ class CartLine {
       qty: qty ?? this.qty,
       withInstallation: withInstallation ?? this.withInstallation,
       roomLocation: roomLocation ?? this.roomLocation,
-      technicianId:
-          clearTechnicianId ? null : (technicianId ?? this.technicianId),
+      technicianIds: technicianIds ?? this.technicianIds,
       unitIds: unitIds ?? this.unitIds,
     );
   }
@@ -218,8 +215,7 @@ Map<String, dynamic> buildCheckoutPayload(Cart cart) {
       final inst = <String, dynamic>{'itemIndex': i};
       final room = line.roomLocation.trim();
       if (room.isNotEmpty) inst['roomLocation'] = room;
-      final tech = line.technicianId;
-      if (tech != null && tech.isNotEmpty) inst['technicianId'] = tech;
+      if (line.technicianIds.isNotEmpty) inst['technicianIds'] = line.technicianIds;
       installations.add(inst);
     }
   }
@@ -230,8 +226,7 @@ Map<String, dynamic> buildCheckoutPayload(Cart cart) {
     if (line.kind != CartItemKind.service) continue;
     for (final unitId in line.unitIds) {
       final entry = <String, dynamic>{'itemIndex': i, 'unitId': unitId};
-      final tech = line.technicianId;
-      if (tech != null && tech.isNotEmpty) entry['technicianId'] = tech;
+      if (line.technicianIds.isNotEmpty) entry['technicianIds'] = line.technicianIds;
       serviceUnits.add(entry);
     }
   }

@@ -18,13 +18,13 @@ import '../../data/models/material_request.dart';
 import '../../data/models/technician_job.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import '../members/unit_label_pdf.dart';
-import '../pos/pos_providers.dart' show techniciansProvider;
 import 'add_unit_sheet.dart';
 import 'job_list_screen.dart' show jobStatusColor;
 import 'job_providers.dart';
 import 'job_report_pdf.dart';
 import 'job_requests_section.dart';
 import 'teknisi_tutorial.dart';
+import 'technician_multi_picker.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/form_field.dart';
 import '../../core/widgets/empty_state.dart';
@@ -1397,21 +1397,25 @@ class _AssignPanel extends ConsumerStatefulWidget {
 }
 
 class _AssignPanelState extends ConsumerState<_AssignPanel> {
-  String? _selected;
+  late List<String> _selected;
   bool _busy = false;
 
   @override
   void initState() {
     super.initState();
-    _selected = widget.job.technicianId;
+    _selected = [...widget.job.technicianIds];
   }
+
+  bool get _unchanged =>
+      _selected.length == widget.job.technicianIds.length &&
+      _selected.every(widget.job.technicianIds.contains);
 
   Future<void> _assign() async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
       await ref.read(assignTechnicianCallerProvider)(
-        {'jobId': widget.job.id, 'technicianId': _selected ?? ''},
+        {'jobId': widget.job.id, 'technicianIds': _selected},
       );
       ref.invalidate(jobProvider(widget.job.id));
       ref.invalidate(jobsForCurrentUserProvider);
@@ -1432,7 +1436,6 @@ class _AssignPanelState extends ConsumerState<_AssignPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final techsAsync = ref.watch(techniciansProvider);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -1443,33 +1446,19 @@ class _AssignPanelState extends ConsumerState<_AssignPanel> {
                 style: TextStyle(
                     fontWeight: FontWeight.w600, color: AppColors.slate900)),
             const SizedBox(height: 10),
-            techsAsync.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (e, _) => Text('Gagal memuat teknisi: ${errorMessage(e)}',
-                  style: const TextStyle(color: AppColors.slate500)),
-              data: (list) => AppSelectField<String?>(
-                fieldKey: const Key('assign-technician'),
-                label: 'Teknisi',
-                value:
-                    list.any((t) => t.uid == _selected) ? _selected : null,
-                items: [
-                  const DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text('Belum ditentukan'),
-                  ),
-                  for (final t in list)
-                    DropdownMenuItem<String?>(
-                        value: t.uid, child: Text(t.name)),
-                ],
-                onChanged: (v) => setState(() => _selected = v),
-              ),
+            TechnicianMultiPicker(
+              key: const Key('assign-technician'),
+              value: _selected,
+              enabled: !_busy,
+              excludeJobId: widget.job.id,
+              onChanged: (ids) => setState(() => _selected = ids),
             ),
             const SizedBox(height: 12),
             SizedBox(
               height: 48,
               width: double.infinity,
               child: FilledButton(
-                onPressed: (_busy || widget.busy) ? null : _assign,
+                onPressed: (_busy || widget.busy || _selected.isEmpty || _unchanged) ? null : _assign,
                 child: _busy
                     ? const SizedBox(
                         height: 20,

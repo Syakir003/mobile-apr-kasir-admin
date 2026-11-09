@@ -1,5 +1,6 @@
 import 'package:epos_ac/data/models/service_order.dart';
 import 'package:epos_ac/data/models/technician_job.dart';
+import 'package:epos_ac/data/repositories/job_repository.dart' show technicianJobRowFromNest;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -94,5 +95,57 @@ void main() {
     expect(order.memberName, 'Budi');
     expect(order.unitCount, 3);
     expect(order.doneCount, 1);
+  });
+
+  group('banyak teknisi per job', () {
+    test('respons Nest membawa semua teknisi (technicianId = pertama)', () {
+      final job = TechnicianJob.fromMap(
+        'j1',
+        technicianJobRowFromNest({
+          'technicianId': 't1',
+          'technicianIds': ['t1', 't2'],
+          'technicians': [
+            {'id': 't1', 'displayName': 'Ani'},
+            {'id': 't2', 'displayName': 'Budi'},
+          ],
+          'technician': {'displayName': 'Ani'},
+        }),
+      );
+      expect(job.technicianId, 't1');
+      expect(job.technicianIds, ['t1', 't2']);
+      expect(job.technicianNames, ['Ani', 'Budi']);
+    });
+
+    test('respons lama tanpa technicianIds: dipulihkan dari technicianId & nama tunggal', () {
+      final job = TechnicianJob.fromMap(
+        'j1',
+        technicianJobRowFromNest({
+          'technicianId': 't1',
+          'technician': {'displayName': 'Ani'},
+        }),
+      );
+      expect(job.technicianIds, ['t1']);
+      expect(job.technicianNames, ['Ani']);
+    });
+
+    test('job belum ditugaskan: daftar kosong', () {
+      final job = TechnicianJob.fromMap('j1', technicianJobRowFromNest({'technicianId': null}));
+      expect(job.technicianIds, isEmpty);
+      expect(job.technicianNames, isEmpty);
+    });
+
+    test('isAssignedTo: true untuk SEMUA teknisi job, false untuk lainnya dan null', () {
+      final job = TechnicianJob.fromMap(
+        'j1',
+        technicianJobRowFromNest({
+          'technicianId': 't1',
+          'technicianIds': ['t1', 't2'],
+        }),
+      );
+      expect(job.isAssignedTo('t1'), isTrue);
+      expect(job.isAssignedTo('t2'), isTrue); // bukan teknisi pertama, tetap boleh mengerjakan
+      expect(job.isAssignedTo('t9'), isFalse);
+      expect(job.isAssignedTo(null), isFalse);
+    });
   });
 }

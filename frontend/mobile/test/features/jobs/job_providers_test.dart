@@ -91,11 +91,11 @@ void main() {
   });
 
   group('callAssignTechnician', () {
-    test('mengirim technicianId ke rute assign', () async {
+    test('mengirim technicianIds (semua setara) ke rute assign', () async {
       String? path;
       Object? capturedBody;
       await callAssignTechnician(
-        {'jobId': 'job-1', 'technicianId': 'tek-1'},
+        {'jobId': 'job-1', 'technicianIds': ['tek-1', 'tek-2']},
         patch: (p, {Object? body}) async {
           path = p;
           capturedBody = body;
@@ -103,7 +103,19 @@ void main() {
         },
       );
       expect(path, '/technician-jobs/job-1/assign');
-      expect(capturedBody, {'technicianId': 'tek-1'});
+      expect(capturedBody, {'technicianIds': ['tek-1', 'tek-2']});
+    });
+
+    test('payload lama (antrean offline) dengan technicianId tunggal dikirim sebagai technicianIds', () async {
+      Object? capturedBody;
+      await callAssignTechnician(
+        {'jobId': 'job-1', 'technicianId': 'tek-1'},
+        patch: (p, {Object? body}) async {
+          capturedBody = body;
+          return null;
+        },
+      );
+      expect(capturedBody, {'technicianIds': ['tek-1']});
     });
   });
 

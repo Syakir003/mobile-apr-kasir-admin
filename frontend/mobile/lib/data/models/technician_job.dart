@@ -118,6 +118,8 @@ class TechnicianJob {
     this.unitBarcode = '',
     this.unitParts = '',
     this.technicianName = '',
+    this.technicianIds = const [],
+    this.technicianNames = const [],
     this.siblingIds = const [],
     this.orderNote,
     this.technicianNote,
@@ -133,6 +135,7 @@ class TechnicianJob {
   final String orderId;
   final String memberId;
   final String? unitId;
+  /// Teknisi PERTAMA job (kolom lama). Semua teknisi (setara) ada di [technicianIds].
   final String? technicianId;
   final String type;
   final JobStatus status;
@@ -172,7 +175,15 @@ class TechnicianJob {
 
   /// Paket unit, mis. `Indoor AC FT123 · Outdoor AC FK123` (kosong bila tak ada).
   final String unitParts;
+  /// Nama teknisi untuk tampilan; bila beberapa teknisi digabung koma ("Ani, Budi").
   final String technicianName;
+
+  /// Semua teknisi job (setara, teknisi pertama di depan) dan namanya; kosong = belum ditugaskan.
+  final List<String> technicianIds;
+  final List<String> technicianNames;
+
+  /// True bila [uid] salah satu teknisi job ini (bukan hanya teknisi pertama): boleh melihat & mengerjakan.
+  bool isAssignedTo(String? uid) => uid != null && (technicianIds.contains(uid) || technicianId == uid);
 
   /// Servis banyak AC: id job lain (unit lain) di order yang sama; kosong = servis satu unit.
   final List<String> siblingIds;
@@ -218,12 +229,18 @@ class TechnicianJob {
   factory TechnicianJob.fromMap(String id, Map<String, dynamic> data) {
     final member = data['member'] as Map<String, dynamic>?;
     final unit = data['unit'] as Map<String, dynamic>?;
+    final technicianId = data['technician_id'] as String?;
+    final ids = [for (final i in (data['technician_ids'] as List? ?? const [])) '$i'];
+    final names = [for (final n in (data['technician_names'] as List? ?? const [])) '$n'];
+    final singleName = (data['technician_name'] as String?) ?? '';
     return TechnicianJob(
       id: id,
       orderId: (data['order_id'] as String?) ?? '',
       memberId: (data['member_id'] as String?) ?? '',
       unitId: data['unit_id'] as String?,
-      technicianId: data['technician_id'] as String?,
+      technicianId: technicianId,
+      technicianIds: ids.isNotEmpty ? ids : [if (technicianId != null) technicianId],
+      technicianNames: names.isNotEmpty ? names : [if (singleName.isNotEmpty) singleName],
       type: (data['type'] as String?) ?? 'pemasangan',
       status: JobStatus.fromValue(data['status']),
       scheduledDate: _toDate(data['scheduled_date']),

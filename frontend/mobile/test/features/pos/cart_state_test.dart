@@ -128,7 +128,7 @@ void main() {
           qty: 2,
           withInstallation: true,
           roomLocation: 'Ruang tamu',
-          technicianId: 't1',
+          technicianIds: ['t1'],
         ),
         CartLine(
           kind: CartItemKind.service,
@@ -163,7 +163,7 @@ void main() {
       expect(inst, {
         'itemIndex': 0,
         'roomLocation': 'Ruang tamu',
-        'technicianId': 't1',
+        'technicianIds': ['t1'],
       });
     }
     // Tanpa unit terpilih, serviceUnits dihilangkan dari payload.
@@ -192,7 +192,7 @@ void main() {
           unit: 'jasa',
           unitPrice: 65000,
           qty: 2,
-          technicianId: 't1',
+          technicianIds: ['t1'],
           unitIds: ['u1', 'u2'],
         ),
         CartLine(
@@ -209,8 +209,8 @@ void main() {
 
     final payload = buildCheckoutPayload(cart);
     expect(payload['serviceUnits'], [
-      {'itemIndex': 1, 'unitId': 'u1', 'technicianId': 't1'},
-      {'itemIndex': 1, 'unitId': 'u2', 'technicianId': 't1'},
+      {'itemIndex': 1, 'unitId': 'u1', 'technicianIds': ['t1']},
+      {'itemIndex': 1, 'unitId': 'u2', 'technicianIds': ['t1']},
       {'itemIndex': 2, 'unitId': 'u1'},
     ]);
   });
@@ -246,5 +246,23 @@ void main() {
     expect(incompleteServiceLines(const Cart(lines: [lengkap, produk])),
         isEmpty);
     expect(incompleteServiceLines(const Cart(lines: [lengkap, kurang])), [1]);
+  });
+
+  test('buildCheckoutPayload: banyak teknisi pada instalasi dikirim sebagai technicianIds; kosong = tanpa kunci', () {
+    CartLine line(List<String> techs) => CartLine(
+          kind: CartItemKind.product,
+          refId: 'p1',
+          name: 'AC Split',
+          unit: 'unit',
+          unitPrice: 1000,
+          qty: 1,
+          withInstallation: true,
+          technicianIds: techs,
+        );
+    final multi = buildCheckoutPayload(Cart(customerName: 'Budi', customerPhone: '081234567890', lines: [line(['t1', 't2'])]));
+    expect((multi['installations'] as List).single['technicianIds'], ['t1', 't2']);
+
+    final none = buildCheckoutPayload(Cart(customerName: 'Budi', customerPhone: '081234567890', lines: [line(const [])]));
+    expect((none['installations'] as List).single.containsKey('technicianIds'), isFalse);
   });
 }

@@ -8,6 +8,7 @@ import '../members/member_providers.dart';
 import 'cart_state.dart';
 import 'member_picker_sheet.dart';
 import 'pos_providers.dart';
+import '../jobs/technician_multi_picker.dart';
 import '../../core/utils/error_message.dart';
 import '../../core/widgets/form_field.dart';
 import '../../core/widgets/form_scaffold.dart';
@@ -523,25 +524,17 @@ class _ServiceTechnicianDropdown extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final technicians = ref.watch(techniciansProvider);
-    return technicians.when(
-      data: (list) => AppSelectField<String?>(
-        fieldKey: Key('service-technician-$index'),
-        label: 'Teknisi',
-        value: line.technicianId,
-        items: [
-          const DropdownMenuItem<String?>(
-            value: null,
-            child: Text('Belum ditentukan'),
-          ),
-          for (final t in list)
-            DropdownMenuItem<String?>(value: t.uid, child: Text(t.name)),
-        ],
-        onChanged: (v) =>
-            ref.read(cartProvider.notifier).setServiceTechnician(index, v),
-      ),
-      loading: () => const LinearProgressIndicator(),
-      error: (e, _) => Text('Gagal memuat teknisi: ${errorMessage(e)}'),
+    return Column(
+      key: Key('service-technician-$index'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Teknisi (opsional, boleh lebih dari satu)'),
+        TechnicianMultiPicker(
+          value: line.technicianIds,
+          onChanged: (ids) =>
+              ref.read(cartProvider.notifier).setServiceTechnicians(index, ids),
+        ),
+      ],
     );
   }
 }

@@ -6,7 +6,7 @@ import '../../core/theme/app_theme.dart';
 import 'cart_state.dart';
 import 'item_picker_sheet.dart';
 import 'pos_providers.dart';
-import '../../core/utils/error_message.dart';
+import '../jobs/technician_multi_picker.dart';
 import '../../core/widgets/form_field.dart';
 
 /// Layar keranjang POS: daftar baris item, ringkasan total, dan tombol
@@ -322,29 +322,17 @@ class _TechnicianDropdown extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final technicians = ref.watch(techniciansProvider);
     final notifier = ref.read(cartProvider.notifier);
-    return technicians.when(
-      data: (list) => AppSelectField<String?>(
-        fieldKey: Key('technician-$index'),
-        label: 'Teknisi',
-        value: line.technicianId,
-        items: [
-          const DropdownMenuItem<String?>(
-            value: null,
-            child: Text('Belum ditentukan'),
-          ),
-          for (final t in list)
-            DropdownMenuItem<String?>(value: t.uid, child: Text(t.name)),
-        ],
-        onChanged: (v) => notifier.setInstallation(
-          index,
-          technicianId: v,
-          clearTechnician: v == null,
+    return Column(
+      key: Key('technician-$index'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Teknisi (opsional, boleh lebih dari satu)'),
+        TechnicianMultiPicker(
+          value: line.technicianIds,
+          onChanged: (ids) => notifier.setInstallation(index, technicianIds: ids),
         ),
-      ),
-      loading: () => const LinearProgressIndicator(),
-      error: (e, _) => Text('Gagal memuat teknisi: ${errorMessage(e)}'),
+      ],
     );
   }
 }

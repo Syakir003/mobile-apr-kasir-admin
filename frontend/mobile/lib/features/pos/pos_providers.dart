@@ -44,21 +44,18 @@ class CartNotifier extends Notifier<Cart> {
 
   /// Mengatur toggle pemasangan pada baris product ke-[index].
   ///
-  /// [technicianId] hanya diterapkan bila diisi atau [clearTechnician]
-  /// bernilai true (dropdown "Belum ditentukan" -> technicianId null).
+  /// [technicianIds] (semua setara, maks 5) hanya diterapkan bila diisi; daftar kosong = "Belum ditentukan".
   void setInstallation(
     int index, {
     bool? enabled,
     String? roomLocation,
-    String? technicianId,
-    bool clearTechnician = false,
+    List<String>? technicianIds,
   }) {
     final lines = [...state.lines];
     lines[index] = lines[index].copyWith(
       withInstallation: enabled,
       roomLocation: roomLocation,
-      technicianId: technicianId,
-      clearTechnicianId: clearTechnician,
+      technicianIds: technicianIds,
     );
     state = state.copyWith(lines: lines);
   }
@@ -125,15 +122,12 @@ class CartNotifier extends Notifier<Cart> {
     _replaceLine(index, line.copyWith(unitIds: [...selected, unitId]));
   }
 
-  /// Teknisi untuk seluruh unit pada baris jasa ke-[index]. Null =
+  /// Teknisi (semua setara) untuk seluruh unit pada baris jasa ke-[index]. Kosong =
   /// "Belum ditentukan" (job lahir berstatus menunggu penugasan).
-  void setServiceTechnician(int index, String? technicianId) {
+  void setServiceTechnicians(int index, List<String> technicianIds) {
     _replaceLine(
       index,
-      state.lines[index].copyWith(
-        technicianId: technicianId,
-        clearTechnicianId: technicianId == null,
-      ),
+      state.lines[index].copyWith(technicianIds: technicianIds),
     );
   }
 
