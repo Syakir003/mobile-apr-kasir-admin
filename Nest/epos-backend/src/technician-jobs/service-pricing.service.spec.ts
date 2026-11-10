@@ -86,6 +86,14 @@ describe('ServicePricingService.set — harga jasa satu untuk seluruh job', () =
     const { svc } = setup([job('j1', 1, { status: 'selesai' }), job('j2', 2)]);
     await expect(svc.set('j2', dto, 'a1')).rejects.toThrow(/tidak bisa diubah setelah job selesai/);
   });
+
+  it('admin menyimpan harga: penanda "diubah teknisi" dihapus dari job pemegang harga', async () => {
+    const { svc, jobs } = setup([
+      job('j1', 1, { techPriceEditedAt: new Date(), techPriceEditReason: 'x', priceBeforeTechEdit: 100 } as any),
+    ]);
+    await svc.set('j1', dto, 'a1');
+    expect(jobs.get('j1')).toMatchObject({ techPriceEditedAt: null, techPriceEditReason: null, priceBeforeTechEdit: null });
+  });
 });
 
 describe('ServicePricingService.get — id job mana pun menunjuk pemegang harga yang sama', () => {

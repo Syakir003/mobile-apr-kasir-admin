@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InvoiceStatus, Prisma, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CountersService } from '../counters/counters.service';
 import { formatInvoiceNumber } from '../pos/pos-calc.util';
 import { JobBillingService, TRANSPORT_STEP } from '../common/services/job-billing.service';
 import { SetServicePricingDto } from './dto/set-service-pricing.dto';
+import { isJobAssignee } from './job-assignees';
 
 interface MaterialRequestLike {
   total: unknown;
@@ -57,6 +58,14 @@ export class ServicePricingService {
     return owner?.id ?? jobId;
   }
 
+  /** Ringkasan harga untuk peminta: admin/kasir bebas; teknisi hanya untuk job yang ia pegang (assignee). */
+  async getFor(jobId: string, actorId: string, role: 'admin' | 'kasir' | 'teknisi' | 'gudang') {
+    if (role === 'teknisi' && !(await isJobAssignee(this.prisma, jobId, actorId))) {
+      throw new ForbiddenException('Job ini bukan milik Anda');
+    }
+    return this.get(jobId);
+  }
+
   /** Ringkasan untuk panel "Harga Jasa" di halaman job (admin & kasir). */
   async get(requestedJobId: string) {
     const jobId = await this.resolveOwnerId(this.prisma, requestedJobId);
@@ -106,7 +115,19 @@ export class ServicePricingService {
         name: l.name,
         qty: Number(l.qty),
         unitPrice: Number(l.unitPrice),
+        source: l.source,
+        isCustom: l.isCustom,
+        changeReason: l.changeReason,
       })),
+      // Penanda untuk admin/kasir: jasa disesuaikan teknisi di lokasi (hilang saat admin menyimpan harga lagi).
+      techEdit: job.techPriceEditedAt
+        ? {
+            at: job.techPriceEditedAt,
+            reason: job.techPriceEditReason,
+            subtotalBefore: Number(job.priceBeforeTechEdit ?? 0),
+            subtotalAfter: job.serviceLines.reduce((s, l) => s + Math.round(Number(l.qty) * Number(l.unitPrice)), 0),
+          }
+        : null,
       transport: {
         level: job.transportLevel,
         mode: job.transportMode,
@@ -219,6 +240,10 @@ export class ServicePricingService {
       where: { id: jobId },
       data: {
         billingDerived: true,
+        // Admin/kasir menyimpan harga = penyesuaian teknisi sudah ditinjau.
+        techPriceEditedAt: null,
+        techPriceEditReason: null,
+        priceBeforeTechEdit: null,
         ...(dto.transportLevel !== undefined ? { transportLevel: dto.transportLevel } : {}),
         ...(dto.transportMode !== undefined ? { transportMode: dto.transportMode } : {}),
       },
