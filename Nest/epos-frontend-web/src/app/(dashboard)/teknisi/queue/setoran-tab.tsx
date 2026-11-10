@@ -9,7 +9,9 @@ import { formatDateTime, formatRupiah } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { PanelTitle } from '@/components/ui/panel';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { methodLabel } from '../jobs/[id]/payment-card';
 import {
@@ -22,6 +24,9 @@ import {
 
 // Tab "Setoran Teknisi" di Antrian Servis (admin): job yang pembayarannya belum diverifikasi. Pilih teknisi untuk melihat
 // uangnya; verifikasi satuan dilakukan di halaman job (Buka Job), setoran tunai sekaligus lewat formulir di bawah tabel.
+
+// Radix Select tidak menerima nilai kosong, jadi "semua teknisi" memakai penanda ini.
+const ALL = '__all__';
 
 interface OrderRow {
   orderId: string;
@@ -78,29 +83,25 @@ export function SetoranTab({ initialTechnicianId }: { initialTechnicianId: strin
 
   return (
     <div className="grid gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant={technicianId ? 'outline' : 'default'}
-          aria-pressed={!technicianId}
-          onClick={() => setTechnicianId('')}
-        >
-          Semua teknisi
-        </Button>
-        {techs.map((t) => (
-          <Button
-            key={t.technicianId}
-            type="button"
-            size="sm"
-            variant={technicianId === t.technicianId ? 'default' : 'outline'}
-            aria-pressed={technicianId === t.technicianId}
-            onClick={() => setTechnicianId(t.technicianId)}
-          >
-            {t.displayName} · {formatRupiah(t.heldTotal + t.awaitingTotal)}
-          </Button>
-        ))}
-        <Button asChild size="sm" variant="ghost" className="sm:ml-auto">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="grid w-full max-w-sm gap-1.5">
+          <Label>Teknisi</Label>
+          <Select value={technicianId || ALL} onValueChange={(v) => setTechnicianId(v === ALL ? "" : v)}>
+            <SelectTrigger className="w-full" aria-label="Pilih teknisi">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Semua teknisi</SelectItem>
+              {technicianId && !selected && <SelectItem value={technicianId}>Teknisi terpilih</SelectItem>}
+              {techs.map((t) => (
+                <SelectItem key={t.technicianId} value={t.technicianId}>
+                  {t.displayName} - {formatRupiah(t.heldTotal + t.awaitingTotal)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button asChild size="sm" variant="ghost">
           <Link href="/setoran">Laporan Uang di Teknisi</Link>
         </Button>
       </div>
