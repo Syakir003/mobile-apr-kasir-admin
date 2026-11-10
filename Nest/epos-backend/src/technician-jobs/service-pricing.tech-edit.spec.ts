@@ -214,3 +214,48 @@ describe('ServicePricingService.techEditLines — penyesuaian jasa oleh teknisi'
     expect(tx.jobServiceLine.update).not.toHaveBeenCalled();
   });
 });
+
+// Penyesuaian teknisi SUDAH berlaku sejak disimpan (tagihan dihitung ulang, teknisi bisa langsung menagih); penanda untuk
+// admin hanya informasi. Admin boleh menandainya sudah ditinjau TANPA menyimpan ulang harga.
+describe('ServicePricingService.acknowledgeTechEdit — tandai sudah ditinjau tanpa menyimpan harga', () => {
+  function setupAck(edited: boolean) {
+    const tx: any = {
+      $executeRaw: jest.fn(async () => 1),
+      technicianJob: {
+        findUnique: jest.fn(async ({ where }: any) =>
+          where.id === 'j1' ? { id: 'j1', orderId: 'o1', type: 'cuci', techPriceEditedAt: edited ? new Date() : null } : null,
+        ),
+        findFirst: jest.fn(async () => ({ id: 'j1' })),
+        update: jest.fn(async () => ({})),
+      },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    const prisma: any = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
+    const billing: any = { rebuild: jest.fn() };
+    return { svc: new ServicePricingService(prisma, {} as any, billing), tx, billing };
+  }
+
+  it('menghapus penanda di job pemegang harga, dengan audit; harga/tagihan tidak disentuh', async () => {
+    const { svc, tx, billing } = setupAck(true);
+    await expect(svc.acknowledgeTechEdit('j1', 'a1')).resolves.toEqual({ ok: true, jobId: 'j1', cleared: true });
+    expect(tx.$executeRaw.mock.calls[0][0].join('?')).toContain('FROM service_orders');
+    expect(tx.technicianJob.update).toHaveBeenCalledWith({
+      where: { id: 'j1' },
+      data: { techPriceEditedAt: null, techPriceEditReason: null, priceBeforeTechEdit: null },
+    });
+    expect(tx.auditLog.create.mock.calls[0][0].data).toMatchObject({ actorUid: 'a1', action: 'job.tech_edit_ack', target: 'j1' });
+    expect(billing.rebuild).not.toHaveBeenCalled();
+  });
+
+  it('tidak ada penanda: tidak melakukan apa pun (aman dipanggil ulang)', async () => {
+    const { svc, tx } = setupAck(false);
+    await expect(svc.acknowledgeTechEdit('j1', 'a1')).resolves.toEqual({ ok: true, jobId: 'j1', cleared: false });
+    expect(tx.technicianJob.update).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('job tidak ada: 404', async () => {
+    const { svc } = setupAck(true);
+    await expect(svc.acknowledgeTechEdit('zzz', 'a1')).rejects.toThrow('Job tidak ditemukan');
+  });
+});

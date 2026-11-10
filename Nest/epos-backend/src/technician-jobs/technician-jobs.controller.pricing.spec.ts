@@ -24,6 +24,19 @@ describe('TechnicianJobsController — harga jasa untuk teknisi', () => {
     expect(pricing.getFor).toHaveBeenCalledWith('j1', 't1', 'teknisi');
   });
 
+  it('POST service-pricing/ack: admin/kasir menandai penyesuaian teknisi sudah ditinjau', async () => {
+    const { ctrl, pricing } = make();
+    pricing.acknowledgeTechEdit = jest.fn(async () => ({ ok: true, jobId: 'j1', cleared: true }));
+    await expect(ctrl.ackTechEdit('j1', { sub: 'a1', role: 'admin' } as any)).resolves.toMatchObject({ cleared: true });
+    expect(pricing.acknowledgeTechEdit).toHaveBeenCalledWith('j1', 'a1');
+  });
+
+  it('notifikasi penyesuaian menyebut bahwa perubahan sudah berlaku (tidak perlu menunggu admin)', async () => {
+    const { ctrl, notifications } = make();
+    await ctrl.techEditServiceLines('j1', { lines: [{ id: 'l1', qty: 3 }], reason: 'Unit ketiga ikut dicuci' } as any, { sub: 't1', role: 'teknisi' } as any);
+    expect(notifications.notifyRoles.mock.calls[0][1].body).toContain('Sudah berlaku');
+  });
+
   it('PATCH service-lines: panggil service, kabari admin lewat realtime dan admin+kasir lewat notifikasi', async () => {
     const { ctrl, pricing, realtime, notifications } = make();
     const dto: any = { lines: [{ id: 'l1', qty: 3 }], reason: 'Unit ketiga ikut dicuci' };

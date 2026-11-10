@@ -311,6 +311,31 @@ export class ServicePricingService {
   }
 
   /**
+   * Admin/kasir menandai penyesuaian teknisi SUDAH DITINJAU tanpa menyimpan ulang harga. Penyesuaian teknisi berlaku sejak
+   * disimpan (tagihan dihitung ulang, teknisi bisa langsung menagih); penanda hanya informasi untuk admin, jadi admin tidak
+   * wajib menyimpan harga untuk menghapusnya. Aman dipanggil berulang.
+   */
+  async acknowledgeTechEdit(requestedJobId: string, actorId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const base = await tx.technicianJob.findUnique({ where: { id: requestedJobId }, select: { orderId: true } });
+      if (!base) throw new NotFoundException('Job tidak ditemukan');
+      // Urutan kunci sama dengan setWithin/techEditLines: order -> job pemegang harga.
+      await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${base.orderId} FOR UPDATE`;
+      const ownerId = await this.resolveOwnerId(tx, requestedJobId);
+      const owner = await tx.technicianJob.findUnique({ where: { id: ownerId }, select: { techPriceEditedAt: true } });
+      if (!owner?.techPriceEditedAt) return { ok: true, jobId: ownerId, cleared: false };
+      await tx.technicianJob.update({
+        where: { id: ownerId },
+        data: { techPriceEditedAt: null, techPriceEditReason: null, priceBeforeTechEdit: null },
+      });
+      await tx.auditLog.create({
+        data: { actorUid: actorId, action: 'job.tech_edit_ack', target: ownerId, detail: { requestedJobId } },
+      });
+      return { ok: true, jobId: ownerId, cleared: true };
+    });
+  }
+
+  /**
    * Teknisi (assignee) menyesuaikan jasa di lokasi. Aturan: harga satuan baris yang ada TIDAK bisa diubah (hanya jumlah),
    * baris baru dari katalog memakai harga katalog, di luar katalog hanya lewat "jasa lain" (nama + harga, ditandai isCustom).
    * Menghapus baris boleh. Alasan wajib. Transport tidak disentuh. Hasilnya ditandai untuk admin (techPriceEditedAt,

@@ -433,6 +433,13 @@ export class TechnicianJobsController {
     return r;
   }
 
+  // Admin/kasir menandai penyesuaian teknisi sudah ditinjau, TANPA harus menyimpan ulang harga (penyesuaian sudah berlaku).
+  @Roles('admin', 'kasir')
+  @Post(':id/service-pricing/ack')
+  ackTechEdit(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.pricing.acknowledgeTechEdit(id, user.sub);
+  }
+
   // Teknisi menyesuaikan jasa di lokasi (katalog + jumlah + "jasa lain"), wajib beralasan. Admin & kasir dikabari.
   @Roles('teknisi')
   @Patch(':id/service-lines')
@@ -447,7 +454,7 @@ export class TechnicianJobsController {
     void this.notifications
       .notifyRoles(['admin', 'kasir'], {
         title: 'Jasa Disesuaikan Teknisi',
-        body: `${r.actorName} menyesuaikan jasa${r.customerName ? ` untuk ${r.customerName}` : ''}: ${rp(r.subtotalBefore)} menjadi ${rp(r.subtotalAfter)}. Alasan: ${r.reason}`,
+        body: `${r.actorName} menyesuaikan jasa${r.customerName ? ` untuk ${r.customerName}` : ''}: ${rp(r.subtotalBefore)} menjadi ${rp(r.subtotalAfter)}. Alasan: ${r.reason}. Sudah berlaku, tidak perlu persetujuan; tinjau bila perlu.`,
         type: 'job_price_edited',
         target: id,
       })
