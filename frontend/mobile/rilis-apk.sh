@@ -2,19 +2,18 @@
 # Rilis APK baru ke teknisi (jalankan DI LAPTOP, dari folder frontend/mobile, lewat Git Bash):
 #
 #   1. naikkan `version:` di pubspec.yaml, MISAL 1.0.1+2 (angka setelah + WAJIB lebih besar dari rilis sebelumnya)
-#   2. flutter build apk --release --split-per-abi      (atau tanpa --split-per-abi bila mau satu APK universal)
+#   2. flutter build apk --release                       (WAJIB universal: Galaxy A13 dkk. OS 32-bit, APK arm64 ditolak)
 #   3. bash rilis-apk.sh [--min <build>] "catatan rilis"
 #
-# PENTING: buildNumber di version.json = versionCode APK, BUKAN angka setelah + di pubspec. Dengan --split-per-abi
-# Flutter menambah 2000 untuk arm64 (1.0.2+3 -> 2003), dan itulah yang dibaca app terpasang (PackageInfo).
+# PENTING: buildNumber di version.json = versionCode APK, BUKAN angka setelah + di pubspec. Build universal memakai
+# angka setelah + apa adanya (1.0.9+2010 -> 2010); angka 2010 dipilih supaya tetap > 2009 (APK arm64 split terakhir).
 #
 # --min <versionCode>: HP dengan versionCode di bawah angka itu DIPAKSA update (pakai bila kontrak API berubah dan APK lama
 #                bisa error). Tanpa --min, update hanya ditawarkan (bisa "Nanti").
-# APK yang diunggah: build/app/outputs/flutter-apk/app-release.apk, atau ABI arm64-v8a bila dibuild dengan
-# --split-per-abi (hampir semua HP Android sekarang).
+# APK yang diunggah: build/app/outputs/flutter-apk/app-release.apk (universal, semua ABI).
 #
-# Pengaman: menolak bila APK bukan ditandatangani keystore release (APK debug-signed tidak bisa meng-update HP yang
-# sudah terpasang) atau bila build tidak lebih besar dari yang sudah terbit.
+# Pengaman: menolak bila APK bukan ditandatangani keystore release, build tidak lebih besar dari yang terbit, atau APK
+# ternyata split (hanya satu ABI) — HP 32-bit seperti Galaxy A13 menolak APK arm64.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -31,9 +30,10 @@ NAME=${VER%%+*}
 BUILD=${VER##*+}
 [[ "$VER" == *+* && "$BUILD" =~ ^[0-9]+$ ]] || { echo "version di pubspec.yaml harus berbentuk 1.0.1+2 (ada +angka build)"; exit 1; }
 
-# Yang TERBARU di antara APK universal dan arm64 (folder ini menyimpan build lama juga, mis. yang masih kunci debug).
-APK=$(ls -t "$OUT/app-release.apk" "$OUT/app-arm64-v8a-release.apk" 2>/dev/null | head -1)
-[ -n "$APK" ] || { echo "APK release tidak ditemukan di $OUT. Jalankan flutter build apk --release dulu."; exit 1; }
+# Universal saja (semua ABI). File split (app-arm64-v8a-release.apk dll.) sengaja TIDAK dipakai: HP 32-bit
+# seperti Galaxy A13 menolak APK arm64 dengan "versi Android tidak kompatibel".
+APK="$OUT/app-release.apk"
+[ -f "$APK" ] || { echo "APK universal tidak ditemukan di $APK. Jalankan flutter build apk --release dulu."; exit 1; }
 [ "$APK" -nt pubspec.yaml ] || { echo "APK lebih lama dari pubspec.yaml: build ulang dulu supaya versinya cocok."; exit 1; }
 
 # Tanda tangan APK harus sama dengan keystore release.
@@ -57,9 +57,16 @@ want=$(keytool -list -keystore "$(prop storeFile)" -storepass "$(prop storePassw
 have=$("$APKSIGNER" verify --print-certs "$APK" 2>/dev/null | grep -i 'certificate SHA-256 digest' | head -1 | awk '{print $NF}' | norm)
 [ -n "$want" ] && [ "$want" = "$have" ] || { echo "APK TIDAK ditandatangani keystore release (APK: ${have:-?}, keystore: ${want:-?})."; exit 1; }
 
-# versionCode asli dari APK (lihat catatan di atas soal +2000 untuk arm64).
+# versionCode asli dari APK. Build universal = angka setelah + apa adanya.
 VC=$("$(dirname "$APKSIGNER")"/aapt2* dump badging "$APK" 2>/dev/null | head -1 | grep -o "versionCode='[0-9]*'" | grep -o '[0-9]*')
 [[ "$VC" =~ ^[0-9]+$ ]] || { echo "versionCode APK tidak terbaca (aapt2)."; exit 1; }
+
+# Tolak APK split (satu ABI): HP 32-bit tidak bisa memasang arm64.
+NATIVE=$("$(dirname "$APKSIGNER")"/aapt2* dump badging "$APK" 2>/dev/null | grep '^native-code:' | head -1)
+case "$NATIVE" in
+  *armeabi-v7a*arm64-v8a*|*arm64-v8a*armeabi-v7a*) ;;
+  *) echo "APK bukan universal ($NATIVE). Build ulang: flutter build apk --release (tanpa --split-per-abi)."; exit 1 ;;
+esac
 
 # Build harus lebih besar dari yang sudah terbit.
 CUR=$(curl -fsS -m 10 "$API/app-version" 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get('buildNumber',0))" 2>/dev/null || echo 0)
