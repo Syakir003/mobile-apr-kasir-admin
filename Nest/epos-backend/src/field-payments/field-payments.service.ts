@@ -1,11 +1,20 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, TechnicianJobStatus } from '@prisma/client';
+import { Prisma, TechnicianJobStatus, WhatsappMessageKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CountersService } from '../counters/counters.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { waPhone } from '../whatsapp/wa-format.util';
 import { isJobAssignee } from '../technician-jobs/job-assignees';
 import { CreateFieldPaymentDto } from './dto/create-field-payment.dto';
-import { ACTIVE_FIELD_PAYMENT_STATUSES, STATUS_AWAITING_MATCH, STATUS_HELD } from './field-payment.constants';
+import { SendReceiptDto } from './dto/send-receipt.dto';
+import { buildReceiptMessage } from './receipt-message.util';
+import {
+  ACTIVE_FIELD_PAYMENT_STATUSES,
+  STATUS_AWAITING_MATCH,
+  STATUS_HELD,
+  STATUS_REJECTED,
+  type FieldPaymentMethod,
+} from './field-payment.constants';
 
 type Db = Prisma.TransactionClient;
 interface JobGateRef {
@@ -129,5 +138,148 @@ export class FieldPaymentsService {
       });
       return { payment, duplicate: false };
     });
+  }
+
+  /**
+   * Kirim Tanda Terima ke pelanggan lewat nomor toko (WA), atau tandai pakai laporan kertas. Hanya perekam (atau admin).
+   * Gagal kirim WA tidak melempar: hasil `sent:false` + alasan, teknisi boleh kirim ulang atau pilih kertas.
+   */
+  async sendReceipt(paymentId: string, dto: SendReceiptDto, actorId: string, role: string) {
+    const fp = await this.prisma.fieldPayment.findUnique({
+      where: { id: paymentId },
+      include: { invoice: { include: { member: true } }, recordedBy: { select: { displayName: true } } },
+    });
+    if (!fp) throw new NotFoundException('Pembayaran tidak ditemukan');
+    if (role !== 'admin' && fp.recordedById !== actorId) throw new ForbiddenException('Pembayaran ini bukan catatan Anda');
+    if (fp.status === STATUS_REJECTED) throw new BadRequestException('Pembayaran ini sudah ditolak admin');
+
+    if (dto.channel === 'kertas') {
+      const paperReportNo = dto.paperReportNo?.trim() || null;
+      await this.prisma.fieldPayment.update({ where: { id: paymentId }, data: { receiptChannel: 'kertas', paperReportNo } });
+      await this.prisma.auditLog.create({
+        data: { actorUid: actorId, action: 'field_payment.receipt_sent', target: paymentId, detail: { channel: 'kertas', paperReportNo } },
+      });
+      return { sent: false, channel: 'kertas' as const, receiptNumber: fp.receiptNumber };
+    }
+
+    const rawPhone = fp.invoice.customerPhone || fp.invoice.member?.phone || '';
+    if (!waPhone(rawPhone)) {
+      throw new BadRequestException('Nomor HP pelanggan belum ada atau tidak valid. Pakai laporan kertas sebagai bukti.');
+    }
+    const items = await this.prisma.invoiceItem.findMany({
+      where: { invoiceId: fp.invoiceId, kind: 'service' },
+      select: { name: true, qty: true },
+    });
+    const names = [...new Set(items.map((i) => (Number(i.qty) > 1 ? `${i.name} (${Number(i.qty)})` : i.name)))];
+    const serviceSummary = names.length > 0 ? names.slice(0, 3).join(', ') + (names.length > 3 ? ', dll.' : '') : 'servis AC';
+    const message = buildReceiptMessage({
+      receiptNumber: fp.receiptNumber,
+      amount: Number(fp.amount),
+      method: fp.method as FieldPaymentMethod,
+      customerName: fp.invoice.customerName || fp.invoice.member?.name || 'Pelanggan',
+      serviceSummary,
+      paidAt: fp.createdAt,
+      technicianName: fp.recordedBy.displayName,
+    });
+    const log = await this.whatsapp.sendInvoiceMessage({
+      invoiceId: fp.invoiceId,
+      memberId: fp.invoice.memberId,
+      phone: rawPhone,
+      message,
+      actorId,
+      kind: WhatsappMessageKind.tanda_terima,
+    });
+    const sent = log.status === 'terkirim';
+    await this.prisma.fieldPayment.update({
+      where: { id: paymentId },
+      data: { receiptWaLogId: log.id, ...(sent ? { receiptChannel: 'wa', receiptSentAt: new Date() } : {}) },
+    });
+    if (sent) {
+      await this.prisma.auditLog.create({
+        data: { actorUid: actorId, action: 'field_payment.receipt_sent', target: paymentId, detail: { channel: 'wa', logId: log.id } },
+      });
+    }
+    return { sent, channel: 'wa' as const, receiptNumber: fp.receiptNumber, error: sent ? null : (log.error ?? 'Gagal mengirim WhatsApp') };
+  }
+
+  /** Ringkasan pembayaran lapangan satu order untuk layar job: daftar, sisa efektif, dan apakah/kenapa tombol Catat Pembayaran tertutup. */
+  async listForJob(jobId: string, actorId: string, role: string) {
+    const job = await this.prisma.technicianJob.findUnique({
+      where: { id: jobId },
+      select: { id: true, orderId: true, type: true, status: true, complaintOfJobId: true },
+    });
+    if (!job) throw new NotFoundException('Job tidak ditemukan');
+    if (role === 'teknisi' && !(await isJobAssignee(this.prisma, jobId, actorId))) {
+      throw new ForbiddenException('Job ini bukan milik Anda');
+    }
+    const [payments, order, gate] = await Promise.all([
+      this.prisma.fieldPayment.findMany({
+        where: { orderId: job.orderId },
+        orderBy: { createdAt: 'asc' },
+        include: { recordedBy: { select: { id: true, displayName: true } } },
+      }),
+      this.prisma.serviceOrder.findUnique({
+        where: { id: job.orderId },
+        select: {
+          paymentMode: true,
+          unpaidReason: true,
+          invoice: { select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true } },
+        },
+      }),
+      gateReason(this.prisma, job),
+    ]);
+    const active = ACTIVE_FIELD_PAYMENT_STATUSES as readonly string[];
+    const activeTotal = payments.filter((p) => active.includes(p.status)).reduce((s, p) => s + Number(p.amount), 0);
+    const remaining = order?.invoice ? Number(order.invoice.grandTotal) - Number(order.invoice.totalPaid) - activeTotal : null;
+    const blockedReason = gate.reason ?? (remaining !== null && remaining <= 0 ? 'Tagihan sudah terbayar penuh' : null);
+    return {
+      paymentMode: order?.paymentMode ?? null,
+      unpaidReason: order?.unpaidReason ?? null,
+      invoice: order?.invoice
+        ? { ...order.invoice, grandTotal: Number(order.invoice.grandTotal), totalPaid: Number(order.invoice.totalPaid) }
+        : null,
+      activeTotal,
+      remaining,
+      canRecord: blockedReason === null,
+      blockedReason,
+      payments: payments.map((p) => ({
+        id: p.id,
+        receiptNumber: p.receiptNumber,
+        method: p.method,
+        amount: Number(p.amount),
+        note: p.note,
+        status: p.status,
+        proofUrl: p.proofUrl,
+        receiptChannel: p.receiptChannel,
+        receiptSentAt: p.receiptSentAt,
+        createdAt: p.createdAt,
+        recordedBy: p.recordedBy,
+      })),
+    };
+  }
+
+  /** Catatan pembayaran milik teknisi yang login (uang yang ia pegang = status dipegang_teknisi). */
+  async mine(actorId: string, status?: string) {
+    const rows = await this.prisma.fieldPayment.findMany({
+      where: { recordedById: actorId, ...(status ? { status } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: { invoice: { select: { number: true, customerName: true } } },
+    });
+    return {
+      heldTotal: rows.filter((r) => r.status === STATUS_HELD).reduce((s, r) => s + Number(r.amount), 0),
+      items: rows.map((r) => ({
+        id: r.id,
+        receiptNumber: r.receiptNumber,
+        method: r.method,
+        amount: Number(r.amount),
+        status: r.status,
+        receiptChannel: r.receiptChannel,
+        receiptSentAt: r.receiptSentAt,
+        createdAt: r.createdAt,
+        invoiceNumber: r.invoice.number,
+        customerName: r.invoice.customerName,
+      })),
+    };
   }
 }
