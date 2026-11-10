@@ -12,7 +12,7 @@
 import 'dotenv/config';
 import { copyFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type MemberAcUnit, type TechnicianJob } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
@@ -74,6 +74,7 @@ async function main() {
 
   const admin = await prisma.user.findFirst({ where: { role: 'admin', active: true }, orderBy: { createdAt: 'asc' } });
   if (!admin) throw new Error('Tidak ada user admin.');
+  const adminId = admin.id; // salinan non-null: dipakai di fungsi bersarang (penyempitan tipe tidak ikut masuk ke sana)
   const techs = await prisma.user.findMany({ where: { email: { in: TECH_EMAILS }, active: true } });
   const byEmail = (e: string) => {
     const u = techs.find((t) => t.email === e);
@@ -93,6 +94,7 @@ async function main() {
   if (!cuciKecil || !cuciBesar || !freonJasa || !bongkar || !freon) {
     throw new Error('Katalog jasa/sparepart bawaan (Cuci AC, Isi Freon, Bongkar Pasang, Freon R32) tidak lengkap.');
   }
+  const freonSp = freon; // salinan non-null untuk fungsi bersarang
   const svc = (s: { id: string; name: string; basePrice: unknown }, qty: number, price?: number) => ({
     serviceId: s.id,
     name: s.name,
@@ -138,7 +140,7 @@ async function main() {
         memberSince: new Date(Date.now() - 60 * DAY),
       },
     });
-    const units = [];
+    const units: MemberAcUnit[] = [];
     for (let k = 0; k < sc.units; k++) {
       units.push(
         await prisma.memberAcUnit.create({
@@ -159,14 +161,14 @@ async function main() {
         memberId: member.id,
         type: sc.type,
         status: 'terjadwal',
-        createdById: admin.id,
+        createdById: adminId,
         scheduledDate: today,
         paymentMode: sc.paymentMode,
         note: `Dummy pembayaran: ${sc.name}`,
         serviceOrderUnits: { create: units.map((u) => ({ unitId: u.id, status: 'terjadwal' })) },
       },
     });
-    const jobs = [];
+    const jobs: TechnicianJob[] = [];
     for (const [i, u] of units.entries()) {
       jobs.push(
         await prisma.technicianJob.create({
@@ -179,7 +181,7 @@ async function main() {
             status: sc.jobStatus,
             scheduledDate: today,
             startedAt: new Date(today.getTime() + 3600000),
-            createdById: admin.id,
+            createdById: adminId,
             billingDerived: true,
             ...(i === 0 && sc.techEdited
               ? { techPriceEditedAt: new Date(), techPriceEditReason: sc.techEdited.reason, priceBeforeTechEdit: sc.techEdited.before }
@@ -224,7 +226,7 @@ async function main() {
     }
 
     // Invoice (tagihan dari baris jasa + sparepart yang disetujui), terbentuk di depan seperti Terima Servis versi baru.
-    const sparepartTotal = sc.sparepartApproved ? sc.sparepartApproved.qty * Number(freon.sellPrice) : 0;
+    const sparepartTotal = sc.sparepartApproved ? sc.sparepartApproved.qty * Number(freonSp.sellPrice) : 0;
     const jasaTotal = lines.reduce((s, l) => s + Math.round(l.qty * l.unitPrice), 0);
     const grand = jasaTotal + sparepartTotal;
     const invoice = await prisma.invoice.create({
@@ -238,7 +240,7 @@ async function main() {
         totalPaid: 0,
         status: 'belum_dibayar',
         notes: MARK,
-        createdById: admin.id,
+        createdById: adminId,
       },
     });
     await prisma.invoiceItem.createMany({
@@ -260,11 +262,11 @@ async function main() {
                 invoiceId: invoice.id,
                 jobId: owner.id,
                 kind: 'sparepart',
-                refId: freon.id,
-                name: freon.name,
+                refId: freonSp.id,
+                name: freonSp.name,
                 unit: 'pcs',
                 qty: sc.sparepartApproved.qty,
-                unitPrice: Number(freon.sellPrice),
+                unitPrice: Number(freonSp.sellPrice),
                 lineTotal: sparepartTotal,
               },
             ]
@@ -283,7 +285,7 @@ async function main() {
           total: sparepartTotal,
           note: 'Freon habis, tambah (dummy)',
           createdById: andi.id,
-          decidedById: admin.id,
+          decidedById: adminId,
           decidedAt: new Date(),
           usedAt: used ? new Date() : null,
           usedById: used ? andi.id : null,
@@ -293,12 +295,12 @@ async function main() {
         data: {
           requestId: mr.id,
           kind: 'sparepart',
-          refId: freon.id,
-          name: freon.name,
+          refId: freonSp.id,
+          name: freonSp.name,
           unit: 'pcs',
           qty: sc.sparepartApproved.qty,
           qtyUsed: used ? sc.sparepartApproved.qty : null,
-          unitPrice: Number(freon.sellPrice),
+          unitPrice: Number(freonSp.sellPrice),
           lineTotal: sparepartTotal,
         },
       });
@@ -399,9 +401,9 @@ async function main() {
   // Buku besar contoh untuk laporan Uang di Teknisi.
   await prisma.technicianCashEntry.createMany({
     data: [
-      { technicianId: denis.id, kind: 'kurang_setor', amount: 20000, note: `${MARK} kurang setor sebelumnya`, createdById: admin.id },
-      { technicianId: andi.id, kind: 'ditutup_alasan', amount: 15000, note: `${MARK} dipakai beli freon, nota terlampir`, createdById: admin.id },
-      { technicianId: toko.id, kind: 'kelebihan_pelanggan', amount: 10000, note: `${MARK} kelebihan setelah harga turun`, createdById: admin.id },
+      { technicianId: denis.id, kind: 'kurang_setor', amount: 20000, note: `${MARK} kurang setor sebelumnya`, createdById: adminId },
+      { technicianId: andi.id, kind: 'ditutup_alasan', amount: 15000, note: `${MARK} dipakai beli freon, nota terlampir`, createdById: adminId },
+      { technicianId: toko.id, kind: 'kelebihan_pelanggan', amount: 10000, note: `${MARK} kelebihan setelah harga turun`, createdById: adminId },
     ],
   });
 
