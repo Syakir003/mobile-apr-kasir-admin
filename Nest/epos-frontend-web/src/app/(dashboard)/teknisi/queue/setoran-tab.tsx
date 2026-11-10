@@ -16,11 +16,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { methodLabel } from '../jobs/[id]/payment-card';
 import {
   SettlementForm,
-  setoranJobHref,
   useOutstanding,
   type OutstandingItem,
   type PendingData,
 } from '../../setoran/setoran-shared';
+import { setoranJobHref } from '../../setoran/setoran-links';
 
 // Tab "Setoran Teknisi" di Antrian Servis (admin): job yang pembayarannya belum diverifikasi. Pilih teknisi untuk melihat
 // uangnya; verifikasi satuan dilakukan di halaman job (Buka Job), setoran tunai sekaligus lewat formulir di bawah tabel.

@@ -1,5 +1,5 @@
 import { requireSession } from '@/lib/server-api';
-import { setoranQueueHref } from '../../../setoran/setoran-shared';
+import { setoranQueueHref } from '../../../setoran/setoran-links';
 import { JobDetailClient } from './job-detail-client';
 
 export default async function JobDetailPage({

@@ -9,6 +9,7 @@ import { Check } from 'lucide-react';
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime, formatRupiah } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { setoranJobHref } from './setoran-links';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -109,13 +110,6 @@ export function useOutstanding(enabled = true) {
     enabled,
   });
 }
-
-export const setoranQueueHref = (technicianId?: string) =>
-  `/teknisi/queue?tab=setoran${technicianId ? `&technicianId=${encodeURIComponent(technicianId)}` : ''}`;
-
-/** Tautan ke halaman job mode setoran; technicianId = filter teknisi yang sedang dipilih (dibawa pulang oleh tombol Kembali). */
-export const setoranJobHref = (jobId: string, technicianId?: string) =>
-  `/teknisi/jobs/${jobId}?setoran=1${technicianId ? `&technicianId=${encodeURIComponent(technicianId)}` : ''}`;
 
 // Pilihan centang "diserahkan" per teknisi disimpan di sini supaya tidak hilang saat admin membuka job lalu kembali.
 const uncheckedStore = new Map<string, Record<string, boolean>>();
