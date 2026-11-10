@@ -48,8 +48,9 @@ function setup() {
     createLegacy: jest.fn(async () => ({ id: 'u-qr', barcodeValue: 'ACUNIT-2', memberId: 'm1' })),
   };
   const technicianJobs: any = { createForOrder: jest.fn(async () => ({ id: 'j1', status: 'menunggu_penugasan' })) };
-  const svc = withDefaultSchedule(new ServiceOrdersService(prisma, {} as any, acUnits, technicianJobs));
-  return { svc, tx, acUnits, technicianJobs, prisma };
+  const pricing: any = { setWithin: jest.fn(async () => ({ ok: true })) };
+  const svc = withDefaultSchedule(new ServiceOrdersService(prisma, {} as any, acUnits, technicianJobs, pricing));
+  return { svc, tx, acUnits, technicianJobs, prisma, pricing };
 }
 
 const customer = { name: 'Budi', phone: '0812', memberId: 'm1' };
@@ -115,7 +116,7 @@ function multiSetup(
   };
   let n = 0;
   technicianJobs.createForOrder.mockImplementation(async () => ({ id: `j${++n}`, status: 'assigned' }));
-  const svc = withDefaultSchedule(new ServiceOrdersService(prisma, {} as any, acUnits, technicianJobs));
+  const svc = withDefaultSchedule(new ServiceOrdersService(prisma, {} as any, acUnits, technicianJobs, {} as any));
   return { svc, tx, acUnits, technicianJobs };
 }
 
@@ -512,7 +513,7 @@ describe('ServiceOrdersService.createManual — banyak teknisi', () => {
       $transaction: jest.fn(async (fn: any) => fn(tx)),
     };
     const technicianJobs: any = { createForOrder: jest.fn(async () => ({ id: 'j1', technicianId: 'a' })) };
-    const svc = new ServiceOrdersService(prisma, {} as any, {} as any, technicianJobs);
+    const svc = new ServiceOrdersService(prisma, {} as any, {} as any, technicianJobs, {} as any);
 
     const res: any = await svc.createManual({ memberId: 'm1', type: 'service', unitIds: ['u1'], technicianIds: ['a', 'b'] } as any, 'adm');
     expect(technicianJobs.createForOrder).toHaveBeenCalledWith(tx, expect.objectContaining({ technicianIds: ['a', 'b'] }));
@@ -551,5 +552,34 @@ describe('ServiceOrdersService.intake — cara tagih', () => {
     });
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'paymentMode')).toBe(true);
+  });
+});
+
+describe('ServiceOrdersService.intake — harga perkiraan di depan', () => {
+  const unit = { brand: 'LG', pk: 1 };
+  const lines = [{ serviceId: 's1', qty: 2, unitPrice: 75000 }];
+
+  it('serviceLines: harga ditetapkan di transaksi yang sama untuk job pertama', async () => {
+    const { svc, tx, pricing } = setup();
+    await svc.intake(
+      { customer, complaint: 'Cuci AC', newUnit: unit, serviceLines: lines, transportLevel: 1, transportMode: 'individu' },
+      'a1',
+    );
+    expect(pricing.setWithin).toHaveBeenCalledWith(tx, 'j1', { lines, transportLevel: 1, transportMode: 'individu' }, 'a1');
+    expect(tx.auditLog.create.mock.calls[0][0].data.detail).toMatchObject({ priced: true });
+  });
+
+  it('tanpa serviceLines: harga tidak disentuh (perilaku lama)', async () => {
+    const { svc, pricing } = setup();
+    await svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit }, 'a1');
+    expect(pricing.setWithin).not.toHaveBeenCalled();
+  });
+
+  it('transport tanpa baris jasa ditolak 400 sebelum transaksi dibuka', async () => {
+    const { svc, prisma } = setup();
+    await expect(svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit, transportLevel: 1 }, 'a1')).rejects.toThrow(
+      'Transport hanya bisa diisi bersama baris jasa',
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

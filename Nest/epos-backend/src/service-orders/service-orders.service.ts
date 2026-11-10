@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { TechnicianJobsService } from '../technician-jobs/technician-jobs.service';
+import { ServicePricingService } from '../technician-jobs/service-pricing.service';
 import { assertNoActiveJob } from '../technician-jobs/active-job.util';
 import { assertValidTechnicians, normalizeTechnicianIds } from '../technician-jobs/job-assignees';
 import { resolveWorkLocation } from './work-location.util';
@@ -27,6 +28,7 @@ export class ServiceOrdersService {
     private readonly members: MembersService,
     private readonly acUnits: AcUnitsService,
     private readonly technicianJobs: TechnicianJobsService,
+    private readonly pricing: ServicePricingService,
   ) {}
 
   /**
@@ -93,6 +95,9 @@ export class ServiceOrdersService {
     const complaint = dto.complaint?.trim() || undefined;
     if (!complaint) {
       throw new BadRequestException('Keluhan awal wajib diisi (kalau tidak ada keluhan, isi pekerjaannya, mis. Cuci AC)');
+    }
+    if ((dto.transportLevel !== undefined || dto.transportMode !== undefined) && !dto.serviceLines?.length) {
+      throw new BadRequestException('Transport hanya bisa diisi bersama baris jasa');
     }
     if (dto.units?.length && (dto.existingUnitId || dto.newUnit)) {
       throw new BadRequestException('Pakai units[] ATAU existingUnitId/newUnit, jangan keduanya');
@@ -225,6 +230,16 @@ export class ServiceOrdersService {
         );
       }
 
+      // Harga perkiraan di depan: satu harga untuk seluruh order, ditetapkan lewat jalur yang sama dengan halaman job.
+      if (dto.serviceLines?.length) {
+        await this.pricing.setWithin(
+          tx,
+          jobs[0].id,
+          { lines: dto.serviceLines, transportLevel: dto.transportLevel, transportMode: dto.transportMode },
+          actorId,
+        );
+      }
+
       await tx.auditLog.create({
         data: {
           actorUid: actorId,
@@ -237,6 +252,7 @@ export class ServiceOrdersService {
             unitIds: units.map((u) => u.id),
             jobIds: jobs.map((j) => j.id),
             ...(qrDuluCount > 0 ? { qrDulu: true, qrDuluCount } : {}),
+            ...(dto.serviceLines?.length ? { priced: true } : {}),
           },
         },
       });

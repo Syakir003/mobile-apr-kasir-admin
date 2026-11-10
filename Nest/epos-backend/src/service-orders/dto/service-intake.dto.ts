@@ -21,6 +21,7 @@ import {
 } from 'class-validator';
 import { IsIndonesianPhone } from '../../common/is-indonesian-phone.decorator';
 import { normalizeMapsInput } from '../../common/maps-url.util';
+import { ServicePricingLineDto } from '../../technician-jobs/dto/set-service-pricing.dto';
 import { PAYMENT_MODES } from '../payment-mode';
 import type { PaymentMode } from '../payment-mode';
 
@@ -140,6 +141,24 @@ export class ServiceIntakeDto {
    * admin menagih belakangan).
    */
   @IsOptional() @IsIn(PAYMENT_MODES, { message: 'Cara tagih hanya bayar_di_lokasi atau ditagih_admin' }) paymentMode?: PaymentMode;
+
+  /**
+   * Harga perkiraan jasa di depan (OPSIONAL): bentuknya sama dengan PUT /technician-jobs/:id/service-pricing. Satu harga
+   * untuk seluruh order. Diisi → invoice langsung terbentuk dan teknisi bisa melihat harganya; admin boleh mengubahnya
+   * lagi dari halaman job.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(30)
+  @ValidateNested({ each: true })
+  @Type(() => ServicePricingLineDto)
+  serviceLines?: ServicePricingLineDto[];
+
+  // Transport (0–5, N x Rp 100.000) dan modenya; hanya bermakna bersama serviceLines.
+  @IsOptional() @IsInt() @Min(0) @Max(5) transportLevel?: number;
+  @IsOptional() @IsIn(['individu', 'dibagi']) transportMode?: 'individu' | 'dibagi';
+
   // WAJIB (2026-11): jadwal servis menentukan tampilan antrean (filter hari) dan dashboard teknisi. Format YYYY-MM-DD.
   @IsDateString({}, { message: 'Jadwal wajib diisi (format YYYY-MM-DD)' }) scheduledDate: string;
 }

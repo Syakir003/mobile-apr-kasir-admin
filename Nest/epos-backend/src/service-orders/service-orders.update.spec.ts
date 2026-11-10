@@ -35,7 +35,7 @@ function setup(found: unknown) {
     auditLog: { create: jest.fn(async () => ({})) },
   };
   const prisma: any = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
-  const svc = new ServiceOrdersService(prisma, {} as any, {} as any, {} as any);
+  const svc = new ServiceOrdersService(prisma, {} as any, {} as any, {} as any, {} as any);
   return { svc, tx, prisma };
 }
 
