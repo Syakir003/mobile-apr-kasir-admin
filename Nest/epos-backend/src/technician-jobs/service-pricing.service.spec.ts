@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { ServicePricingService } from './service-pricing.service';
 
 // Servis banyak AC: harga jasa SATU untuk seluruh job. Datanya di "job pemegang harga" (job pertama yang belum
@@ -35,6 +36,7 @@ function setup(list: J[]) {
     auditLog: { create: jest.fn(async () => ({})) },
     invoice: { findUnique: jest.fn(async () => ({ id: 'inv1', number: 'INV-1', status: 'belum_dibayar', grandTotal: 0, totalPaid: 0 })) },
     service: { findUnique: jest.fn() },
+    fieldPayment: { aggregate: jest.fn(async () => ({ _sum: { amount: null } })) },
   };
   const prisma: any = { $transaction: jest.fn(async (fn: any) => fn(tx)), ...tx };
   const billing: any = { rebuild: jest.fn(async () => ({ newTotal: 150000 })) };
@@ -85,6 +87,38 @@ describe('ServicePricingService.set — harga jasa satu untuk seluruh job', () =
   it('job pemegang harga yang sudah selesai tidak bisa diubah harganya', async () => {
     const { svc } = setup([job('j1', 1, { status: 'selesai' }), job('j2', 2)]);
     await expect(svc.set('j2', dto, 'a1')).rejects.toThrow(/tidak bisa diubah setelah job selesai/);
+  });
+
+  describe('penjaga harga turun saat ada pembayaran lapangan yang belum diverifikasi', () => {
+    const withHeld = (held: number | null, grand: number, paid = 0) => {
+      const ctx = setup([job('j1', 1)]);
+      ctx.tx.invoice.findUnique.mockResolvedValue({ id: 'inv1', number: 'INV-1', status: 'belum_dibayar', grandTotal: grand, totalPaid: paid });
+      ctx.tx.fieldPayment.aggregate.mockResolvedValue({ _sum: { amount: held } });
+      return ctx;
+    };
+
+    it('harga baru lebih kecil dari uang yang sudah diterima teknisi: ditolak (Tanda Terima sudah beredar)', async () => {
+      const { svc, tx } = withHeld(150000, 100000);
+      await expect(svc.set('j1', dto, 'a1')).rejects.toThrow('lebih kecil dari uang yang sudah diterima');
+      expect(tx.fieldPayment.aggregate.mock.calls[0][0].where).toEqual({
+        invoiceId: 'inv1',
+        status: { in: ['dipegang_teknisi', 'menunggu_cocok'] },
+      });
+    });
+
+    it('termasuk yang sudah masuk total_paid: total_paid + pembayaran aktif dibandingkan dengan tagihan baru', async () => {
+      const { svc } = withHeld(100000, 150000, 80000);
+      await expect(svc.set('j1', dto, 'a1')).rejects.toThrow(BadRequestException);
+    });
+
+    it('harga sama atau lebih besar dari uang yang diterima: lolos', async () => {
+      await expect(withHeld(150000, 150000).svc.set('j1', dto, 'a1')).resolves.toMatchObject({ ok: true });
+      await expect(withHeld(150000, 200000).svc.set('j1', dto, 'a1')).resolves.toMatchObject({ ok: true });
+    });
+
+    it('tanpa pembayaran lapangan aktif, perilaku lama: harga boleh turun di bawah total_paid', async () => {
+      await expect(withHeld(null, 50000, 100000).svc.set('j1', dto, 'a1')).resolves.toMatchObject({ ok: true });
+    });
   });
 
   it('admin menyimpan harga: penanda "diubah teknisi" dihapus dari job pemegang harga', async () => {

@@ -7,6 +7,7 @@ import { JobBillingService, TRANSPORT_STEP } from '../common/services/job-billin
 import { SetServicePricingDto } from './dto/set-service-pricing.dto';
 import { TechEditLinesDto } from './dto/tech-edit-lines.dto';
 import { isJobAssignee } from './job-assignees';
+import { ACTIVE_FIELD_PAYMENT_STATUSES } from '../field-payments/field-payment.constants';
 
 interface MaterialRequestLike {
   total: unknown;
@@ -288,6 +289,24 @@ export class ServicePricingService {
       where: { id: invoiceId },
       select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true },
     });
+    // Tanda Terima yang sudah beredar tidak boleh menjadi kelebihan bayar: harga baru tidak boleh lebih kecil dari uang yang
+    // sudah diterima (total_paid + pembayaran lapangan yang masih menunggu setoran/pencocokan). Tanpa pembayaran lapangan
+    // aktif, perilaku lama tidak berubah.
+    if (invoice) {
+      const held = await tx.fieldPayment.aggregate({
+        where: { invoiceId, status: { in: [...ACTIVE_FIELD_PAYMENT_STATUSES] } },
+        _sum: { amount: true },
+      });
+      const heldTotal = Number(held._sum.amount ?? 0);
+      const collected = Number(invoice.totalPaid) + heldTotal;
+      if (heldTotal > 0 && Number(invoice.grandTotal) < collected) {
+        throw new BadRequestException(
+          `Harga baru (Rp ${Number(invoice.grandTotal).toLocaleString('id-ID')}) lebih kecil dari uang yang sudah diterima ` +
+            `(Rp ${collected.toLocaleString('id-ID')}, termasuk pembayaran lapangan yang belum diverifikasi). ` +
+            'Verifikasi atau tolak pembayaran lapangan itu dulu.',
+        );
+      }
+    }
     return { ok: true, invoice, jobTotal: result?.newTotal ?? 0, technicianId: job.technicianId };
   }
 
