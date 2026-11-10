@@ -531,16 +531,16 @@ describe('ServiceOrdersService.createManual — banyak teknisi', () => {
 describe('ServiceOrdersService.intake — cara tagih', () => {
   const unit = { brand: 'LG', pk: 1 };
 
-  it('bawaan: bayar_di_lokasi', async () => {
+  it('bawaan API: ditagih_admin (app Flutter lama tidak mengirim field ini dan tidak boleh kena gerbang pembayaran lapangan)', async () => {
     const { svc, tx } = setup();
     await svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit }, 'a1');
-    expect(tx.serviceOrder.create.mock.calls[0][0].data).toMatchObject({ paymentMode: 'bayar_di_lokasi' });
+    expect(tx.serviceOrder.create.mock.calls[0][0].data).toMatchObject({ paymentMode: 'ditagih_admin' });
   });
 
-  it('ditagih_admin tersimpan bila dipilih', async () => {
+  it('bayar_di_lokasi tersimpan bila dipilih (form web)', async () => {
     const { svc, tx } = setup();
-    await svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit, paymentMode: 'ditagih_admin' }, 'a1');
-    expect(tx.serviceOrder.create.mock.calls[0][0].data).toMatchObject({ paymentMode: 'ditagih_admin' });
+    await svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit, paymentMode: 'bayar_di_lokasi' }, 'a1');
+    expect(tx.serviceOrder.create.mock.calls[0][0].data).toMatchObject({ paymentMode: 'bayar_di_lokasi' });
   });
 
   it('DTO menolak cara tagih yang tidak dikenal', async () => {

@@ -199,7 +199,9 @@ export class ServiceOrdersService {
           // Note pekerjaan untuk teknisi: deskripsi pekerjaan; tanpa itu keluhannya (perilaku lama).
           note: workDescription ?? complaint,
           scheduledDate,
-          paymentMode: dto.paymentMode ?? 'bayar_di_lokasi',
+          // Bawaan API 'ditagih_admin': app Flutter lama memanggil intake tanpa field ini dan tidak punya layar pembayaran
+          // lapangan. Form web memilih 'bayar_di_lokasi' secara eksplisit.
+          paymentMode: dto.paymentMode ?? 'ditagih_admin',
           createdById: actorId,
         },
       });

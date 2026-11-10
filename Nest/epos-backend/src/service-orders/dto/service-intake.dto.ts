@@ -137,7 +137,8 @@ export class ServiceIntakeDto {
   // Beberapa teknisi setara (maks 5); menang atas technicianId bila dua-duanya ada.
   @IsOptional() @IsArray() @ArrayMaxSize(5) @IsString({ each: true }) technicianIds?: string[];
   /**
-   * Cara tagih order: 'bayar_di_lokasi' (bawaan; teknisi menagih di lokasi) atau 'ditagih_admin' (instansi/langganan,
+   * Cara tagih order: 'bayar_di_lokasi' (teknisi menagih di lokasi; dipilih form web) atau 'ditagih_admin' (bawaan bila tidak
+   * dikirim, mis. app Flutter lama; instansi/langganan,
    * admin menagih belakangan).
    */
   @IsOptional() @IsIn(PAYMENT_MODES, { message: 'Cara tagih hanya bayar_di_lokasi atau ditagih_admin' }) paymentMode?: PaymentMode;
