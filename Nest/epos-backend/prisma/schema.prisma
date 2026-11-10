@@ -845,6 +845,11 @@ model TechnicianJob {
   // jasa + sparepart (struk tanpa baris transport).
   transportLevel Int     @default(0) @map("transport_level")
   transportMode  String  @default("individu") @map("transport_mode")
+  // Penanda "jasa diubah teknisi" pada JOB PEMEGANG HARGA (lihat ServicePricingService.techEditLines). Dihapus saat admin/kasir
+  // menyimpan harga lagi. priceBeforeTechEdit = subtotal jasa sebelum penyesuaian pertama sejak admin terakhir menyimpan.
+  techPriceEditedAt   DateTime? @map("tech_price_edited_at")
+  techPriceEditReason String?   @map("tech_price_edit_reason")
+  priceBeforeTechEdit Decimal?  @map("price_before_tech_edit") @db.Decimal(14, 2)
   // true = tagihan job ini DIHITUNG ULANG dari sumbernya (JobBillingService) sejak harga jasa
   // ditetapkan lewat halaman job. false = jalur lama (POS pemasangan / belum dihargai).
   billingDerived Boolean @default(false) @map("billing_derived")
@@ -994,6 +999,11 @@ model JobServiceLine {
   qty       Decimal       @db.Decimal(10, 2)
   unitPrice Decimal       @map("unit_price") @db.Decimal(14, 2)
   position  Int           @default(0)
+  // Asal baris: 'admin' (ditetapkan admin/kasir) atau 'teknisi' (ditambah/diubah jumlahnya oleh teknisi di lokasi).
+  // isCustom = "jasa lain" di luar katalog (nama + harga diisi teknisi, wajib beralasan).
+  source       String  @default("admin")
+  isCustom     Boolean @default(false) @map("is_custom")
+  changeReason String? @map("change_reason")
 
   @@index([jobId])
   @@map("job_service_lines")
