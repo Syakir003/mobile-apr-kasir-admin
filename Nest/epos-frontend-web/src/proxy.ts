@@ -43,6 +43,8 @@ const ROLE_PREFIXES: Array<{ prefix: string | RegExp; roles: Role[] }> = [
   { prefix: '/pengguna', roles: ['admin'] },
   { prefix: '/audit', roles: ['admin'] },
   { prefix: '/reminder-wa', roles: ['admin'] },
+  // Setoran Teknisi (verifikasi uang yang diterima teknisi di lokasi) — admin-only, sama dengan endpoint-nya di backend.
+  { prefix: '/setoran', roles: ['admin'] },
   { prefix: '/stock', roles: ['admin', 'gudang'] },
 ];
 

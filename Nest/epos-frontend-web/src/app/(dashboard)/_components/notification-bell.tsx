@@ -68,6 +68,19 @@ function notificationHref(n: { type: string; target: string | null }): string | 
       return '/stock/opname';
     case 'unit_correction':
       return '/administrasi/data-lampau?tab=koreksi';
+    case 'job_price_edited':
+      // teknisi menyesuaikan jasa di lokasi: buka job untuk meninjau harga (target = id job)
+      return n.target ? `/teknisi/jobs/${n.target}` : '/teknisi/queue';
+    case 'field_payment':
+      // pembayaran lapangan baru dicatat teknisi: tunai dicocokkan saat setoran, non-tunai di tab Cocokkan Mutasi
+      // (tab itu menampilkan lencana jumlah yang menunggu)
+      return '/setoran';
+    case 'cash_overdue':
+      // target = id teknisi yang masih memegang uang tunai dari hari sebelumnya
+      return n.target ? `/setoran?technicianId=${n.target}` : '/setoran';
+    case 'field_payment_rejected':
+      // pembayaran yang dicatat teknisi ditolak admin: buka antrian job
+      return '/teknisi/queue';
     case 'service_due':
       // target = id pelanggan: form Terima Servis terisi otomatis (unit yang jatuh tempo tercentang, jenis Cuci AC).
       return n.target ? `/service-orders/intake?memberId=${n.target}&jatuhTempo=1` : '/service-orders/intake';
