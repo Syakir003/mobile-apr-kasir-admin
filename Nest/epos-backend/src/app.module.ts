@@ -20,6 +20,7 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { TechnicianJobsModule } from './technician-jobs/technician-jobs.module';
 import { MaterialRequestsModule } from './material-requests/material-requests.module';
 import { PaymentsModule } from './payments/payments.module';
+import { FieldPaymentsModule } from './field-payments/field-payments.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { LegacyImportModule } from './legacy-import/legacy-import.module';
 import { ServiceOrdersModule } from './service-orders/service-orders.module';
@@ -59,6 +60,7 @@ import { UndianModule } from './undian/undian.module';
     TechnicianJobsModule,
     MaterialRequestsModule,
     PaymentsModule,
+    FieldPaymentsModule,
     InvoicesModule,
     LegacyImportModule,
     ServiceOrdersModule,
