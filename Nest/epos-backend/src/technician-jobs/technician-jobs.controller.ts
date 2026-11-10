@@ -33,6 +33,7 @@ import { FindAllJobsQueryDto } from './dto/find-all-jobs-query.dto';
 import { AddFindingDto } from './dto/add-finding.dto';
 import { UpdateFindingDto } from './dto/update-finding.dto';
 import { SetServicePricingDto } from './dto/set-service-pricing.dto';
+import { TechEditLinesDto } from './dto/tech-edit-lines.dto';
 import { ServicePricingService } from './service-pricing.service';
 import { SendBackDto } from './dto/send-back.dto';
 import { SubmitForReviewDto } from './dto/submit-for-review.dto';
@@ -403,11 +404,12 @@ export class TechnicianJobsController {
     return r.job;
   }
 
-  // Harga jasa servis (admin & kasir) — dilihat dan ditetapkan dari halaman job.
-  @Roles('admin', 'kasir')
+  // Harga jasa servis — dilihat admin & kasir (dan ditetapkan lewat PUT), serta teknisi assignee job itu (baca saja;
+  // pengecekan kepemilikan ada di service).
+  @Roles('admin', 'kasir', 'teknisi')
   @Get(':id/service-pricing')
-  getServicePricing(@Param('id') id: string) {
-    return this.pricing.get(id);
+  getServicePricing(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.pricing.getFor(id, user.sub, user.role);
   }
 
   @Roles('admin', 'kasir')
@@ -428,6 +430,28 @@ export class TechnicianJobsController {
         })
         .catch(() => undefined);
     }
+    return r;
+  }
+
+  // Teknisi menyesuaikan jasa di lokasi (katalog + jumlah + "jasa lain"), wajib beralasan. Admin & kasir dikabari.
+  @Roles('teknisi')
+  @Patch(':id/service-lines')
+  async techEditServiceLines(
+    @Param('id') id: string,
+    @Body() dto: TechEditLinesDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const r = await this.pricing.techEditLines(id, dto, user.sub);
+    this.realtime.emitToAdmin('job.price_edited', { jobId: id });
+    const rp = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
+    void this.notifications
+      .notifyRoles(['admin', 'kasir'], {
+        title: 'Jasa Disesuaikan Teknisi',
+        body: `${r.actorName} menyesuaikan jasa${r.customerName ? ` untuk ${r.customerName}` : ''}: ${rp(r.subtotalBefore)} menjadi ${rp(r.subtotalAfter)}. Alasan: ${r.reason}`,
+        type: 'job_price_edited',
+        target: id,
+      })
+      .catch(() => undefined);
     return r;
   }
 
