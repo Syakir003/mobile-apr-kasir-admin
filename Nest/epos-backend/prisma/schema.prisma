@@ -76,6 +76,7 @@ model User {
   handoversTo        JobHandover[]        @relation("HandoverTo")
   handoversMade      JobHandover[]        @relation("HandoverBy")
   manualPaymentsMade ManualPayment[]      @relation("PaymentCreatedBy")
+  fieldPaymentsRecorded FieldPayment[]    @relation("FieldPaymentRecordedBy")
   notifications      Notification[]
   stockMovementsMade StockMovement[]      @relation("StockCreatedBy")
   cashierShifts      CashierShift[] // Siklus 4 — shift kasir yang pernah dia buka
@@ -624,6 +625,7 @@ model Invoice {
   serviceOrders       ServiceOrder[]
   materialRequests    MaterialRequest[]
   manualPayments      ManualPayment[] // bukti transfer & verifikasi kasir
+  fieldPayments       FieldPayment[]
   vouchersUsed        Voucher[] // voucher yang benar-benar dipakai di invoice ini
   whatsappLogs        WhatsappLog[] // riwayat kirim invoice ini lewat WhatsApp (kind='invoice')
   // BARU (Siklus QR per-unit, 2026-09-30) — StockUnit yang direservasi buat
@@ -718,6 +720,36 @@ model ManualPayment {
   @@map("manual_payments")
 }
 
+// Pembayaran yang diterima teknisi di lokasi (order bayar_di_lokasi). BELUM melunasi invoice: baru dihitung (menjadi
+// ManualPayment) setelah admin memverifikasi setoran/mutasi. Status AKTIF = dipegang_teknisi (tunai) atau menunggu_cocok
+// (non-tunai); lainnya diverifikasi / ditolak.
+model FieldPayment {
+  id             String       @id @default(uuid())
+  invoiceId      String       @map("invoice_id")
+  invoice        Invoice      @relation(fields: [invoiceId], references: [id])
+  orderId        String       @map("order_id")
+  order          ServiceOrder @relation(fields: [orderId], references: [id])
+  recordedById   String       @map("recorded_by")
+  recordedBy     User         @relation("FieldPaymentRecordedBy", fields: [recordedById], references: [id])
+  method         String // 'tunai' | 'transfer' | 'qris' | 'ewallet' | 'debit'
+  amount         Decimal      @db.Decimal(14, 2)
+  note           String?
+  proofUrl       String       @map("proof_url")
+  status         String // 'dipegang_teknisi' | 'menunggu_cocok' | 'diverifikasi' | 'ditolak'
+  receiptNumber  String       @unique @map("receipt_number")
+  receiptChannel String?      @map("receipt_channel") // 'wa' | 'kertas'
+  receiptSentAt  DateTime?    @map("receipt_sent_at")
+  receiptWaLogId String?      @map("receipt_wa_log_id")
+  paperReportNo  String?      @map("paper_report_no")
+  clientRef      String?      @unique @map("client_ref")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@index([invoiceId, status])
+  @@index([orderId])
+  @@index([recordedById, status])
+  @@map("field_payments")
+}
+
 // ----------------------------------------------------------------------------
 // SIKLUS 4: KAS & SHIFT KASIR
 // ----------------------------------------------------------------------------
@@ -763,6 +795,9 @@ model ServiceOrder {
   // menagih belakangan). Bawaan 'ditagih_admin' = perilaku sebelum fitur pembayaran lapangan, jadi order lama, pemasangan
   // POS, dan order dari app Flutter tidak berubah. Terima Servis web mengisi 'bayar_di_lokasi' kecuali dipilih lain.
   paymentMode String @default("ditagih_admin") @map("payment_mode")
+  // Alasan teknisi mengajukan selesai TANPA mencatat pembayaran pada order bayar_di_lokasi (mis. pelanggan belum bisa membayar).
+  unpaidReason String? @map("unpaid_reason")
+  fieldPayments FieldPayment[]
 
   units TechnicianJob[]
   serviceOrderUnits ServiceOrderUnit[]
@@ -1201,6 +1236,7 @@ enum WhatsappMessageKind {
   reminder_h3
   reminder_h7
   menang_undian
+  tanda_terima
 }
 
 enum WhatsappLogStatus {
