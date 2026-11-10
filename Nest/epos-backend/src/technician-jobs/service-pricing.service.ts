@@ -142,120 +142,126 @@ export class ServicePricingService {
   }
 
   async set(requestedJobId: string, dto: SetServicePricingDto, actorId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const base = await tx.technicianJob.findUnique({ where: { id: requestedJobId }, select: { orderId: true } });
-      if (!base) throw new NotFoundException('Job tidak ditemukan');
-      // Kunci order dulu: dua job dari satu order bisa menetapkan harga bersamaan,
-      // jangan sampai membuat dua invoice.
-      await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${base.orderId} FOR UPDATE`;
-      // Harga satu untuk seluruh job: selalu ditulis ke job pemegang harga order ini.
-      const jobId = await this.resolveOwnerId(tx, requestedJobId);
-      await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
-      const job = await tx.technicianJob.findUnique({ where: { id: jobId } });
-      if (!job) throw new NotFoundException('Job tidak ditemukan');
-      // Job komplain (pengerjaan ulang atas keluhan pelanggan) tidak ditagih lagi.
-      if (job.complaintOfJobId) {
-        throw new BadRequestException('Job komplain tidak ditagih, jadi tidak ada harga jasa yang perlu ditetapkan');
-      }
-      if (job.status === TechnicianJobStatus.selesai || job.status === TechnicianJobStatus.dibatalkan) {
-        throw new BadRequestException('Harga jasa tidak bisa diubah setelah job selesai atau dibatalkan');
-      }
-      const order = await tx.serviceOrder.findUnique({ where: { id: job.orderId } });
-      if (!order) throw new NotFoundException('Order servis tidak ditemukan');
+    return this.prisma.$transaction((tx) => this.setWithin(tx, requestedJobId, dto, actorId));
+  }
 
-      // Susun baris jasa: katalog (harga bebas diubah) atau jasa bebas (nama wajib).
-      const built: { serviceId: string | null; name: string; qty: number; unitPrice: number }[] = [];
-      for (const l of dto.lines) {
-        let name = l.name?.trim() || '';
-        let serviceId: string | null = null;
-        if (l.serviceId) {
-          const svc = await tx.service.findUnique({ where: { id: l.serviceId } });
-          if (!svc || !svc.active) throw new BadRequestException('Jasa tidak ditemukan atau sudah nonaktif');
-          serviceId = svc.id;
-          name = name || svc.name;
-        }
-        if (!name) throw new BadRequestException('Nama jasa wajib diisi untuk baris tanpa pilihan jasa');
-        built.push({ serviceId, name, qty: l.qty, unitPrice: l.unitPrice });
-      }
+  /**
+   * Isi `set` di dalam transaksi milik pemanggil. Dipakai Terima Servis supaya order, job, dan harga perkiraan awal
+   * tersimpan dalam SATU transaksi (gagal harga = order ikut batal).
+   */
+  async setWithin(tx: Prisma.TransactionClient, requestedJobId: string, dto: SetServicePricingDto, actorId: string) {
+    const base = await tx.technicianJob.findUnique({ where: { id: requestedJobId }, select: { orderId: true } });
+    if (!base) throw new NotFoundException('Job tidak ditemukan');
+    // Kunci order dulu: dua job dari satu order bisa menetapkan harga bersamaan,
+    // jangan sampai membuat dua invoice.
+    await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${base.orderId} FOR UPDATE`;
+    // Harga satu untuk seluruh job: selalu ditulis ke job pemegang harga order ini.
+    const jobId = await this.resolveOwnerId(tx, requestedJobId);
+    await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
+    const job = await tx.technicianJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new NotFoundException('Job tidak ditemukan');
+    // Job komplain (pengerjaan ulang atas keluhan pelanggan) tidak ditagih lagi.
+    if (job.complaintOfJobId) {
+      throw new BadRequestException('Job komplain tidak ditagih, jadi tidak ada harga jasa yang perlu ditetapkan');
+    }
+    if (job.status === TechnicianJobStatus.selesai || job.status === TechnicianJobStatus.dibatalkan) {
+      throw new BadRequestException('Harga jasa tidak bisa diubah setelah job selesai atau dibatalkan');
+    }
+    const order = await tx.serviceOrder.findUnique({ where: { id: job.orderId } });
+    if (!order) throw new NotFoundException('Order servis tidak ditemukan');
 
-      // Invoice: pakai yang sudah ada di order, atau buat baru (servis mandiri).
-      let invoiceId = order.invoiceId;
-      if (!invoiceId) {
-        const member = job.memberId ? await tx.member.findUnique({ where: { id: job.memberId } }) : null;
-        const dateKey = this.counters.dateKey(new Date());
-        const seq = await this.counters.nextSeq(tx, `invoice_${dateKey}`);
-        const created = await tx.invoice.create({
-          data: {
-            number: formatInvoiceNumber(dateKey, seq),
-            memberId: member?.id ?? null,
-            customerName: member?.name ?? null,
-            customerPhone: member?.phone ?? null,
-            subtotal: 0,
-            grandTotal: 0,
-            totalPaid: 0,
-            status: InvoiceStatus.belum_dibayar,
-            priceTier: member?.priceTier ?? 'retail',
-            notes: 'Servis - harga jasa ditetapkan kasir/admin',
-            createdById: actorId,
-          },
-        });
-        invoiceId = created.id;
-        await tx.serviceOrder.update({ where: { id: order.id }, data: { invoiceId } });
+    // Susun baris jasa: katalog (harga bebas diubah) atau jasa bebas (nama wajib).
+    const built: { serviceId: string | null; name: string; qty: number; unitPrice: number }[] = [];
+    for (const l of dto.lines) {
+      let name = l.name?.trim() || '';
+      let serviceId: string | null = null;
+      if (l.serviceId) {
+        const svc = await tx.service.findUnique({ where: { id: l.serviceId } });
+        if (!svc || !svc.active) throw new BadRequestException('Jasa tidak ditemukan atau sudah nonaktif');
+        serviceId = svc.id;
+        name = name || svc.name;
       }
+      if (!name) throw new BadRequestException('Nama jasa wajib diisi untuk baris tanpa pilihan jasa');
+      built.push({ serviceId, name, qty: l.qty, unitPrice: l.unitPrice });
+    }
 
-      // Sumber penagihan: baris jasa + transport disimpan di job; tagihan dihitung ulang darinya.
-      await tx.jobServiceLine.deleteMany({ where: { jobId } });
-      await tx.jobServiceLine.createMany({
-        data: built.map((b, i) => ({ jobId, serviceId: b.serviceId, name: b.name, qty: b.qty, unitPrice: b.unitPrice, position: i })),
-      });
-      await tx.technicianJob.update({
-        where: { id: jobId },
+    // Invoice: pakai yang sudah ada di order, atau buat baru (servis mandiri).
+    let invoiceId = order.invoiceId;
+    if (!invoiceId) {
+      const member = job.memberId ? await tx.member.findUnique({ where: { id: job.memberId } }) : null;
+      const dateKey = this.counters.dateKey(new Date());
+      const seq = await this.counters.nextSeq(tx, `invoice_${dateKey}`);
+      const created = await tx.invoice.create({
         data: {
-          billingDerived: true,
-          ...(dto.transportLevel !== undefined ? { transportLevel: dto.transportLevel } : {}),
-          ...(dto.transportMode !== undefined ? { transportMode: dto.transportMode } : {}),
+          number: formatInvoiceNumber(dateKey, seq),
+          memberId: member?.id ?? null,
+          customerName: member?.name ?? null,
+          customerPhone: member?.phone ?? null,
+          subtotal: 0,
+          grandTotal: 0,
+          totalPaid: 0,
+          status: InvoiceStatus.belum_dibayar,
+          priceTier: member?.priceTier ?? 'retail',
+          notes: 'Servis - harga jasa ditetapkan kasir/admin',
+          createdById: actorId,
         },
       });
-      const result = await this.billing.rebuild(tx, jobId, actorId);
+      invoiceId = created.id;
+      await tx.serviceOrder.update({ where: { id: order.id }, data: { invoiceId } });
+    }
 
-      // Servis banyak AC: unit lain di order ini TIDAK punya harga sendiri — tandai sudah dihargai (syarat admin menyetujui
-      // selesai) dan bersihkan sisa baris jasa/transport lama per unit (data sebelum harga jadi satu), lalu hitung ulang
-      // tagihannya (tinggal sparepart bila ada).
-      if (job.type !== 'pemasangan') {
-        const siblings = await tx.technicianJob.findMany({
-          where: { orderId: job.orderId, id: { not: jobId }, status: { not: TechnicianJobStatus.dibatalkan } },
-          select: { id: true },
-        });
-        for (const sib of siblings) {
-          await tx.jobServiceLine.deleteMany({ where: { jobId: sib.id } });
-          await tx.technicianJob.update({
-            where: { id: sib.id },
-            data: { billingDerived: true, transportLevel: 0, transportMode: 'individu' },
-          });
-          await this.billing.rebuild(tx, sib.id, actorId);
-        }
-      }
-
-      await tx.auditLog.create({
-        data: {
-          actorUid: actorId,
-          action: 'job.set_service_price',
-          target: jobId,
-          detail: {
-            invoiceId,
-            transportLevel: dto.transportLevel ?? job.transportLevel,
-            transportMode: dto.transportMode ?? job.transportMode,
-            jobTotal: result?.newTotal ?? 0,
-            lines: built.map((b) => ({ name: b.name, qty: b.qty, unitPrice: b.unitPrice })),
-          },
-        },
-      });
-
-      const invoice = await tx.invoice.findUnique({
-        where: { id: invoiceId },
-        select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true },
-      });
-      return { ok: true, invoice, jobTotal: result?.newTotal ?? 0, technicianId: job.technicianId };
+    // Sumber penagihan: baris jasa + transport disimpan di job; tagihan dihitung ulang darinya.
+    await tx.jobServiceLine.deleteMany({ where: { jobId } });
+    await tx.jobServiceLine.createMany({
+      data: built.map((b, i) => ({ jobId, serviceId: b.serviceId, name: b.name, qty: b.qty, unitPrice: b.unitPrice, position: i })),
     });
+    await tx.technicianJob.update({
+      where: { id: jobId },
+      data: {
+        billingDerived: true,
+        ...(dto.transportLevel !== undefined ? { transportLevel: dto.transportLevel } : {}),
+        ...(dto.transportMode !== undefined ? { transportMode: dto.transportMode } : {}),
+      },
+    });
+    const result = await this.billing.rebuild(tx, jobId, actorId);
+
+    // Servis banyak AC: unit lain di order ini TIDAK punya harga sendiri — tandai sudah dihargai (syarat admin menyetujui
+    // selesai) dan bersihkan sisa baris jasa/transport lama per unit (data sebelum harga jadi satu), lalu hitung ulang
+    // tagihannya (tinggal sparepart bila ada).
+    if (job.type !== 'pemasangan') {
+      const siblings = await tx.technicianJob.findMany({
+        where: { orderId: job.orderId, id: { not: jobId }, status: { not: TechnicianJobStatus.dibatalkan } },
+        select: { id: true },
+      });
+      for (const sib of siblings) {
+        await tx.jobServiceLine.deleteMany({ where: { jobId: sib.id } });
+        await tx.technicianJob.update({
+          where: { id: sib.id },
+          data: { billingDerived: true, transportLevel: 0, transportMode: 'individu' },
+        });
+        await this.billing.rebuild(tx, sib.id, actorId);
+      }
+    }
+
+    await tx.auditLog.create({
+      data: {
+        actorUid: actorId,
+        action: 'job.set_service_price',
+        target: jobId,
+        detail: {
+          invoiceId,
+          transportLevel: dto.transportLevel ?? job.transportLevel,
+          transportMode: dto.transportMode ?? job.transportMode,
+          jobTotal: result?.newTotal ?? 0,
+          lines: built.map((b) => ({ name: b.name, qty: b.qty, unitPrice: b.unitPrice })),
+        },
+      },
+    });
+
+    const invoice = await tx.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true },
+    });
+    return { ok: true, invoice, jobTotal: result?.newTotal ?? 0, technicianId: job.technicianId };
   }
 }

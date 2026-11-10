@@ -23,6 +23,6 @@ import { AcUnitsModule } from '../ac-units/ac-units.module';
   imports: [RealtimeModule, MaterialRequestsModule, NotificationsModule, RemindersModule, WhatsappModule, AcUnitsModule],
   controllers: [TechnicianJobsController],
   providers: [TechnicianJobsService, OfflineSyncService, ServicePricingService],
-  exports: [TechnicianJobsService],
+  exports: [TechnicianJobsService, ServicePricingService],
 })
 export class TechnicianJobsModule {}
