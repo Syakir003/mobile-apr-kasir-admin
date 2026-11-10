@@ -77,6 +77,8 @@ model User {
   handoversMade      JobHandover[]        @relation("HandoverBy")
   manualPaymentsMade ManualPayment[]      @relation("PaymentCreatedBy")
   fieldPaymentsRecorded FieldPayment[]    @relation("FieldPaymentRecordedBy")
+  cashSettlements       CashSettlement[]  @relation("SettlementTechnician")
+  cashLedger            TechnicianCashEntry[] @relation("CashLedgerTechnician")
   notifications      Notification[]
   stockMovementsMade StockMovement[]      @relation("StockCreatedBy")
   cashierShifts      CashierShift[] // Siklus 4 — shift kasir yang pernah dia buka
@@ -734,7 +736,7 @@ model FieldPayment {
   method         String // 'tunai' | 'transfer' | 'qris' | 'ewallet' | 'debit'
   amount         Decimal      @db.Decimal(14, 2)
   note           String?
-  proofUrl       String       @map("proof_url")
+  proofUrl       String?      @map("proof_url") // null hanya untuk pencatatan admin dari lembar kertas
   status         String // 'dipegang_teknisi' | 'menunggu_cocok' | 'diverifikasi' | 'ditolak'
   receiptNumber  String       @unique @map("receipt_number")
   receiptChannel String?      @map("receipt_channel") // 'wa' | 'kertas'
@@ -743,11 +745,64 @@ model FieldPayment {
   paperReportNo  String?      @map("paper_report_no")
   clientRef      String?      @unique @map("client_ref")
   createdAt      DateTime     @default(now()) @map("created_at")
+  // Verifikasi admin (rencana 4): setoran tunai / pencocokan mutasi menjadikannya ManualPayment resmi.
+  settlementId    String?         @map("settlement_id")
+  settlement      CashSettlement? @relation(fields: [settlementId], references: [id])
+  manualPaymentId String?         @unique @map("manual_payment_id")
+  verifiedById    String?         @map("verified_by")
+  verifiedAt      DateTime?       @map("verified_at")
+  rejectReason    String?         @map("reject_reason")
+  // Admin yang mencatat atas nama teknisi dari lembar kertas (source 'kertas'); null = dicatat teknisi sendiri ('app').
+  enteredById     String?         @map("entered_by")
+  source          String          @default("app")
 
   @@index([invoiceId, status])
   @@index([orderId])
   @@index([recordedById, status])
   @@map("field_payments")
+}
+
+// Satu kali setoran tunai harian dari satu teknisi, dicatat admin. Memverifikasi sekumpulan field_payments sekaligus.
+model CashSettlement {
+  id            String   @id @default(uuid())
+  technicianId  String   @map("technician_id")
+  technician    User     @relation("SettlementTechnician", fields: [technicianId], references: [id])
+  businessDate  DateTime @map("business_date") @db.Date // tanggal kerja WIB
+  expectedTotal Decimal  @map("expected_total") @db.Decimal(14, 2)
+  receivedTotal Decimal  @map("received_total") @db.Decimal(14, 2)
+  difference    Decimal  @db.Decimal(14, 2) // diterima - seharusnya (kurang = negatif)
+  // 'catat_kurang' | 'catat_lebih' | 'selesai_dengan_alasan' | null (pas)
+  mode          String?
+  reason        String?
+  note          String?
+  sparepartNote String?  @map("sparepart_note")
+  createdById   String   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  payments FieldPayment[]
+  ledger   TechnicianCashEntry[]
+
+  @@index([technicianId, createdAt])
+  @@map("cash_settlements")
+}
+
+// Buku besar uang teknisi. amount bertanda: positif = teknisi berutang ke toko. Saldo teknisi = jumlah kind
+// kurang_setor + lebih_setor + pelunasan. ditutup_alasan dan kelebihan_pelanggan hanya dilaporkan (tidak ikut saldo).
+model TechnicianCashEntry {
+  id           String          @id @default(uuid())
+  technicianId String          @map("technician_id")
+  technician   User            @relation("CashLedgerTechnician", fields: [technicianId], references: [id])
+  settlementId String?         @map("settlement_id")
+  settlement   CashSettlement? @relation(fields: [settlementId], references: [id])
+  // 'kurang_setor' | 'lebih_setor' | 'pelunasan' | 'ditutup_alasan' | 'kelebihan_pelanggan'
+  kind         String
+  amount       Decimal         @db.Decimal(14, 2)
+  note         String?
+  createdById  String          @map("created_by")
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  @@index([technicianId, kind])
+  @@map("technician_cash_ledger")
 }
 
 // ----------------------------------------------------------------------------
