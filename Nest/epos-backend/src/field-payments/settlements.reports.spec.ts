@@ -200,3 +200,79 @@ describe('SettlementsService.notifyAdminsCashOverdue', () => {
     expect(notifications.notify).not.toHaveBeenCalled();
   });
 });
+
+// ---------- Bahan layar Setoran ----------
+describe('SettlementsService.pending', () => {
+  function make(over: { role?: string; tech?: boolean } = {}) {
+    const prisma: any = {
+      user: {
+        findUnique: jest.fn(async () =>
+          over.tech === false ? null : { id: 't1', displayName: 'Budi', role: over.role ?? 'teknisi' },
+        ),
+      },
+      fieldPayment: {
+        findMany: jest.fn(async () => [
+          {
+            id: 'p1', receiptNumber: 'TT-1', amount: '100000', method: 'tunai', proofUrl: '/u/a.jpg', receiptChannel: 'wa',
+            source: 'app', createdAt: new Date(Date.now() - 2 * 86400000), invoice: { number: 'INV-1', customerName: 'Bu Sari' },
+          },
+          {
+            id: 'p2', receiptNumber: 'TT-2', amount: '50000', method: 'tunai', proofUrl: null, receiptChannel: 'kertas',
+            source: 'kertas', createdAt: new Date(), invoice: { number: 'INV-2', customerName: 'Pak Budi' },
+          },
+        ]),
+      },
+      technicianCashEntry: { aggregate: jest.fn(async () => ({ _sum: { amount: 25000 } })) },
+      materialRequest: {
+        findMany: jest.fn(async () => [
+          {
+            id: 'm1', job: { member: { name: 'Bu Sari' } },
+            items: [
+              { name: 'Kapasitor 35uF', unit: 'pcs', qty: '3', qtyUsed: '1' },
+              { name: 'Freon R32', unit: 'kg', qty: '2', qtyUsed: null },
+            ],
+          },
+        ]),
+      },
+    };
+    return { svc: new SettlementsService(prisma, {} as any, {} as any), prisma };
+  }
+
+  it('tunai yang dipegang (semua hari), total seharusnya, saldo, dan sparepart yang harus kembali', async () => {
+    const { svc, prisma } = make();
+    const r = await svc.pending('t1', '2026-11-10');
+    expect(prisma.fieldPayment.findMany.mock.calls[0][0].where).toEqual({ recordedById: 't1', status: 'dipegang_teknisi' });
+    expect(r.payments.map((p) => p.id)).toEqual(['p1', 'p2']);
+    expect(r.payments[0]).toMatchObject({ amount: 100000, invoiceNumber: 'INV-1', customerName: 'Bu Sari', ageDays: 2 });
+    expect(r.expectedTotal).toBe(150000);
+    expect(r.saldo).toBe(25000);
+    expect(r.sparepartReturns).toEqual([
+      {
+        requestId: 'm1',
+        customerName: 'Bu Sari',
+        items: [
+          { name: 'Kapasitor 35uF', unit: 'pcs', approved: 3, used: 1, toReturn: 2 },
+          // belum dilaporkan terpakai = dianggap terpakai penuh (tidak ada yang kembali)
+          { name: 'Freon R32', unit: 'kg', approved: 2, used: 2, toReturn: 0 },
+        ],
+      },
+    ]);
+  });
+
+  it('tanggal dikembalikan sebagai tanggal kalender WIB yang diminta (bukan mundur sehari karena UTC)', async () => {
+    const { svc, prisma } = make();
+    const r = await svc.pending('t1', '2026-11-10');
+    expect(r.date).toBe('2026-11-10');
+    // pengajuan sparepart difilter pada rentang hari itu menurut WIB
+    const w = prisma.materialRequest.findMany.mock.calls[0][0].where;
+    expect(w).toMatchObject({ createdById: 't1', status: 'approved' });
+    expect(w.decidedAt.gte.toISOString()).toBe('2026-11-09T17:00:00.000Z');
+    expect(w.decidedAt.lte.toISOString()).toBe('2026-11-10T16:59:59.999Z');
+  });
+
+  it('bukan teknisi / tidak ada: 404; tanggal ngawur: 400', async () => {
+    await expect(make({ tech: false }).svc.pending('x')).rejects.toThrow(NotFoundException);
+    await expect(make({ role: 'kasir' }).svc.pending('t1')).rejects.toThrow(NotFoundException);
+    await expect(make().svc.pending('t1', 'bukan-tanggal')).rejects.toThrow(BadRequestException);
+  });
+});

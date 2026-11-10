@@ -92,7 +92,7 @@ export class SettlementsService {
     }));
     return {
       technician: { id: tech.id, displayName: tech.displayName },
-      date: day.start.toISOString().slice(0, 10),
+      date: wibDateOnly(ref).toISOString().slice(0, 10),
       payments: rows,
       expectedTotal: rows.reduce((s, r) => s + r.amount, 0),
       saldo,
