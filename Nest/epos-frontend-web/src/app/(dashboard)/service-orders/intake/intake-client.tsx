@@ -796,7 +796,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
               {isAdmin && (
                 <div className="grid gap-1.5">
                   <FormLabel>Teknisi (opsional)</FormLabel>
-                  <TechnicianMultiPicker technicians={technicians} value={technicianIds} onChange={setTechnicianIds} />
+                  <TechnicianMultiPicker technicians={technicians} value={technicianIds} onChange={setTechnicianIds} variant="dropdown" />
                 </div>
               )}
 

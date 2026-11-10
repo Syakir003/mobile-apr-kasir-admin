@@ -3,8 +3,10 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { ChevronDown } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,6 +18,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 /** Maksimal teknisi per job (sama dengan batas backend). */
 export const MAX_TECHNICIANS = 5;
@@ -64,12 +72,15 @@ export function TechnicianMultiPicker({
   onChange,
   excludeJobId,
   disabled,
+  variant = 'inline',
 }: {
   technicians: TechnicianOption[];
   value: string[];
   onChange: (ids: string[]) => void;
   excludeJobId?: string;
   disabled?: boolean;
+  /** 'inline' = daftar centang langsung terlihat (bawaan, dipakai di dialog); 'dropdown' = satu tombol, klik memunculkan daftar centang. */
+  variant?: 'inline' | 'dropdown';
 }) {
   const workload = useQuery({
     queryKey: ['technician-jobs', 'workload'],
@@ -96,6 +107,53 @@ export function TechnicianMultiPicker({
   if (technicians.length === 0) {
     return <p className="text-xs text-muted-foreground">Belum ada teknisi aktif</p>;
   }
+  const hint = (
+    <p className="text-xs text-muted-foreground">
+      {value.length}/{MAX_TECHNICIANS} teknisi dipilih. Semua teknisi yang dipilih sama-sama melihat dan mengerjakan job.
+    </p>
+  );
+
+  if (variant === 'dropdown') {
+    const picked = technicians.filter((t) => value.includes(t.id));
+    return (
+      <div className="grid gap-1.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="outline" disabled={disabled} className="w-full justify-between font-normal">
+              <span className={cn('truncate', picked.length === 0 && 'text-muted-foreground')}>
+                {picked.length === 0 ? 'Pilih teknisi' : picked.map((t) => t.displayName).join(', ')}
+              </span>
+              <ChevronDown className="size-4 shrink-0 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-(--radix-dropdown-menu-trigger-width) min-w-[14rem]">
+            {technicians.map((t) => {
+              const checked = value.includes(t.id);
+              const full = !checked && value.length >= MAX_TECHNICIANS;
+              return (
+                <DropdownMenuItem
+                  key={t.id}
+                  disabled={full}
+                  // Daftar tetap terbuka supaya bisa mencentang beberapa teknisi sekaligus.
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    toggle(t, !checked);
+                  }}
+                  className="gap-2"
+                >
+                  <Checkbox checked={checked} tabIndex={-1} aria-hidden className="pointer-events-none" />
+                  <span className="flex-1">{t.displayName}</span>
+                  {busy.has(t.id) && <Badge variant="warning">Sedang mengerjakan</Badge>}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {hint}
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-1.5">
       <div className="grid gap-1 rounded-md border p-2">
@@ -119,9 +177,7 @@ export function TechnicianMultiPicker({
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">
-        {value.length}/{MAX_TECHNICIANS} teknisi dipilih. Semua teknisi yang dipilih sama-sama melihat dan mengerjakan job.
-      </p>
+      {hint}
     </div>
   );
 }
