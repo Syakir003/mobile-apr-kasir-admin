@@ -3,6 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import { ChevronRight, ClipboardList } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
 import { formatDateTime, formatRupiah } from '@/lib/format';
@@ -101,8 +102,12 @@ export function SetoranTab({ initialTechnicianId }: { initialTechnicianId: strin
             </SelectContent>
           </Select>
         </div>
-        <Button asChild size="sm" variant="ghost">
-          <Link href="/setoran">Laporan Uang di Teknisi</Link>
+        <Button asChild variant="outline">
+          <Link href="/setoran">
+            <ClipboardList className="size-4" />
+            Laporan Uang di Teknisi
+            <ChevronRight className="size-4" />
+          </Link>
         </Button>
       </div>
 
