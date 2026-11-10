@@ -10,6 +10,12 @@ const ownerAssignee = {
 // @nestjs/schedule ESM-only; terseret lewat reminders. Cron tidak dipakai di test ini.
 jest.mock('@nestjs/schedule', () => ({ Cron: () => () => undefined }));
 
+import { assertLastJobCancelAllowed, voidInvoiceIfOrderCancelled } from './invoice-void.util';
+jest.mock('./invoice-void.util', () => ({
+  assertLastJobCancelAllowed: jest.fn(async () => undefined),
+  voidInvoiceIfOrderCancelled: jest.fn(async () => false),
+}));
+
 // Servis banyak AC = satu order, satu job per unit, satu invoice bersama. Yang dijaga di sini: harga jasa harus
 // per unit (bukan sekadar "invoice order sudah ada"), saudara job ikut terkirim ke halaman job, dan penugasan
 // teknisi bisa serentak untuk seluruh order.
@@ -730,6 +736,37 @@ describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () 
     const { svc, tx } = cancelSetup({ type: 'pemasangan' });
     await svc.cancel('j1', 'a1', 'admin', { moveRequestsToSibling: true });
     expect(tx.technicianJob.findFirst).not.toHaveBeenCalled();
+  });
+
+  // Invoice servis (sudah ada sejak harga di depan) ikut dibatalkan saat job terakhir order dibatalkan. Util aslinya
+  // diuji di invoice-void.util.spec.ts; di sini hanya penyambungan dan urutan panggilannya (util ditiru di atas file).
+  describe('invoice order ikut dibatalkan', () => {
+    beforeEach(() => {
+      (assertLastJobCancelAllowed as jest.Mock).mockClear();
+      (voidInvoiceIfOrderCancelled as jest.Mock).mockClear();
+    });
+
+    it('memeriksa pembayaran SEBELUM job dibatalkan, membatalkan invoice SETELAH tagihan dihitung ulang', async () => {
+      const { svc, tx, jobBilling } = cancelSetup();
+      await svc.cancel('j1', 'a1', 'admin');
+      const ref = { id: 'j1', orderId: 'o1', type: 'perbaikan' };
+      expect(assertLastJobCancelAllowed).toHaveBeenCalledWith(tx, ref);
+      expect(voidInvoiceIfOrderCancelled).toHaveBeenCalledWith(tx, ref, 'a1');
+      const guardAt = (assertLastJobCancelAllowed as jest.Mock).mock.invocationCallOrder[0];
+      const updateAt = tx.technicianJob.update.mock.invocationCallOrder[0];
+      const rebuildAt = jobBilling.rebuild.mock.invocationCallOrder[0];
+      const voidAt = (voidInvoiceIfOrderCancelled as jest.Mock).mock.invocationCallOrder[0];
+      expect(guardAt).toBeLessThan(updateAt);
+      expect(rebuildAt).toBeLessThan(voidAt);
+    });
+
+    it('penjagaan menolak: job tidak diubah dan invoice tidak disentuh', async () => {
+      (assertLastJobCancelAllowed as jest.Mock).mockRejectedValueOnce(new BadRequestException('sudah punya pembayaran'));
+      const { svc, tx } = cancelSetup();
+      await expect(svc.cancel('j1', 'a1', 'admin')).rejects.toThrow(BadRequestException);
+      expect(tx.technicianJob.update).not.toHaveBeenCalled();
+      expect(voidInvoiceIfOrderCancelled).not.toHaveBeenCalled();
+    });
   });
 });
 

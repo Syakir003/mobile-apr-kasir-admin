@@ -20,6 +20,7 @@ import {
   normalizeTechnicianIds,
   setJobAssignees,
 } from './job-assignees';
+import { assertLastJobCancelAllowed, voidInvoiceIfOrderCancelled } from './invoice-void.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { JobBillingService, unitInvoiceLabel } from '../common/services/job-billing.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
@@ -1840,6 +1841,9 @@ export class TechnicianJobsService {
 
     return this.prisma.$transaction(async (tx) => {
       const now = new Date();
+      const jobRef = { id: job.id, orderId: job.orderId, type: job.type };
+      // Job terakhir order servis tidak boleh dibatalkan bila invoice-nya sudah menerima pembayaran (belum ada refund).
+      await assertLastJobCancelAllowed(tx, jobRef);
       const updated = await tx.technicianJob.update({
         where: { id: jobId },
         data: { status: TechnicianJobStatus.dibatalkan, updatedAt: now },
@@ -1971,6 +1975,9 @@ export class TechnicianJobsService {
       // Pengajuan yang dipindah ikut ditagihkan lewat baris unit penggantinya (kalau sudah dihargai; kalau belum,
       // masuk begitu harga unit itu ditetapkan — pengajuan satu job wajib dihargai semua unitnya sebelum selesai).
       if (successor?.billingDerived) await this.jobBilling.rebuild(tx, successor.id, actorId);
+
+      // Semua job order dibatalkan dan belum ada pembayaran: invoice servis ikut dibatalkan (void, bukan dihapus).
+      await voidInvoiceIfOrderCancelled(tx, jobRef, actorId);
 
       return updated;
     });
