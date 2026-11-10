@@ -79,6 +79,9 @@ export function TechnicianPriceCard({ jobId, canEdit }: { jobId: string; canEdit
   const paymentsQuery = useFieldPayments(jobId);
   const data = priceQuery.data;
   if (!data) return null;
+  // Hanya untuk order yang dibayar di lokasi: order lama / instansi (ditagih admin) tidak berubah perilakunya. Selama
+  // ringkasan pembayaran belum termuat, kartu disembunyikan.
+  if (paymentsQuery.data?.paymentMode !== 'bayar_di_lokasi') return null;
 
   // Tanda Terima sudah terbit (ada pembayaran yang tidak ditolak): jasa dikunci supaya sama dengan bukti pelanggan.
   const locked = (paymentsQuery.data?.payments ?? []).some((p) => p.status !== 'ditolak');
@@ -195,7 +198,7 @@ function AdjustDialog({
 
   const changed =
     rows.length !== initial.length ||
-    rows.some((r) => !r.id || initial.find((i) => i.id === r.id)?.qty !== r.qty);
+    rows.some((r) => !r.id || Number(initial.find((i) => i.id === r.id)?.qty) !== Number(r.qty));
   const rowsOk =
     rows.length > 0 &&
     rows.every(
@@ -221,7 +224,7 @@ function AdjustDialog({
       toast.success('Jasa disesuaikan. Admin sudah diberi tahu.');
       onOpenChange(false);
       queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['field-payments', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['field-payments'] });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Gagal menyesuaikan jasa.'),
   });

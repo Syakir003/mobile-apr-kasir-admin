@@ -274,6 +274,8 @@ export function ServicePricingCard({ jobId }: { jobId: string }) {
       // Seluruh awalan technician-jobs: servis banyak AC memakai satu harga, jadi data semua unit (billingDerived) ikut segar.
       queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      // Tagihan/sisa di kartu Pembayaran di Lokasi ikut berubah bila harga disimpan.
+      queryClient.invalidateQueries({ queryKey: ['field-payments'] });
     },
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : 'Gagal menetapkan harga jasa.');

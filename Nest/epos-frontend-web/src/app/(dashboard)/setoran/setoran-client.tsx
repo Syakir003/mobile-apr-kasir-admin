@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Check, X } from 'lucide-react';
@@ -107,6 +106,8 @@ function useRefreshAll() {
 
 export function SetoranClient({ initialTab, initialTechnicianId }: { initialTab: TabValue; initialTechnicianId: string }) {
   const [tab, setTab] = React.useState<TabValue>(initialTab);
+  // Teknisi yang dipilih diangkat ke induk supaya tab Uang di Teknisi bisa membuka Setoran Tunai untuk teknisi tertentu.
+  const [technicianId, setTechnicianId] = React.useState(initialTechnicianId);
   const awaitingQuery = useQuery({
     queryKey: ['settlements', 'awaiting'],
     queryFn: () => apiClient.get<AwaitingData>('/field-payments/awaiting'),
@@ -136,13 +137,18 @@ export function SetoranClient({ initialTab, initialTechnicianId }: { initialTab:
           <TabsTrigger value="laporan">Uang di Teknisi</TabsTrigger>
         </TabsList>
         <TabsContent value="tunai">
-          <TunaiTab initialTechnicianId={initialTechnicianId} />
+          <TunaiTab technicianId={technicianId} onTechnicianChange={setTechnicianId} />
         </TabsContent>
         <TabsContent value="mutasi">
           <MutasiTab />
         </TabsContent>
         <TabsContent value="laporan">
-          <LaporanTab />
+          <LaporanTab
+            onPick={(id) => {
+              setTechnicianId(id);
+              setTab('tunai');
+            }}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -153,8 +159,13 @@ export function SetoranClient({ initialTab, initialTechnicianId }: { initialTab:
 // Setoran tunai
 // ---------------------------------------------------------------------------------------------------------------------
 
-function TunaiTab({ initialTechnicianId }: { initialTechnicianId: string }) {
-  const [technicianId, setTechnicianId] = React.useState(initialTechnicianId);
+function TunaiTab({
+  technicianId,
+  onTechnicianChange: setTechnicianId,
+}: {
+  technicianId: string;
+  onTechnicianChange: (id: string) => void;
+}) {
   const usersQuery = useQuery({ queryKey: ['users'], queryFn: () => apiClient.get<UserRow[]>('/users') });
   const cashQuery = useQuery({
     queryKey: ['settlements', 'technician-cash'],
@@ -636,7 +647,7 @@ function MutasiTab() {
 // Laporan Uang di Teknisi
 // ---------------------------------------------------------------------------------------------------------------------
 
-function LaporanTab() {
+function LaporanTab({ onPick }: { onPick: (technicianId: string) => void }) {
   const query = useQuery({
     queryKey: ['settlements', 'technician-cash'],
     queryFn: () => apiClient.get<CashRow[]>('/settlements/technician-cash'),
@@ -674,9 +685,14 @@ function LaporanTab() {
               {rows.map((r) => (
                 <TableRow key={r.technicianId}>
                   <TableCell className="font-medium">
-                    <Link href={`/setoran?technicianId=${r.technicianId}`} className="text-primary hover:underline">
+                    <button
+                      type="button"
+                      onClick={() => onPick(r.technicianId)}
+                      className="text-primary hover:underline"
+                      title="Buka Setoran Tunai teknisi ini"
+                    >
                       {r.displayName}
-                    </Link>
+                    </button>
                   </TableCell>
                   <TableCell className="text-right">
                     {r.heldCount > 0 ? (

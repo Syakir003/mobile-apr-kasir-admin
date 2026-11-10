@@ -179,7 +179,12 @@ export function IntakePricingCard({
                 variant="ghost"
                 size="icon"
                 aria-label="Hapus baris"
-                onClick={() => onChange({ ...value, lines: value.lines.filter((x) => x.key !== l.key) })}
+                onClick={() => {
+                  const lines = value.lines.filter((x) => x.key !== l.key);
+                  // Kontrol transport hanya tampil bila ada baris jasa: tanpa baris, transport ikut di-nol-kan supaya tidak
+                  // tersisa nilai tersembunyi yang membuat submit ditolak.
+                  onChange({ ...value, lines, transportLevel: lines.some(lineStarted) ? value.transportLevel : 0 });
+                }}
               >
                 <Trash2 className="size-4" />
               </Button>

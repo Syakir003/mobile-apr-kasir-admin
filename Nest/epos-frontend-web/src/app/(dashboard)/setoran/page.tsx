@@ -9,5 +9,6 @@ export default async function SetoranPage({
 }) {
   const { tab, technicianId } = await searchParams;
   const initialTab = tab === 'mutasi' || tab === 'laporan' ? tab : 'tunai';
-  return <SetoranClient initialTab={initialTab} initialTechnicianId={technicianId ?? ''} />;
+  // key: bila admin sedang di /setoran lalu menekan notifikasi (parameter URL berubah), halaman dipasang ulang dengan nilai baru.
+  return <SetoranClient key={`${initialTab}:${technicianId ?? ''}`} initialTab={initialTab} initialTechnicianId={technicianId ?? ''} />;
 }

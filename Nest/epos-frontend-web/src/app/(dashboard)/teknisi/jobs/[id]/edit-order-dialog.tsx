@@ -144,6 +144,8 @@ function EditOrderForm({
       toast.success('Data order diperbarui.');
       // Seluruh awalan 'technician-jobs': tiap unit di halaman ini, daftar job, dan antrean.
       queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
+      // Cara tagih berubah: kartu Pembayaran di Lokasi ikut diperbarui.
+      queryClient.invalidateQueries({ queryKey: ['field-payments'] });
       onDone();
     },
     onError: (err) => {

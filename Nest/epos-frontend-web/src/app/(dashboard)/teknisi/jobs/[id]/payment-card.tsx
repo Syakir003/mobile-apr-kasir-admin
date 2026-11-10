@@ -7,6 +7,7 @@ import { Camera, FileText, MessageCircle, Plus } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDateTime, formatRupiah } from '@/lib/format';
+import { randomKey } from '@/lib/random-key';
 import type { Role } from '@/lib/session';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -84,12 +85,13 @@ export function useFieldPayments(jobId: string, enabled = true) {
   });
 }
 
-function useRefreshPayments(jobId: string) {
+function useRefreshPayments() {
   const queryClient = useQueryClient();
   return React.useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['field-payments', jobId] });
+    // Seluruh awalan: halaman banyak unit memakai kunci berbeda (job anchor vs job yang dikerjakan) untuk order yang sama.
+    queryClient.invalidateQueries({ queryKey: ['field-payments'] });
     queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
-  }, [queryClient, jobId]);
+  }, [queryClient]);
 }
 
 function errMessage(err: unknown, fallback: string): string {
@@ -204,7 +206,7 @@ export function FieldPaymentCard({
         ) : (
           <ul className="grid gap-2">
             {data.payments.map((p) => (
-              <PaymentRowItem key={p.id} jobId={jobId} payment={p} role={role} canSendWa={data.canSendWa} />
+              <PaymentRowItem key={p.id} payment={p} role={role} canSendWa={data.canSendWa} />
             ))}
           </ul>
         )}
@@ -251,17 +253,15 @@ export function FieldPaymentCard({
 }
 
 function PaymentRowItem({
-  jobId,
   payment: p,
   role,
   canSendWa,
 }: {
-  jobId: string;
   payment: FieldPaymentRow;
   role: Role;
   canSendWa: boolean;
 }) {
-  const refresh = useRefreshPayments(jobId);
+  const refresh = useRefreshPayments();
   const [paperOpen, setPaperOpen] = React.useState(false);
   const [paperNo, setPaperNo] = React.useState('');
   const status = FIELD_PAYMENT_STATUS[p.status] ?? { label: p.status, variant: 'secondary' as const };
@@ -379,14 +379,14 @@ function RecordPaymentDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const refresh = useRefreshPayments(jobId);
+  const refresh = useRefreshPayments();
   // Dialog hanya dipasang saat terbuka (lihat pemakainya), jadi isian selalu mulai dari nilai awal ini.
   const [method, setMethod] = React.useState<string>('tunai');
   const [amount, setAmount] = React.useState(remaining > 0 ? String(remaining) : '');
   const [note, setNote] = React.useState('');
   const [file, setFile] = React.useState<File | null>(null);
   // Satu kunci per percobaan: bila request terkirim dua kali (sinyal putus-nyambung), pembayaran tidak tercatat ganda.
-  const [clientRef] = React.useState(() => crypto.randomUUID());
+  const [clientRef] = React.useState(() => randomKey());
 
   const value = Number(amount) || 0;
   const partial = value > 0 && value < remaining;
@@ -495,14 +495,14 @@ function PaperPaymentDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const refresh = useRefreshPayments(jobId);
+  const refresh = useRefreshPayments();
   // Dialog hanya dipasang saat terbuka (lihat pemakainya), jadi isian selalu mulai dari nilai awal ini.
   const [technicianId, setTechnicianId] = React.useState(technicians[0]?.id ?? '');
   const [method, setMethod] = React.useState<string>('tunai');
   const [amount, setAmount] = React.useState(remaining > 0 ? String(remaining) : '');
   const [note, setNote] = React.useState('');
   const [paperNo, setPaperNo] = React.useState('');
-  const [clientRef] = React.useState(() => crypto.randomUUID());
+  const [clientRef] = React.useState(() => randomKey());
 
   const value = Number(amount) || 0;
   const partial = value > 0 && value < remaining;
