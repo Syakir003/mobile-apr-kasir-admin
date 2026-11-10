@@ -23,6 +23,15 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { MemberPicker } from '@/components/member-picker';
 import { TechnicianMultiPicker } from '@/components/technician-multi-picker';
+import {
+  DEFAULT_PAYMENT_MODE,
+  EMPTY_PRICING,
+  IntakePricingCard,
+  pricingPayload,
+  pricingProblem,
+  type PaymentMode,
+  type PricingDraft,
+} from './intake-pricing-card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -172,6 +181,9 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
   const [rowsState, setRowsState] = React.useState<NewUnitRow[] | null>(null);
   const nextRowKey = React.useRef(1);
   const [technicianIds, setTechnicianIds] = React.useState<string[]>([]);
+  // Cara tagih + harga perkiraan jasa di depan (opsional; lihat intake-pricing-card.tsx).
+  const [paymentMode, setPaymentMode] = React.useState<PaymentMode>(DEFAULT_PAYMENT_MODE);
+  const [pricing, setPricing] = React.useState<PricingDraft>(EMPTY_PRICING);
   // Titik lokasi kerja (bawaan satu titik kosong = ikut alamat pelanggan) + pilihan titik tiap unit terdaftar yang dicentang.
   const [locations, setLocations] = React.useState<WorkLocationRow[]>([blankLocation(DEFAULT_LOC_KEY)]);
   const [existingLoc, setExistingLoc] = React.useState<Record<string, number>>({});
@@ -347,6 +359,8 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
 
   const intakeMutation = useMutation({
     mutationFn: async (values: IntakeFormValues) => {
+      const pricingError = pricingProblem(pricing);
+      if (pricingError) throw new ApiError(400, pricingError);
       // Titik lokasi dikirim kalau ada isinya atau titiknya lebih dari satu (satu titik kosong = ikut alamat pelanggan).
       const sendLocations = locations.length > 1 || locations.some((l) => l.address.trim() || l.mapsUrl.trim());
       const locIndex = (key: number | undefined) => ({
@@ -385,6 +399,8 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
           : {}),
         ...(technicianIds.length > 0 ? { technicianIds } : {}),
         scheduledDate: trimmedOrUndefined(values.scheduledDate),
+        paymentMode,
+        ...pricingPayload(pricing),
       };
       return apiClient.post<IntakeResult>('/service-orders/intake', body);
     },
@@ -799,6 +815,13 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
               />
             </CardContent>
           </Card>
+
+          <IntakePricingCard
+            paymentMode={paymentMode}
+            onPaymentModeChange={setPaymentMode}
+            value={pricing}
+            onChange={setPricing}
+          />
 
           <Button type="submit" disabled={intakeMutation.isPending}>
             <Wrench className="size-4" />
