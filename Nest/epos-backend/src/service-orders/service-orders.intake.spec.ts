@@ -526,3 +526,30 @@ describe('ServiceOrdersService.createManual — banyak teknisi', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });
+
+describe('ServiceOrdersService.intake — cara tagih', () => {
+  const unit = { brand: 'LG', pk: 1 };
+
+  it('bawaan: bayar_di_lokasi', async () => {
+    const { svc, tx } = setup();
+    await svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit }, 'a1');
+    expect(tx.serviceOrder.create.mock.calls[0][0].data).toMatchObject({ paymentMode: 'bayar_di_lokasi' });
+  });
+
+  it('ditagih_admin tersimpan bila dipilih', async () => {
+    const { svc, tx } = setup();
+    await svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit, paymentMode: 'ditagih_admin' }, 'a1');
+    expect(tx.serviceOrder.create.mock.calls[0][0].data).toMatchObject({ paymentMode: 'ditagih_admin' });
+  });
+
+  it('DTO menolak cara tagih yang tidak dikenal', async () => {
+    const dto = plainToInstance(ServiceIntakeDto, {
+      customer: { name: 'Budi', phone: '0812', memberId: 'm1' },
+      complaint: 'x',
+      scheduledDate: '2026-11-10',
+      paymentMode: 'kredit',
+    });
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'paymentMode')).toBe(true);
+  });
+});

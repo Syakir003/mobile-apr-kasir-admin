@@ -156,3 +156,19 @@ describe('UpdateServiceOrderDto — validasi', () => {
     expect(await errs({ unitLocations: [{ address: 'tanpa jobId' }] })).not.toHaveLength(0);
   });
 });
+
+describe('ServiceOrdersService.update — cara tagih', () => {
+  it('mengganti paymentMode dan mencatatnya di audit log', async () => {
+    const { svc, tx } = setup(order([job('j1')], { paymentMode: 'bayar_di_lokasi' }));
+    await svc.update('o1', { paymentMode: 'ditagih_admin' }, 'admin1');
+    expect(tx.serviceOrder.update).toHaveBeenCalledWith({ where: { id: 'o1' }, data: { paymentMode: 'ditagih_admin' } });
+    const audit = tx.auditLog.create.mock.calls[0][0].data;
+    expect(audit.detail.changes.paymentMode).toEqual({ dari: 'bayar_di_lokasi', jadi: 'ditagih_admin' });
+  });
+
+  it('order pemasangan (POS) tidak bisa diganti cara tagihnya', async () => {
+    const { svc, tx } = setup(order([job('j1', 'assigned', { type: 'pemasangan' })], { type: 'pemasangan', paymentMode: 'ditagih_admin' }));
+    await expect(svc.update('o1', { paymentMode: 'bayar_di_lokasi' }, 'admin1')).rejects.toThrow('pemasangan');
+    expect(tx.serviceOrder.update).not.toHaveBeenCalled();
+  });
+});

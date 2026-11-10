@@ -194,6 +194,7 @@ export class ServiceOrdersService {
           // Note pekerjaan untuk teknisi: deskripsi pekerjaan; tanpa itu keluhannya (perilaku lama).
           note: workDescription ?? complaint,
           scheduledDate,
+          paymentMode: dto.paymentMode ?? 'bayar_di_lokasi',
           createdById: actorId,
         },
       });
@@ -335,7 +336,13 @@ export class ServiceOrdersService {
    */
   async update(orderId: string, dto: UpdateServiceOrderDto, actorId: string) {
     const locations = dto.unitLocations ?? [];
-    if (dto.scheduledDate === undefined && dto.jobType === undefined && dto.note === undefined && locations.length === 0) {
+    if (
+      dto.scheduledDate === undefined &&
+      dto.jobType === undefined &&
+      dto.note === undefined &&
+      dto.paymentMode === undefined &&
+      locations.length === 0
+    ) {
       throw new BadRequestException('Tidak ada perubahan yang dikirim');
     }
     if (new Set(locations.map((l) => l.jobId)).size !== locations.length) {
@@ -359,6 +366,9 @@ export class ServiceOrdersService {
       if (dto.jobType !== undefined && open.some((j) => j.complaintOfJobId)) {
         throw new BadRequestException('Jenis pekerjaan job komplain tidak bisa diganti');
       }
+      if (dto.paymentMode !== undefined && (order.type === 'pemasangan' || open.some((j) => j.type === 'pemasangan'))) {
+        throw new BadRequestException('Cara tagih order pemasangan tidak bisa diganti');
+      }
 
       const changes: Record<string, unknown> = {};
       const orderData: Prisma.ServiceOrderUpdateInput = {};
@@ -378,6 +388,10 @@ export class ServiceOrdersService {
         const note = dto.note.trim() || null;
         orderData.note = note;
         changes.note = { dari: order.note, jadi: note };
+      }
+      if (dto.paymentMode !== undefined) {
+        orderData.paymentMode = dto.paymentMode;
+        changes.paymentMode = { dari: order.paymentMode, jadi: dto.paymentMode };
       }
       if (Object.keys(orderData).length > 0) {
         await tx.serviceOrder.update({ where: { id: orderId }, data: orderData });

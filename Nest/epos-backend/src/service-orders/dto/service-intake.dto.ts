@@ -21,6 +21,8 @@ import {
 } from 'class-validator';
 import { IsIndonesianPhone } from '../../common/is-indonesian-phone.decorator';
 import { normalizeMapsInput } from '../../common/maps-url.util';
+import { PAYMENT_MODES } from '../payment-mode';
+import type { PaymentMode } from '../payment-mode';
 
 export class IntakeCustomerDto {
   @IsString() @IsNotEmpty() name: string;
@@ -133,6 +135,11 @@ export class ServiceIntakeDto {
   @IsOptional() @IsString() technicianId?: string;
   // Beberapa teknisi setara (maks 5); menang atas technicianId bila dua-duanya ada.
   @IsOptional() @IsArray() @ArrayMaxSize(5) @IsString({ each: true }) technicianIds?: string[];
+  /**
+   * Cara tagih order: 'bayar_di_lokasi' (bawaan; teknisi menagih di lokasi) atau 'ditagih_admin' (instansi/langganan,
+   * admin menagih belakangan).
+   */
+  @IsOptional() @IsIn(PAYMENT_MODES, { message: 'Cara tagih hanya bayar_di_lokasi atau ditagih_admin' }) paymentMode?: PaymentMode;
   // WAJIB (2026-11): jadwal servis menentukan tampilan antrean (filter hari) dan dashboard teknisi. Format YYYY-MM-DD.
   @IsDateString({}, { message: 'Jadwal wajib diisi (format YYYY-MM-DD)' }) scheduledDate: string;
 }

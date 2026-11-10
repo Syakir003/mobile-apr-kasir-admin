@@ -12,6 +12,8 @@ import {
 } from 'class-validator';
 import { INTAKE_JOB_TYPES, IntakeLocationDto } from './service-intake.dto';
 import type { IntakeJobType } from './service-intake.dto';
+import { PAYMENT_MODES } from '../payment-mode';
+import type { PaymentMode } from '../payment-mode';
 
 /** Titik lokasi kerja SATU unit (job) yang dikoreksi; alamat dan link kosong = ikut alamat pelanggan. */
 export class UnitLocationEditDto extends IntakeLocationDto {
@@ -34,6 +36,9 @@ export class UpdateServiceOrderDto {
 
   // Note Pekerjaan (deskripsi pekerjaan); kosong/spasi = hapus.
   @IsOptional() @IsString() @MaxLength(2000) note?: string;
+
+  // Cara tagih (bayar_di_lokasi | ditagih_admin). Order pemasangan (POS) tidak bisa diganti.
+  @IsOptional() @IsIn(PAYMENT_MODES, { message: 'Cara tagih hanya bayar_di_lokasi atau ditagih_admin' }) paymentMode?: PaymentMode;
 
   @IsOptional()
   @IsArray()
