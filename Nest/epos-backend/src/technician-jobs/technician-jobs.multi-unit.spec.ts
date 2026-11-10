@@ -16,6 +16,10 @@ jest.mock('./invoice-void.util', () => ({
   voidInvoiceIfOrderCancelled: jest.fn(async () => false),
 }));
 
+// Gerbang pembayaran lapangan diuji sendiri di payment-gate.util.spec.ts; di sini cukup dipastikan tersambung.
+import { assertPaymentRecordedOrExplained } from './payment-gate.util';
+jest.mock('./payment-gate.util', () => ({ assertPaymentRecordedOrExplained: jest.fn(async () => undefined) }));
+
 // Servis banyak AC = satu order, satu job per unit, satu invoice bersama. Yang dijaga di sini: harga jasa harus
 // per unit (bukan sekadar "invoice order sudah ada"), saudara job ikut terkirim ke halaman job, dan penugasan
 // teknisi bisa serentak untuk seluruh order.
@@ -46,7 +50,8 @@ function submitSetup(opts: { job?: Record<string, unknown>; invoiceId?: string |
       findUnique: jest.fn(async () => ({ invoiceId: opts.invoiceId === undefined ? 'inv1' : opts.invoiceId })),
     },
   };
-  const prisma: any = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
+  // technicianJobAssignee dipakai guard pemilik (assertOwnerOrAdmin) saat pemanggilnya bukan admin.
+  const prisma: any = { technicianJobAssignee: ownerAssignee, $transaction: jest.fn(async (fn: any) => fn(tx)) };
   const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
   return { svc, tx };
 }
@@ -64,6 +69,20 @@ describe('TechnicianJobsService.submitForReview — harga jasa BUKAN syarat peng
     const { svc, tx } = submitSetup({ siblingJobs: 2 });
     await svc.submitForReview('j1', 'a1', 'admin');
     expect(tx.technicianJob.update).toHaveBeenCalled();
+  });
+});
+
+describe('TechnicianJobsService.submitForReview — gerbang pembayaran lapangan', () => {
+  it('Ajukan Selesai: gerbang pembayaran dipanggil dengan peran dan alasan dari klien', async () => {
+    (assertPaymentRecordedOrExplained as jest.Mock).mockClear();
+    const { svc, tx } = submitSetup({});
+    await svc.submitForReview('j1', 't1', 'teknisi', { unpaidReason: 'Pelanggan belum bisa bayar' });
+    expect(assertPaymentRecordedOrExplained).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ id: 'j1' }),
+      'teknisi',
+      'Pelanggan belum bisa bayar',
+    );
   });
 });
 

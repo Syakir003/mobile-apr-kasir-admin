@@ -36,6 +36,7 @@ import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { assertNoActiveJob } from './active-job.util';
 import { AddUnitDto } from './dto/add-unit.dto';
+import { assertPaymentRecordedOrExplained } from './payment-gate.util';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { INTAKE_JOB_TYPES } from '../service-orders/dto/service-intake.dto';
 
@@ -1341,11 +1342,13 @@ export class TechnicianJobsService {
     jobId: string,
     actorId: string,
     role: Role,
-    opts: { allInOrder?: boolean } = {},
+    opts: { allInOrder?: boolean; unpaidReason?: string } = {},
   ) {
     // Servis banyak AC: satu tombol "Ajukan Selesai" untuk SELURUH job (semua unit di order ini), bukan per unit.
-    if (opts.allInOrder) return this.submitOrderForReview(jobId, actorId, role);
-    const updated = await this.prisma.$transaction((tx) => this.submitJobInTx(tx, jobId, actorId, role));
+    if (opts.allInOrder) return this.submitOrderForReview(jobId, actorId, role, opts.unpaidReason);
+    const updated = await this.prisma.$transaction((tx) =>
+      this.submitJobInTx(tx, jobId, actorId, role, opts.unpaidReason),
+    );
     // Kabari admin (lonceng web). Dipasang di servis, bukan controller, supaya
     // jalur offline (sync-batch) dari mobile juga ikut memberi tahu admin.
     if (role !== 'admin') void this.notifyAdminsReview(jobId).catch(() => undefined);
@@ -1369,7 +1372,13 @@ export class TechnicianJobsService {
    * sebelumnya (atau setelahnya) tetap konsisten dengan hasil akhir count
    * di bawah karena dihitung di dalam transaction yang sama, setelah lock.
    */
-  private async submitJobInTx(tx: Prisma.TransactionClient, jobId: string, actorId: string, role: Role) {
+  private async submitJobInTx(
+    tx: Prisma.TransactionClient,
+    jobId: string,
+    actorId: string,
+    role: Role,
+    unpaidReason?: string,
+  ) {
     await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
     const job = await tx.technicianJob.findUnique({ where: { id: jobId } });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
@@ -1418,6 +1427,8 @@ export class TechnicianJobsService {
         'Tandai material yang disetujui sebagai dipakai sebelum mengajukan selesai',
       );
     }
+    // Order bayar_di_lokasi: pembayaran harus sudah dicatat, atau ada alasan tertulis (lihat payment-gate.util.ts).
+    await assertPaymentRecordedOrExplained(tx, job, role, unpaidReason);
 
     return tx.technicianJob.update({
       where: { id: jobId },
@@ -1466,7 +1477,7 @@ export class TechnicianJobsService {
    * memenuhi gate (belum discan/dimulai, temuan/foto kurang, harga belum ditetapkan, dst), tidak ada unit yang
    * berubah dan pesannya menyebut unit mana. Unit yang sudah diajukan/selesai dilewati; unit dibatalkan diabaikan.
    */
-  private async submitOrderForReview(jobId: string, actorId: string, role: Role) {
+  private async submitOrderForReview(jobId: string, actorId: string, role: Role, unpaidReason?: string) {
     const base = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
       select: { id: true, orderId: true },
@@ -1498,7 +1509,7 @@ export class TechnicianJobsService {
       let target: { status: TechnicianJobStatus } | null = null;
       for (const j of toSubmit) {
         try {
-          const result = await this.submitJobInTx(tx, j.id, actorId, role);
+          const result = await this.submitJobInTx(tx, j.id, actorId, role, unpaidReason);
           if (j.id === jobId) target = result;
         } catch (e) {
           if (e instanceof BadRequestException) {

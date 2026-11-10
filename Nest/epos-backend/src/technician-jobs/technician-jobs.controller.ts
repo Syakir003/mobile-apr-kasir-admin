@@ -486,7 +486,10 @@ export class TechnicianJobsController {
     @CurrentUser() user: CurrentUserPayload,
     @Body() dto: SubmitForReviewDto,
   ) {
-    const result = await this.jobs.submitForReview(id, user.sub, user.role, { allInOrder: dto?.allInOrder });
+    const result = await this.jobs.submitForReview(id, user.sub, user.role, {
+      allInOrder: dto?.allInOrder,
+      unpaidReason: dto?.unpaidReason,
+    });
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,
