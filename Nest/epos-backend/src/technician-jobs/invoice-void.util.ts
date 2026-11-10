@@ -13,14 +13,23 @@ interface JobRef {
 // invoicenya adalah penjualan. Belum ada refund, jadi bila invoice sudah menerima pembayaran, pembatalan job terakhir ditolak.
 
 async function lockInvoice(tx: Tx, invoiceId: string) {
-  const rows = await tx.$queryRaw<{ id: string; total_paid: string; status: InvoiceStatus }[]>`
-    SELECT id, total_paid, status FROM invoices WHERE id = ${invoiceId} FOR UPDATE`;
+  const rows = await tx.$queryRaw<{ id: string; grand_total: string; total_paid: string; status: InvoiceStatus }[]>`
+    SELECT id, grand_total, total_paid, status FROM invoices WHERE id = ${invoiceId} FOR UPDATE`;
   return rows[0] ?? null;
 }
 
-/** Invoice servis order ini; null untuk pemasangan POS atau order yang belum punya invoice. */
+/** Kunci order + semua job-nya (urut id) SEBELUM menghitung "job terakhir" dan mengunci invoice. Urutan kunci sama dengan
+ * ServicePricingService.setWithin dan ServiceOrdersService.update (order -> job -> invoice): dua pembatalan bersamaan tidak
+ * sama-sama melihat "masih ada job lain" (invoice kosong tak jadi batal) dan tidak ada celah deadlock. */
+async function lockOrderJobs(tx: Tx, orderId: string) {
+  await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${orderId} FOR UPDATE`;
+  await tx.$executeRaw`SELECT id FROM technician_jobs WHERE order_id = ${orderId} ORDER BY id FOR UPDATE`;
+}
+
+/** Invoice servis order ini; null untuk pemasangan POS atau order yang belum punya invoice. Order + job-nya ikut terkunci. */
 async function serviceInvoiceId(tx: Tx, job: JobRef): Promise<string | null> {
   if (job.type === 'pemasangan') return null;
+  await lockOrderJobs(tx, job.orderId);
   const order = await tx.serviceOrder.findUnique({ where: { id: job.orderId }, select: { invoiceId: true } });
   return order?.invoiceId ?? null;
 }
@@ -39,7 +48,7 @@ export async function assertLastJobCancelAllowed(tx: Tx, job: JobRef): Promise<v
   const inv = await lockInvoice(tx, invoiceId);
   if (inv && Number(inv.total_paid) > 0) {
     throw new BadRequestException(
-      'Invoice order ini sudah punya pembayaran, jadi job terakhirnya tidak bisa dibatalkan. Selesaikan pembayarannya dulu (sistem belum punya refund).',
+      'Invoice order ini sudah punya pembayaran, jadi job terakhirnya tidak bisa dibatalkan (sistem belum punya refund). Selesaikan job-nya, atau tunggu fitur refund.',
     );
   }
 }
@@ -52,6 +61,9 @@ export async function voidInvoiceIfOrderCancelled(tx: Tx, job: JobRef, actorId: 
   if (!inv || inv.status === InvoiceStatus.batal || inv.status === InvoiceStatus.refund || Number(inv.total_paid) > 0) {
     return false;
   }
+  // Masih ada tagihan (mis. sparepart jalur penyesuaian lama yang sudah terpakai): jangan dibatalkan diam-diam, biar tetap
+  // terlihat sebagai piutang. Invoice yang baru berisi jasa di depan bernilai 0 setelah baris job-nya dihitung ulang.
+  if (Number(inv.grand_total) > 0) return false;
   await tx.invoice.update({ where: { id: invoiceId }, data: { status: InvoiceStatus.batal } });
   await tx.auditLog.create({
     data: {

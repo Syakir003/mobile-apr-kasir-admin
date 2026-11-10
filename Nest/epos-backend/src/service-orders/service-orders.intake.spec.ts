@@ -582,4 +582,37 @@ describe('ServiceOrdersService.intake — harga perkiraan di depan', () => {
     );
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
+
+  it('transportLevel 0 / null / hanya transportMode tanpa baris jasa: tidak ditolak dan diabaikan', async () => {
+    for (const extra of [{ transportLevel: 0 }, { transportLevel: null }, { transportMode: 'dibagi' }, { transportLevel: 0, transportMode: 'individu' }]) {
+      const { svc, pricing } = setup();
+      await expect(svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit, ...extra } as any, 'a1')).resolves.toBeDefined();
+      expect(pricing.setWithin).not.toHaveBeenCalled();
+    }
+  });
+
+  it('transportLevel/transportMode null tidak pernah diteruskan ke setWithin (Prisma menolak null): jadi undefined', async () => {
+    const { svc, tx, pricing } = setup();
+    await svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit, serviceLines: lines, transportLevel: null, transportMode: null } as any, 'a1');
+    expect(pricing.setWithin).toHaveBeenCalledTimes(1);
+    const dto = pricing.setWithin.mock.calls[0][2];
+    expect(dto).toEqual({ lines, transportLevel: undefined, transportMode: undefined });
+    expect(dto.transportLevel).toBeUndefined();
+    expect(dto.transportMode).toBeUndefined();
+    expect(pricing.setWithin.mock.calls[0][0]).toBe(tx);
+  });
+
+  it('transaksi diberi timeout 20 detik bila ada harga (banyak query dalam satu transaksi)', async () => {
+    const { svc, prisma } = setup();
+    await svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit, serviceLines: lines }, 'a1');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction.mock.calls[0][1]).toEqual({ timeout: 20000 });
+  });
+
+  it('transaksi tanpa harga memakai bawaan Prisma (argumen kedua undefined)', async () => {
+    const { svc, prisma } = setup();
+    await svc.intake({ customer, complaint: 'Cuci AC', newUnit: unit }, 'a1');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction.mock.calls[0][1]).toBeUndefined();
+  });
 });

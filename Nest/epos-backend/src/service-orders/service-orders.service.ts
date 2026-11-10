@@ -96,7 +96,7 @@ export class ServiceOrdersService {
     if (!complaint) {
       throw new BadRequestException('Keluhan awal wajib diisi (kalau tidak ada keluhan, isi pekerjaannya, mis. Cuci AC)');
     }
-    if ((dto.transportLevel !== undefined || dto.transportMode !== undefined) && !dto.serviceLines?.length) {
+    if ((dto.transportLevel ?? 0) > 0 && !dto.serviceLines?.length) {
       throw new BadRequestException('Transport hanya bisa diisi bersama baris jasa');
     }
     if (dto.units?.length && (dto.existingUnitId || dto.newUnit)) {
@@ -132,6 +132,9 @@ export class ServiceOrdersService {
     // Teknisi (maks 5, semua setara) divalidasi sebelum transaksi: id salah/nonaktif jadi 400, bukan order setengah jadi.
     const technicianIds = normalizeTechnicianIds(dto);
     await assertValidTechnicians(this.prisma, technicianIds);
+
+    // Harga di depan untuk banyak unit = banyak query dalam satu transaksi; batas bawaan Prisma (5 detik) bisa kurang.
+    const txOptions = dto.serviceLines?.length ? { timeout: 20000 } : undefined;
 
     return this.prisma.$transaction(async (tx) => {
       // Sama pola persis kayak PosService.checkout(): kalau admin/kasir milih
@@ -237,7 +240,8 @@ export class ServiceOrdersService {
         await this.pricing.setWithin(
           tx,
           jobs[0].id,
-          { lines: dto.serviceLines, transportLevel: dto.transportLevel, transportMode: dto.transportMode },
+          // null dari klien dinormalkan jadi undefined: Prisma menolak null untuk kolom non-nullable.
+          { lines: dto.serviceLines, transportLevel: dto.transportLevel ?? undefined, transportMode: dto.transportMode ?? undefined },
           actorId,
         );
       }
@@ -278,7 +282,7 @@ export class ServiceOrdersService {
         // Unit yang labelnya masih perlu dicetak (frontend: kosong = langsung ke halaman job).
         unitsToLabel: units.filter((u) => !u.labeled).map((u) => u.id),
       };
-    });
+    }, txOptions);
   }
 
   /**

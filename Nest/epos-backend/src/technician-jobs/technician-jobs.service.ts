@@ -1843,7 +1843,8 @@ export class TechnicianJobsService {
       const now = new Date();
       const jobRef = { id: job.id, orderId: job.orderId, type: job.type };
       // Job terakhir order servis tidak boleh dibatalkan bila invoice-nya sudah menerima pembayaran (belum ada refund).
-      await assertLastJobCancelAllowed(tx, jobRef);
+      // Job yang sudah dibatalkan tidak diperiksa: membatalkan ulang tetap no-op yang tidak melempar.
+      if (job.status !== TechnicianJobStatus.dibatalkan) await assertLastJobCancelAllowed(tx, jobRef);
       const updated = await tx.technicianJob.update({
         where: { id: jobId },
         data: { status: TechnicianJobStatus.dibatalkan, updatedAt: now },

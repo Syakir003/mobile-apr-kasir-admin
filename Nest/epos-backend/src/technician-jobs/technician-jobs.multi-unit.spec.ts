@@ -635,6 +635,7 @@ describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () 
   function cancelSetup(
     over: {
       type?: string;
+      status?: string; // status job yang dibatalkan (bawaan sedang_dikerjakan)
       successor?: { id: string; billingDerived: boolean } | null;
       billingDerived?: boolean;
       pricingLines?: number; // baris jasa yang dipegang job yang dibatalkan
@@ -646,7 +647,7 @@ describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () 
       orderId: 'o1',
       unitId: 'u1',
       type: over.type ?? 'perbaikan',
-      status: 'sedang_dikerjakan',
+      status: over.status ?? 'sedang_dikerjakan',
       billingDerived: over.billingDerived ?? true,
       transportLevel: over.pricingLines ? 2 : 0,
       transportMode: 'dibagi',
@@ -766,6 +767,13 @@ describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () 
       await expect(svc.cancel('j1', 'a1', 'admin')).rejects.toThrow(BadRequestException);
       expect(tx.technicianJob.update).not.toHaveBeenCalled();
       expect(voidInvoiceIfOrderCancelled).not.toHaveBeenCalled();
+    });
+
+    it('job yang sudah dibatalkan dibatalkan lagi: penjagaan pembayaran dilewati (tetap no-op, tidak melempar), void tetap dipanggil', async () => {
+      const { svc } = cancelSetup({ status: 'dibatalkan' });
+      await expect(svc.cancel('j1', 'a1', 'admin')).resolves.toBeDefined();
+      expect(assertLastJobCancelAllowed).not.toHaveBeenCalled();
+      expect(voidInvoiceIfOrderCancelled).toHaveBeenCalledWith(expect.anything(), { id: 'j1', orderId: 'o1', type: 'perbaikan' }, 'a1');
     });
   });
 });
