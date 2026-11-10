@@ -120,7 +120,7 @@ async function main() {
     name: string;
     phoneIdx: number;
     type: 'cuci' | 'perbaikan';
-    jobStatus: 'sedang_dikerjakan' | 'menunggu_review';
+    jobStatus: 'sedang_dikerjakan' | 'menunggu_review' | 'selesai';
     paymentMode: 'bayar_di_lokasi' | 'ditagih_admin';
     units: number;
     lines: ReturnType<typeof svc>[];
@@ -181,6 +181,7 @@ async function main() {
             status: sc.jobStatus,
             scheduledDate: today,
             startedAt: new Date(today.getTime() + 3600000),
+            ...(sc.jobStatus === 'selesai' ? { completedAt: new Date(today.getTime() + 2 * 3600000) } : {}),
             createdById: adminId,
             billingDerived: true,
             ...(i === 0 && sc.techEdited
@@ -398,6 +399,34 @@ async function main() {
   });
   await field(s8, denis, { method: 'tunai', amount: s8.grand, status: 'dipegang_teknisi', daysAgo: 1, channel: 'wa', sent: true });
 
+  // S9-S12 — job SELESAI yang uangnya belum diverifikasi (tab Setoran Teknisi di Antrian Servis).
+  // S9: 2 unit, tunai dipegang Andi (bersama S4/S5 = setoran tunai sekaligus satu teknisi).
+  const s9 = await make({
+    name: 'Bu Wati (S9 selesai, tunai Andi)', phoneIdx: 9, type: 'cuci', jobStatus: 'selesai', paymentMode: 'bayar_di_lokasi',
+    units: 2, lines: [svc(cuciKecil, 2)], withFindings: true,
+  });
+  await field(s9, andi, { method: 'tunai', amount: s9.grand, status: 'dipegang_teknisi', channel: 'wa', sent: true });
+  // S10: transfer menunggu dicocokkan (Teknisi Toko).
+  const s10 = await make({
+    name: 'Pak Bayu (S10 selesai, transfer)', phoneIdx: 10, type: 'perbaikan', jobStatus: 'selesai', paymentMode: 'bayar_di_lokasi',
+    units: 1, lines: [svc(freonJasa, 1)], sparepartApproved: { qty: 1, used: true }, withFindings: true,
+  });
+  await field(s10, toko, { method: 'transfer', amount: s10.grand, status: 'menunggu_cocok', channel: 'wa', sent: true });
+  // S11: satu order dibayar dua kali (tunai sebagian + sisanya QRIS), mengetes panel job dengan dua jenis sekaligus.
+  const s11 = await make({
+    name: 'Bu Citra (S11 selesai, tunai + QRIS)', phoneIdx: 11, type: 'cuci', jobStatus: 'selesai', paymentMode: 'bayar_di_lokasi',
+    units: 2, lines: [svc(cuciBesar, 2)], withFindings: true,
+  });
+  const half = Math.floor(s11.grand / 2 / 1000) * 1000;
+  await field(s11, denis, { method: 'tunai', amount: half, status: 'dipegang_teknisi', channel: 'wa', sent: true });
+  await field(s11, denis, { method: 'qris', amount: s11.grand - half, status: 'menunggu_cocok', channel: 'wa', sent: true });
+  // S12: tunai sudah 3 hari di tangan denis (lencana umur di tab Setoran).
+  const s12 = await make({
+    name: 'Toko Sentosa (S12 selesai, tunai 3 hari)', phoneIdx: 12, type: 'perbaikan', jobStatus: 'selesai', paymentMode: 'bayar_di_lokasi',
+    units: 1, lines: [svc(bongkar, 1)], withFindings: true,
+  });
+  await field(s12, denis, { method: 'tunai', amount: s12.grand, status: 'dipegang_teknisi', daysAgo: 3, channel: 'kertas' });
+
   // Buku besar contoh untuk laporan Uang di Teknisi.
   await prisma.technicianCashEntry.createMany({
     data: [
@@ -412,6 +441,8 @@ async function main() {
   console.log('  S3 ditagih admin (kontrol)                        S4/S5 tunai dipegang Andi -> Setoran Tunai');
   console.log('  S6 QRIS menunggu cocok -> Cocokkan Mutasi         S7 jasa disesuaikan teknisi -> banner admin');
   console.log('  S8 tunai dipegang denis + saldo kurang setor Rp 20.000 -> Terima Pelunasan Selisih');
+  console.log('  S9-S12 job SELESAI, uang belum diverifikasi -> tab Setoran Teknisi di Antrian Servis');
+  console.log('        (S9 tunai Andi 2 unit, S10 transfer, S11 tunai + QRIS satu order, S12 tunai denis 3 hari)');
   console.log(`  Nomor HP pelanggan: ${phoneArg ?? '0812000000xx (palsu)'}; teknisi: Andi, Teknisi Toko, denis (semua job dipegang ketiganya)`);
 }
 
