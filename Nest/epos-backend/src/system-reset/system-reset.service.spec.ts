@@ -44,6 +44,16 @@ describe('SystemResetService — urutan hapus aman foreign key', () => {
     },
   );
 
+  it.each(['transaksi', 'transaksi_pelanggan', 'total'] as ResetScope[])(
+    '%s: pembayaran lapangan teknisi dihapus SEBELUM order servis dan invoice (FK RESTRICT)',
+    async (scope) => {
+      const order = await run(scope);
+      expect(order).toContain('fieldPayment');
+      expect(order.indexOf('fieldPayment')).toBeLessThan(order.indexOf('serviceOrder'));
+      expect(order.indexOf('fieldPayment')).toBeLessThan(order.indexOf('invoice'));
+    },
+  );
+
   it('transaksi saja: pelanggan, unit AC, dan koreksi tidak disentuh', async () => {
     const order = await run('transaksi');
     expect(order).not.toContain('acUnitCorrection');

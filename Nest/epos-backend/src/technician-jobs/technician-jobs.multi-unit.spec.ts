@@ -53,7 +53,7 @@ function submitSetup(opts: { job?: Record<string, unknown>; invoiceId?: string |
   // technicianJobAssignee dipakai guard pemilik (assertOwnerOrAdmin) saat pemanggilnya bukan admin.
   const prisma: any = { technicianJobAssignee: ownerAssignee, $transaction: jest.fn(async (fn: any) => fn(tx)) };
   const svc = new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
-  return { svc, tx };
+  return { svc, tx, prisma };
 }
 
 describe('TechnicianJobsService.submitForReview — harga jasa BUKAN syarat pengajuan (admin menetapkannya saat review)', () => {
@@ -83,6 +83,31 @@ describe('TechnicianJobsService.submitForReview — gerbang pembayaran lapangan'
       'teknisi',
       'Pelanggan belum bisa bayar',
     );
+  });
+
+  // Penulisan alasan "belum bayar" menyentuh service_orders; kunci order HARUS diambil sebelum kunci job (order -> job),
+  // sama dengan setWithin/techEditLines/cancel, supaya tidak deadlock bila admin menyimpan harga bersamaan.
+  it('kunci order diambil SEBELUM kunci job', async () => {
+    const { svc, tx } = submitSetup({});
+    await svc.submitForReview('j1', 't1', 'teknisi');
+    const sqls = tx.$executeRaw.mock.calls.map((c: any[]) => (c[0] as string[]).join('?'));
+    expect(sqls[0]).toContain('FROM service_orders');
+    expect(sqls[0]).toContain('FOR UPDATE');
+    expect(sqls[1]).toContain('FROM technician_jobs');
+  });
+
+  it('allInOrder: kunci order SEBELUM kunci seluruh job order', async () => {
+    const { svc, tx, prisma } = submitSetup({});
+    // jalur allInOrder membaca job dasar lewat prisma (di luar transaksi) sebelum membuka transaksi
+    prisma.technicianJob = { findUnique: jest.fn(async () => ({ id: 'j1', orderId: 'o1' })) };
+    tx.technicianJob.findMany = jest.fn(async () => [
+      { id: 'j1', orderId: 'o1', status: 'sedang_dikerjakan', unit: null },
+    ]);
+    await svc.submitForReview('j1', 't1', 'teknisi', { allInOrder: true });
+    const sqls = tx.$executeRaw.mock.calls.map((c: any[]) => (c[0] as string[]).join('?'));
+    expect(sqls[0]).toContain('FROM service_orders');
+    expect(sqls[1]).toContain('FROM technician_jobs');
+    expect(sqls[1]).toContain('order_id');
   });
 });
 

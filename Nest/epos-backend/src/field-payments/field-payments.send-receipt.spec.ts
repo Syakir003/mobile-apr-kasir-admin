@@ -57,13 +57,30 @@ describe('FieldPaymentsService.sendReceipt', () => {
   it('Fonnte gagal: tidak ditandai terkirim, hasil sent:false + alasan (teknisi bisa kirim ulang atau pakai kertas)', async () => {
     const { svc, prisma } = setup({ waStatus: 'gagal', waError: 'device disconnect' });
     const r = await svc.sendReceipt('fp1', {}, 't1', 'teknisi');
-    expect(r).toMatchObject({ sent: false, error: 'device disconnect' });
+    // Alasan asli penyedia (mis. "device disconnect") hanya tersimpan di log WA; teknisi menerima pesan umum.
+    expect(r).toMatchObject({ sent: false, error: 'Gagal mengirim WhatsApp. Coba lagi, atau pakai laporan kertas.' });
+    expect(JSON.stringify(r)).not.toContain('device disconnect');
     expect(prisma.fieldPayment.update.mock.calls[0][0].data).not.toHaveProperty('receiptSentAt');
     expect(prisma.fieldPayment.update.mock.calls[0][0].data).toMatchObject({ receiptWaLogId: 'log1' });
   });
 
   it('pelanggan tanpa nomor HP valid: 400 dan tidak mengirim', async () => {
     const { svc, whatsapp } = setup({ customerPhone: '-', memberPhone: null });
+    await expect(svc.sendReceipt('fp1', {}, 't1', 'teknisi')).rejects.toThrow('kertas');
+    expect(whatsapp.sendInvoiceMessage).not.toHaveBeenCalled();
+  });
+
+  it('ringkasan Tanda Terima tidak memuat baris "Biaya transport"', async () => {
+    const { svc, prisma } = setup();
+    await svc.sendReceipt('fp1', {}, 't1', 'teknisi');
+    expect(prisma.invoiceItem.findMany).toHaveBeenCalledWith({
+      where: { invoiceId: 'inv1', kind: 'service', name: { not: 'Biaya transport' } },
+      select: { name: true, qty: true },
+    });
+  });
+
+  it('nomor terlalu pendek untuk WhatsApp ("1" -> 621) ditolak seperti tanpa nomor', async () => {
+    const { svc, whatsapp } = setup({ customerPhone: '1', memberPhone: null });
     await expect(svc.sendReceipt('fp1', {}, 't1', 'teknisi')).rejects.toThrow('kertas');
     expect(whatsapp.sendInvoiceMessage).not.toHaveBeenCalled();
   });
@@ -87,7 +104,7 @@ describe('FieldPaymentsService.sendReceipt', () => {
 });
 
 describe('FieldPaymentsService.listForJob / mine', () => {
-  function make(over: { status?: string; payments?: any[]; paymentMode?: string; grand?: number; assignee?: boolean } = {}) {
+  function make(over: { status?: string; payments?: any[]; paymentMode?: string; grand?: number; assignee?: boolean; phone?: string | null; held?: number | null } = {}) {
     const job = { id: 'j1', orderId: 'o1', type: 'cuci', status: over.status ?? 'sedang_dikerjakan', complaintOfJobId: null };
     const prisma: any = {
       technicianJob: { findUnique: jest.fn(async () => job), findMany: jest.fn(async () => [{ id: 'j1' }]) },
@@ -100,11 +117,15 @@ describe('FieldPaymentsService.listForJob / mine', () => {
               invoice: { number: 'INV-1', customerName: 'Bu Sari' } },
           ],
         ),
+        aggregate: jest.fn(async () => ({ _sum: { amount: over.held === undefined ? 100000 : over.held } })),
       },
       serviceOrder: {
         findUnique: jest.fn(async () => ({
           paymentMode: over.paymentMode ?? 'bayar_di_lokasi', unpaidReason: null, invoiceId: 'inv1',
-          invoice: { id: 'inv1', number: 'INV-1', status: 'belum_dibayar', grandTotal: over.grand ?? 150000, totalPaid: 0 },
+          invoice: {
+            id: 'inv1', number: 'INV-1', status: 'belum_dibayar', grandTotal: over.grand ?? 150000, totalPaid: 0,
+            customerPhone: over.phone === undefined ? '0812-3456-7890' : over.phone, member: { phone: null },
+          },
         })),
       },
       materialRequest: { count: jest.fn(async () => 0) },
@@ -137,12 +158,34 @@ describe('FieldPaymentsService.listForJob / mine', () => {
     await expect(make({ assignee: false }).svc.listForJob('j1', 'a1', 'admin')).resolves.toBeDefined();
   });
 
-  it('mine: menjumlah uang yang masih dipegang', async () => {
-    const { svc, prisma } = make();
+  it('mine: total uang dipegang dihitung terpisah dari daftar (daftar dibatasi 200, total tidak)', async () => {
+    const { svc, prisma } = make({ held: 750000 });
     const r = await svc.mine('t1');
     expect(prisma.fieldPayment.findMany.mock.calls[0][0].where).toEqual({ recordedById: 't1' });
-    expect(r.heldTotal).toBe(100000);
+    expect(prisma.fieldPayment.aggregate).toHaveBeenCalledWith({
+      where: { recordedById: 't1', status: 'dipegang_teknisi' },
+      _sum: { amount: true },
+    });
+    // satu baris di daftar, tetapi totalnya berasal dari aggregate seluruh catatan teknisi
+    expect(r.items).toHaveLength(1);
+    expect(r.heldTotal).toBe(750000);
     expect(r.items[0]).toMatchObject({ invoiceNumber: 'INV-1', customerName: 'Bu Sari' });
+  });
+
+  it('mine: tidak ada uang dipegang = 0', async () => {
+    const { svc } = make({ held: null });
+    expect((await svc.mine('t1')).heldTotal).toBe(0);
+  });
+
+  it('listForJob: canSendWa true untuk nomor lengkap, false untuk nomor tak layak', async () => {
+    expect((await make().svc.listForJob('j1', 't1', 'teknisi')).canSendWa).toBe(true);
+    expect((await make({ phone: '1' }).svc.listForJob('j1', 't1', 'teknisi')).canSendWa).toBe(false);
+    expect((await make({ phone: '-' }).svc.listForJob('j1', 't1', 'teknisi')).canSendWa).toBe(false);
+  });
+
+  it('listForJob: nomor HP pelanggan tidak ikut dikembalikan ke layar teknisi', async () => {
+    const r = await make().svc.listForJob('j1', 't1', 'teknisi');
+    expect(JSON.stringify(r)).not.toContain('0812-3456-7890');
   });
 
   it('mine: filter status', async () => {

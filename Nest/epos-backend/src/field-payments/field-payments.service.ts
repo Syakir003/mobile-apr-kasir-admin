@@ -55,6 +55,16 @@ export async function gateReason(db: Db, job: JobGateRef): Promise<{ reason: str
   return { reason: null, invoiceId: order.invoiceId };
 }
 
+/** Nomor layak dikirimi WhatsApp: hasil normalisasi minimal 10 karakter (mis. "1" -> "621" tidak layak, "-" -> kosong). */
+function canSendWhatsapp(raw: string | null | undefined): boolean {
+  return waPhone(raw).length >= 10;
+}
+
+/** Decimal Prisma menjadi string di JSON; respons API konsisten memakai angka untuk `amount`. */
+function withNumericAmount<T extends { amount: unknown }>(p: T): Omit<T, 'amount'> & { amount: number } {
+  return { ...p, amount: Number(p.amount) };
+}
+
 @Injectable()
 export class FieldPaymentsService {
   constructor(
@@ -69,12 +79,35 @@ export class FieldPaymentsService {
    * yang masih aktif; pembayaran sebagian wajib dicatat. Idempoten lewat `clientRef`.
    */
   async record(jobId: string, dto: CreateFieldPaymentDto, proofUrl: string, actorId: string) {
+    try {
+      return await this.recordOnce(jobId, dto, proofUrl, actorId);
+    } catch (e) {
+      // Jaring pengaman idempotensi: unique clientRef bentrok (mis. clientRef yang sama dipakai untuk order lain, di luar
+      // kunci order). Postgres membatalkan seluruh transaksi yang kena unique violation, jadi pencarian ulang HARUS lewat
+      // koneksi biasa, bukan di dalam transaksi tadi.
+      if (dto.clientRef && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const dup = await this.prisma.fieldPayment.findUnique({ where: { clientRef: dto.clientRef } });
+        if (dup && dup.recordedById === actorId) return { payment: withNumericAmount(dup), duplicate: true };
+      }
+      throw e;
+    }
+  }
+
+  private async recordOnce(jobId: string, dto: CreateFieldPaymentDto, proofUrl: string, actorId: string) {
     return this.prisma.$transaction(async (tx) => {
+      // orderId tidak pernah berubah, jadi boleh dibaca sebelum kunci. SEMUA kondisi lain (status job, assignee, clientRef,
+      // gerbang) dibaca SESUDAH kunci order supaya tidak basi: pembatalan/penagihan lain yang berbarengan sudah selesai.
+      const ref = await tx.technicianJob.findUnique({ where: { id: jobId }, select: { orderId: true } });
+      if (!ref) throw new NotFoundException('Job tidak ditemukan');
+
+      // Kunci order dulu (urutan sama dengan setWithin/cancel): dua teknisi satu order tidak menagih bersamaan.
+      await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${ref.orderId} FOR UPDATE`;
+
       if (dto.clientRef) {
         const dup = await tx.fieldPayment.findUnique({ where: { clientRef: dto.clientRef } });
         if (dup) {
           if (dup.recordedById !== actorId) throw new BadRequestException('clientRef sudah dipakai');
-          return { payment: dup, duplicate: true };
+          return { payment: withNumericAmount(dup), duplicate: true };
         }
       }
       const job = await tx.technicianJob.findUnique({
@@ -84,8 +117,6 @@ export class FieldPaymentsService {
       if (!job) throw new NotFoundException('Job tidak ditemukan');
       if (!(await isJobAssignee(tx, jobId, actorId))) throw new ForbiddenException('Job ini bukan milik Anda');
 
-      // Kunci order dulu (urutan sama dengan setWithin/cancel): dua teknisi satu order tidak menagih bersamaan.
-      await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${job.orderId} FOR UPDATE`;
       const gate = await gateReason(tx, job);
       if (gate.reason || !gate.invoiceId) throw new BadRequestException(gate.reason ?? 'Harga jasa belum ditetapkan admin');
       const invoiceId = gate.invoiceId;
@@ -136,7 +167,10 @@ export class FieldPaymentsService {
           detail: { jobId, orderId: job.orderId, invoiceId, method: dto.method, amount: dto.amount, receiptNumber },
         },
       });
-      return { payment, duplicate: false };
+      // Pembayaran sudah tercatat: alasan "belum bisa bayar" dari Ajukan Selesai (bila ada) tidak berlaku lagi, supaya admin
+      // tidak menagih pelanggan yang sebenarnya sudah membayar.
+      await tx.serviceOrder.update({ where: { id: job.orderId }, data: { unpaidReason: null } });
+      return { payment: withNumericAmount(payment), duplicate: false };
     });
   }
 
@@ -163,11 +197,12 @@ export class FieldPaymentsService {
     }
 
     const rawPhone = fp.invoice.customerPhone || fp.invoice.member?.phone || '';
-    if (!waPhone(rawPhone)) {
+    if (!canSendWhatsapp(rawPhone)) {
       throw new BadRequestException('Nomor HP pelanggan belum ada atau tidak valid. Pakai laporan kertas sebagai bukti.');
     }
     const items = await this.prisma.invoiceItem.findMany({
-      where: { invoiceId: fp.invoiceId, kind: 'service' },
+      // Baris "Biaya transport" juga kind 'service' (JobBillingService) tetapi bukan pekerjaan yang dibayar pelanggan.
+      where: { invoiceId: fp.invoiceId, kind: 'service', name: { not: 'Biaya transport' } },
       select: { name: true, qty: true },
     });
     const names = [...new Set(items.map((i) => (Number(i.qty) > 1 ? `${i.name} (${Number(i.qty)})` : i.name)))];
@@ -199,7 +234,13 @@ export class FieldPaymentsService {
         data: { actorUid: actorId, action: 'field_payment.receipt_sent', target: paymentId, detail: { channel: 'wa', logId: log.id } },
       });
     }
-    return { sent, channel: 'wa' as const, receiptNumber: fp.receiptNumber, error: sent ? null : (log.error ?? 'Gagal mengirim WhatsApp') };
+    // Alasan asli dari penyedia (log.error) hanya tersimpan di log WA untuk admin; teknisi menerima pesan umum.
+    return {
+      sent,
+      channel: 'wa' as const,
+      receiptNumber: fp.receiptNumber,
+      error: sent ? null : 'Gagal mengirim WhatsApp. Coba lagi, atau pakai laporan kertas.',
+    };
   }
 
   /** Ringkasan pembayaran lapangan satu order untuk layar job: daftar, sisa efektif, dan apakah/kenapa tombol Catat Pembayaran tertutup. */
@@ -223,7 +264,12 @@ export class FieldPaymentsService {
         select: {
           paymentMode: true,
           unpaidReason: true,
-          invoice: { select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true } },
+          invoice: {
+            select: {
+              id: true, number: true, status: true, grandTotal: true, totalPaid: true,
+              customerPhone: true, member: { select: { phone: true } },
+            },
+          },
         },
       }),
       gateReason(this.prisma, job),
@@ -235,8 +281,16 @@ export class FieldPaymentsService {
     return {
       paymentMode: order?.paymentMode ?? null,
       unpaidReason: order?.unpaidReason ?? null,
+      // Nomor HP pelanggan tidak dikirim ke layar teknisi; cukup tanda apakah Tanda Terima bisa dikirim lewat WhatsApp.
+      canSendWa: canSendWhatsapp(order?.invoice?.customerPhone || order?.invoice?.member?.phone),
       invoice: order?.invoice
-        ? { ...order.invoice, grandTotal: Number(order.invoice.grandTotal), totalPaid: Number(order.invoice.totalPaid) }
+        ? {
+            id: order.invoice.id,
+            number: order.invoice.number,
+            status: order.invoice.status,
+            grandTotal: Number(order.invoice.grandTotal),
+            totalPaid: Number(order.invoice.totalPaid),
+          }
         : null,
       activeTotal,
       remaining,
@@ -260,14 +314,22 @@ export class FieldPaymentsService {
 
   /** Catatan pembayaran milik teknisi yang login (uang yang ia pegang = status dipegang_teknisi). */
   async mine(actorId: string, status?: string) {
-    const rows = await this.prisma.fieldPayment.findMany({
-      where: { recordedById: actorId, ...(status ? { status } : {}) },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-      include: { invoice: { select: { number: true, customerName: true } } },
-    });
+    const [rows, held] = await Promise.all([
+      this.prisma.fieldPayment.findMany({
+        where: { recordedById: actorId, ...(status ? { status } : {}) },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        include: { invoice: { select: { number: true, customerName: true } } },
+      }),
+      // Total uang yang masih dipegang dihitung atas SEMUA catatan teknisi (daftar di atas dibatasi 200 baris terbaru, jadi
+      // uang tunai lama yang belum disetor tidak boleh hilang dari total).
+      this.prisma.fieldPayment.aggregate({
+        where: { recordedById: actorId, status: STATUS_HELD },
+        _sum: { amount: true },
+      }),
+    ]);
     return {
-      heldTotal: rows.filter((r) => r.status === STATUS_HELD).reduce((s, r) => s + Number(r.amount), 0),
+      heldTotal: Number(held._sum.amount ?? 0),
       items: rows.map((r) => ({
         id: r.id,
         receiptNumber: r.receiptNumber,

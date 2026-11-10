@@ -42,6 +42,8 @@ export class SystemResetService {
         await del(tx, 'jobPhoto', (t) => t.jobPhoto.deleteMany());
         await del(tx, 'materialRequestItem', (t) => t.materialRequestItem.deleteMany());
         await del(tx, 'invoiceAdjustment', (t) => t.invoiceAdjustment.deleteMany());
+        // Pembayaran lapangan teknisi menunjuk ke order servis, invoice, dan user (FK RESTRICT) -> hapus sebelum ketiganya.
+        await del(tx, 'fieldPayment', (t) => t.fieldPayment.deleteMany());
         await del(tx, 'manualPayment', (t) => t.manualPayment.deleteMany());
         await del(tx, 'materialRequest', (t) => t.materialRequest.deleteMany());
         await del(tx, 'jobServiceLine', (t) => t.jobServiceLine.deleteMany());
@@ -69,6 +71,10 @@ export class SystemResetService {
         // tabrakan nomor sama invoice baru.
         await del(tx, 'counterInvoice', (t) =>
           t.counter.deleteMany({ where: { key: { startsWith: 'invoice_' } } }),
+        );
+        // Nomor Tanda Terima (TT-...) ikut reset karena FieldPayment di atas selalu ikut kehapus.
+        await del(tx, 'counterTandaTerima', (t) =>
+          t.counter.deleteMany({ where: { key: { startsWith: 'tanda_terima_' } } }),
         );
 
         // ---- Tier 2: Pelanggan & unit AC — scope transaksi_pelanggan, total ----

@@ -1379,6 +1379,11 @@ export class TechnicianJobsService {
     role: Role,
     unpaidReason?: string,
   ) {
+    // Urutan kunci order -> job (sama dengan setWithin/techEditLines/cancel): gerbang pembayaran di bawah bisa menulis
+    // service_orders.unpaid_reason, dan admin yang menyimpan harga bersamaan memegang kunci order dulu. orderId tidak pernah berubah.
+    const ref = await tx.technicianJob.findUnique({ where: { id: jobId }, select: { orderId: true } });
+    if (!ref) throw new NotFoundException('Job tidak ditemukan');
+    await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${ref.orderId} FOR UPDATE`;
     await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${jobId} FOR UPDATE`;
     const job = await tx.technicianJob.findUnique({ where: { id: jobId } });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
@@ -1486,7 +1491,9 @@ export class TechnicianJobsService {
     await this.assertOwnerOrAdmin(base, actorId, role);
 
     const { updated, count } = await this.prisma.$transaction(async (tx) => {
-      // Kunci semua job order ini (urut id supaya dua pengajuan bersamaan tidak saling menunggu / deadlock).
+      // Kunci order dulu (order -> job, urutan yang sama dengan setWithin/techEditLines/cancel), lalu semua job order ini
+      // (urut id supaya dua pengajuan bersamaan tidak saling menunggu / deadlock).
+      await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${base.orderId} FOR UPDATE`;
       await tx.$executeRaw`SELECT id FROM technician_jobs WHERE order_id = ${base.orderId} ORDER BY id FOR UPDATE`;
       const jobs = await tx.technicianJob.findMany({
         where: { orderId: base.orderId, status: { not: TechnicianJobStatus.dibatalkan } },
