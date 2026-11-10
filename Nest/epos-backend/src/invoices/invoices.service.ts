@@ -145,6 +145,9 @@ export class InvoicesService {
       include: { items: true, member: true, adjustments: { select: { reason: true, requestId: true } } },
     });
     if (!invoice) throw new NotFoundException('Invoice tidak ditemukan');
+    if (invoice.status === 'batal') {
+      throw new BadRequestException('Invoice ini sudah dibatalkan, tidak bisa dikirim ke pelanggan');
+    }
 
     const phone = invoice.customerPhone || invoice.member?.phone;
     if (!phone) {
