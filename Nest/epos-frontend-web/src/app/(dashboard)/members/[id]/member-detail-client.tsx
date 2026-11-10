@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { UnitPartsList, type UnitPartProduct } from '@/components/ac-unit-parts';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronRight, Pencil } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Pencil, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { apiClient, ApiError } from '@/lib/api-client';
@@ -21,7 +21,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { EditMemberDialog } from './edit-member-dialog';
 import {
   Table,
@@ -246,6 +246,25 @@ export function MemberDetailClient({
               <CardDescription>
                 Unit yang tercatat atas nama member ini - klik untuk lihat riwayat servisnya.
               </CardDescription>
+              {/* Cetak label QR semua unit member sekaligus (member lama yang unitnya belum pernah di-scan). Halaman
+                  cetaknya sama dengan Data Lampau; maksimal 100 label sekali cetak. */}
+              {canEdit && data.acUnits.length > 0 && (
+                <CardAction>
+                  <Button asChild size="sm" variant="outline">
+                    <Link
+                      href={`/administrasi/data-lampau/cetak?ids=${encodeURIComponent(
+                        data.acUnits
+                          .slice(0, 100)
+                          .map((u) => u.id)
+                          .join(','),
+                      )}`}
+                    >
+                      <Printer className="size-4" />
+                      Cetak Label Semua Unit
+                    </Link>
+                  </Button>
+                </CardAction>
+              )}
             </CardHeader>
             <CardContent className="py-5">
               {data.acUnits.length === 0 && (
