@@ -759,6 +759,10 @@ model ServiceOrder {
   // Keterangan teknisi: catatan SATU ORDER untuk admin (mis. "Cuci 2 unit AC dibayar cash 75 ribu"), diisi teknisi di bagian
   // paling bawah halaman job sebelum Ajukan Selesai. BEDA dari technician_jobs.notes = Diagnosa / Catatan Pengerjaan per unit.
   technicianNote String? @map("technician_note")
+  // Cara tagih order servis: 'bayar_di_lokasi' (teknisi menagih di lokasi) atau 'ditagih_admin' (instansi/langganan, admin
+  // menagih belakangan). Bawaan 'ditagih_admin' = perilaku sebelum fitur pembayaran lapangan, jadi order lama, pemasangan
+  // POS, dan order dari app Flutter tidak berubah. Terima Servis web mengisi 'bayar_di_lokasi' kecuali dipilih lain.
+  paymentMode String @default("ditagih_admin") @map("payment_mode")
 
   units TechnicianJob[]
   serviceOrderUnits ServiceOrderUnit[]
