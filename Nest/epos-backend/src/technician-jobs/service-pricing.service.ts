@@ -5,6 +5,7 @@ import { CountersService } from '../counters/counters.service';
 import { formatInvoiceNumber } from '../pos/pos-calc.util';
 import { JobBillingService, TRANSPORT_STEP } from '../common/services/job-billing.service';
 import { SetServicePricingDto } from './dto/set-service-pricing.dto';
+import { TechEditLinesDto } from './dto/tech-edit-lines.dto';
 import { isJobAssignee } from './job-assignees';
 
 interface MaterialRequestLike {
@@ -288,5 +289,160 @@ export class ServicePricingService {
       select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true },
     });
     return { ok: true, invoice, jobTotal: result?.newTotal ?? 0, technicianId: job.technicianId };
+  }
+
+  /**
+   * Teknisi (assignee) menyesuaikan jasa di lokasi. Aturan: harga satuan baris yang ada TIDAK bisa diubah (hanya jumlah),
+   * baris baru dari katalog memakai harga katalog, di luar katalog hanya lewat "jasa lain" (nama + harga, ditandai isCustom).
+   * Menghapus baris boleh. Alasan wajib. Transport tidak disentuh. Hasilnya ditandai untuk admin (techPriceEditedAt,
+   * priceBeforeTechEdit) sampai admin menyimpan harga lagi (setWithin menghapus penanda). Harga satu untuk seluruh order:
+   * ditulis ke job pemegang harga (sama seperti set).
+   */
+  async techEditLines(requestedJobId: string, dto: TechEditLinesDto, actorId: string) {
+    const reason = dto.reason.trim();
+    if (reason.length < 5) throw new BadRequestException('Alasan penyesuaian wajib diisi (min. 5 karakter)');
+    if (dto.lines.length === 0) throw new BadRequestException('Minimal satu baris jasa');
+
+    return this.prisma.$transaction(async (tx) => {
+      const base = await tx.technicianJob.findUnique({
+        where: { id: requestedJobId },
+        select: { orderId: true, type: true, status: true, complaintOfJobId: true },
+      });
+      if (!base) throw new NotFoundException('Job tidak ditemukan');
+      if (!(await isJobAssignee(tx, requestedJobId, actorId))) throw new ForbiddenException('Job ini bukan milik Anda');
+      if (base.type === 'pemasangan') {
+        throw new BadRequestException('Harga pemasangan mengikuti invoice POS, tidak bisa disesuaikan di sini');
+      }
+      if (base.complaintOfJobId) throw new BadRequestException('Job komplain tidak ditagih, tidak ada harga jasa');
+      if (base.status !== TechnicianJobStatus.assigned && base.status !== TechnicianJobStatus.sedang_dikerjakan) {
+        throw new BadRequestException('Jasa hanya bisa disesuaikan saat job Ditugaskan atau Sedang Dikerjakan');
+      }
+
+      // Urutan kunci sama dengan setWithin: order -> job pemegang harga.
+      await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${base.orderId} FOR UPDATE`;
+      const ownerId = await this.resolveOwnerId(tx, requestedJobId);
+      await tx.$executeRaw`SELECT id FROM technician_jobs WHERE id = ${ownerId} FOR UPDATE`;
+      const owner = await tx.technicianJob.findUnique({
+        where: { id: ownerId },
+        include: { serviceLines: { orderBy: { position: 'asc' } } },
+      });
+      if (!owner) throw new NotFoundException('Job tidak ditemukan');
+      if (owner.status === TechnicianJobStatus.selesai || owner.status === TechnicianJobStatus.dibatalkan) {
+        throw new BadRequestException('Harga jasa tidak bisa diubah setelah job selesai atau dibatalkan');
+      }
+      const order = await tx.serviceOrder.findUnique({ where: { id: owner.orderId }, select: { invoiceId: true } });
+      if (!owner.billingDerived || !order?.invoiceId) {
+        throw new BadRequestException('Harga jasa belum ditetapkan admin, jadi belum bisa disesuaikan');
+      }
+
+      // Susun daftar baru + validasi aturan per baris.
+      const existing = new Map(owner.serviceLines.map((l) => [l.id, l]));
+      const seen = new Set<string>();
+      let changed = false;
+      const next: {
+        id?: string;
+        serviceId: string | null;
+        name: string;
+        qty: number;
+        unitPrice: number;
+        isCustom: boolean;
+        source: string;
+        qtyChanged: boolean;
+      }[] = [];
+      for (const l of dto.lines) {
+        if (l.id) {
+          const old = existing.get(l.id);
+          if (!old) throw new BadRequestException('Baris jasa tidak ditemukan di job ini');
+          if (seen.has(l.id)) throw new BadRequestException('Baris jasa yang sama dikirim dua kali');
+          seen.add(l.id);
+          if (l.unitPrice !== undefined && l.unitPrice !== Number(old.unitPrice)) {
+            throw new BadRequestException('Harga satuan jasa tidak bisa diubah teknisi; tambahkan sebagai jasa lain bila perlu');
+          }
+          const qtyChanged = Number(old.qty) !== l.qty;
+          if (qtyChanged) changed = true;
+          next.push({
+            id: old.id, serviceId: old.serviceId, name: old.name, qty: l.qty, unitPrice: Number(old.unitPrice),
+            isCustom: old.isCustom, source: qtyChanged ? 'teknisi' : old.source, qtyChanged,
+          });
+        } else if (l.serviceId) {
+          const svc = await tx.service.findUnique({ where: { id: l.serviceId } });
+          if (!svc) throw new BadRequestException('Jasa tidak ditemukan');
+          if (!svc.active) throw new BadRequestException('Jasa sudah nonaktif');
+          if (l.unitPrice !== undefined && l.unitPrice !== Number(svc.basePrice)) {
+            throw new BadRequestException('Harga jasa katalog mengikuti harga katalog; di luar katalog pakai jasa lain');
+          }
+          changed = true;
+          next.push({ serviceId: svc.id, name: svc.name, qty: l.qty, unitPrice: Number(svc.basePrice), isCustom: false, source: 'teknisi', qtyChanged: true });
+        } else {
+          const name = l.name?.trim();
+          if (!name) throw new BadRequestException('Nama jasa lain wajib diisi');
+          if (l.unitPrice === undefined) throw new BadRequestException('Harga jasa lain wajib diisi');
+          changed = true;
+          next.push({ serviceId: null, name, qty: l.qty, unitPrice: l.unitPrice, isCustom: true, source: 'teknisi', qtyChanged: true });
+        }
+      }
+      const removed = owner.serviceLines.filter((l) => !seen.has(l.id));
+      if (removed.length > 0) changed = true;
+      if (!changed) throw new BadRequestException('Tidak ada perubahan');
+
+      const subtotal = (rows: { qty: number | { toString(): string }; unitPrice: number | { toString(): string } }[]) =>
+        rows.reduce((s, r) => s + Math.round(Number(r.qty) * Number(r.unitPrice)), 0);
+      const subtotalBefore = subtotal(owner.serviceLines);
+      const subtotalAfter = subtotal(next);
+
+      for (const old of removed) await tx.jobServiceLine.delete({ where: { id: old.id } });
+      for (const [i, n] of next.entries()) {
+        if (n.id) {
+          await tx.jobServiceLine.update({
+            where: { id: n.id },
+            data: { qty: n.qty, position: i, source: n.source, ...(n.qtyChanged ? { changeReason: reason } : {}) },
+          });
+        } else {
+          await tx.jobServiceLine.create({
+            data: {
+              jobId: ownerId, serviceId: n.serviceId, name: n.name, qty: n.qty, unitPrice: n.unitPrice,
+              position: i, source: 'teknisi', isCustom: n.isCustom, changeReason: reason,
+            },
+          });
+        }
+      }
+      await tx.technicianJob.update({
+        where: { id: ownerId },
+        data: {
+          techPriceEditedAt: new Date(),
+          techPriceEditReason: reason,
+          // Subtotal awal admin dicatat sekali (penyesuaian pertama sejak admin terakhir menyimpan harga).
+          ...(owner.techPriceEditedAt ? {} : { priceBeforeTechEdit: subtotalBefore }),
+        },
+      });
+      const result = await this.billing.rebuild(tx, ownerId, actorId);
+
+      const summarize = (rows: { name: string; qty: number | { toString(): string }; unitPrice: number | { toString(): string } }[]) =>
+        rows.map((r) => ({ name: r.name, qty: Number(r.qty), unitPrice: Number(r.unitPrice) }));
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'job.tech_edit_lines',
+          target: ownerId,
+          detail: {
+            requestedJobId, reason, subtotalBefore, subtotalAfter,
+            before: summarize(owner.serviceLines), after: summarize(next),
+          },
+        },
+      });
+
+      const actor = await tx.user.findUnique({ where: { id: actorId }, select: { displayName: true } });
+      const member = owner.memberId ? await tx.member.findUnique({ where: { id: owner.memberId }, select: { name: true } }) : null;
+      return {
+        ok: true,
+        jobId: ownerId,
+        reason,
+        subtotalBefore,
+        subtotalAfter,
+        jobTotal: result?.newTotal ?? 0,
+        actorName: actor?.displayName ?? 'Teknisi',
+        customerName: member?.name ?? null,
+      };
+    });
   }
 }
