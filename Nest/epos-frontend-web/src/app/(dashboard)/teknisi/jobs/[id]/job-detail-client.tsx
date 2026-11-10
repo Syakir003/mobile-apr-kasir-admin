@@ -17,6 +17,7 @@ import { BarcodeScanner } from '@/components/barcode-scanner';
 import { BarcodeQr } from '@/components/barcode-qr';
 import { SendFindingsBar, ServicePricingCard } from './service-pricing-card';
 import { FieldPaymentCard, SubmitPaymentGate } from './payment-card';
+import { SetoranJobPanel } from './setoran-job-panel';
 import { TechnicianPriceCard } from './technician-price-card';
 import { AddUnitButton } from './add-unit';
 import { EditOrderButton } from './edit-order-dialog';
@@ -218,10 +219,13 @@ export function JobDetailClient({
   jobId,
   role,
   embedded,
+  setoranMode,
 }: {
   jobId: string;
   role: Role;
   embedded?: EmbeddedProps;
+  // Admin membuka job dari tab Setoran Teknisi: panel Aksi diganti verifikasi setoran order ini.
+  setoranMode?: boolean;
 }) {
   const isAdmin = role === 'admin';
   const isTeknisi = role === 'teknisi';
@@ -277,7 +281,7 @@ export function JobDetailClient({
   // Servis banyak AC: satu halaman memuat section tiap unit (job-job di satu order). Section itu sendiri
   // (embedded) memakai komponen ini lagi, jadi tidak boleh mengalihkan lagi.
   if (!embedded && job.siblings && job.siblings.length > 0) {
-    return <MultiUnitJobView job={job} role={role} />;
+    return <MultiUnitJobView job={job} role={role} setoranMode={setoranMode} />;
   }
   // Samain persis sama gate backend di addFinding/addFindingPhoto
   // (technician-jobs.service.ts): cuma admin/teknisi, cuma selama job
@@ -338,6 +342,7 @@ export function JobDetailClient({
   // Panel Aksi di kanan, sama dengan halaman servis banyak AC. Teknisi hanya punya aksi saat job Ditugaskan/Sedang
   // Dikerjakan; di status lain panelnya disembunyikan dan konten memakai lebar penuh (seperti MultiUnitJobView).
   const hasAside = !embedded && (!isTeknisi || ['assigned', 'sedang_dikerjakan'].includes(job.status));
+  const showSetoranPanel = !embedded && !!setoranMode && isAdmin && !!job.order;
 
   // Isi section unit: Detail Unit + (banner dikembalikan, catatan) + Temuan & Foto. Dipakai sebagai section unit di halaman
   // banyak AC (embedded) maupun di halaman satu unit, supaya struktur keduanya sama.
@@ -674,6 +679,8 @@ export function JobDetailClient({
               </Button>
             </div>
           )
+        ) : showSetoranPanel && job.order ? (
+          <SetoranJobPanel orderId={job.order.id} />
         ) : hasAside ? (
         <Card className="h-fit xl:sticky xl:top-6">
           <CardHeader>
@@ -903,7 +910,7 @@ const needsScheduleType = (type: string) => ['cuci', 'maintenance', 'pemasangan'
  * sebelum/sesudah, scan barcode, review, dan riwayat servis per unit), semuanya di satu order dengan satu nota.
  * Data pelanggan & penugasan teknisi ditampilkan sekali di sini; isi tiap section = JobDetailClient (embedded).
  */
-function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
+function MultiUnitJobView({ job, role, setoranMode }: { job: JobDetail; role: Role; setoranMode?: boolean }) {
   const queryClient = useQueryClient();
   const isAdmin = role === 'admin';
   const isTeknisi = role === 'teknisi';
@@ -1012,8 +1019,9 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
     (j) => j.type !== 'pemasangan' && j.billingDerived !== true && !j.complaintOfJobId,
   );
   // Panel Aksi Job (kanan) hanya ada bila ada yang bisa dikerjakan peran ini; kalau tidak, daftar unit memakai lebar penuh.
+  const showSetoranPanel = !!setoranMode && isAdmin && !!job.order;
   const hasAside =
-    (isTeknisi && (working.length > 0 || notStarted.length > 0)) || (isAdmin && (canAssign || waitingReview.length > 0));
+    showSetoranPanel || (isTeknisi && (working.length > 0 || notStarted.length > 0)) || (isAdmin && (canAssign || waitingReview.length > 0));
   const canApproveAll =
     allLoaded && waitingReview.length > 0 && working.length === 0 && notStarted.length === 0 && unpricedWaiting.length === 0;
   // Pengajuan sparepart satu untuk seluruh job: daftar = gabungan pengajuan semua unit (terbaru di atas); pengajuan baru
@@ -1179,7 +1187,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
         {/* Panel aksi di samping seperti halaman satu unit (menempel di desktop; di layar sempit tampil di bawah). */}
         <div className={cn('xl:sticky xl:top-6', !hasAside && 'hidden')}>
         {/* Satu job = satu pengajuan: Ajukan Selesai / Setujui / Kembalikan berlaku untuk SEMUA unit sekaligus. */}
-        {hasAside && (
+        {showSetoranPanel && job.order ? (<SetoranJobPanel orderId={job.order.id} />) : hasAside && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Aksi Job (semua unit)</CardTitle>

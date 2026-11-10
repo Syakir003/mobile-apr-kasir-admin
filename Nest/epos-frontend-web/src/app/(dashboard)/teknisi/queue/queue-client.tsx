@@ -33,6 +33,9 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { TechnicianAssignDialog, technicianNames } from '@/components/technician-multi-picker';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useOutstanding } from '../../setoran/setoran-shared';
+import { SetoranTab } from './setoran-tab';
 
 // Menu "Servis & Teknisi" dipakai admin DAN teknisi lewat rute yang sama
 // (nav-config.ts), tapi datanya beda: teknisi cuma lihat job miliknya
@@ -233,10 +236,23 @@ function matchesDay(job: TechnicianJob, filter: DayFilter, todayKey: string): bo
   return key === filter;
 }
 
-export function TeknisiQueueClient({ role }: { role: Role }) {
+export function TeknisiQueueClient({
+  role,
+  initialTab = 'job',
+  initialTechnicianId = '',
+}: {
+  role: Role;
+  initialTab?: 'job' | 'setoran';
+  initialTechnicianId?: string;
+}) {
   const isTeknisi = role === 'teknisi';
   const isAdmin = role === 'admin';
   const router = useRouter();
+  // Admin: dua bagian halaman, daftar job atau setoran teknisi (job selesai yang uangnya belum diverifikasi).
+  const [section, setSection] = React.useState<'job' | 'setoran'>(isAdmin ? initialTab : 'job');
+  const showSetoran = isAdmin && section === 'setoran';
+  const outstandingQuery = useOutstanding(isAdmin);
+  const outstandingOrders = new Set((outstandingQuery.data?.items ?? []).map((i) => i.orderId)).size;
   const [showDone, setShowDone] = React.useState(false);
   // Pencarian + filter hari (jadwal). Tanggal "hari ini" dikunci saat halaman dibuka (WIB).
   const [query, setQuery] = React.useState('');
@@ -325,7 +341,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
               : 'Semua job servis & pemasangan - kelola penugasan teknisi di sini.'}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={cn("flex flex-wrap items-center gap-2", showSetoran && "hidden")}>
           {!isTeknisi && selecting && (
             <span className={tooMany ? 'text-sm text-destructive' : 'text-sm text-muted-foreground'}>
               {selectedRows.length === 0
@@ -358,9 +374,25 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
         </div>
       </div>
 
+      {isAdmin && (
+        <Tabs value={section} onValueChange={(v) => setSection(v as "job" | "setoran")}>
+          <TabsList>
+            <TabsTrigger value="job">Daftar Job</TabsTrigger>
+            <TabsTrigger value="setoran">
+              Setoran Teknisi
+              {outstandingOrders > 0 && (
+                <Badge variant="warning" className="ml-1.5">
+                  {outstandingOrders}
+                </Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+
       {/* Daftar job: satu panel (pita kontrol berlatar muted, baris dipisah garis tipis), warna dan gaya sama dengan
           tabel sebelumnya. Satu baris = satu job (servis banyak AC = satu baris untuk seluruh unit). */}
-      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      {showSetoran ? (<SetoranTab initialTechnicianId={initialTechnicianId} />) : (<div className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="grid gap-2.5 border-b bg-muted/60 px-5 py-3">
           <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-3">
@@ -616,6 +648,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           })}
         </ul>
       </div>
+      )}
     </div>
   );
 }

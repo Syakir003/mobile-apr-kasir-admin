@@ -94,8 +94,8 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
         // Approval sparepart tambahan yang diajukan teknisi saat servis
         // on-site (backend: material-requests module).
         { href: '/material-requests', label: 'Permintaan Material', icon: Inbox },
-        // Verifikasi uang yang diterima teknisi di lokasi (setoran tunai, pencocokan mutasi, laporan uang di teknisi).
-        { href: '/setoran', label: 'Setoran Teknisi', icon: Banknote },
+        // Laporan uang yang masih dipegang teknisi; verifikasi setoran ada di Antrian Servis > tab Setoran Teknisi.
+        { href: '/setoran', label: 'Uang di Teknisi', icon: Banknote },
         { href: '/laporan/teknisi', label: 'Performa Teknisi', icon: Gauge },
       ],
     },

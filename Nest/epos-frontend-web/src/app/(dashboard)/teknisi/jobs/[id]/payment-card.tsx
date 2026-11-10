@@ -28,7 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 // Pembayaran yang diterima teknisi di lokasi (order "bayar di lokasi"): teknisi mencatat nominal + metode + foto bukti,
 // lalu mengirim Tanda Terima singkat ke pelanggan lewat WhatsApp toko (atau memakai laporan kertas bila tanpa sinyal).
-// Uang baru dianggap lunas setelah admin memverifikasi lewat halaman Setoran Teknisi.
+// Uang baru dianggap lunas setelah admin memverifikasi lewat Antrian Servis > tab Setoran Teknisi.
 
 export const METHOD_OPTIONS = [
   { value: 'tunai', label: 'Tunai' },
@@ -534,7 +534,7 @@ function PaperPaymentDialog({
           <DialogTitle>Catat dari Laporan Kertas</DialogTitle>
           <DialogDescription>
             Untuk pekerjaan tanpa sinyal: catat pembayaran atas nama teknisi dari lembar laporan kertasnya. Setelah itu
-            diverifikasi lewat Setoran Teknisi seperti biasa.
+            diverifikasi lewat Antrian Servis, tab Setoran Teknisi, seperti biasa.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">

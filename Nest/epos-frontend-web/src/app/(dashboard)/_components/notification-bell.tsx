@@ -72,12 +72,14 @@ function notificationHref(n: { type: string; target: string | null }): string | 
       // teknisi menyesuaikan jasa di lokasi: buka job untuk meninjau harga (target = id job)
       return n.target ? `/teknisi/jobs/${n.target}` : '/teknisi/queue';
     case 'field_payment':
-      // pembayaran lapangan baru dicatat teknisi: tunai dicocokkan saat setoran, non-tunai di tab Cocokkan Mutasi
-      // (tab itu menampilkan lencana jumlah yang menunggu)
-      return '/setoran';
+      // pembayaran lapangan baru dicatat teknisi: diverifikasi lewat Antrian Servis > tab Setoran Teknisi
+      // (tab itu menampilkan lencana jumlah order yang menunggu)
+      return '/teknisi/queue?tab=setoran';
     case 'cash_overdue':
       // target = id teknisi yang masih memegang uang tunai dari hari sebelumnya
-      return n.target ? `/setoran?technicianId=${n.target}` : '/setoran';
+      return n.target
+        ? `/teknisi/queue?tab=setoran&technicianId=${n.target}`
+        : '/teknisi/queue?tab=setoran';
     case 'field_payment_rejected':
       // pembayaran yang dicatat teknisi ditolak admin: buka antrian job
       return '/teknisi/queue';

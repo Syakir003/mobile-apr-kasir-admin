@@ -1,14 +1,18 @@
+import { redirect } from 'next/navigation';
+
 import { SetoranClient } from './setoran-client';
 
-// Halaman admin "Setoran Teknisi". Hanya admin (lihat proxy.ts; API-nya juga admin-only di backend).
-// ?tab=tunai|mutasi|laporan dan ?technicianId=<id> = tujuan dari notifikasi bel (uang tertahan / pembayaran baru).
+// Halaman admin "Laporan Uang di Teknisi". Hanya admin (lihat proxy.ts; API-nya juga admin-only di backend).
+// Verifikasi setoran sendiri dikerjakan di Antrian Servis > tab Setoran Teknisi (dan halaman job), jadi tautan lama
+// (?tab=tunai|mutasi atau ?technicianId=, mis. dari notifikasi lama) dialihkan ke sana.
 export default async function SetoranPage({
   searchParams,
 }: {
   searchParams: Promise<{ tab?: string; technicianId?: string }>;
 }) {
   const { tab, technicianId } = await searchParams;
-  const initialTab = tab === 'mutasi' || tab === 'laporan' ? tab : 'tunai';
-  // key: bila admin sedang di /setoran lalu menekan notifikasi (parameter URL berubah), halaman dipasang ulang dengan nilai baru.
-  return <SetoranClient key={`${initialTab}:${technicianId ?? ''}`} initialTab={initialTab} initialTechnicianId={technicianId ?? ''} />;
+  if (tab !== 'laporan' && (tab === 'tunai' || tab === 'mutasi' || technicianId)) {
+    redirect(`/teknisi/queue?tab=setoran${technicianId ? `&technicianId=${encodeURIComponent(technicianId)}` : ''}`);
+  }
+  return <SetoranClient />;
 }
