@@ -35,6 +35,7 @@ import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { assertNoActiveJob } from './active-job.util';
+import { isInstallJobType } from './job-types.util';
 import { AddUnitDto } from './dto/add-unit.dto';
 import { assertPaymentRecordedOrExplained } from './payment-gate.util';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
@@ -1096,7 +1097,7 @@ export class TechnicianJobsService {
           data: { status: 'dalam_pengerjaan' },
         });
       }
-      if (job.unitId && job.type !== 'pemasangan') {
+      if (job.unitId && !isInstallJobType(job.type)) {
         // Unit yang lagi diinstal belum berstatus aktif; unit yang sudah aktif
         // dan sedang diservis (bukan instalasi baru) masuk 'dalam_maintenance'.
         await tx.memberAcUnit.update({
@@ -1617,8 +1618,8 @@ export class TechnicianJobsService {
         // ulang jadwal; jenis job lain (perbaikan dst) TIDAK menyentuh
         // nextServiceDate/siklus/saklar (dulu malah mengosongkannya).
         const unitData: Prisma.MemberAcUnitUpdateInput = {
-          status: job.type === 'pemasangan' ? 'aktif' : undefined,
-          installationDate: job.type === 'pemasangan' ? now : undefined,
+          status: isInstallJobType(job.type) ? 'aktif' : undefined,
+          installationDate: isInstallJobType(job.type) ? now : undefined,
         };
         let nextService: Date | null = null;
         if (schedule.touch) {

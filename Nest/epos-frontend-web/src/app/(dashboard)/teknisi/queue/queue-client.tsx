@@ -176,6 +176,8 @@ const TYPE_META: Record<string, { label: string; icon: LucideIcon; className: st
   cuci: { label: 'Cuci AC', icon: Droplets, className: 'border-primary/25 bg-primary/10 text-primary' },
   maintenance: { label: 'Maintenance', icon: SlidersHorizontal, className: 'border bg-muted text-foreground' },
   pemasangan: { label: 'Pemasangan', icon: Hammer, className: 'border bg-secondary text-secondary-foreground' },
+  // Jasa pasang dari Terima Servis: tampil sama dengan pemasangan, tetapi dihargai & ditagih seperti servis biasa.
+  pemasangan_jasa: { label: 'Pemasangan', icon: Hammer, className: 'border bg-secondary text-secondary-foreground' },
 };
 const typeMeta = (type: string) =>
   TYPE_META[type] ?? { label: type, icon: Wrench, className: 'border bg-muted text-foreground' };

@@ -8,7 +8,7 @@ import { wibDateOnly, wibDayRange } from '../common/wib-date.util';
  * TIDAK boleh menyentuh jadwal (dulu job non-schedulable malah mengosongkan
  * nextServiceDate sehingga pengingat AC itu hilang).
  */
-export const SCHEDULING_JOB_TYPES = ['cuci', 'maintenance', 'pemasangan'] as const;
+export const SCHEDULING_JOB_TYPES = ['cuci', 'maintenance', 'pemasangan', 'pemasangan_jasa'] as const;
 
 export function isSchedulingJobType(jobType: string): boolean {
   return (SCHEDULING_JOB_TYPES as readonly string[]).includes(jobType);

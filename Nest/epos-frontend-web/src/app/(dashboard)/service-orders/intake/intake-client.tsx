@@ -153,7 +153,7 @@ const intakeSchema = z.object({
   phone: z.string().min(1, 'Wajib diisi'),
   address: z.string().optional(),
   mapsUrl: z.string().optional(),
-  jobType: z.enum(['perbaikan', 'cuci', 'maintenance']),
+  jobType: z.enum(['perbaikan', 'cuci', 'maintenance', 'pemasangan_jasa']),
   workDescription: z.string().optional(),
   complaint: z.string().trim().min(1, 'Keluhan awal wajib diisi (kalau tidak ada, isi pekerjaannya, mis. Cuci AC)'),
   scheduledDate: z.string().min(1, 'Jadwal wajib diisi'),
@@ -747,11 +747,13 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
                         <SelectItem value="perbaikan">Perbaikan</SelectItem>
                         <SelectItem value="cuci">Cuci AC</SelectItem>
                         <SelectItem value="maintenance">Maintenance</SelectItem>
+                        <SelectItem value="pemasangan_jasa">Pemasangan (jasa pasang)</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      Berlaku untuk semua unit di order ini. Cuci AC dan Maintenance meminta siklus servis berikutnya saat
-                      admin menyetujui, supaya pengingat WhatsApp terjadwal.
+                      Berlaku untuk semua unit di order ini. Cuci AC, Maintenance, dan Pemasangan meminta siklus servis
+                      berikutnya saat admin menyetujui, supaya pengingat WhatsApp terjadwal. Pemasangan di sini = jasa pasang
+                      untuk AC yang sudah dimiliki pelanggan; pemasangan dari penjualan AC tetap lewat kasir.
                     </p>
                     <FormMessage />
                   </FormItem>

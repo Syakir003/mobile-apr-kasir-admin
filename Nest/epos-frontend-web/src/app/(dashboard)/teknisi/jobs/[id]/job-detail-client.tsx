@@ -306,7 +306,7 @@ export function JobDetailClient({
   // Hanya cuci/maintenance/pemasangan yang mengatur ulang jadwal servis
   // berikutnya (sinkron sama SCHEDULING_JOB_TYPES di backend).
   const needsSchedule =
-    !!job.unit && ['cuci', 'maintenance', 'pemasangan'].includes(job.type);
+    !!job.unit && ['cuci', 'maintenance', 'pemasangan', 'pemasangan_jasa'].includes(job.type);
   const remindDaysValue =
     remindDays ?? (job.unit?.serviceIntervalDays != null ? String(job.unit.serviceIntervalDays) : '');
   // Nilai awal saklar mengikuti kondisi unit: pengingat yang sengaja dimatikan admin (saklar mati padahal
@@ -899,7 +899,7 @@ function unitBlockers(j: JobDetail): string[] {
 }
 
 // Hanya jenis job ini yang mengatur ulang jadwal pengingat saat disetujui (sinkron dengan backend).
-const needsScheduleType = (type: string) => ['cuci', 'maintenance', 'pemasangan'].includes(type);
+const needsScheduleType = (type: string) => ['cuci', 'maintenance', 'pemasangan', 'pemasangan_jasa'].includes(type);
 
 /**
  * Servis banyak AC: halaman satu order dengan satu section per unit AC. Tiap unit adalah job sendiri (temuan, foto
@@ -1459,6 +1459,7 @@ function UnitSection({
 
 const JOB_TYPE_LABEL: Record<string, string> = {
   pemasangan: 'Pemasangan',
+  pemasangan_jasa: 'Pemasangan',
   cuci: 'Cuci AC',
   maintenance: 'Maintenance',
   service: 'Servis',

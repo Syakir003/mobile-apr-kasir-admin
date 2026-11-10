@@ -16,11 +16,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-type AddUnitJobType = 'perbaikan' | 'cuci' | 'maintenance';
+type AddUnitJobType = 'perbaikan' | 'cuci' | 'maintenance' | 'pemasangan_jasa';
 const JOB_TYPE_OPTIONS: { value: AddUnitJobType; label: string }[] = [
   { value: 'perbaikan', label: 'Perbaikan' },
   { value: 'cuci', label: 'Cuci AC' },
   { value: 'maintenance', label: 'Maintenance' },
+  { value: 'pemasangan_jasa', label: 'Pemasangan' },
 ];
 
 // Bentuk respons POST /technician-jobs/:id/add-unit.

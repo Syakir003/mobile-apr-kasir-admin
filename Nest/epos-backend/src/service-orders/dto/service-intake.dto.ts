@@ -77,8 +77,11 @@ export class IntakeLocationDto {
   @IsOptional() @Transform(({ value }: { value: unknown }) => normalizeMapsInput(value)) @IsString() @MaxLength(500) @Matches(/^https?:\/\/\S+$/i, { message: 'Link lokasi kerja harus diawali http:// atau https://' }) mapsUrl?: string;
 }
 
-/** Jenis pekerjaan yang bisa dipilih di form Terima Servis (pemasangan berasal dari POS, tidak ditawarkan di sini). */
-export const INTAKE_JOB_TYPES = ['perbaikan', 'cuci', 'maintenance'] as const;
+/**
+ * Jenis pekerjaan yang bisa dipilih di form Terima Servis. 'pemasangan' (dari POS, invoice POS) tidak ditawarkan di sini;
+ * 'pemasangan_jasa' = jasa pasang untuk AC yang sudah dimiliki pelanggan (dihargai & ditagih seperti servis biasa).
+ */
+export const INTAKE_JOB_TYPES = ['perbaikan', 'cuci', 'maintenance', 'pemasangan_jasa'] as const;
 export type IntakeJobType = (typeof INTAKE_JOB_TYPES)[number];
 
 export class ServiceIntakeDto {
@@ -86,8 +89,8 @@ export class ServiceIntakeDto {
   @IsDefined() @ValidateNested() @Type(() => IntakeCustomerDto) customer: IntakeCustomerDto;
 
   /**
-   * Jenis pekerjaan untuk SELURUH order (semua unit sama): 'perbaikan' (bawaan bila tidak dikirim), 'cuci', atau
-   * 'maintenance'. Cuci & maintenance meminta siklus servis berikutnya saat admin menyetujui, supaya pengingat WA
+   * Jenis pekerjaan untuk SELURUH order (semua unit sama): 'perbaikan' (bawaan bila tidak dikirim), 'cuci',
+   * 'maintenance', atau 'pemasangan_jasa'. Cuci, maintenance & pemasangan_jasa meminta siklus servis berikutnya saat admin menyetujui, supaya pengingat WA
    * terjadwal (lihat SCHEDULING_JOB_TYPES di reminders/service-schedule.util.ts).
    */
   @IsOptional() @IsIn(INTAKE_JOB_TYPES) jobType?: IntakeJobType;

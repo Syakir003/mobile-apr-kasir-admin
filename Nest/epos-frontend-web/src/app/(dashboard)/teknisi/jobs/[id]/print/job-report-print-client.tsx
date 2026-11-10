@@ -60,6 +60,7 @@ function dmyHm(value: string | null): string {
 function reportTypeLabel(type: string): string {
   switch (type) {
     case 'pemasangan':
+    case 'pemasangan_jasa':
       return 'Pemasangan';
     case 'cuci':
       return 'Cuci AC';
