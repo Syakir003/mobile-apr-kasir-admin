@@ -34,7 +34,7 @@ import { methodLabel } from './payment-card';
 // Panel Aksi pengganti saat admin membuka job dari tab "Setoran Teknisi" (?setoran=1): isi halaman tetap laporan pekerjaan
 // teknisi, aksinya mencocokkan pembayaran order ini sesuai tipenya (non-tunai: Cocok/Tolak, tunai: setoran uang).
 
-export function SetoranJobPanel({ orderId }: { orderId: string }) {
+export function SetoranJobPanel({ orderId, backHref = '/teknisi/queue?tab=setoran' }: { orderId: string; backHref?: string }) {
   const outstanding = useOutstanding();
   const items = (outstanding.data?.items ?? []).filter((i) => i.orderId === orderId);
   const nonCash = items.filter((i) => i.status === 'menunggu_cocok');
@@ -77,7 +77,7 @@ export function SetoranJobPanel({ orderId }: { orderId: string }) {
         ))}
 
         <Button asChild variant="outline" size="sm">
-          <Link href="/teknisi/queue?tab=setoran">
+          <Link href={backHref}>
             <ArrowLeft className="size-4" />
             Kembali ke Setoran Teknisi
           </Link>

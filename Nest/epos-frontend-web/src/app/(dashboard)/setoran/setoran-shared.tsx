@@ -110,8 +110,12 @@ export function useOutstanding(enabled = true) {
   });
 }
 
-/** Tautan ke halaman job dalam mode verifikasi setoran (panel Aksi berisi pencocokan, bukan aksi pekerjaan). */
-export const setoranJobHref = (jobId: string) => `/teknisi/jobs/${jobId}?setoran=1`;
+export const setoranQueueHref = (technicianId?: string) =>
+  `/teknisi/queue?tab=setoran${technicianId ? `&technicianId=${encodeURIComponent(technicianId)}` : ''}`;
+
+/** Tautan ke halaman job mode setoran; technicianId = filter teknisi yang sedang dipilih (dibawa pulang oleh tombol Kembali). */
+export const setoranJobHref = (jobId: string, technicianId?: string) =>
+  `/teknisi/jobs/${jobId}?setoran=1${technicianId ? `&technicianId=${encodeURIComponent(technicianId)}` : ''}`;
 
 // Pilihan centang "diserahkan" per teknisi disimpan di sini supaya tidak hilang saat admin membuka job lalu kembali.
 const uncheckedStore = new Map<string, Record<string, boolean>>();
@@ -253,7 +257,7 @@ export function SettlementForm({ data, variant = 'page' }: { data: PendingData; 
                           {p.unitLabel ? ` · ${p.unitLabel}` : ''}
                         </p>
                         {p.jobId && (
-                          <Link href={setoranJobHref(p.jobId)} className="text-xs text-primary underline-offset-2 hover:underline">
+                          <Link href={setoranJobHref(p.jobId, techId)} className="text-xs text-primary underline-offset-2 hover:underline">
                             Lihat pekerjaan
                           </Link>
                         )}

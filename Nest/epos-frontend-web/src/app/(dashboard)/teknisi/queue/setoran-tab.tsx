@@ -157,7 +157,7 @@ export function SetoranTab({ initialTechnicianId }: { initialTechnicianId: strin
                   <TableCell className="text-right">
                     {r.jobId ? (
                       <Button asChild size="sm" variant="outline">
-                        <Link href={setoranJobHref(r.jobId)}>Buka Job</Link>
+                        <Link href={setoranJobHref(r.jobId, technicianId)}>Buka Job</Link>
                       </Button>
                     ) : (
                       <span className="text-xs text-muted-foreground">-</span>

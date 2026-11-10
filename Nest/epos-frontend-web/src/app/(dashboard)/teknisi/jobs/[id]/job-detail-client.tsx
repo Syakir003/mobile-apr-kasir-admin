@@ -220,13 +220,14 @@ export function JobDetailClient({
   jobId,
   role,
   embedded,
-  setoranMode,
+  setoranBack,
 }: {
   jobId: string;
   role: Role;
   embedded?: EmbeddedProps;
-  // Admin membuka job dari tab Setoran Teknisi: panel Aksi diganti verifikasi setoran order ini.
-  setoranMode?: boolean;
+  // Admin membuka job dari tab Setoran Teknisi: panel Aksi diganti verifikasi setoran order ini. Nilainya tautan kembali
+  // ke tab itu (membawa filter teknisi yang sedang dipilih); kosong = halaman dibuka biasa.
+  setoranBack?: string;
 }) {
   const isAdmin = role === 'admin';
   const isTeknisi = role === 'teknisi';
@@ -282,7 +283,7 @@ export function JobDetailClient({
   // Servis banyak AC: satu halaman memuat section tiap unit (job-job di satu order). Section itu sendiri
   // (embedded) memakai komponen ini lagi, jadi tidak boleh mengalihkan lagi.
   if (!embedded && job.siblings && job.siblings.length > 0) {
-    return <MultiUnitJobView job={job} role={role} setoranMode={setoranMode} />;
+    return <MultiUnitJobView job={job} role={role} setoranBack={setoranBack} />;
   }
   // Samain persis sama gate backend di addFinding/addFindingPhoto
   // (technician-jobs.service.ts): cuma admin/teknisi, cuma selama job
@@ -343,7 +344,7 @@ export function JobDetailClient({
   // Panel Aksi di kanan, sama dengan halaman servis banyak AC. Teknisi hanya punya aksi saat job Ditugaskan/Sedang
   // Dikerjakan; di status lain panelnya disembunyikan dan konten memakai lebar penuh (seperti MultiUnitJobView).
   const hasAside = !embedded && (!isTeknisi || ['assigned', 'sedang_dikerjakan'].includes(job.status));
-  const showSetoranPanel = !embedded && !!setoranMode && isAdmin && !!job.order;
+  const showSetoranPanel = !embedded && !!setoranBack && isAdmin && !!job.order;
 
   // Isi section unit: Detail Unit + (banner dikembalikan, catatan) + Temuan & Foto. Dipakai sebagai section unit di halaman
   // banyak AC (embedded) maupun di halaman satu unit, supaya struktur keduanya sama.
@@ -503,7 +504,7 @@ export function JobDetailClient({
     <div className="grid gap-6">
       {!embedded && (
         <div>
-          <BackLink setoranMode={showSetoranPanel} />
+          <BackLink setoranBack={showSetoranPanel ? setoranBack : undefined} />
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">
               {job.member?.name || (job.unit ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC' : 'Job servis')}
@@ -675,7 +676,7 @@ export function JobDetailClient({
             </div>
           )
         ) : showSetoranPanel && job.order ? (
-          <SetoranJobPanel orderId={job.order.id} />
+          <SetoranJobPanel orderId={job.order.id} backHref={setoranBack} />
         ) : hasAside ? (
         <Card className="h-fit xl:sticky xl:top-6">
           <CardHeader>
@@ -905,7 +906,7 @@ const needsScheduleType = (type: string) => ['cuci', 'maintenance', 'pemasangan'
  * sebelum/sesudah, scan barcode, review, dan riwayat servis per unit), semuanya di satu order dengan satu nota.
  * Data pelanggan & penugasan teknisi ditampilkan sekali di sini; isi tiap section = JobDetailClient (embedded).
  */
-function MultiUnitJobView({ job, role, setoranMode }: { job: JobDetail; role: Role; setoranMode?: boolean }) {
+function MultiUnitJobView({ job, role, setoranBack }: { job: JobDetail; role: Role; setoranBack?: string }) {
   const queryClient = useQueryClient();
   const isAdmin = role === 'admin';
   const isTeknisi = role === 'teknisi';
@@ -1014,7 +1015,7 @@ function MultiUnitJobView({ job, role, setoranMode }: { job: JobDetail; role: Ro
     (j) => j.type !== 'pemasangan' && j.billingDerived !== true && !j.complaintOfJobId,
   );
   // Panel Aksi Job (kanan) hanya ada bila ada yang bisa dikerjakan peran ini; kalau tidak, daftar unit memakai lebar penuh.
-  const showSetoranPanel = !!setoranMode && isAdmin && !!job.order;
+  const showSetoranPanel = !!setoranBack && isAdmin && !!job.order;
   const hasAside =
     showSetoranPanel || (isTeknisi && (working.length > 0 || notStarted.length > 0)) || (isAdmin && (canAssign || waitingReview.length > 0));
   const canApproveAll =
@@ -1030,7 +1031,7 @@ function MultiUnitJobView({ job, role, setoranMode }: { job: JobDetail; role: Ro
   return (
     <div className="grid gap-6">
       <div>
-        <BackLink setoranMode={showSetoranPanel} />
+        <BackLink setoranBack={showSetoranPanel ? setoranBack : undefined} />
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{job.member?.name || 'Servis banyak unit AC'}</h1>
           <Badge variant="secondary">{entries.length} unit AC</Badge>
@@ -1176,7 +1177,7 @@ function MultiUnitJobView({ job, role, setoranMode }: { job: JobDetail; role: Ro
         {/* Panel aksi di samping seperti halaman satu unit (menempel di desktop; di layar sempit tampil di bawah). */}
         <div className={cn('xl:sticky xl:top-6', !hasAside && 'hidden')}>
         {/* Satu job = satu pengajuan: Ajukan Selesai / Setujui / Kembalikan berlaku untuk SEMUA unit sekaligus. */}
-        {showSetoranPanel && job.order ? (<SetoranJobPanel orderId={job.order.id} />) : hasAside && (
+        {showSetoranPanel && job.order ? (<SetoranJobPanel orderId={job.order.id} backHref={setoranBack} />) : hasAside && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Aksi Job (semua unit)</CardTitle>
@@ -1382,16 +1383,16 @@ function MultiUnitJobView({ job, role, setoranMode }: { job: JobDetail; role: Ro
 
 /**
  * Tombol Kembali ke halaman asal job dibuka (antrian, dasbor, riwayat unit, dst.) lewat riwayat browser. Dari tab Setoran
- * Teknisi (mode setoran) tujuannya tetap tab itu, karena pindah tab tidak mengubah URL. Tanpa riwayat (tab baru, tautan
+ * Teknisi (mode setoran) tujuannya tab itu lengkap dengan filter teknisinya (`setoranBack`), bukan riwayat browser. Tanpa riwayat (tab baru, tautan
  * langsung) kembali ke antrian.
  */
-function BackLink({ setoranMode }: { setoranMode: boolean }) {
+function BackLink({ setoranBack }: { setoranBack?: string }) {
   const router = useRouter();
   return (
     <Link
-      href={setoranMode ? '/teknisi/queue?tab=setoran' : '/teknisi/queue'}
+      href={setoranBack ?? '/teknisi/queue'}
       onClick={(e) => {
-        if (!setoranMode && window.history.length > 1) {
+        if (!setoranBack && window.history.length > 1) {
           e.preventDefault();
           router.back();
         }
