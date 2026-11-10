@@ -607,9 +607,6 @@ export function JobDetailClient({
           {/* Keterangan teknisi dibaca admin/kasir sebelum menetapkan harga jasa. */}
           {!isTeknisi && !embedded && <KeteranganCard keterangan={keterangan} editable={false} />}
 
-          {/* Job komplain tidak ditagih: tidak ada harga jasa untuk ditetapkan. */}
-          {(isAdmin || role === 'kasir') && !embedded && !job.complaintOfJobId && <ServicePricingCard jobId={job.id} />}
-
           {/* Pengajuan sparepart tambahan — backend (material-requests
               module) udah lama ada & dipakai app mobile teknisi lama,
               sebelumnya belum ada UI-nya sama sekali di web (cuma teks
@@ -640,6 +637,10 @@ export function JobDetailClient({
               </CardContent>
             </Card>
           )}
+
+          {/* Admin/kasir: harga jasa ditetapkan SETELAH pengajuan sparepart ditinjau (sparepart yang disetujui ikut masuk
+              ke tagihan yang sama). Job komplain tidak ditagih: tidak ada harga jasa untuk ditetapkan. */}
+          {(isAdmin || role === 'kasir') && !embedded && !job.complaintOfJobId && <ServicePricingCard jobId={job.id} />}
 
           {/* Harga jasa (teknisi) dan pembayaran di lokasi ditaruh SETELAH pengajuan sparepart: total tagihan baru final
               begitu sparepart diputuskan dan dilaporkan terpakai, dan pembayaran baru bisa dicatat sesudahnya. */}
@@ -1136,10 +1137,6 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
           {/* Keterangan teknisi dibaca admin/kasir sebelum menetapkan harga jasa. */}
           {!isTeknisi && <KeteranganCard keterangan={keterangan} editable={false} />}
 
-          {/* Harga jasa: SATU untuk seluruh job (bukan per unit), seperti servis satu unit. Disimpan di job pemegang harga
-              (job pertama yang belum dibatalkan); id job mana pun di order ini menunjuk ke sana. */}
-          {(isAdmin || role === 'kasir') && !job.complaintOfJobId && <ServicePricingCard jobId={job.id} />}
-
           {/* Pengajuan sparepart: SATU untuk seluruh job (tidak dipisah per AC). Secara data melekat pada unit aktif
               pertama; daftar di sini menggabungkan pengajuan semua unit. */}
           <Card>
@@ -1157,6 +1154,11 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
               {isTeknisi && requestJob && <AddMaterialRequestForm jobId={requestJob.id} />}
             </CardContent>
           </Card>
+
+          {/* Harga jasa (admin/kasir): SATU untuk seluruh job (bukan per unit), seperti servis satu unit. Disimpan di job
+              pemegang harga (job pertama yang belum dibatalkan); id job mana pun di order ini menunjuk ke sana. Ditaruh
+              SETELAH pengajuan sparepart (sparepart yang disetujui ikut masuk ke tagihan yang sama). */}
+          {(isAdmin || role === 'kasir') && !job.complaintOfJobId && <ServicePricingCard jobId={job.id} />}
 
           {/* Harga jasa (teknisi) dan pembayaran di lokasi: setelah pengajuan sparepart (total baru final sesudahnya). */}
           {isTeknisi && !job.complaintOfJobId && (
