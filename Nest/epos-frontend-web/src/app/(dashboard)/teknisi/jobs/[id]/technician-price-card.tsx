@@ -96,7 +96,7 @@ export function TechnicianPriceCard({ jobId, canEdit }: { jobId: string; canEdit
         </CardTitle>
         <CardDescription>
           Harga ditetapkan admin. Kalau di lokasi ada pekerjaan yang berbeda dari perkiraan, sesuaikan di sini dengan
-          alasan. Admin akan mengetahuinya.
+          alasan. Perubahan langsung berlaku, tidak perlu menunggu admin; admin hanya diberi tahu.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
@@ -221,7 +221,7 @@ function AdjustDialog({
         ),
       }),
     onSuccess: () => {
-      toast.success('Jasa disesuaikan. Admin sudah diberi tahu.');
+      toast.success('Jasa disesuaikan dan langsung berlaku. Admin sudah diberi tahu.');
       onOpenChange(false);
       queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['field-payments'] });

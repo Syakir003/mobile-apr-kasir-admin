@@ -282,6 +282,18 @@ export function ServicePricingCard({ jobId }: { jobId: string }) {
     },
   });
 
+  // Tandai penyesuaian teknisi sudah ditinjau TANPA menyimpan ulang harga (penyesuaiannya sudah berlaku).
+  const ackTechEdit = useMutation({
+    mutationFn: () => apiClient.post(`/technician-jobs/${jobId}/service-pricing/ack`),
+    onSuccess: () => {
+      toast.success('Ditandai sudah ditinjau.');
+      queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
+    },
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : 'Gagal menandai.');
+    },
+  });
+
   if (pricingQuery.isLoading) {
     return (
       <Card>
@@ -338,8 +350,20 @@ export function ServicePricingCard({ jobId }: { jobId: string }) {
                 ))}
             </ul>
             <p className="text-xs text-muted-foreground">
-              Tinjau, ubah bila perlu, lalu simpan harga untuk menandai sudah ditinjau.
+              Sudah berlaku: tagihan mengikuti perubahan ini dan teknisi bisa langsung menagih, jadi Anda tidak perlu
+              menyimpan ulang harga atau menyetujui apa pun. Tinjau bila sempat; ubah di bawah hanya bila ada yang salah.
             </p>
+            <div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={ackTechEdit.isPending}
+                onClick={() => ackTechEdit.mutate()}
+              >
+                {ackTechEdit.isPending ? 'Menandai...' : 'Tandai sudah ditinjau'}
+              </Button>
+            </div>
           </div>
         )}
         <div
