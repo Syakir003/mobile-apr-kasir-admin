@@ -147,6 +147,9 @@ export class WhatsappService {
    * dilakukan langsung berurutan di sini, gak perlu dipecah tx/non-tx kayak
    * createPendingTx+sendPendingLog. Boleh dipanggil berkali-kali per invoice
    * (resend) — TIDAK pakai dedupeKey sama sekali.
+   *
+   * Dikirim atas aksi manual pengguna, jadi TIDAK tunduk pada opt-out member
+   * (sama dengan invoice); opt-out hanya berlaku untuk reminder otomatis.
    */
   async sendInvoiceMessage(params: {
     invoiceId: string;
@@ -154,6 +157,8 @@ export class WhatsappService {
     phone: string;
     message: string;
     actorId: string;
+    // Bawaan 'invoice'. Tanda Terima pembayaran lapangan memakai 'tanda_terima' (nomor toko yang sama, tanpa dedupe).
+    kind?: WhatsappMessageKind;
   }) {
     const phone = waPhone(params.phone);
     if (!phone) {
@@ -165,7 +170,7 @@ export class WhatsappService {
     const log = await this.prisma.whatsappLog.create({
       data: {
         memberId: params.memberId ?? undefined,
-        kind: WhatsappMessageKind.invoice,
+        kind: params.kind ?? WhatsappMessageKind.invoice,
         invoiceId: params.invoiceId,
         phone,
         message: params.message,
