@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { InvoiceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PRICE_TIERS } from '../common/price-tier.util';
 import { buildStockReportRow, orderPairedRows, StockReportRow, StockReportCatalogItem } from './stock-report-row.util';
@@ -18,7 +19,7 @@ export class ReportsService {
   async sales(start: Date, end: Date) {
     // 1) total & jumlah invoice dalam rentang
     const totals = await this.prisma.invoice.aggregate({
-      where: { createdAt: { gte: start, lte: end } },
+      where: { createdAt: { gte: start, lte: end }, status: { not: InvoiceStatus.batal } },
       _sum: {
         grandTotal: true,
         subtotal: true,
@@ -43,6 +44,7 @@ export class ReportsService {
       LEFT JOIN products p ON p.id = ii.ref_id
       WHERE ii.kind = 'product'
         AND i.created_at BETWEEN ${start} AND ${end}
+        AND i.status <> 'batal'
       GROUP BY COALESCE(p.category, 'Tanpa kategori')
       ORDER BY total_line DESC
     `;
@@ -56,6 +58,7 @@ export class ReportsService {
              COUNT(*) AS count
       FROM invoices
       WHERE created_at BETWEEN ${start} AND ${end}
+        AND status <> 'batal'
       GROUP BY 1
       ORDER BY 1
     `;
@@ -65,7 +68,7 @@ export class ReportsService {
     //    di-snapshot di invoice. Ketiga tipe selalu dikembalikan (0 kalau kosong).
     const byTier = await this.prisma.invoice.groupBy({
       by: ['priceTier'],
-      where: { createdAt: { gte: start, lte: end } },
+      where: { createdAt: { gte: start, lte: end }, status: { not: InvoiceStatus.batal } },
       _sum: { grandTotal: true },
       _count: { _all: true },
     });
