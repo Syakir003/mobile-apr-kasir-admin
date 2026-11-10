@@ -24,6 +24,10 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const FINISHED = ['selesai', 'dibatalkan'];
+const PAYMENT_MODE_OPTIONS = [
+  { value: 'ditagih_admin', label: 'Ditagih admin (instansi/langganan)' },
+  { value: 'bayar_di_lokasi', label: 'Bayar di lokasi (teknisi menagih)' },
+] as const;
 const TYPE_OPTIONS = [
   { value: 'perbaikan', label: 'Perbaikan' },
   { value: 'cuci', label: 'Cuci AC' },
@@ -54,11 +58,14 @@ export function EditOrderButton({
   orderId,
   memberId,
   note,
+  paymentMode,
   jobs,
 }: {
   orderId: string;
   memberId?: string | null;
   note?: string | null;
+  // Cara tagih order; bawaan 'ditagih_admin' bila tidak diketahui.
+  paymentMode?: string | null;
   jobs: EditableOrderJob[];
 }) {
   const [open, setOpen] = React.useState(false);
@@ -86,7 +93,13 @@ export function EditOrderButton({
               )}
             </DialogDescription>
           </DialogHeader>
-          <EditOrderForm orderId={orderId} note={note ?? ''} jobs={editable} onDone={() => setOpen(false)} />
+          <EditOrderForm
+            orderId={orderId}
+            note={note ?? ''}
+            paymentMode={paymentMode ?? 'ditagih_admin'}
+            jobs={editable}
+            onDone={() => setOpen(false)}
+          />
         </DialogContent>
       </Dialog>
     </>
@@ -96,11 +109,13 @@ export function EditOrderButton({
 function EditOrderForm({
   orderId,
   note,
+  paymentMode,
   jobs,
   onDone,
 }: {
   orderId: string;
   note: string;
+  paymentMode: string;
   jobs: EditableOrderJob[];
   onDone: () => void;
 }) {
@@ -112,6 +127,7 @@ function EditOrderForm({
   const [date, setDate] = React.useState(initialDate);
   const [jobType, setJobType] = React.useState(first.type);
   const [noteText, setNoteText] = React.useState(note);
+  const [payMode, setPayMode] = React.useState(paymentMode);
   const initialLoc = React.useMemo(
     () =>
       Object.fromEntries(
@@ -154,6 +170,7 @@ function EditOrderForm({
       ...(date !== initialDate ? { scheduledDate: date } : {}),
       ...(!isPemasangan && !isKomplain && jobType !== first.type ? { jobType } : {}),
       ...(noteText.trim() !== note.trim() ? { note: noteText.trim() } : {}),
+      ...(!isPemasangan && payMode !== paymentMode ? { paymentMode: payMode } : {}),
       ...(changedLocs.length > 0 ? { unitLocations: changedLocs } : {}),
     };
     if (Object.keys(body).length === 0) {
@@ -204,6 +221,27 @@ function EditOrderForm({
           </Select>
         )}
       </div>
+
+      {!isPemasangan && (
+        <div className="grid gap-1.5">
+          <Label htmlFor="order-pay-mode">Cara Tagih</Label>
+          <Select value={payMode} onValueChange={setPayMode}>
+            <SelectTrigger id="order-pay-mode" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAYMENT_MODE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Bayar di lokasi: teknisi mencatat pembayaran dan memberi Tanda Terima, lalu admin memverifikasi setorannya.
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-1.5">
         <Label htmlFor="order-note">Note Pekerjaan</Label>

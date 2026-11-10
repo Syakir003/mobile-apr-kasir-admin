@@ -102,6 +102,10 @@ interface PricingLine {
   name: string;
   qty: number;
   unitPrice: number;
+  // Penyesuaian teknisi di lokasi: 'teknisi' = ditambah/diubah jumlahnya oleh teknisi, isCustom = "jasa lain" di luar katalog.
+  source?: 'admin' | 'teknisi';
+  isCustom?: boolean;
+  changeReason?: string | null;
 }
 interface PricingData {
   jobId: string;
@@ -111,6 +115,8 @@ interface PricingData {
   priced: boolean;
   invoice: { id: string; number: string; status: string; grandTotal: string; totalPaid: string } | null;
   lines: PricingLine[];
+  // Ada bila teknisi menyesuaikan jasa di lokasi; hilang setelah admin/kasir menyimpan harga lagi.
+  techEdit?: { at: string; reason: string | null; subtotalBefore: number; subtotalAfter: number } | null;
   transport: { level: number; mode: 'individu' | 'dibagi'; amount: number };
   billed: { id: string; kind: string; name: string; unit: string | null; qty: number; unitPrice: number; lineTotal: number }[];
   sparepart: {
@@ -308,6 +314,32 @@ export function ServicePricingCard({ jobId }: { jobId: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
+        {data.techEdit && (
+          <div className="grid gap-1.5 rounded-md border bg-muted/40 p-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="warning">Jasa disesuaikan teknisi</Badge>
+              <span className="text-xs text-muted-foreground">{formatDateTime(data.techEdit.at)}</span>
+            </div>
+            <p>
+              Subtotal jasa {formatRupiah(data.techEdit.subtotalBefore)} menjadi{' '}
+              <span className="font-semibold">{formatRupiah(data.techEdit.subtotalAfter)}</span>
+              {data.techEdit.reason ? <> - alasan: {data.techEdit.reason}</> : null}
+            </p>
+            <ul className="list-disc pl-5 text-xs text-muted-foreground">
+              {data.lines
+                .filter((l) => l.source === 'teknisi')
+                .map((l) => (
+                  <li key={l.id}>
+                    {l.name}
+                    {l.isCustom ? ' (jasa lain)' : ''}: {l.qty} x {formatRupiah(l.unitPrice)}
+                  </li>
+                ))}
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              Tinjau, ubah bila perlu, lalu simpan harga untuk menandai sudah ditinjau.
+            </p>
+          </div>
+        )}
         <div
           aria-hidden="true"
           className="hidden px-[13px] text-xs font-medium text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1.4fr)_5rem_minmax(0,1fr)_2.25rem] sm:gap-2"

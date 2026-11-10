@@ -16,6 +16,8 @@ import { statusBadgeVariant } from '../../queue/queue-client';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { BarcodeQr } from '@/components/barcode-qr';
 import { SendFindingsBar, ServicePricingCard } from './service-pricing-card';
+import { FieldPaymentCard, SubmitPaymentGate } from './payment-card';
+import { TechnicianPriceCard } from './technician-price-card';
 import { AddUnitButton } from './add-unit';
 import { EditOrderButton } from './edit-order-dialog';
 import { ComplaintButton } from './complaint-dialog';
@@ -138,6 +140,8 @@ interface JobDetail {
     note?: string | null;
     // Keterangan teknisi (catatan satu order untuk admin); beda dari notes job = Diagnosa per unit.
     technicianNote?: string | null;
+    // 'bayar_di_lokasi' | 'ditagih_admin' (cara tagih order).
+    paymentMode?: string;
     // Ada setelah harga jasa ditetapkan (servis mandiri) atau dari invoice POS (pemasangan).
     invoice?: { id: string; number: string; status: string; grandTotal: string; totalPaid: string } | null;
   } | null;
@@ -242,7 +246,9 @@ export function JobDetailClient({
   const keterangan = useKeterangan(jobId, jobQuery.data?.order?.technicianNote ?? null);
 
   const startMutation = useJobAction<{ scannedBarcode: string }>(jobId, '/start', 'Job dimulai.');
-  const submitForReviewMutation = useJobAction(jobId, '/submit-for-review', 'Diajukan untuk review.');
+  const submitForReviewMutation = useJobAction<{ unpaidReason?: string }>(jobId, '/submit-for-review', 'Diajukan untuk review.');
+  // Alasan bila order dibayar di lokasi tetapi pelanggan belum membayar (kotak muncul hanya bila memang diperlukan).
+  const [unpaidReason, setUnpaidReason] = React.useState('');
   const approveMutation = useJobAction<{ reminderEnabled: boolean; serviceIntervalDays?: number }>(
     jobId,
     '/approve-complete',
@@ -543,7 +549,7 @@ export function JobDetailClient({
                 <div className="flex items-center gap-1">
                   {/* Koreksi data order yang salah input (jadwal, jenis, note, lokasi kerja): khusus admin. */}
                   {isAdmin && job.order && (
-                    <EditOrderButton orderId={job.order.id} memberId={job.member?.id} note={job.order.note} jobs={[job]} />
+                    <EditOrderButton orderId={job.order.id} memberId={job.member?.id} note={job.order.note} paymentMode={job.order.paymentMode} jobs={[job]} />
                   )}
                 </div>
               </CardHeader>
@@ -603,6 +609,14 @@ export function JobDetailClient({
 
           {/* Job komplain tidak ditagih: tidak ada harga jasa untuk ditetapkan. */}
           {(isAdmin || role === 'kasir') && !embedded && !job.complaintOfJobId && <ServicePricingCard jobId={job.id} />}
+
+          {/* Teknisi: harga jasa dari admin (bisa disesuaikan di lokasi) dan pembayaran yang diterima di lokasi. */}
+          {isTeknisi && !embedded && !job.complaintOfJobId && job.type !== 'pemasangan' && (
+            <TechnicianPriceCard jobId={job.id} canEdit={['assigned', 'sedang_dikerjakan'].includes(job.status)} />
+          )}
+          {!embedded && !job.complaintOfJobId && job.type !== 'pemasangan' && (
+            <FieldPaymentCard jobId={job.id} role={role} jobStatus={job.status} technicians={job.technicians} />
+          )}
 
           {/* Pengajuan sparepart tambahan — backend (material-requests
               module) udah lama ada & dipakai app mobile teknisi lama,
@@ -726,9 +740,14 @@ export function JobDetailClient({
 
             {!embedded && isTeknisi && job.status === 'sedang_dikerjakan' && (
               <div className="grid gap-1.5">
+                <SubmitPaymentGate jobId={job.id} reason={unpaidReason} onReasonChange={setUnpaidReason} />
                 <Button
                   disabled={!submitForReviewReady || submitForReviewMutation.isPending}
-                  onClick={() => keterangan.flush().then(() => submitForReviewMutation.mutate(), () => undefined)}
+                  onClick={() =>
+                    keterangan
+                      .flush()
+                      .then(() => submitForReviewMutation.mutate({ unpaidReason: unpaidReason.trim() || undefined }), () => undefined)
+                  }
                 >
                   {submitForReviewMutation.isPending ? 'Memproses...' : 'Ajukan Selesai'}
                 </Button>
@@ -931,7 +950,8 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
     queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'all'] });
     queryClient.invalidateQueries({ queryKey: ['technician-jobs', 'queue'] });
   };
-  const submitAllMutation = useOrderAction<{ allInOrder: true }>(
+  const [unpaidReason, setUnpaidReason] = React.useState('');
+  const submitAllMutation = useOrderAction<{ allInOrder: true; unpaidReason?: string }>(
     job.id,
     'submit-for-review',
     'Seluruh unit diajukan untuk review.',
@@ -1043,7 +1063,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
           <div className="flex items-center gap-1">
             {/* Koreksi data order yang salah input (jadwal, jenis, note, lokasi kerja per unit): khusus admin. */}
             {isAdmin && job.order && (
-              <EditOrderButton orderId={job.order.id} memberId={job.member?.id} note={job.order.note} jobs={jobs} />
+              <EditOrderButton orderId={job.order.id} memberId={job.member?.id} note={job.order.note} paymentMode={job.order.paymentMode} jobs={jobs} />
             )}
           </div>
         </CardHeader>
@@ -1118,6 +1138,18 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
           {/* Harga jasa: SATU untuk seluruh job (bukan per unit), seperti servis satu unit. Disimpan di job pemegang harga
               (job pertama yang belum dibatalkan); id job mana pun di order ini menunjuk ke sana. */}
           {(isAdmin || role === 'kasir') && !job.complaintOfJobId && <ServicePricingCard jobId={job.id} />}
+
+          {isTeknisi && !job.complaintOfJobId && (
+            <TechnicianPriceCard jobId={job.id} canEdit={jobs.some((j) => ['assigned', 'sedang_dikerjakan'].includes(j.status))} />
+          )}
+          {!job.complaintOfJobId && (
+            <FieldPaymentCard
+              jobId={working[0]?.id ?? job.id}
+              role={role}
+              jobStatus={working.length > 0 ? 'sedang_dikerjakan' : job.status}
+              technicians={job.technicians}
+            />
+          )}
 
           {/* Pengajuan sparepart: SATU untuk seluruh job (tidak dipisah per AC). Secara data melekat pada unit aktif
               pertama; daftar di sini menggabungkan pengajuan semua unit. */}
@@ -1249,10 +1281,11 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                           );
                         })}
                       </ul>
+                      <SubmitPaymentGate jobId={job.id} reason={unpaidReason} onReasonChange={setUnpaidReason} />
                       <Button
                         disabled={!canSubmitAll || submitAllMutation.isPending}
                         onClick={() =>
-                          keterangan.flush().then(() => submitAllMutation.mutate({ allInOrder: true }), () => undefined)
+                          keterangan.flush().then(() => submitAllMutation.mutate({ allInOrder: true, unpaidReason: unpaidReason.trim() || undefined }), () => undefined)
                         }
                         className="w-full"
                       >
