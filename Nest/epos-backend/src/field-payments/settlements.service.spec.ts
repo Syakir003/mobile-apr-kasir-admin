@@ -43,7 +43,7 @@ function setup(over: { fps?: any[]; saldo?: number | null; single?: any } = {}) 
   };
   const prisma: any = { $transaction: jest.fn(async (fn: any) => fn(tx)), ...tx };
   const notifications: any = { notify: jest.fn(async () => undefined), notifyRoles: jest.fn(async () => undefined) };
-  return { svc: new SettlementsService(prisma, notifications), tx, prisma, notifications };
+  return { svc: new SettlementsService(prisma, notifications, {} as any), tx, prisma, notifications };
 }
 
 const ids = ['p1', 'p2'];

@@ -1,11 +1,21 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CountersService } from '../counters/counters.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { isJobAssignee } from '../technician-jobs/job-assignees';
+import { formatTanggalId } from '../whatsapp/wa-format.util';
 import { wibDateOnly, wibDayRange } from '../common/wib-date.util';
 import { applyFieldPaymentTx } from './apply-field-payment.util';
-import { RepayDto, SettleDto } from './dto/settlement.dto';
-import { STATUS_AWAITING_MATCH, STATUS_HELD, STATUS_REJECTED, STATUS_VERIFIED } from './field-payment.constants';
+import { FromPaperDto, RepayDto, SettleDto } from './dto/settlement.dto';
+import {
+  ACTIVE_FIELD_PAYMENT_STATUSES,
+  STATUS_AWAITING_MATCH,
+  STATUS_HELD,
+  STATUS_REJECTED,
+  STATUS_VERIFIED,
+} from './field-payment.constants';
 
 type Db = Prisma.TransactionClient;
 
@@ -30,9 +40,12 @@ async function ledgerBalance(db: Db, technicianId: string): Promise<number> {
  */
 @Injectable()
 export class SettlementsService {
+  private readonly logger = new Logger(SettlementsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly counters: CountersService,
   ) {}
 
   /**
@@ -302,5 +315,238 @@ export class SettlementsService {
       })
       .catch(() => undefined);
     return { ok: true, paymentId, status: STATUS_REJECTED };
+  }
+
+  /**
+   * Admin mencatat pembayaran atas nama teknisi dari lembar laporan kertas (kasus tanpa sinyal). Batas sisa tagihan dan aturan
+   * pembayaran sebagian sama dengan pencatatan teknisi, tetapi tanpa gerbang status job/sparepart: admin yang memutuskan.
+   * Hasilnya berstatus sama seperti catatan teknisi (tunai = dipegang_teknisi, non-tunai = menunggu_cocok) lalu diverifikasi
+   * lewat alur yang sama. Tanda Terima ditandai `kertas`; foto bukti tidak wajib.
+   */
+  async fromPaper(dto: FromPaperDto, adminId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.technicianJob.findUnique({
+        where: { id: dto.jobId },
+        select: { orderId: true, type: true, complaintOfJobId: true },
+      });
+      if (!job) throw new NotFoundException('Job tidak ditemukan');
+      if (job.type === 'pemasangan') {
+        throw new BadRequestException('Pemasangan dibayar lewat kasir, bukan dicatat dari laporan teknisi');
+      }
+      if (job.complaintOfJobId) throw new BadRequestException('Job komplain tidak ditagih');
+
+      await tx.$executeRaw`SELECT id FROM service_orders WHERE id = ${job.orderId} FOR UPDATE`;
+      if (dto.clientRef) {
+        const dup = await tx.fieldPayment.findUnique({ where: { clientRef: dto.clientRef } });
+        if (dup) {
+          if (dup.recordedById !== dto.technicianId) throw new BadRequestException('clientRef sudah dipakai');
+          return { payment: { ...dup, amount: Number(dup.amount) }, duplicate: true };
+        }
+      }
+      if (!(await isJobAssignee(tx, dto.jobId, dto.technicianId))) {
+        throw new BadRequestException('Teknisi ini bukan petugas job tersebut');
+      }
+      const order = await tx.serviceOrder.findUnique({ where: { id: job.orderId }, select: { invoiceId: true } });
+      if (!order?.invoiceId) throw new BadRequestException('Harga jasa belum ditetapkan, belum ada tagihan untuk dibayar');
+      const invoiceId = order.invoiceId;
+
+      const rows = await tx.$queryRaw<{ id: string; grand_total: string; total_paid: string; status: string }[]>`
+        SELECT id, grand_total, total_paid, status FROM invoices WHERE id = ${invoiceId} FOR UPDATE`;
+      const inv = rows[0];
+      if (!inv) throw new NotFoundException('Invoice tidak ditemukan');
+      if (inv.status === 'batal' || inv.status === 'refund') throw new BadRequestException('Invoice sudah batal/refund');
+      const active = await tx.fieldPayment.aggregate({
+        where: { invoiceId, status: { in: [...ACTIVE_FIELD_PAYMENT_STATUSES] } },
+        _sum: { amount: true },
+      });
+      const remaining = Number(inv.grand_total) - Number(inv.total_paid) - Number(active._sum.amount ?? 0);
+      if (remaining <= 0) throw new BadRequestException('Tagihan sudah terbayar penuh (termasuk yang menunggu setoran)');
+      if (dto.amount > remaining) throw new BadRequestException(`Melebihi sisa tagihan (sisa ${rp(remaining)})`);
+      const note = dto.note?.trim() || null;
+      if (dto.amount < remaining && (!note || note.length < 3)) {
+        throw new BadRequestException('Pembayaran sebagian wajib diberi catatan (mis. DP, sisanya dibayar kapan)');
+      }
+
+      const dateKey = this.counters.dateKey(new Date());
+      const seq = await this.counters.nextSeq(tx, `tanda_terima_${dateKey}`);
+      const receiptNumber = `TT-${dateKey}-${String(seq).padStart(4, '0')}`;
+      const payment = await tx.fieldPayment.create({
+        data: {
+          invoiceId,
+          orderId: job.orderId,
+          recordedById: dto.technicianId,
+          method: dto.method,
+          amount: dto.amount,
+          note,
+          proofUrl: null,
+          status: dto.method === 'tunai' ? STATUS_HELD : STATUS_AWAITING_MATCH,
+          receiptNumber,
+          clientRef: dto.clientRef ?? null,
+          receiptChannel: 'kertas',
+          paperReportNo: dto.paperReportNo?.trim() || null,
+          source: 'kertas',
+          enteredById: adminId,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorUid: adminId,
+          action: 'field_payment.create',
+          target: payment.id,
+          detail: {
+            source: 'kertas',
+            technicianId: dto.technicianId,
+            jobId: dto.jobId,
+            orderId: job.orderId,
+            invoiceId,
+            method: dto.method,
+            amount: dto.amount,
+            receiptNumber,
+          },
+        },
+      });
+      return { payment: { ...payment, amount: Number(payment.amount) }, duplicate: false };
+    });
+  }
+
+  /** Antrean pencocokan mutasi: semua pembayaran non-tunai yang menunggu admin, tertua dulu. */
+  async awaiting() {
+    const rows = await this.prisma.fieldPayment.findMany({
+      where: { status: STATUS_AWAITING_MATCH },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        invoice: { select: { number: true, customerName: true } },
+        recordedBy: { select: { id: true, displayName: true } },
+      },
+    });
+    const items = rows.map((r) => ({
+      id: r.id,
+      receiptNumber: r.receiptNumber,
+      method: r.method,
+      amount: Number(r.amount),
+      proofUrl: r.proofUrl,
+      createdAt: r.createdAt,
+      invoiceNumber: r.invoice.number,
+      customerName: r.invoice.customerName,
+      technician: r.recordedBy,
+    }));
+    return { items, total: items.reduce((s, i) => s + i.amount, 0) };
+  }
+
+  /**
+   * Laporan "Uang di Teknisi": per teknisi — tunai yang masih dipegang (+ umur tertua), pembayaran menunggu dicocokkan,
+   * saldo kurang-setor, selisih yang ditutup dengan alasan 30 hari terakhir (supaya pola berulang terlihat), dan
+   * kelebihan pelanggan yang perlu dikembalikan. Teknisi nonaktif ikut tampil bila masih memegang uang/saldo.
+   */
+  async technicianCash(now: Date = new Date()) {
+    const since = new Date(now.getTime() - 30 * 86400000);
+    const [held, awaiting, ledger, closed] = await Promise.all([
+      this.prisma.fieldPayment.groupBy({
+        by: ['recordedById'],
+        where: { status: STATUS_HELD },
+        _sum: { amount: true },
+        _count: { _all: true },
+        _min: { createdAt: true },
+      }),
+      this.prisma.fieldPayment.groupBy({
+        by: ['recordedById'],
+        where: { status: STATUS_AWAITING_MATCH },
+        _count: { _all: true },
+      }),
+      this.prisma.technicianCashEntry.groupBy({
+        by: ['technicianId', 'kind'],
+        where: { kind: { in: [...BALANCE_KINDS, 'kelebihan_pelanggan'] } },
+        _sum: { amount: true },
+      }),
+      this.prisma.technicianCashEntry.groupBy({
+        by: ['technicianId'],
+        where: { kind: 'ditutup_alasan', createdAt: { gte: since } },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+    ]);
+    const involved = new Set<string>([
+      ...held.map((h) => h.recordedById),
+      ...awaiting.map((a) => a.recordedById),
+      ...ledger.map((l) => l.technicianId),
+      ...closed.map((c) => c.technicianId),
+    ]);
+    const people = await this.prisma.user.findMany({
+      where: { OR: [{ role: 'teknisi', active: true }, { id: { in: [...involved] } }] },
+      select: { id: true, displayName: true },
+    });
+    return people
+      .map((p) => {
+        const h = held.find((x) => x.recordedById === p.id);
+        const oldest = h?._min.createdAt ?? null;
+        const entries = ledger.filter((l) => l.technicianId === p.id);
+        const closedRow = closed.find((c) => c.technicianId === p.id);
+        return {
+          technicianId: p.id,
+          displayName: p.displayName,
+          heldTotal: Number(h?._sum.amount ?? 0),
+          heldCount: h?._count._all ?? 0,
+          oldestHeldAgeDays: oldest ? Math.floor((now.getTime() - oldest.getTime()) / 86400000) : null,
+          awaitingCount: awaiting.find((a) => a.recordedById === p.id)?._count._all ?? 0,
+          saldo: entries.filter((l) => BALANCE_KINDS.includes(l.kind)).reduce((s, l) => s + Number(l._sum.amount ?? 0), 0),
+          closedWithReason30d: { count: closedRow?._count._all ?? 0, total: Number(closedRow?._sum.amount ?? 0) },
+          excessCustomer: entries
+            .filter((l) => l.kind === 'kelebihan_pelanggan')
+            .reduce((s, l) => s + Number(l._sum.amount ?? 0), 0),
+        };
+      })
+      .sort((a, b) => b.heldTotal - a.heldTotal || a.displayName.localeCompare(b.displayName));
+  }
+
+  /** Cron harian 09.00 WIB: kabari admin tentang uang tunai teknisi yang dibuat sebelum hari ini dan belum disetor. */
+  @Cron('0 9 * * *', { timeZone: 'Asia/Jakarta' })
+  async runCashOverdue() {
+    try {
+      await this.notifyAdminsCashOverdue();
+    } catch (e) {
+      this.logger.warn(`Notifikasi uang tertahan gagal: ${e}`);
+    }
+  }
+
+  /**
+   * Satu notifikasi `cash_overdue` per admin per teknisi per hari (aman dijalankan ulang). `target` = id teknisi.
+   * Mengembalikan jumlah notifikasi yang dibuat.
+   */
+  async notifyAdminsCashOverdue(now: Date = new Date()): Promise<number> {
+    const todayStart = wibDayRange(now).start;
+    const groups = await this.prisma.fieldPayment.groupBy({
+      by: ['recordedById'],
+      where: { status: STATUS_HELD, createdAt: { lt: todayStart } },
+      _sum: { amount: true },
+      _count: { _all: true },
+      _min: { createdAt: true },
+    });
+    if (groups.length === 0) return 0;
+    const [admins, techs] = await Promise.all([
+      this.prisma.user.findMany({ where: { role: 'admin', active: true }, select: { id: true } }),
+      this.prisma.user.findMany({
+        where: { id: { in: groups.map((g) => g.recordedById) } },
+        select: { id: true, displayName: true },
+      }),
+    ]);
+    let created = 0;
+    for (const g of groups) {
+      const name = techs.find((t) => t.id === g.recordedById)?.displayName ?? 'Teknisi';
+      for (const admin of admins) {
+        const sudah = await this.prisma.notification.findFirst({
+          where: { userId: admin.id, type: 'cash_overdue', target: g.recordedById, createdAt: { gte: todayStart } },
+          select: { id: true },
+        });
+        if (sudah) continue;
+        await this.notifications.notify(admin.id, {
+          title: `Uang di teknisi belum disetor: ${name}`,
+          body: `${g._count._all} pembayaran tunai ${rp(Number(g._sum.amount ?? 0))}, tertua ${formatTanggalId(wibDateOnly(g._min.createdAt ?? now))}.`,
+          type: 'cash_overdue',
+          target: g.recordedById,
+        });
+        created += 1;
+      }
+    }
+    return created;
   }
 }
