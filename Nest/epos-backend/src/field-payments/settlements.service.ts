@@ -33,6 +33,48 @@ async function ledgerBalance(db: Db, technicianId: string): Promise<number> {
   return Number(agg._sum.amount ?? 0);
 }
 
+interface AnchorJob {
+  jobId: string;
+  jobStatus: string;
+  unitCount: number;
+  unitLabel: string;
+}
+
+/**
+ * Job "utama" tiap order untuk membuka laporan pekerjaannya dari daftar setoran: job pertama yang tidak dibatalkan (pembayaran
+ * dicatat per ORDER, bukan per unit), plus jumlah unit aktif dan ringkasan unit pertama ("Merk Model (Ruang) +N unit").
+ */
+async function anchorJobs(db: Db | PrismaService, orderIds: string[]): Promise<Map<string, AnchorJob>> {
+  const result = new Map<string, AnchorJob>();
+  if (orderIds.length === 0) return result;
+  const jobs = await db.technicianJob.findMany({
+    where: { orderId: { in: orderIds } },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      orderId: true,
+      status: true,
+      unit: { select: { brand: true, model: true, roomLocation: true } },
+    },
+  });
+  for (const orderId of orderIds) {
+    const own = jobs.filter((j) => j.orderId === orderId);
+    const live = own.filter((j) => j.status !== 'dibatalkan');
+    const anchor = live[0] ?? own[0];
+    if (!anchor) continue;
+    const u = anchor.unit;
+    const label = u ? `${[u.brand, u.model].filter(Boolean).join(' ') || 'Unit AC'}${u.roomLocation ? ` (${u.roomLocation})` : ''}` : 'Servis';
+    const count = Math.max(1, live.length);
+    result.set(orderId, {
+      jobId: anchor.id,
+      jobStatus: anchor.status,
+      unitCount: count,
+      unitLabel: count > 1 ? `${label} +${count - 1} unit` : label,
+    });
+  }
+  return result;
+}
+
 /**
  * Setoran harian dan verifikasi pembayaran lapangan (admin). Setoran tunai memverifikasi sekumpulan pembayaran milik satu
  * teknisi sekaligus dan mencatat selisihnya; pembayaran non-tunai dicocokkan satu per satu dengan mutasi rekening/QRIS toko.
@@ -77,8 +119,14 @@ export class SettlementsService {
       }),
     ]);
     const now = Date.now();
+    const anchors = await anchorJobs(this.prisma, [...new Set(payments.map((p) => p.orderId))]);
     const rows = payments.map((p) => ({
       id: p.id,
+      orderId: p.orderId,
+      // Job utama order ini: tautan untuk membuka laporan pekerjaan sebelum uangnya diverifikasi.
+      jobId: anchors.get(p.orderId)?.jobId ?? null,
+      jobStatus: anchors.get(p.orderId)?.jobStatus ?? null,
+      unitLabel: anchors.get(p.orderId)?.unitLabel ?? null,
       receiptNumber: p.receiptNumber,
       amount: Number(p.amount),
       method: p.method,
@@ -106,6 +154,61 @@ export class SettlementsService {
         }),
       })),
     };
+  }
+
+  /**
+   * Semua pembayaran lapangan yang BELUM terverifikasi (tunai dipegang teknisi + non-tunai menunggu dicocokkan), tertua dulu,
+   * masing-masing dengan job utama ordernya. Dipakai tab "Setoran Teknisi" di Antrian Servis: admin membuka job untuk melihat
+   * laporan pekerjaan sambil memverifikasi uangnya. `technicians` = ringkasan per teknisi untuk chip filter.
+   */
+  async outstanding() {
+    const rows = await this.prisma.fieldPayment.findMany({
+      where: { status: { in: [...ACTIVE_FIELD_PAYMENT_STATUSES] } },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        invoice: { select: { number: true, customerName: true } },
+        recordedBy: { select: { id: true, displayName: true } },
+      },
+    });
+    const anchors = await anchorJobs(this.prisma, [...new Set(rows.map((r) => r.orderId))]);
+    const now = Date.now();
+    const items = rows.map((r) => {
+      const a = anchors.get(r.orderId);
+      return {
+        paymentId: r.id,
+        receiptNumber: r.receiptNumber,
+        method: r.method,
+        amount: Number(r.amount),
+        status: r.status,
+        proofUrl: r.proofUrl,
+        source: r.source,
+        createdAt: r.createdAt,
+        ageDays: Math.floor((now - r.createdAt.getTime()) / 86400000),
+        orderId: r.orderId,
+        jobId: a?.jobId ?? null,
+        jobStatus: a?.jobStatus ?? null,
+        unitCount: a?.unitCount ?? 1,
+        unitLabel: a?.unitLabel ?? null,
+        invoiceNumber: r.invoice.number,
+        customerName: r.invoice.customerName,
+        technician: r.recordedBy,
+      };
+    });
+    const byTech = new Map<string, { technicianId: string; displayName: string; heldTotal: number; awaitingTotal: number; orders: Set<string>; paymentCount: number }>();
+    for (const i of items) {
+      const t =
+        byTech.get(i.technician.id) ??
+        { technicianId: i.technician.id, displayName: i.technician.displayName, heldTotal: 0, awaitingTotal: 0, orders: new Set<string>(), paymentCount: 0 };
+      if (i.status === STATUS_HELD) t.heldTotal += i.amount;
+      else t.awaitingTotal += i.amount;
+      t.orders.add(i.orderId);
+      t.paymentCount += 1;
+      byTech.set(i.technician.id, t);
+    }
+    const technicians = [...byTech.values()]
+      .map(({ orders, ...t }) => ({ ...t, orderCount: orders.size }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+    return { items, technicians };
   }
 
   /** Setoran tunai: verifikasi pembayaran yang dicentang, bandingkan dengan uang diterima, catat selisihnya. */

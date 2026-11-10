@@ -47,6 +47,13 @@ describe('SettlementsController', () => {
     expect(settlements.awaiting).toHaveBeenCalled();
   });
 
+  it('outstanding diteruskan ke service (admin saja lewat @Roles kelas)', async () => {
+    const { ctrl, settlements } = make();
+    settlements.outstanding = jest.fn(async () => ({ items: [], technicians: [] }));
+    await ctrl.outstanding();
+    expect(settlements.outstanding).toHaveBeenCalled();
+  });
+
   it('pending tanpa technicianId: 400 jelas (bukan galat Prisma)', () => {
     const { ctrl, settlements } = make();
     expect(() => ctrl.pending(undefined as unknown as string, undefined)).toThrow('technicianId wajib');

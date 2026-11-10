@@ -213,16 +213,22 @@ describe('SettlementsService.pending', () => {
       fieldPayment: {
         findMany: jest.fn(async () => [
           {
-            id: 'p1', receiptNumber: 'TT-1', amount: '100000', method: 'tunai', proofUrl: '/u/a.jpg', receiptChannel: 'wa',
+            id: 'p1', orderId: 'o1', receiptNumber: 'TT-1', amount: '100000', method: 'tunai', proofUrl: '/u/a.jpg', receiptChannel: 'wa',
             source: 'app', createdAt: new Date(Date.now() - 2 * 86400000), invoice: { number: 'INV-1', customerName: 'Bu Sari' },
           },
           {
-            id: 'p2', receiptNumber: 'TT-2', amount: '50000', method: 'tunai', proofUrl: null, receiptChannel: 'kertas',
+            id: 'p2', orderId: 'o2', receiptNumber: 'TT-2', amount: '50000', method: 'tunai', proofUrl: null, receiptChannel: 'kertas',
             source: 'kertas', createdAt: new Date(), invoice: { number: 'INV-2', customerName: 'Pak Budi' },
           },
         ]),
       },
       technicianCashEntry: { aggregate: jest.fn(async () => ({ _sum: { amount: 25000 } })) },
+      technicianJob: {
+        findMany: jest.fn(async () => [
+          { id: 'j1', orderId: 'o1', status: 'menunggu_review', unit: { brand: 'Daikin', model: 'DUMMY', roomLocation: 'Kamar' } },
+          { id: 'j2', orderId: 'o2', status: 'selesai', unit: { brand: 'LG', model: null, roomLocation: null } },
+        ]),
+      },
       materialRequest: {
         findMany: jest.fn(async () => [
           {
@@ -274,5 +280,89 @@ describe('SettlementsService.pending', () => {
     await expect(make({ tech: false }).svc.pending('x')).rejects.toThrow(NotFoundException);
     await expect(make({ role: 'kasir' }).svc.pending('t1')).rejects.toThrow(NotFoundException);
     await expect(make().svc.pending('t1', 'bukan-tanggal')).rejects.toThrow(BadRequestException);
+  });
+});
+
+// ---------- Daftar job yang setorannya belum terverifikasi (tab Setoran di Antrian Servis) ----------
+describe('SettlementsService.outstanding — pembayaran belum terverifikasi per job', () => {
+  function make() {
+    const pay = (id: string, orderId: string, method: string, status: string, amount: number, tech: string) => ({
+      id, orderId, receiptNumber: `TT-${id}`, method, amount, status, proofUrl: null, source: 'app',
+      createdAt: new Date(Date.now() - 2 * 86400000), invoice: { number: `INV-${orderId}`, customerName: `Pelanggan ${orderId}` },
+      recordedBy: { id: tech, displayName: tech === 't1' ? 'Budi' : 'Ani' },
+    });
+    const prisma: any = {
+      fieldPayment: {
+        findMany: jest.fn(async () => [
+          pay('p1', 'o1', 'tunai', 'dipegang_teknisi', 100000, 't1'),
+          pay('p2', 'o1', 'qris', 'menunggu_cocok', 30000, 't1'),
+          pay('p3', 'o2', 'tunai', 'dipegang_teknisi', 85000, 't2'),
+        ]),
+      },
+      technicianJob: {
+        findMany: jest.fn(async () => [
+          { id: 'j0', orderId: 'o1', status: 'dibatalkan', unit: { brand: 'X', model: null, roomLocation: null } },
+          { id: 'j1', orderId: 'o1', status: 'menunggu_review', unit: { brand: 'Daikin', model: 'DUMMY', roomLocation: 'Kamar' } },
+          { id: 'j1b', orderId: 'o1', status: 'sedang_dikerjakan', unit: { brand: 'LG', model: null, roomLocation: null } },
+          { id: 'j2', orderId: 'o2', status: 'selesai', unit: { brand: 'Sharp', model: null, roomLocation: null } },
+        ]),
+      },
+    };
+    return { svc: new SettlementsService(prisma, {} as any, {} as any), prisma };
+  }
+
+  it('hanya pembayaran aktif (dipegang / menunggu cocok), tertua dulu', async () => {
+    const { svc, prisma } = make();
+    await svc.outstanding();
+    expect(prisma.fieldPayment.findMany.mock.calls[0][0]).toMatchObject({
+      where: { status: { in: ['dipegang_teknisi', 'menunggu_cocok'] } },
+      orderBy: { createdAt: 'asc' },
+    });
+  });
+
+  it('tiap pembayaran membawa job utama order (job pertama yang tidak dibatalkan), statusnya, dan ringkasan unit', async () => {
+    const { svc } = make();
+    const r = await svc.outstanding();
+    const p1 = r.items.find((i) => i.paymentId === 'p1')!;
+    expect(p1).toMatchObject({
+      orderId: 'o1', jobId: 'j1', jobStatus: 'menunggu_review', unitCount: 2,
+      unitLabel: 'Daikin DUMMY (Kamar) +1 unit', customerName: 'Pelanggan o1', invoiceNumber: 'INV-o1',
+      method: 'tunai', amount: 100000, status: 'dipegang_teknisi', technician: { id: 't1', displayName: 'Budi' }, ageDays: 2,
+    });
+    // dua pembayaran satu order menunjuk ke job yang sama
+    expect(r.items.find((i) => i.paymentId === 'p2')!.jobId).toBe('j1');
+    expect(r.items.find((i) => i.paymentId === 'p3')).toMatchObject({ jobId: 'j2', jobStatus: 'selesai', unitCount: 1, unitLabel: 'Sharp' });
+  });
+
+  it('ringkasan per teknisi: total tunai dipegang, total menunggu cocok, jumlah order', async () => {
+    const { svc } = make();
+    const r = await svc.outstanding();
+    // urut menurut nama teknisi
+    expect(r.technicians).toEqual([
+      { technicianId: 't2', displayName: 'Ani', heldTotal: 85000, awaitingTotal: 0, orderCount: 1, paymentCount: 1 },
+      { technicianId: 't1', displayName: 'Budi', heldTotal: 100000, awaitingTotal: 30000, orderCount: 1, paymentCount: 2 },
+    ]);
+  });
+});
+
+describe('SettlementsService.pending — tautan ke job', () => {
+  it('tiap pembayaran tunai membawa job utama order untuk membuka laporan pekerjaannya', async () => {
+    // memakai fake yang sama dengan blok pending di atas
+    const { svc } = (() => {
+      const prisma: any = {
+        user: { findUnique: jest.fn(async () => ({ id: 't1', displayName: 'Budi', role: 'teknisi' })) },
+        fieldPayment: {
+          findMany: jest.fn(async () => [
+            { id: 'p1', orderId: 'o1', receiptNumber: 'TT-1', amount: '100000', method: 'tunai', proofUrl: null, receiptChannel: null, source: 'app', createdAt: new Date(), invoice: { number: 'INV-1', customerName: 'Bu Sari' } },
+          ]),
+        },
+        technicianCashEntry: { aggregate: jest.fn(async () => ({ _sum: { amount: 0 } })) },
+        technicianJob: { findMany: jest.fn(async () => [{ id: 'j1', orderId: 'o1', status: 'menunggu_review', unit: { brand: 'Daikin', model: null, roomLocation: null } }]) },
+        materialRequest: { findMany: jest.fn(async () => []) },
+      };
+      return { svc: new SettlementsService(prisma, {} as any, {} as any) };
+    })();
+    const r = await svc.pending('t1');
+    expect(r.payments[0]).toMatchObject({ jobId: 'j1', jobStatus: 'menunggu_review', unitLabel: 'Daikin' });
   });
 });

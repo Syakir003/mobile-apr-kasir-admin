@@ -41,6 +41,12 @@ export class SettlementsController {
     return this.settlements.repay(dto, user.sub);
   }
 
+  // Semua pembayaran lapangan yang belum terverifikasi + ringkasan per teknisi (tab Setoran Teknisi di Antrian Servis).
+  @Get('settlements/outstanding')
+  outstanding() {
+    return this.settlements.outstanding();
+  }
+
   @Get('settlements/technician-cash')
   technicianCash() {
     return this.settlements.technicianCash();
