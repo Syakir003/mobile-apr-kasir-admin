@@ -3,6 +3,7 @@
 import { UnitPartsList, hasUnitParts, type UnitPartProduct } from '@/components/ac-unit-parts';
 import * as React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, CheckCircle2, ChevronDown, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
@@ -502,13 +503,7 @@ export function JobDetailClient({
     <div className="grid gap-6">
       {!embedded && (
         <div>
-          <Link
-            href="/teknisi/queue"
-            className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Kembali
-          </Link>
+          <BackLink setoranMode={showSetoranPanel} />
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">
               {job.member?.name || (job.unit ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC' : 'Job servis')}
@@ -1035,13 +1030,7 @@ function MultiUnitJobView({ job, role, setoranMode }: { job: JobDetail; role: Ro
   return (
     <div className="grid gap-6">
       <div>
-        <Link
-          href="/teknisi/queue"
-          className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Kembali
-        </Link>
+        <BackLink setoranMode={showSetoranPanel} />
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{job.member?.name || 'Servis banyak unit AC'}</h1>
           <Badge variant="secondary">{entries.length} unit AC</Badge>
@@ -1388,6 +1377,30 @@ function MultiUnitJobView({ job, role, setoranMode }: { job: JobDetail; role: Ro
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Tombol Kembali ke halaman asal job dibuka (antrian, dasbor, riwayat unit, dst.) lewat riwayat browser. Dari tab Setoran
+ * Teknisi (mode setoran) tujuannya tetap tab itu, karena pindah tab tidak mengubah URL. Tanpa riwayat (tab baru, tautan
+ * langsung) kembali ke antrian.
+ */
+function BackLink({ setoranMode }: { setoranMode: boolean }) {
+  const router = useRouter();
+  return (
+    <Link
+      href={setoranMode ? '/teknisi/queue?tab=setoran' : '/teknisi/queue'}
+      onClick={(e) => {
+        if (!setoranMode && window.history.length > 1) {
+          e.preventDefault();
+          router.back();
+        }
+      }}
+      className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+    >
+      <ArrowLeft className="size-4" />
+      Kembali
+    </Link>
   );
 }
 
