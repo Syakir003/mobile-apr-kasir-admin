@@ -192,6 +192,26 @@ describe('SettlementsService.verify / reject (non-tunai)', () => {
   });
 });
 
+describe('SettlementsService — kunci baris teknisi & timeout', () => {
+  it('baris teknisi dikunci FOR NO KEY UPDATE (tidak bentrok dengan FK share-lock transaksi lain)', async () => {
+    const { svc, tx } = setup({ saldo: 30000 });
+    await svc.repay({ technicianId: 't1', amount: 10000 }, 'a1');
+    const sql = (tx.$executeRaw.mock.calls[0][0] as string[]).join('?');
+    expect(sql).toContain('FROM users');
+    expect(sql).toContain('FOR NO KEY UPDATE');
+    const s = setup();
+    await s.svc.settle({ ...base, receivedTotal: 140000, mode: 'catat_kurang' }, 'a1');
+    const users = s.tx.$executeRaw.mock.calls.map((c: any) => (c[0] as string[]).join('?')).find((q: string) => q.includes('FROM users'));
+    expect(users).toContain('FOR NO KEY UPDATE');
+  });
+
+  it('transaksi setoran diberi timeout eksplisit (banyak pembayaran = banyak query)', async () => {
+    const { svc, prisma } = setup();
+    await svc.settle(base, 'a1');
+    expect(prisma.$transaction.mock.calls[0][1]).toEqual({ timeout: 20000 });
+  });
+});
+
 describe('SettlementsService.repay — pelunasan kekurangan setor', () => {
   it('mencatat pelunasan (negatif) dan mengunci baris teknisi', async () => {
     const { svc, tx } = setup({ saldo: 30000 });

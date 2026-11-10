@@ -44,6 +44,10 @@ export class SystemResetService {
         await del(tx, 'invoiceAdjustment', (t) => t.invoiceAdjustment.deleteMany());
         // Pembayaran lapangan teknisi menunjuk ke order servis, invoice, dan user (FK RESTRICT) -> hapus sebelum ketiganya.
         await del(tx, 'fieldPayment', (t) => t.fieldPayment.deleteMany());
+        // Buku besar uang teknisi (saldo kurang setor, selisih ditutup alasan, kelebihan pelanggan) dan setoran harian ikut
+        // dihapus, kalau tidak saldo hantu tetap muncul di laporan Uang di Teknisi. Buku besar menunjuk ke setoran, jadi lebih dulu.
+        await del(tx, 'technicianCashEntry', (t) => t.technicianCashEntry.deleteMany());
+        await del(tx, 'cashSettlement', (t) => t.cashSettlement.deleteMany());
         await del(tx, 'manualPayment', (t) => t.manualPayment.deleteMany());
         await del(tx, 'materialRequest', (t) => t.materialRequest.deleteMany());
         await del(tx, 'jobServiceLine', (t) => t.jobServiceLine.deleteMany());

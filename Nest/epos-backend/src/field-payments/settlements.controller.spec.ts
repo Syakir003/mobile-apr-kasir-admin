@@ -47,6 +47,12 @@ describe('SettlementsController', () => {
     expect(settlements.awaiting).toHaveBeenCalled();
   });
 
+  it('pending tanpa technicianId: 400 jelas (bukan galat Prisma)', () => {
+    const { ctrl, settlements } = make();
+    expect(() => ctrl.pending(undefined as unknown as string, undefined)).toThrow('technicianId wajib');
+    expect(settlements.pending).not.toHaveBeenCalled();
+  });
+
   it('tanggal kosong diteruskan sebagai undefined (hari ini)', async () => {
     const { ctrl, settlements } = make();
     await ctrl.pending('t1', '');

@@ -110,7 +110,9 @@ export class SettlementsService {
 
   /** Setoran tunai: verifikasi pembayaran yang dicentang, bandingkan dengan uang diterima, catat selisihnya. */
   async settle(dto: SettleDto, adminId: string) {
-    return this.prisma.$transaction(async (tx) => {
+    // Banyak pembayaran = banyak query dalam satu transaksi interaktif; bawaan Prisma 5 detik bisa terlewati bila DB jauh.
+    return this.prisma.$transaction(
+      async (tx) => {
       const first = await tx.fieldPayment.findMany({ where: { id: { in: dto.paymentIds } } });
       if (first.length !== new Set(dto.paymentIds).size) throw new BadRequestException('Ada pembayaran yang tidak ditemukan');
 
@@ -148,7 +150,7 @@ export class SettlementsService {
         }
         mode = dto.mode;
         // Buku besar teknisi diubah: serialkan dengan pelunasan lain atas teknisi yang sama.
-        await tx.$executeRaw`SELECT id FROM users WHERE id = ${dto.technicianId} FOR UPDATE`;
+        await tx.$executeRaw`SELECT id FROM users WHERE id = ${dto.technicianId} FOR NO KEY UPDATE`;
       }
 
       const settlement = await tx.cashSettlement.create({
@@ -230,13 +232,15 @@ export class SettlementsService {
         results,
         saldo: await ledgerBalance(tx, dto.technicianId),
       };
-    });
+      },
+      { timeout: 20000 },
+    );
   }
 
   /** Teknisi melunasi kekurangan setor belakangan (mengurangi saldo; tidak boleh melebihi saldo). */
   async repay(dto: RepayDto, adminId: string) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT id FROM users WHERE id = ${dto.technicianId} FOR UPDATE`;
+      await tx.$executeRaw`SELECT id FROM users WHERE id = ${dto.technicianId} FOR NO KEY UPDATE`;
       const saldo = await ledgerBalance(tx, dto.technicianId);
       if (saldo <= 0) throw new BadRequestException('Teknisi ini tidak punya saldo kurang setor');
       if (dto.amount > saldo) {

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -25,6 +25,7 @@ export class SettlementsController {
   // Bahan layar Setoran satu teknisi: tunai yang dipegang, total seharusnya, saldo, sparepart yang harus kembali.
   @Get('settlements/pending')
   pending(@Query('technicianId') technicianId: string, @Query('date') date?: string) {
+    if (!technicianId) throw new BadRequestException('technicianId wajib diisi');
     return this.settlements.pending(technicianId, date || undefined);
   }
 

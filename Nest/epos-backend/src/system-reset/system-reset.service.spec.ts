@@ -54,6 +54,18 @@ describe('SystemResetService — urutan hapus aman foreign key', () => {
     },
   );
 
+  it.each(['transaksi', 'transaksi_pelanggan', 'total'] as ResetScope[])(
+    '%s: setoran dan buku besar uang teknisi ikut dihapus (tidak ada saldo hantu), FK setoran bebas dulu',
+    async (scope) => {
+      const order = await run(scope);
+      expect(order).toContain('technicianCashEntry');
+      expect(order).toContain('cashSettlement');
+      // buku besar menunjuk ke setoran; pembayaran lapangan menunjuk ke setoran: keduanya dihapus lebih dulu
+      expect(order.indexOf('technicianCashEntry')).toBeLessThan(order.indexOf('cashSettlement'));
+      expect(order.indexOf('fieldPayment')).toBeLessThan(order.indexOf('cashSettlement'));
+    },
+  );
+
   it('transaksi saja: pelanggan, unit AC, dan koreksi tidak disentuh', async () => {
     const order = await run('transaksi');
     expect(order).not.toContain('acUnitCorrection');
