@@ -610,14 +610,6 @@ export function JobDetailClient({
           {/* Job komplain tidak ditagih: tidak ada harga jasa untuk ditetapkan. */}
           {(isAdmin || role === 'kasir') && !embedded && !job.complaintOfJobId && <ServicePricingCard jobId={job.id} />}
 
-          {/* Teknisi: harga jasa dari admin (bisa disesuaikan di lokasi) dan pembayaran yang diterima di lokasi. */}
-          {isTeknisi && !embedded && !job.complaintOfJobId && job.type !== 'pemasangan' && (
-            <TechnicianPriceCard jobId={job.id} canEdit={['assigned', 'sedang_dikerjakan'].includes(job.status)} />
-          )}
-          {!embedded && !job.complaintOfJobId && job.type !== 'pemasangan' && (
-            <FieldPaymentCard jobId={job.id} role={role} jobStatus={job.status} technicians={job.technicians} />
-          )}
-
           {/* Pengajuan sparepart tambahan — backend (material-requests
               module) udah lama ada & dipakai app mobile teknisi lama,
               sebelumnya belum ada UI-nya sama sekali di web (cuma teks
@@ -647,6 +639,15 @@ export function JobDetailClient({
                 {canEditFindings && <AddMaterialRequestForm jobId={job.id} />}
               </CardContent>
             </Card>
+          )}
+
+          {/* Harga jasa (teknisi) dan pembayaran di lokasi ditaruh SETELAH pengajuan sparepart: total tagihan baru final
+              begitu sparepart diputuskan dan dilaporkan terpakai, dan pembayaran baru bisa dicatat sesudahnya. */}
+          {isTeknisi && !embedded && !job.complaintOfJobId && job.type !== 'pemasangan' && (
+            <TechnicianPriceCard jobId={job.id} canEdit={['assigned', 'sedang_dikerjakan'].includes(job.status)} />
+          )}
+          {!embedded && !job.complaintOfJobId && job.type !== 'pemasangan' && (
+            <FieldPaymentCard jobId={job.id} role={role} jobStatus={job.status} technicians={job.technicians} />
           )}
 
           {/* Keterangan: paling bawah, sebelum Ajukan Selesai. */}
@@ -1139,18 +1140,6 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
               (job pertama yang belum dibatalkan); id job mana pun di order ini menunjuk ke sana. */}
           {(isAdmin || role === 'kasir') && !job.complaintOfJobId && <ServicePricingCard jobId={job.id} />}
 
-          {isTeknisi && !job.complaintOfJobId && (
-            <TechnicianPriceCard jobId={job.id} canEdit={jobs.some((j) => ['assigned', 'sedang_dikerjakan'].includes(j.status))} />
-          )}
-          {!job.complaintOfJobId && (
-            <FieldPaymentCard
-              jobId={working[0]?.id ?? job.id}
-              role={role}
-              jobStatus={working.length > 0 ? 'sedang_dikerjakan' : job.status}
-              technicians={job.technicians}
-            />
-          )}
-
           {/* Pengajuan sparepart: SATU untuk seluruh job (tidak dipisah per AC). Secara data melekat pada unit aktif
               pertama; daftar di sini menggabungkan pengajuan semua unit. */}
           <Card>
@@ -1168,6 +1157,19 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
               {isTeknisi && requestJob && <AddMaterialRequestForm jobId={requestJob.id} />}
             </CardContent>
           </Card>
+
+          {/* Harga jasa (teknisi) dan pembayaran di lokasi: setelah pengajuan sparepart (total baru final sesudahnya). */}
+          {isTeknisi && !job.complaintOfJobId && (
+            <TechnicianPriceCard jobId={job.id} canEdit={jobs.some((j) => ['assigned', 'sedang_dikerjakan'].includes(j.status))} />
+          )}
+          {!job.complaintOfJobId && (
+            <FieldPaymentCard
+              jobId={working[0]?.id ?? job.id}
+              role={role}
+              jobStatus={working.length > 0 ? 'sedang_dikerjakan' : job.status}
+              technicians={job.technicians}
+            />
+          )}
 
           {/* Keterangan: paling bawah, sebelum Ajukan Selesai (satu untuk seluruh order). */}
           {isTeknisi && <KeteranganCard keterangan={keterangan} editable={keteranganEditable} />}
