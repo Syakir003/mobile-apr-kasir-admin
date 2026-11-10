@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { computeInvoiceStatus } from '../common/invoice-status.util';
 import { RecordPaymentDto } from './dto/record-payment.dto';
 import { ShiftsService } from '../shifts/shifts.service';
+import { ACTIVE_FIELD_PAYMENT_STATUSES } from '../field-payments/field-payment.constants';
 
 /**
  * Port dari record_payment RPC (definisi ulang di payment_approval_photo_rules.sql).
@@ -36,9 +37,19 @@ export class PaymentsService {
       }
       const grand = Number(inv.grand_total);
       const paid = Number(inv.total_paid);
+      // Uang yang sudah dicatat teknisi di lokasi (belum diverifikasi) sudah "tertagih": jangan dibayar dua kali.
+      const fieldActive = await tx.fieldPayment.aggregate({
+        where: { invoiceId, status: { in: [...ACTIVE_FIELD_PAYMENT_STATUSES] } },
+        _sum: { amount: true },
+      });
+      const pendingField = Number(fieldActive._sum.amount ?? 0);
       const remaining = grand - paid;
-      if (dto.amount > remaining) {
-        throw new BadRequestException('Melebihi sisa tagihan');
+      if (dto.amount > remaining - pendingField) {
+        throw new BadRequestException(
+          pendingField > 0
+            ? `Melebihi sisa tagihan: Rp ${pendingField.toLocaleString('id-ID')} sudah dicatat teknisi dan menunggu setoran`
+            : 'Melebihi sisa tagihan',
+        );
       }
 
       const payment = await tx.manualPayment.create({

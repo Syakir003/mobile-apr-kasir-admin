@@ -334,6 +334,12 @@ export class ServicePricingService {
       if (!owner.billingDerived || !order?.invoiceId) {
         throw new BadRequestException('Harga jasa belum ditetapkan admin, jadi belum bisa disesuaikan');
       }
+      // Tanda Terima sudah terbit (pembayaran lapangan tercatat, belum ditolak): jasa dikunci supaya nominal tidak berbeda dari
+      // bukti yang dipegang pelanggan. Koreksi selanjutnya hanya oleh admin.
+      const fieldPaid = await tx.fieldPayment.count({ where: { orderId: owner.orderId, status: { not: 'ditolak' } } });
+      if (fieldPaid > 0) {
+        throw new BadRequestException('Pembayaran sudah dicatat dan Tanda Terima sudah terbit, jasa tidak bisa disesuaikan lagi. Hubungi admin untuk koreksi.');
+      }
 
       // Susun daftar baru + validasi aturan per baris.
       const existing = new Map(owner.serviceLines.map((l) => [l.id, l]));

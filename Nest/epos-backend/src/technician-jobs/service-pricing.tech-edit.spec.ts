@@ -82,7 +82,7 @@ const bongkar: Line = { id: 'l2', jobId: 'j1', serviceId: null, name: 'Bongkar p
 
 function setupEdit(over: {
   status?: string; type?: string; complaintOfJobId?: string | null; assignee?: boolean; billingDerived?: boolean;
-  invoiceId?: string | null; lines?: Line[]; editedAt?: Date | null; ownerStatus?: string;
+  invoiceId?: string | null; lines?: Line[]; editedAt?: Date | null; ownerStatus?: string; fieldPayments?: number;
 } = {}) {
   const lines = over.lines ?? [cuci];
   const owner = {
@@ -106,6 +106,7 @@ function setupEdit(over: {
       update: jest.fn(async () => ({})),
     },
     serviceOrder: { findUnique: jest.fn(async () => ({ id: 'o1', invoiceId: over.invoiceId === undefined ? 'inv1' : over.invoiceId })) },
+    fieldPayment: { count: jest.fn(async () => over.fieldPayments ?? 0) },
     jobServiceLine: { delete: jest.fn(async () => ({})), update: jest.fn(async () => ({})), create: jest.fn(async () => ({})) },
     service: { findUnique: jest.fn(async ({ where }: any) => services[where.id] ?? null) },
     user: { findUnique: jest.fn(async () => ({ displayName: 'Budi' })) },
@@ -189,6 +190,7 @@ describe('ServicePricingService.techEditLines — penyesuaian jasa oleh teknisi'
     ['pemegang harga sudah selesai', () => setupEdit({ ownerStatus: 'selesai' }), { lines: [{ id: 'l1', qty: 3 }], reason: alasan }, 'setelah job selesai'],
     ['job komplain', () => setupEdit({ complaintOfJobId: 'j0' }), { lines: [{ id: 'l1', qty: 3 }], reason: alasan }, 'komplain'],
     ['pemasangan', () => setupEdit({ type: 'pemasangan' }), { lines: [{ id: 'l1', qty: 3 }], reason: alasan }, 'pemasangan'],
+    ['pembayaran lapangan sudah tercatat (Tanda Terima beredar)', () => setupEdit({ fieldPayments: 1 }), { lines: [{ id: 'l1', qty: 3 }], reason: alasan }, 'Tanda Terima'],
   ];
   it.each(tolak)('ditolak 400: %s (tidak ada yang ditulis)', async (_nama, make, dto, pesan) => {
     const { svc, tx, billing } = make();
@@ -198,6 +200,12 @@ describe('ServicePricingService.techEditLines — penyesuaian jasa oleh teknisi'
     expect(tx.jobServiceLine.create).not.toHaveBeenCalled();
     expect(tx.jobServiceLine.delete).not.toHaveBeenCalled();
     expect(billing.rebuild).not.toHaveBeenCalled();
+  });
+
+  it('kunci edit: pembayaran lapangan yang ditolak admin tidak mengunci; selain itu mengunci', async () => {
+    const { svc, tx } = setupEdit();
+    await svc.techEditLines('j1', { lines: [{ id: 'l1', qty: 3 }], reason: alasan }, 't1');
+    expect(tx.fieldPayment.count).toHaveBeenCalledWith({ where: { orderId: 'o1', status: { not: 'ditolak' } } });
   });
 
   it('bukan assignee job: 403', async () => {

@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { InvoiceStatus, Prisma, TechnicianJobStatus } from '@prisma/client';
+import { ACTIVE_FIELD_PAYMENT_STATUSES } from '../field-payments/field-payment.constants';
 
 type Tx = Prisma.TransactionClient;
 interface JobRef {
@@ -49,6 +50,14 @@ export async function assertLastJobCancelAllowed(tx: Tx, job: JobRef): Promise<v
   if (inv && Number(inv.total_paid) > 0) {
     throw new BadRequestException(
       'Invoice order ini sudah punya pembayaran, jadi job terakhirnya tidak bisa dibatalkan (sistem belum punya refund). Selesaikan job-nya, atau tunggu fitur refund.',
+    );
+  }
+  const heldPayments = await tx.fieldPayment.count({
+    where: { orderId: job.orderId, status: { in: [...ACTIVE_FIELD_PAYMENT_STATUSES] } },
+  });
+  if (heldPayments > 0) {
+    throw new BadRequestException(
+      'Order ini punya pembayaran lapangan yang belum diverifikasi (uang yang dipegang teknisi / menunggu dicocokkan), jadi job terakhirnya tidak bisa dibatalkan. Selesaikan setorannya dulu.',
     );
   }
 }

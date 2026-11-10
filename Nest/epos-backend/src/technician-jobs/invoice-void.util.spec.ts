@@ -8,12 +8,15 @@ const job = { id: 'j1', orderId: 'o1', type: 'perbaikan' };
 
 type InvoiceRow = { total_paid: string; status: string; grand_total?: string };
 
-function fakeTx(over: { invoiceId?: string | null; otherActive?: number; invoice?: InvoiceRow | null } = {}) {
+function fakeTx(
+  over: { invoiceId?: string | null; otherActive?: number; invoice?: InvoiceRow | null; activeFieldPayments?: number } = {},
+) {
   const invoiceId = over.invoiceId === undefined ? 'inv1' : over.invoiceId;
   const invoice = over.invoice === undefined ? { total_paid: '0', status: 'lunas' } : over.invoice;
   return {
     serviceOrder: { findUnique: jest.fn(async () => ({ invoiceId })) },
     technicianJob: { count: jest.fn(async () => over.otherActive ?? 0) },
+    fieldPayment: { count: jest.fn(async () => over.activeFieldPayments ?? 0) },
     $executeRaw: jest.fn(async () => 1),
     $queryRaw: jest.fn(async () => (invoice ? [{ id: 'inv1', grand_total: '0', ...invoice }] : [])),
     invoice: { update: jest.fn(async () => ({})) },
@@ -148,6 +151,19 @@ describe('assertLastJobCancelAllowed', () => {
 
   it('belum ada pembayaran: lolos', async () => {
     await expect(assertLastJobCancelAllowed(fakeTx(), job)).resolves.toBeUndefined();
+  });
+
+  it('job terakhir + ada pembayaran lapangan aktif (uang di teknisi / menunggu dicocokkan): ditolak', async () => {
+    const tx = fakeTx({ activeFieldPayments: 1 });
+    await expect(assertLastJobCancelAllowed(tx, job)).rejects.toThrow('uang yang dipegang teknisi');
+    expect(tx.fieldPayment.count).toHaveBeenCalledWith({
+      where: { orderId: 'o1', status: { in: ['dipegang_teknisi', 'menunggu_cocok'] } },
+    });
+  });
+
+  it('bukan job terakhir: pembayaran lapangan aktif tidak menghalangi', async () => {
+    const tx = fakeTx({ otherActive: 1, activeFieldPayments: 1 });
+    await expect(assertLastJobCancelAllowed(tx, job)).resolves.toBeUndefined();
   });
 
   it('pemasangan tidak diperiksa dan tidak mengunci apa pun', async () => {
