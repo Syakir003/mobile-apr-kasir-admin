@@ -173,6 +173,9 @@ const TYPE_META: Record<string, { label: string; icon: LucideIcon; className: st
   cuci: { label: 'Cuci AC', icon: Droplets, className: 'border-primary/25 bg-primary/10 text-primary' },
   maintenance: { label: 'Maintenance', icon: SlidersHorizontal, className: 'border bg-muted text-foreground' },
   pemasangan: { label: 'Pemasangan', icon: Hammer, className: 'border bg-secondary text-secondary-foreground' },
+  bongkar: { label: 'Bongkar AC', icon: Hammer, className: 'border bg-secondary text-secondary-foreground' },
+  pasang: { label: 'Pasang AC', icon: Hammer, className: 'border bg-secondary text-secondary-foreground' },
+  bongkar_pasang: { label: 'Bongkar Pasang AC', icon: Hammer, className: 'border bg-secondary text-secondary-foreground' },
 };
 const typeMeta = (type: string) =>
   TYPE_META[type] ?? { label: type, icon: Wrench, className: 'border bg-muted text-foreground' };

@@ -1404,8 +1404,9 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   maintenance: 'Maintenance',
   service: 'Servis',
   perbaikan: 'Perbaikan',
-  bongkar: 'Bongkar',
-  bongkar_pasang: 'Bongkar pasang',
+  bongkar: 'Bongkar AC',
+  pasang: 'Pasang AC',
+  bongkar_pasang: 'Bongkar Pasang AC',
 };
 function jobTypeLabel(type: string): string {
   return JOB_TYPE_LABEL[type] ?? type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ');

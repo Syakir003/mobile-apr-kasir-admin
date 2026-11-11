@@ -28,6 +28,9 @@ const TYPE_OPTIONS = [
   { value: 'perbaikan', label: 'Perbaikan' },
   { value: 'cuci', label: 'Cuci AC' },
   { value: 'maintenance', label: 'Maintenance' },
+  { value: 'bongkar', label: 'Bongkar AC' },
+  { value: 'pasang', label: 'Pasang AC' },
+  { value: 'bongkar_pasang', label: 'Bongkar Pasang AC' },
 ] as const;
 
 export interface EditableOrderJob {

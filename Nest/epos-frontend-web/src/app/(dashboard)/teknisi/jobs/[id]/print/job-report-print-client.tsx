@@ -69,6 +69,8 @@ function reportTypeLabel(type: string): string {
       return 'Maintenance';
     case 'bongkar':
       return 'Bongkar';
+    case 'pasang':
+      return 'Pasang AC';
     case 'bongkar_pasang':
       return 'Bongkar Pasang';
     default:

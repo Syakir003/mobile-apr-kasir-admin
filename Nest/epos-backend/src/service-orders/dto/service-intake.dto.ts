@@ -75,7 +75,7 @@ export class IntakeLocationDto {
 }
 
 /** Jenis pekerjaan yang bisa dipilih di form Terima Servis (pemasangan berasal dari POS, tidak ditawarkan di sini). */
-export const INTAKE_JOB_TYPES = ['perbaikan', 'cuci', 'maintenance'] as const;
+export const INTAKE_JOB_TYPES = ['perbaikan', 'cuci', 'maintenance', 'bongkar', 'pasang', 'bongkar_pasang'] as const;
 export type IntakeJobType = (typeof INTAKE_JOB_TYPES)[number];
 
 export class ServiceIntakeDto {

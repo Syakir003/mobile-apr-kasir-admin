@@ -29,7 +29,7 @@ export class UpdateServiceOrderDto {
 
   // Pemasangan berasal dari POS (ditagih lewat invoice POS), jadi tidak bisa dipilih/diganti di sini.
   @IsOptional()
-  @IsIn(INTAKE_JOB_TYPES, { message: 'Jenis pekerjaan hanya perbaikan, cuci, atau maintenance' })
+  @IsIn(INTAKE_JOB_TYPES, { message: 'Jenis pekerjaan hanya perbaikan, cuci, maintenance, bongkar, pasang, atau bongkar pasang' })
   jobType?: IntakeJobType;
 
   // Note Pekerjaan (deskripsi pekerjaan); kosong/spasi = hapus.
