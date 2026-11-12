@@ -15,6 +15,7 @@ const _adminOnlyPrefixes = [
   // Memutuskan pengajuan material: admin saja (sama dengan backend PATCH /material-requests/:id/decide).
   '/pengajuan',
   '/koreksi-unit',
+  '/data-lampau',
   // Layar antrean '/pengingat' boleh kasir; hanya pengaturan siklus servisnya
   // yang admin-only, sesuai RPC `save_reminder_settings`.
   '/pengingat/pengaturan',

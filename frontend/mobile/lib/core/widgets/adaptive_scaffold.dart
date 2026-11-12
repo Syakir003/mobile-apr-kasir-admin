@@ -93,6 +93,7 @@ List<Destination> destinationsForRole(UserRole? role) {
       job,
       (icon: Icons.playlist_add_check_outlined, label: 'Pengajuan', route: '/pengajuan'),
       (icon: Icons.rule_folder_outlined, label: 'Koreksi Unit', route: '/koreksi-unit'),
+      (icon: Icons.history_edu_outlined, label: 'Data Lampau', route: '/data-lampau'),
       pengingat,
       voucher,
       undian,
