@@ -19,6 +19,7 @@ import '../../data/models/technician_job.dart';
 import '../pos/cart_state.dart' show formatRupiah;
 import '../members/unit_label_pdf.dart';
 import 'add_unit_sheet.dart';
+import 'complaint_sheet.dart';
 import 'job_list_screen.dart' show jobStatusColor;
 import 'job_providers.dart';
 import 'job_report_pdf.dart';
@@ -437,6 +438,12 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               ),
               const SizedBox(height: 20),
               ..._actions(job, role, findings),
+              if (role == UserRole.admin)
+                ComplaintButton(
+                  anchorJobId: job.id,
+                  jobs: [job],
+                  onCreated: (id) => context.push('/jobs/$id'),
+                ),
             ],
           );
         },
@@ -632,6 +639,12 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           if (addUnitHost != null) _addUnitButton(addUnitHost),
         ] else if (active.isNotEmpty)
           _StatusHint(status: active.first.status),
+        if (role == UserRole.admin)
+          ComplaintButton(
+            anchorJobId: first.id,
+            jobs: all,
+            onCreated: (id) => context.push('/jobs/$id'),
+          ),
       ],
     );
   }
