@@ -27,7 +27,9 @@ import '../../features/reports/laporan_rinci_screen.dart';
 import '../../features/reports/laporan_screen.dart';
 import '../../features/keluar_gudang/keluar_gudang_screen.dart';
 import '../../features/stock/stock_adjust_screen.dart';
+import '../../features/stock/stock_detail_screen.dart';
 import '../../features/stock/stock_opname_screen.dart';
+import '../../features/stock/stock_providers.dart' show StockRow;
 import '../../features/stock/stok_screen.dart';
 import '../../features/master/package/package_form_screen.dart';
 import '../../features/master/package/package_list_screen.dart';
@@ -292,6 +294,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'adjust',
                 builder: (_, __) => const StockAdjustScreen(),
+              ),
+              GoRoute(
+                path: 'detail',
+                builder: (_, state) {
+                final row = state.extra;
+                return row is StockRow
+                    ? StockDetailScreen(row: row)
+                    : const StokScreen(); // dibuka tanpa barang (mis. refresh browser): kembali ke daftar stok
+                },
               ),
               GoRoute(
                 path: 'opname',

@@ -60,17 +60,25 @@ class _StokScreenState extends ConsumerState<StokScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Row(
               children: [
-                AppFilterChip(label: 'Stok', selected: _tab == 0, onTap: () => setState(() => _tab = 0)),
+                AppFilterChip(
+                    label: 'Stok',
+                    selected: _tab == 0,
+                    onTap: () => setState(() => _tab = 0)),
                 const SizedBox(width: 8),
-                AppFilterChip(label: 'Mutasi', selected: _tab == 1, onTap: () => setState(() => _tab = 1)),
+                AppFilterChip(
+                    label: 'Mutasi',
+                    selected: _tab == 1,
+                    onTap: () => setState(() => _tab = 1)),
               ],
             ),
           ),
           Expanded(
             child: async.when(
               loading: () => const AppSkeletonList(),
-              error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat stok'),
-              data: (d) => _tab == 0 ? _stockList(d) : _movementList(d.movements),
+              error: (e, _) =>
+                  AppErrorState(error: e, title: 'Gagal memuat stok'),
+              data: (d) =>
+                  _tab == 0 ? _stockList(d) : _movementList(d.movements),
             ),
           ),
         ],
@@ -154,7 +162,8 @@ class _StokScreenState extends ConsumerState<StokScreen> {
           child: Row(
             children: [
               Icon(masuk ? Icons.arrow_downward : Icons.arrow_upward,
-                  size: 18, color: masuk ? AppColors.success : AppColors.danger),
+                  size: 18,
+                  color: masuk ? AppColors.success : AppColors.danger),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -221,8 +230,8 @@ class _StockGroup extends StatelessWidget {
                       color: AppColors.slate900)),
               const SizedBox(width: 8),
               Text('${rows.length}',
-                  style: const TextStyle(
-                      fontSize: 13, color: AppColors.slate400)),
+                  style:
+                      const TextStyle(fontSize: 13, color: AppColors.slate400)),
             ],
           ),
         ),
@@ -237,7 +246,8 @@ class _StockGroup extends StatelessWidget {
             children: [
               for (var i = 0; i < rows.length; i++) ...[
                 if (i > 0)
-                  const Divider(height: 1, indent: 40, color: AppColors.slate100),
+                  const Divider(
+                      height: 1, indent: 40, color: AppColors.slate100),
                 _StockRowTile(row: rows[i]),
               ],
             ],
@@ -259,49 +269,53 @@ class _StockRowTile extends StatelessWidget {
       StockLevel.menipis => (AppColors.warning, 'Menipis'),
       StockLevel.aman => (AppColors.success, 'Aman'),
     };
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-      child: Row(
-        children: [
-          Semantics(
-            label: label,
-            child: Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(row.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w500,
-                    height: 1.3,
-                    color: AppColors.slate900)),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                _StokScreenState._n(row.stock),
-                style: AppTextStyles.monoAmount.copyWith(
-                  fontSize: 16,
-                  height: 1.2,
-                  color: row.level == StockLevel.aman
-                      ? AppColors.slate900
-                      : color,
-                ),
+    return InkWell(
+      key: Key('stock-row-${row.id}'),
+      onTap: () => context.go('/stok/detail', extra: row),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        child: Row(
+          children: [
+            Semantics(
+              label: label,
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
               ),
-              if (row.min != null)
-                Text('min ${_StokScreenState._n(row.min!)}',
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.slate400)),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(row.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      height: 1.3,
+                      color: AppColors.slate900)),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  _StokScreenState._n(row.stock),
+                  style: AppTextStyles.monoAmount.copyWith(
+                    fontSize: 16,
+                    height: 1.2,
+                    color: row.level == StockLevel.aman
+                        ? AppColors.slate900
+                        : color,
+                  ),
+                ),
+                if (row.min != null)
+                  Text('min ${_StokScreenState._n(row.min!)}',
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.slate400)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
