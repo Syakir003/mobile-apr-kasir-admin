@@ -45,6 +45,13 @@ final recordPaymentCallerProvider =
   };
 });
 
+/// `POST /invoices/:id/send-whatsapp` — kirim tautan struk ke WhatsApp pelanggan (teks disusun backend).
+final sendInvoiceWhatsappProvider = Provider<Future<void> Function(String invoiceId)>((ref) {
+  return (id) async {
+    await const ApiClient().post('/invoices/$id/send-whatsapp');
+  };
+});
+
 /// Dipisah dari [recordPaymentCallerProvider] agar testable tanpa jaringan — [post] adalah `ApiClient.post` sungguhan atau fake pada
 /// test. [payload] masih memakai bentuk lama yang dibuat
 /// `payment_form_sheet.dart` (`invoiceId` di dalamnya); [buildRecordPaymentBody]

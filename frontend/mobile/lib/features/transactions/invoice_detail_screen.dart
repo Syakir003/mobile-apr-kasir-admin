@@ -75,6 +75,22 @@ class InvoiceDetailScreen extends ConsumerWidget {
               SizedBox(
                 height: 50,
                 child: OutlinedButton.icon(
+                  key: const Key('send-wa'),
+                  onPressed: invoice.customerPhone.isEmpty ? null : () => _sendWhatsapp(context, ref, invoice),
+                  icon: const Icon(Icons.chat_outlined),
+                  label: const Text('Kirim WA'),
+                ),
+              ),
+              if (invoice.customerPhone.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text('Isi nomor HP pelanggan dulu untuk kirim WA.',
+                      style: TextStyle(fontSize: 12, color: AppColors.slate600)),
+                ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 50,
+                child: OutlinedButton.icon(
                   key: const Key('print-receipt'),
                   // `layoutPdf` menyelesaikan future-nya tanpa memberi tanda
                   // apa pun bila dialog cetak diblokir browser, sehingga dulu
@@ -109,6 +125,29 @@ class InvoiceDetailScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+}
+
+/// Konfirmasi lalu kirim tautan struk ke WhatsApp pelanggan (padanan dialog "Kirim Struk lewat WhatsApp" di web).
+Future<void> _sendWhatsapp(BuildContext context, WidgetRef ref, Invoice invoice) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Kirim Struk lewat WhatsApp'),
+      content: Text('Pesan berisi tautan untuk melihat struk ${invoice.number} akan dikirim ke ${invoice.customerPhone}.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal')),
+        FilledButton(key: const Key('send-wa-confirm'), onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Kirim')),
+      ],
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await ref.read(sendInvoiceWhatsappProvider)(invoice.id);
+    messenger.showSnackBar(const SnackBar(content: Text('Struk terkirim lewat WhatsApp.')));
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text(errorMessage(e)), backgroundColor: AppColors.danger));
   }
 }
 
