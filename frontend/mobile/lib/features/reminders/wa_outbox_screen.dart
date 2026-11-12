@@ -34,6 +34,12 @@ class WaOutboxScreen extends ConsumerWidget {
         title: const Text('Pengingat'),
         actions: [
           IconButton(
+            key: const Key('open-schedule'),
+            icon: const Icon(Icons.event_note_outlined),
+            tooltip: 'Monitoring jadwal servis',
+            onPressed: () => context.go('/pengingat/jadwal'),
+          ),
+          IconButton(
             key: const Key('buka-riwayat'),
             icon: const Icon(Icons.history),
             tooltip: 'Riwayat pengingat',

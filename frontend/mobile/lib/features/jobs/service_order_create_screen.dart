@@ -106,7 +106,11 @@ Map<String, dynamic> buildIntakePayload({
 /// pekerjaan, keluhan, jadwal, dan teknisi. Menulis lewat `POST /service-orders/intake`. Harga ditetapkan
 /// kemudian dari kartu Harga Jasa & Tagihan di halaman job.
 class ServiceOrderCreateScreen extends ConsumerStatefulWidget {
-  const ServiceOrderCreateScreen({super.key});
+  const ServiceOrderCreateScreen({super.key, this.initialMemberId, this.initialUnitIds = const []});
+
+  /// Terisi dari Monitoring Jadwal: member dan unit jatuh tempo sudah terpilih.
+  final String? initialMemberId;
+  final List<String> initialUnitIds;
 
   @override
   ConsumerState<ServiceOrderCreateScreen> createState() =>
@@ -161,6 +165,13 @@ class _ServiceOrderCreateScreenState
   final _workDesc = TextEditingController();
   final _complaint = TextEditingController();
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _memberId = widget.initialMemberId;
+    _unitIds.addAll(widget.initialUnitIds);
+  }
 
   @override
   void dispose() {

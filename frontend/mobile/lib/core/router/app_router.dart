@@ -20,6 +20,7 @@ import '../../features/jobs/job_detail_screen.dart';
 import '../../features/jobs/job_history_screen.dart';
 import '../../features/jobs/job_list_screen.dart';
 import '../../features/jobs/material_requests_admin_screen.dart';
+import '../../features/reminders/reminder_schedule_screen.dart';
 import '../../features/members/unit_corrections_screen.dart';
 import '../../features/jobs/service_order_create_screen.dart';
 import '../../features/jobs/service_order_list_screen.dart';
@@ -245,7 +246,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: 'new',
-                builder: (_, __) => const ServiceOrderCreateScreen(),
+                builder: (_, state) {
+                  final extra = state.extra;
+                  return extra is Map
+                      ? ServiceOrderCreateScreen(
+                          initialMemberId: extra['memberId'] as String?,
+                          initialUnitIds: [for (final id in (extra['unitIds'] as List? ?? const [])) '$id'],
+                        )
+                      : const ServiceOrderCreateScreen();
+                },
               ),
             ],
           ),
@@ -330,6 +339,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'riwayat',
                 builder: (_, __) => const WaHistoryScreen(),
+              ),
+              GoRoute(
+                path: 'jadwal',
+                builder: (_, __) => const ReminderScheduleScreen(),
+                routes: [
+                  GoRoute(
+                    path: ':memberId',
+                    builder: (_, state) => MemberScheduleScreen(memberId: state.pathParameters['memberId']!),
+                  ),
+                ],
               ),
               GoRoute(
                 path: 'pengaturan',
