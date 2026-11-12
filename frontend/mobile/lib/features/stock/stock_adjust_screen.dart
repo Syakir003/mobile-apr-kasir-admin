@@ -64,6 +64,11 @@ class _StockAdjustScreenState extends ConsumerState<StockAdjustScreen> {
   String _reason = 'pembelian';
   final _qty = TextEditingController();
   final _note = TextEditingController();
+  // Barang masuk dengan harga modal (POST /stock/in): harga modal wajib, supplier opsional,
+  // sparepart per gulungan mengisi panjang tiap gulungan.
+  final _buyPrice = TextEditingController();
+  final _supplier = TextEditingController();
+  final _rolls = <TextEditingController>[TextEditingController()];
   bool _busy = false;
 
   @override
@@ -71,29 +76,75 @@ class _StockAdjustScreenState extends ConsumerState<StockAdjustScreen> {
     super.initState();
     // Pratinjau stok akhir ikut berubah saat jumlah diketik.
     _qty.addListener(() => setState(() {}));
+    _buyPrice.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
     _qty.dispose();
     _note.dispose();
+    _buyPrice.dispose();
+    _supplier.dispose();
+    for (final r in _rolls) {
+      r.dispose();
+    }
     super.dispose();
   }
 
   num get _qtyValue => num.tryParse(_qty.text.trim().replaceAll(',', '.')) ?? 0;
 
-  Future<void> _submit(StockRow item) async {
+  num? get _buyPriceValue => num.tryParse(_buyPrice.text.trim());
+  List<num> get _rollValues => [
+        for (final r in _rolls)
+          if ((num.tryParse(r.text.trim().replaceAll(',', '.')) ?? 0) > 0)
+            num.parse(r.text.trim().replaceAll(',', '.')),
+      ];
+
+  /// Barang masuk membentuk batch modal lewat /stock/in; keluar/koreksi tetap lewat /stock/adjust.
+  Future<void> _submit(StockRow item, {bool confirmOverride = false}) async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     try {
-      await ref.read(adjustStockCallerProvider)(buildAdjustPayload(
-        item: item,
-        direction: _direction,
-        qty: _qtyValue,
-        reason: _reason,
-        note: _note.text,
-      ));
+      if (_direction == StockDirection.masuk) {
+        final res = await ref.read(stockInCallerProvider)(buildStockInPayload(
+          item: item,
+          qty: _qtyValue,
+          rolls: _rollValues,
+          buyPrice: _buyPriceValue!,
+          supplier: _supplier.text,
+          note: _note.text,
+          confirmOverride: confirmOverride,
+        ));
+        if (res.needsConfirm) {
+          if (!mounted) return;
+          setState(() => _busy = false); // spinner berhenti selagi menunggu keputusan
+          final ok = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Harga modal tidak di atas harga jual'),
+              content: Text('${res.warnings.join('\n')}\n\nTetap simpan barang masuk ini?'),
+              actions: [
+                TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Batal')),
+                FilledButton(
+                    key: const Key('stock-in-confirm'),
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Tetap Simpan')),
+              ],
+            ),
+          );
+          if (ok == true && mounted) await _submit(item, confirmOverride: true);
+          return;
+        }
+      } else {
+        await ref.read(adjustStockCallerProvider)(buildAdjustPayload(
+          item: item,
+          direction: _direction,
+          qty: _qtyValue,
+          reason: _reason,
+          note: _note.text,
+        ));
+      }
       ref.invalidate(stockOverviewProvider);
       messenger.showSnackBar(
         SnackBar(content: Text('Stok ${item.name} diperbarui.')),
@@ -127,8 +178,14 @@ class _StockAdjustScreenState extends ConsumerState<StockAdjustScreen> {
               ? null
               : previewStock(
                   current: selected.stock, direction: _direction, qty: qty);
-          final kurang = after != null && after < 0;
-          final valid = selected != null && qty > 0 && !kurang && !_busy;
+          final masuk = _direction == StockDirection.masuk;
+          final perGulungan = selected != null && selected.kind == 'sparepart' && selected.batchTracked;
+          final kurang = !masuk && after != null && after < 0;
+          final valid = selected != null &&
+              !_busy &&
+              (masuk
+                  ? _buyPriceValue != null && (perGulungan ? _rollValues.isNotEmpty : qty > 0)
+                  : qty > 0 && !kurang);
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
@@ -215,33 +272,88 @@ class _StockAdjustScreenState extends ConsumerState<StockAdjustScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              _label('Alasan'),
-              DropdownButtonFormField<String>(
-                key: const Key('adjust-reason'),
-                initialValue: _reason,
-                isExpanded: true,
-                decoration: const InputDecoration(),
-                items: [
-                  for (final e in manualStockReasons.entries)
-                    DropdownMenuItem(value: e.key, child: Text(e.value)),
-                ],
-                onChanged:
-                    _busy ? null : (v) => setState(() => _reason = v!),
-              ),
-              const SizedBox(height: 16),
-              _label('Jumlah'),
-              TextField(
-                key: const Key('adjust-qty'),
-                controller: _qty,
-                enabled: !_busy,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-                ],
-                decoration: const InputDecoration(hintText: 'Mis. 10'),
-              ),
-              if (selected != null && qty > 0) ...[
+              if (!masuk) ...[
+                _label('Alasan'),
+                DropdownButtonFormField<String>(
+                  key: const Key('adjust-reason'),
+                  initialValue: _reason,
+                  isExpanded: true,
+                  decoration: const InputDecoration(),
+                  items: [
+                    for (final e in manualStockReasons.entries)
+                      DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  ],
+                  onChanged:
+                      _busy ? null : (v) => setState(() => _reason = v!),
+                ),
+                const SizedBox(height: 16),
+              ],
+              if (masuk && perGulungan) ...[
+                _label('Panjang tiap gulungan'),
+                for (var i = 0; i < _rolls.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(children: [
+                      Expanded(
+                        child: TextField(
+                          key: Key('stock-in-roll-$i'),
+                          controller: _rolls[i],
+                          enabled: !_busy,
+                          onChanged: (_) => setState(() {}),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                          decoration: InputDecoration(hintText: 'Gulungan ${i + 1} (mis. 15)'),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Hapus gulungan',
+                        onPressed: _busy || _rolls.length == 1
+                            ? null
+                            : () => setState(() => _rolls.removeAt(i).dispose()),
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                    ]),
+                  ),
+                TextButton.icon(
+                  key: const Key('stock-in-add-roll'),
+                  onPressed: _busy ? null : () => setState(() => _rolls.add(TextEditingController())),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Tambah gulungan'),
+                ),
+              ] else ...[
+                _label('Jumlah'),
+                TextField(
+                  key: const Key('adjust-qty'),
+                  controller: _qty,
+                  enabled: !_busy,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                  ],
+                  decoration: const InputDecoration(hintText: 'Mis. 10'),
+                ),
+              ],
+              if (masuk) ...[
+                const SizedBox(height: 16),
+                _label('Harga modal (Rp, per nota)'),
+                TextField(
+                  key: const Key('stock-in-buy-price'),
+                  controller: _buyPrice,
+                  enabled: !_busy,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(hintText: 'Wajib. Dasar HPP di Laba-Rugi'),
+                ),
+                const SizedBox(height: 16),
+                _label('Supplier (opsional)'),
+                TextField(
+                  controller: _supplier,
+                  enabled: !_busy,
+                  decoration: const InputDecoration(hintText: 'Asal barang'),
+                ),
+              ],
+              if (selected != null && qty > 0 && !perGulungan) ...[
                 const SizedBox(height: 10),
                 _Preview(
                   before: selected.stock,

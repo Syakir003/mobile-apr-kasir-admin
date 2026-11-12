@@ -27,7 +27,7 @@ StockOverview _overview() => (
 
 /// Layar memanggil `router.pop()` setelah sukses, jadi ia butuh GoRouter yang
 /// punya rute induk untuk dituju — bukan sekadar MaterialApp(home:).
-Widget _wrap(List<Map<String, dynamic>> captured) {
+Widget _wrap(List<Map<String, dynamic>> captured, {List<Map<String, dynamic>>? stockIn}) {
   final router = GoRouter(
     initialLocation: '/stok/adjust',
     routes: [
@@ -48,6 +48,10 @@ Widget _wrap(List<Map<String, dynamic>> captured) {
       stockOverviewProvider.overrideWith((ref) => Future.value(_overview())),
       adjustStockCallerProvider.overrideWithValue((payload) async {
         captured.add(payload);
+      }),
+      stockInCallerProvider.overrideWithValue((payload) async {
+        stockIn?.add(payload);
+        return (needsConfirm: false, warnings: const <String>[]);
       }),
     ],
     child: MaterialApp.router(routerConfig: router),
@@ -122,7 +126,8 @@ void main() {
       (tester) async {
     _useTallViewport(tester);
     final captured = <Map<String, dynamic>>[];
-    await tester.pumpWidget(_wrap(captured));
+    final stockIn = <Map<String, dynamic>>[];
+    await tester.pumpWidget(_wrap(captured, stockIn: stockIn));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('adjust-item')));
@@ -135,15 +140,22 @@ void main() {
 
     expect(find.text('Stok AC Daikin 1 PK: 4 → 10'), findsOneWidget);
 
+    // Barang masuk wajib harga modal (dasar HPP): tanpa itu tombol simpan mati.
+    FilledButton submit() => tester.widget<FilledButton>(find.byKey(const Key('adjust-submit')));
+    expect(submit().onPressed, isNull);
+    await tester.enterText(find.byKey(const Key('stock-in-buy-price')), '3500000');
+    await tester.pumpAndSettle();
+    expect(submit().onPressed, isNotNull);
+
     await tester.tap(find.byKey(const Key('adjust-submit')));
     await tester.pumpAndSettle();
 
-    expect(captured, hasLength(1));
-    expect(captured.single, {
-      'itemKind': 'product',
+    expect(captured, isEmpty); // tidak lagi lewat /stock/adjust
+    expect(stockIn.single, {
+      'kind': 'product',
       'refId': 'p1',
-      'qtyChange': 6,
-      'reason': 'pembelian',
+      'qty': 6,
+      'buyPrice': 3500000,
     });
   });
 
@@ -207,12 +219,15 @@ void main() {
     await tester.pumpWidget(_wrap(captured));
     await tester.pumpAndSettle();
 
-    expect(find.text('Pembelian / Barang Masuk'), findsOneWidget);
+    // Barang masuk tidak memakai alasan (masuk lewat /stock/in dengan harga modal).
+    expect(find.byKey(const Key('adjust-reason')), findsNothing);
+    expect(find.byKey(const Key('stock-in-buy-price')), findsOneWidget);
 
     await tester.tap(find.text('Barang Keluar'));
     await tester.pumpAndSettle();
 
     expect(find.text('Rusak / Hilang'), findsOneWidget);
-    expect(find.text('Pembelian / Barang Masuk'), findsNothing);
+    expect(find.byKey(const Key('stock-in-buy-price')), findsNothing);
   });
 }
+

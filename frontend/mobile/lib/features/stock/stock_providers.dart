@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/utils/currency.dart';
 import '../../core/utils/num_parse.dart';
 
 /// Alasan mutasi stok yang boleh dipilih manual. Sengaja TIDAK memuat
@@ -20,6 +21,7 @@ class StockRow {
     required this.name,
     required this.stock,
     this.min,
+    this.batchTracked = false,
   });
 
   final String id;
@@ -29,6 +31,9 @@ class StockRow {
   final String name;
   final num stock;
   final num? min;
+
+  /// Sparepart per gulungan: barang masuk diisi panjang tiap gulungan, bukan satu jumlah.
+  final bool batchTracked;
 
   bool get low => min == null ? stock <= 3 : stock <= min!;
 
@@ -120,6 +125,7 @@ final stockOverviewProvider =
         name: '${r['name']}',
         stock: _numFromNest(r['stock']),
         min: _numFromNest(r['minStock']),
+        batchTracked: r['batchTracked'] == true,
       ),
   ]..sort((a, b) => a.stock.compareTo(b.stock));
 
@@ -147,4 +153,51 @@ final adjustStockCallerProvider =
   return (payload) async {
     await const ApiClient().post('/stock/adjust', body: payload);
   };
+});
+
+/// Muatan `POST /stock/in` (barang masuk dengan harga modal, membentuk batch modal untuk HPP). Produk dan sparepart
+/// biasa memakai [qty]; sparepart per gulungan memakai [rolls] (panjang tiap gulungan) dan mengabaikan qty.
+Map<String, dynamic> buildStockInPayload({
+  required StockRow item,
+  num? qty,
+  List<num> rolls = const [],
+  required num buyPrice,
+  String supplier = '',
+  String note = '',
+  bool confirmOverride = false,
+}) =>
+    {
+      'kind': item.kind,
+      'refId': item.id,
+      if (item.kind == 'sparepart' && item.batchTracked)
+        'rolls': [for (final l in rolls) {'length': l}]
+      else
+        'qty': qty,
+      'buyPrice': buyPrice,
+      if (supplier.trim().isNotEmpty) 'supplierName': supplier.trim(),
+      if (note.trim().isNotEmpty) 'note': note.trim(),
+      if (confirmOverride) 'confirmOverride': true,
+    };
+
+/// Hasil barang masuk: [warnings] terisi bila server meminta konfirmasi (modal di bawah/sama dengan harga jual).
+typedef StockInResult = ({bool needsConfirm, List<String> warnings});
+
+StockInResult parseStockInResult(Object? response) {
+  if (response is Map && response['status'] == 'confirm_required') {
+    String rp(Object? v) => formatRupiahNum(_numFromNest(v));
+    return (
+      needsConfirm: true,
+      warnings: [
+        for (final w in (response['warnings'] as List? ?? const []))
+          '${(w as Map)['name']}: harga modal ${rp(w['buyPrice'])} tidak di atas harga jual ${rp(w['sellPrice'])}',
+      ],
+    );
+  }
+  return (needsConfirm: false, warnings: const []);
+}
+
+/// `POST /stock/in` (admin & gudang).
+final stockInCallerProvider =
+    Provider<Future<StockInResult> Function(Map<String, dynamic> payload)>((ref) {
+  return (payload) async => parseStockInResult(await const ApiClient().post('/stock/in', body: payload));
 });
