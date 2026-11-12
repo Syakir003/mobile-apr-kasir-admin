@@ -23,6 +23,7 @@ import 'job_list_screen.dart' show jobStatusColor;
 import 'job_providers.dart';
 import 'job_report_pdf.dart';
 import 'job_requests_section.dart';
+import 'service_pricing_card.dart';
 import 'teknisi_tutorial.dart';
 import 'technician_multi_picker.dart';
 import '../../core/widgets/app_skeleton.dart';
@@ -421,6 +422,11 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               ),
               const SizedBox(height: 12),
               JobRequestsSection(job: job),
+              // Harga Jasa & Tagihan: admin/kasir, di bawah Pengajuan Tambahan (sama dengan web); job komplain tanpa tagihan.
+              if ((role == UserRole.admin || role == UserRole.kasir) && job.complaintOfJobId == null) ...[
+                const SizedBox(height: 12),
+                ServicePricingCard(jobId: job.id),
+              ],
               // Keterangan: paling bawah, tepat sebelum Ajukan Selesai (sama dengan web).
               ..._keteranganSection(
                 current: job,
@@ -573,6 +579,10 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
               if (j.id != holder.id) j.id
           ],
         ),
+        if ((role == UserRole.admin || role == UserRole.kasir) && first.complaintOfJobId == null) ...[
+          const SizedBox(height: 12),
+          ServicePricingCard(jobId: first.id),
+        ],
         // Keterangan: satu untuk seluruh order, dikirim lewat job aktif mana pun (holder).
         ..._keteranganSection(current: first, host: holder, editable: isTeknisi && holders.isNotEmpty),
         const SizedBox(height: 20),
