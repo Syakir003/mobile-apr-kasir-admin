@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/api/api_client.dart';
@@ -292,7 +293,14 @@ class _LegacyImportScreenState extends ConsumerState<LegacyImportScreen> {
   Widget build(BuildContext context) {
     final membersAsync = ref.watch(membersStreamProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Input Data Lampau')),
+      appBar: AppBar(title: const Text('Input Data Lampau'), actions: [
+        IconButton(
+          key: const Key('open-labels'),
+          icon: const Icon(Icons.qr_code_2),
+          tooltip: 'Label QR (cetak & tempel)',
+          onPressed: () => context.push('/data-lampau/label'),
+        ),
+      ]),
       body: membersAsync.when(
         loading: () => const AppSkeletonDetail(),
         error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat member'),

@@ -23,6 +23,7 @@ import '../../features/jobs/material_requests_admin_screen.dart';
 import '../../features/reminders/reminder_schedule_screen.dart';
 import '../../features/members/legacy_import_screen.dart';
 import '../../features/members/unit_corrections_screen.dart';
+import '../../features/members/unit_labels_screen.dart';
 import '../../features/jobs/service_order_create_screen.dart';
 import '../../features/jobs/service_order_list_screen.dart';
 import '../../features/reports/laporan_rinci_screen.dart';
@@ -281,6 +282,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/data-lampau',
             builder: (_, __) => const LegacyImportScreen(),
+            routes: [GoRoute(path: 'label', builder: (_, __) => const UnitLabelsScreen())],
           ),
           GoRoute(
             path: '/koreksi-unit',
