@@ -57,6 +57,51 @@ void main() {
     ]);
   });
 
+  group('titik lokasi kerja', () {
+    Map<String, dynamic> build(List<IntakeLocation> locs, {Map<String, int> unitLoc = const {}, int newLoc = 0}) =>
+        buildIntakePayload(
+          memberId: 'm1',
+          memberName: 'Budi',
+          jobType: IntakeJobType.cuci,
+          complaint: 'Cuci',
+          scheduled: tgl,
+          existingUnitIds: const ['u1', 'u2'],
+          newUnits: [IntakeNewUnit(room: 'Dapur', locationIndex: newLoc)],
+          locations: locs,
+          unitLocation: unitLoc,
+        );
+
+    test('satu titik kosong: tidak ada locations/locationIndex (ikut alamat pelanggan)', () {
+      final p = build([IntakeLocation()]);
+      expect(p.containsKey('locations'), isFalse);
+      expect((p['units'] as List).first, {'existingUnitId': 'u1'});
+    });
+
+    test('satu titik terisi: dikirim, semua unit ke titik 0', () {
+      final p = build([IntakeLocation(address: ' Jl. Melati 5 ')]);
+      expect(p['locations'], [
+        {'address': 'Jl. Melati 5'},
+      ]);
+      expect((p['units'] as List).first, {'existingUnitId': 'u1', 'locationIndex': 0});
+    });
+
+    test('beberapa titik: tiap unit menunjuk titiknya, indeks liar dibatasi', () {
+      final p = build(
+        [IntakeLocation(address: 'A'), IntakeLocation(mapsUrl: 'https://maps.app/x')],
+        unitLoc: {'u2': 1},
+        newLoc: 9,
+      );
+      expect(p['locations'], [
+        {'address': 'A'},
+        {'mapsUrl': 'https://maps.app/x'},
+      ]);
+      final units = p['units'] as List;
+      expect(units[0]['locationIndex'], 0);
+      expect(units[1]['locationIndex'], 1);
+      expect(units[2]['locationIndex'], 1); // 9 dibatasi ke titik terakhir
+    });
+  });
+
   testWidgets('pelanggan baru: tombol aktif hanya setelah ada unit, keluhan, dan jadwal', (t) async {
     await t.pumpWidget(ProviderScope(
       overrides: [
