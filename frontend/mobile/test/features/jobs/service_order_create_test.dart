@@ -1,4 +1,6 @@
 import 'package:epos_ac/core/theme/app_theme.dart';
+import 'package:epos_ac/data/models/ac_unit.dart';
+import 'package:epos_ac/data/models/member.dart';
 import 'package:epos_ac/features/jobs/job_providers.dart';
 import 'package:epos_ac/features/jobs/service_order_create_screen.dart';
 import 'package:epos_ac/features/members/member_providers.dart';
@@ -100,6 +102,46 @@ void main() {
       expect(units[1]['locationIndex'], 1);
       expect(units[2]['locationIndex'], 1); // 9 dibatasi ke titik terakhir
     });
+  });
+
+  testWidgets('pilih member: cari lewat nama/alamat, lalu detail member tampil', (t) async {
+    const members = [
+      Member(id: 'm1', name: 'Budi Santoso', phone: '0812-3456', address: 'Jl. Melati 5 Mojokerto', customerType: 'rumah', totalAcUnits: 3, priceTier: 'installer'),
+      Member(id: 'm2', name: 'Sari Dewi', phone: '0857777', address: 'Jl. Anggrek 2 Surabaya', customerType: 'toko'),
+    ];
+    await t.pumpWidget(ProviderScope(
+      overrides: [
+        membersStreamProvider.overrideWith((ref) => Stream.value(members)),
+        memberUnitsProvider.overrideWith((ref, id) => Stream.value(const <AcUnit>[])),
+        createServiceOrderCallerProvider.overrideWithValue((payload) async {}),
+      ],
+      child: MaterialApp(theme: AppTheme.light(), home: const ServiceOrderCreateScreen()),
+    ));
+    await t.pumpAndSettle();
+    expect(find.byKey(const Key('member-detail')), findsNothing);
+
+    await t.tap(find.byKey(const Key('order-member')));
+    await t.pumpAndSettle();
+    expect(find.text('Budi Santoso'), findsOneWidget);
+    expect(find.text('Sari Dewi'), findsOneWidget);
+
+    // Cari lewat alamat (bukan nama/HP).
+    await t.enterText(find.byKey(const Key('member-filter')), 'surabaya');
+    await t.pumpAndSettle();
+    expect(find.text('Budi Santoso'), findsNothing);
+    expect(find.text('Sari Dewi'), findsOneWidget);
+
+    // Cari lewat HP tanpa tanda baca.
+    await t.enterText(find.byKey(const Key('member-filter')), '08123456');
+    await t.pumpAndSettle();
+    expect(find.text('Budi Santoso'), findsOneWidget);
+    await t.tap(find.byKey(const Key('member-m1')));
+    await t.pumpAndSettle();
+
+    expect(find.byKey(const Key('member-detail')), findsOneWidget);
+    expect(find.text('Jl. Melati 5 Mojokerto'), findsOneWidget);
+    expect(find.text('Tipe pembeli: Installer'), findsOneWidget);
+    expect(find.text('3 unit AC terdaftar'), findsOneWidget);
   });
 
   testWidgets('pelanggan baru: tombol aktif hanya setelah ada unit, keluhan, dan jadwal', (t) async {

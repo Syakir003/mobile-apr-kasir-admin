@@ -7,6 +7,7 @@ import '../../core/utils/error_message.dart';
 import '../../data/models/ac_unit.dart';
 import '../../data/models/member.dart';
 import '../members/member_providers.dart';
+import '../members/member_selector.dart';
 import 'job_providers.dart';
 import 'technician_multi_picker.dart';
 import '../../core/widgets/app_skeleton.dart';
@@ -285,25 +286,18 @@ class _ServiceOrderCreateScreenState
               ),
               const SizedBox(height: 12),
               if (!_newCustomer)
-                DropdownButtonFormField<String>(
-                  key: const Key('order-member'),
-                  initialValue: _memberId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(hintText: 'Pilih member'),
-                  items: [
-                    for (final Member m in active)
-                      DropdownMenuItem(
-                        value: m.id,
-                        child: Text('${m.name} · ${m.phone}',
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                      ),
-                  ],
-                  onChanged: _busy
-                      ? null
-                      : (v) => setState(() {
-                            _memberId = v;
-                            _unitIds.clear();
-                          }),
+                MemberSelector(
+                  fieldKey: const Key('order-member'),
+                  members: active,
+                  selectedId: _memberId,
+                  enabled: !_busy,
+                  onChanged: (m) => setState(() {
+                    if (m.id != _memberId) {
+                      _unitIds.clear();
+                      _unitLocation.clear();
+                    }
+                    _memberId = m.id;
+                  }),
                 )
               else ...[
                 TextField(

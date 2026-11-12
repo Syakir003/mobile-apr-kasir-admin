@@ -34,7 +34,8 @@ class _MemberPickerSheetState extends ConsumerState<MemberPickerSheet> {
   bool _matches(Member m) {
     if (_filter.isEmpty) return true;
     return m.name.toLowerCase().contains(_filter) ||
-        m.phone.replaceAll(RegExp(r'[\s\-.()]'), '').contains(_filter);
+        m.address.toLowerCase().contains(_filter) ||
+        m.phone.replaceAll(RegExp(r'[\s\-.()]'), '').contains(_filter.replaceAll(RegExp(r'[\s\-.()]'), ''));
   }
 
   @override
@@ -75,7 +76,7 @@ class _MemberPickerSheetState extends ConsumerState<MemberPickerSheet> {
                 key: const Key('member-filter'),
                 controller: _query,
                 decoration: const InputDecoration(
-                  hintText: 'Cari nama / nomor HP',
+                  hintText: 'Cari nama / nomor HP / alamat',
                   prefixIcon: Icon(Icons.search),
                   isDense: true,
                 ),

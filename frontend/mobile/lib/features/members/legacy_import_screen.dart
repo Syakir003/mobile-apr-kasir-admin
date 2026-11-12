@@ -12,6 +12,7 @@ import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../data/models/member.dart';
 import 'member_providers.dart';
+import 'member_selector.dart';
 import 'unit_label_pdf.dart';
 
 // Input Data Lampau (admin), padanan administrasi/data-lampau di web: mencatat pelanggan lama beserta unit ACnya
@@ -347,13 +348,11 @@ class _LegacyImportScreenState extends ConsumerState<LegacyImportScreen> {
       ),
       const SizedBox(height: 10),
       if (_existing)
-        DropdownButtonFormField<String>(
-          key: const Key('legacy-member'),
-          initialValue: members.any((m) => m.id == _memberId) ? _memberId : null,
-          isExpanded: true,
-          decoration: const InputDecoration(hintText: 'Pilih member'),
-          items: [for (final m in members) DropdownMenuItem(value: m.id, child: Text('${m.name} · ${m.phone}', overflow: TextOverflow.ellipsis))],
-          onChanged: (v) => setState(() => _memberId = v),
+        MemberSelector(
+          fieldKey: const Key('legacy-member'),
+          members: members,
+          selectedId: _memberId,
+          onChanged: (m) => setState(() => _memberId = m.id),
         )
       else ...[
         TextField(key: const Key('legacy-name'), controller: _name, decoration: const InputDecoration(labelText: 'Nama member'), onChanged: (_) => setState(() {})),
