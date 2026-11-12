@@ -126,13 +126,23 @@ class MemberDetailScreen extends ConsumerWidget {
   }
 }
 
-class _MemberCard extends StatelessWidget {
+class _MemberCard extends ConsumerWidget {
   const _MemberCard({required this.member});
 
   final Member member;
 
+  Future<void> _run(BuildContext context, Future<void> Function() action, String ok) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await action();
+      messenger.showSnackBar(SnackBar(content: Text(ok)));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(errorMessage(e)), backgroundColor: AppColors.danger));
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -195,6 +205,39 @@ class _MemberCard extends StatelessWidget {
             _InfoRow(icon: Icons.category_outlined, text: member.customerType),
             if (member.notes != null && member.notes!.isNotEmpty)
               _InfoRow(icon: Icons.notes_outlined, text: member.notes!),
+            const Divider(height: 24),
+            const Text('Tipe Pembeli', style: TextStyle(fontSize: 12, color: AppColors.slate600)),
+            const SizedBox(height: 4),
+            DropdownButtonFormField<String>(
+              key: const Key('member-price-tier'),
+              initialValue: memberTierLabels.containsKey(member.priceTier) ? member.priceTier : 'retail',
+              isExpanded: true,
+              decoration: const InputDecoration(isDense: true),
+              items: [
+                for (final e in memberTierLabels.entries) DropdownMenuItem(value: e.key, child: Text(e.value)),
+              ],
+              onChanged: (v) {
+                if (v == null || v == member.priceTier) return;
+                _run(context, () => ref.read(setMemberPriceTierProvider)(member.id, v),
+                    'Tipe pembeli diubah ke ${memberTierLabels[v]}.');
+              },
+            ),
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                'Menentukan harga di kasir. Installer dan Reseller hanya bisa membeli AC dan Sparepart.',
+                style: TextStyle(fontSize: 12, color: AppColors.slate600),
+              ),
+            ),
+            SwitchListTile(
+              key: const Key('member-wa-opt-out'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Berhenti kirim pengingat WA'),
+              subtitle: const Text('Invoice tetap bisa dikirim manual; ini hanya menghentikan pengingat servis otomatis.'),
+              value: member.waOptOut,
+              onChanged: (v) => _run(context, () => ref.read(setMemberWaOptOutProvider)(member.id, v),
+                  'Preferensi pengingat WA disimpan.'),
+            ),
           ],
         ),
       ),

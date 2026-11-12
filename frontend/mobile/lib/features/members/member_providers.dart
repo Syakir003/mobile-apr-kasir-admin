@@ -12,6 +12,25 @@ final memberRepositoryProvider = Provider<CrudRepository<Member>>((ref) {
   return const NestMemberRepository(ApiClient());
 });
 
+/// Label tipe pembeli (padanan TIER_LABEL di web).
+const memberTierLabels = {'retail': 'Ritel', 'installer': 'Installer', 'reseller': 'Reseller'};
+
+/// `PATCH /members/:id/price-tier` (admin) — tipe pembeli menentukan harga di kasir.
+final setMemberPriceTierProvider = Provider<Future<void> Function(String id, String tier)>((ref) {
+  return (id, tier) async {
+    await const ApiClient().patch('/members/$id/price-tier', body: {'priceTier': tier});
+    ref.invalidate(membersStreamProvider);
+  };
+});
+
+/// `PATCH /members/:id/wa-opt-out` — berhenti/lanjut pengingat servis WA (tombol Kirim WA di invoice tetap jalan).
+final setMemberWaOptOutProvider = Provider<Future<void> Function(String id, bool optOut)>((ref) {
+  return (id, optOut) async {
+    await const ApiClient().patch('/members/$id/wa-opt-out', body: {'optOut': optOut});
+    ref.invalidate(membersStreamProvider);
+  };
+});
+
 /// autoDispose: data dimuat ulang tiap layar dibuka (tanpa event realtime).
 final membersStreamProvider = StreamProvider.autoDispose<List<Member>>(
   (ref) => streamWhenSignedIn(

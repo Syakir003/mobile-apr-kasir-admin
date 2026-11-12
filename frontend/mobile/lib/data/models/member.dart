@@ -30,9 +30,17 @@ class Member {
     this.totalAcUnits = 0,
     this.notes,
     this.active = true,
+    this.priceTier = 'retail',
+    this.waOptOut = false,
   });
 
   final String id;
+
+  /// Tipe pembeli penentu harga di kasir: 'retail' | 'installer' | 'reseller' (ubah: admin, PATCH /members/:id/price-tier).
+  final String priceTier;
+
+  /// True = pelanggan minta berhenti dikirimi pengingat servis WA (invoice tetap bisa dikirim manual).
+  final bool waOptOut;
   final String name;
   final String phone;
   final String address;
@@ -57,6 +65,8 @@ class Member {
       totalAcUnits: numFromNest(data['total_ac_units'])?.toInt() ?? 0,
       notes: data['notes'] as String?,
       active: (data['active'] as bool?) ?? true,
+      priceTier: (data['price_tier'] as String?) ?? 'retail',
+      waOptOut: (data['wa_opt_out'] as bool?) ?? false,
     );
   }
 
