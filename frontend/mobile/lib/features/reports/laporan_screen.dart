@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../pos/cart_state.dart' show formatRupiah;
@@ -17,6 +18,12 @@ class LaporanScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Laporan'),
         actions: [
+          IconButton(
+            key: const Key('laporan-rinci'),
+            icon: const Icon(Icons.analytics_outlined),
+            tooltip: 'Laporan rinci (rentang tanggal)',
+            onPressed: () => context.push('/laporan/rinci'),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Muat ulang',

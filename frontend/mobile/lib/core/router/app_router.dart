@@ -22,6 +22,7 @@ import '../../features/jobs/job_list_screen.dart';
 import '../../features/jobs/material_requests_admin_screen.dart';
 import '../../features/jobs/service_order_create_screen.dart';
 import '../../features/jobs/service_order_list_screen.dart';
+import '../../features/reports/laporan_rinci_screen.dart';
 import '../../features/reports/laporan_screen.dart';
 import '../../features/keluar_gudang/keluar_gudang_screen.dart';
 import '../../features/stock/stock_adjust_screen.dart';
@@ -274,6 +275,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/laporan',
             builder: (_, __) => const LaporanScreen(),
+            routes: [
+              GoRoute(path: 'rinci', builder: (_, __) => const LaporanRinciScreen()),
+            ],
           ),
           GoRoute(
             path: '/stok',
