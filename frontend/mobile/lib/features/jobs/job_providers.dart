@@ -291,29 +291,12 @@ final ordersProvider =
   (ref) => ref.watch(jobRepositoryProvider).fetchOrders(),
 );
 
-/// RPC `create_service_order` — admin/kasir menjadwalkan order manual
-/// (service/maintenance/cuci) pada unit AC member yang sudah ada.
-///
-/// TETAP di Supabase (BUKAN dipindah) — `POST /service-orders/intake` bukan
-/// pengganti yang sepadan, bentuknya beda secara mendasar, bukan cuma nama
-/// field:
-/// - Payload ini kirim `unitIds` (BANYAK unit sekaligus, `_unitIds.toList()`
-///   dari `service_order_create_screen.dart`); `ServiceIntakeDto` cuma
-///   menerima SATU unit per order (`existingUnitId` xor `newUnit`).
-/// - Payload ini kirim `memberId` (member sudah ada); `ServiceIntakeDto`
-///   mewajibkan `customer: {name, phone, address?}` (alur intake pelanggan
-///   BARU/walk-in) + `complaint` wajib diisi — form ini tidak mengumpulkan
-///   keduanya (member sudah dipilih dari daftar, keluhan opsional).
-/// Memaksakan pemetaan 1:1 di sini akan mengubah semantik order manual
-/// multi-unit jadi intake single-unit — bukan migrasi, tapi menulis ulang
-/// fitur. Dibiarkan sebagai gap yang jelas (lihat laporan migrasi) sampai ada
-/// keputusan produk: form ini dipecah per-unit, atau `ServiceIntakeDto`
-/// diperluas menerima banyak unit dari member yang sudah ada.
+/// `POST /service-orders/intake` — Terima Servis (admin/kasir). Muatan dari `buildIntakePayload`
+/// (service_order_create_screen.dart): pelanggan lama/baru, unit lama/baru, jenis pekerjaan, keluhan, jadwal, teknisi.
 final createServiceOrderCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
-  // POST /service-orders — payload sama persis dengan RPC create_service_order.
   return (payload) async {
-    await _api.post('/service-orders', body: payload);
+    await _api.post('/service-orders/intake', body: payload);
   };
 });
 

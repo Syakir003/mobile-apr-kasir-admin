@@ -12,20 +12,78 @@ import 'technician_multi_picker.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
 
-/// Jenis order manual yang bisa dijadwalkan (pemasangan lahir dari checkout).
-enum _OrderType {
-  service('service', 'Service / Perbaikan'),
+/// Jenis pekerjaan Terima Servis (sama dengan web; pemasangan berasal dari POS, tidak ditawarkan di sini).
+enum IntakeJobType {
+  perbaikan('perbaikan', 'Perbaikan'),
+  cuci('cuci', 'Cuci AC'),
   maintenance('maintenance', 'Maintenance'),
-  cuci('cuci', 'Cuci AC');
+  bongkar('bongkar', 'Bongkar AC'),
+  pasang('pasang', 'Pasang AC'),
+  bongkarPasang('bongkar_pasang', 'Bongkar Pasang AC');
 
-  const _OrderType(this.value, this.label);
+  const IntakeJobType(this.value, this.label);
   final String value;
   final String label;
 }
 
-/// Form buat order service/maintenance/cuci manual (admin/kasir): pilih member,
-/// satu/lebih unit AC miliknya, jenis pekerjaan, jadwal & keluhan opsional, lalu
-/// pra-tugaskan teknisi bila ada. Menulis lewat RPC `create_service_order`.
+/// Unit AC baru yang diinput langsung di form (belum terdaftar). Mode [qrDulu]: merk/PK diisi teknisi saat scan.
+class IntakeNewUnit {
+  IntakeNewUnit({this.brand = '', this.model = '', this.pk, this.room = '', this.qrDulu = false});
+  String brand;
+  String model;
+  num? pk;
+  String room;
+  bool qrDulu;
+}
+
+/// Muatan `POST /service-orders/intake` (sama dengan form web): pelanggan lama (memberId) atau baru (nama + HP),
+/// unit lama dan/atau baru, jenis pekerjaan, keluhan (wajib), jadwal (wajib, YYYY-MM-DD), teknisi.
+Map<String, dynamic> buildIntakePayload({
+  String? memberId,
+  String? memberName,
+  String name = '',
+  String phone = '',
+  String address = '',
+  required IntakeJobType jobType,
+  String workDescription = '',
+  required String complaint,
+  required DateTime scheduled,
+  List<String> technicianIds = const [],
+  Iterable<String> existingUnitIds = const [],
+  List<IntakeNewUnit> newUnits = const [],
+}) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  String? opt(String v) => v.trim().isEmpty ? null : v.trim();
+  return {
+    'customer': memberId != null
+        ? {'name': memberName ?? '', 'memberId': memberId}
+        : {'name': name.trim(), 'phone': phone.trim(), if (opt(address) != null) 'address': opt(address)},
+    'jobType': jobType.value,
+    if (opt(workDescription) != null) 'workDescription': opt(workDescription),
+    'complaint': complaint.trim(),
+    'scheduledDate': '${scheduled.year}-${two(scheduled.month)}-${two(scheduled.day)}',
+    if (technicianIds.isNotEmpty) 'technicianIds': technicianIds,
+    'units': [
+      for (final id in existingUnitIds) {'existingUnitId': id},
+      for (final u in newUnits)
+        {
+          'newUnit': u.qrDulu
+              // Mode QR dulu: server menolak merk/model/PK bila ikut terkirim.
+              ? {'qrDulu': true, if (opt(u.room) != null) 'roomLocation': opt(u.room)}
+              : {
+                  if (opt(u.brand) != null) 'brand': opt(u.brand),
+                  if (opt(u.model) != null) 'model': opt(u.model),
+                  if (u.pk != null) 'pk': u.pk,
+                  if (opt(u.room) != null) 'roomLocation': opt(u.room),
+                },
+        },
+    ],
+  };
+}
+
+/// Form Terima Servis (admin/kasir), setara halaman web: pelanggan lama atau baru, unit AC lama/baru, jenis
+/// pekerjaan, keluhan, jadwal, dan teknisi. Menulis lewat `POST /service-orders/intake`. Harga ditetapkan
+/// kemudian dari kartu Harga Jasa & Tagihan di halaman job.
 class ServiceOrderCreateScreen extends ConsumerStatefulWidget {
   const ServiceOrderCreateScreen({super.key});
 
@@ -34,19 +92,49 @@ class ServiceOrderCreateScreen extends ConsumerStatefulWidget {
       _ServiceOrderCreateScreenState();
 }
 
+class _NewUnitEditor {
+  final brand = TextEditingController();
+  final model = TextEditingController();
+  final pk = TextEditingController();
+  final room = TextEditingController();
+  bool qrDulu = false;
+
+  num? get pkValue => num.tryParse(pk.text.trim().replaceAll(',', '.'));
+  bool get pkValid => pk.text.trim().isEmpty || (pkValue != null && pkValue! >= 0 && pkValue! <= 99.99);
+  IntakeNewUnit toUnit() =>
+      IntakeNewUnit(brand: brand.text, model: model.text, pk: pkValue, room: room.text, qrDulu: qrDulu);
+  void dispose() {
+    brand.dispose();
+    model.dispose();
+    pk.dispose();
+    room.dispose();
+  }
+}
+
 class _ServiceOrderCreateScreenState
     extends ConsumerState<ServiceOrderCreateScreen> {
+  bool _newCustomer = false;
   String? _memberId;
+  final _name = TextEditingController();
+  final _phone = TextEditingController();
+  final _address = TextEditingController();
   final _unitIds = <String>{};
-  _OrderType _type = _OrderType.service;
+  final _newUnits = <_NewUnitEditor>[];
+  IntakeJobType _type = IntakeJobType.perbaikan;
   List<String> _technicianIds = const [];
   DateTime? _scheduled;
-  final _note = TextEditingController();
+  final _workDesc = TextEditingController();
+  final _complaint = TextEditingController();
   bool _busy = false;
 
   @override
   void dispose() {
-    _note.dispose();
+    for (final c in [_name, _phone, _address, _workDesc, _complaint]) {
+      c.dispose();
+    }
+    for (final u in _newUnits) {
+      u.dispose();
+    }
     super.dispose();
   }
 
@@ -61,21 +149,37 @@ class _ServiceOrderCreateScreenState
     if (picked != null) setState(() => _scheduled = picked);
   }
 
-  Future<void> _submit() async {
-    if (_memberId == null || _unitIds.isEmpty) return;
+  bool get _customerOk =>
+      _newCustomer ? _name.text.trim().isNotEmpty && _phone.text.trim().isNotEmpty : _memberId != null;
+  int get _unitCount => (_newCustomer ? 0 : _unitIds.length) + _newUnits.length;
+  bool get _canSubmit =>
+      !_busy &&
+      _customerOk &&
+      _unitCount > 0 &&
+      _complaint.text.trim().isNotEmpty &&
+      _scheduled != null &&
+      _newUnits.every((u) => u.pkValid);
+
+  Future<void> _submit(List<Member> members) async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     try {
-      await ref.read(createServiceOrderCallerProvider)({
-        'memberId': _memberId,
-        'type': _type.value,
-        'unitIds': _unitIds.toList(),
-        if (_technicianIds.isNotEmpty) 'technicianIds': _technicianIds,
-        if (_scheduled != null)
-          'scheduledDate': _scheduled!.toUtc().toIso8601String(),
-        if (_note.text.trim().isNotEmpty) 'note': _note.text.trim(),
-      });
+      final member = _newCustomer ? null : members.where((m) => m.id == _memberId).firstOrNull;
+      await ref.read(createServiceOrderCallerProvider)(buildIntakePayload(
+        memberId: member?.id,
+        memberName: member?.name,
+        name: _name.text,
+        phone: _phone.text,
+        address: _address.text,
+        jobType: _type,
+        workDescription: _workDesc.text,
+        complaint: _complaint.text,
+        scheduled: _scheduled!,
+        technicianIds: _technicianIds,
+        existingUnitIds: _newCustomer ? const [] : _unitIds,
+        newUnits: [for (final u in _newUnits) u.toUnit()],
+      ));
       ref.invalidate(ordersProvider);
       ref.invalidate(jobsForCurrentUserProvider);
       messenger.showSnackBar(
@@ -97,7 +201,7 @@ class _ServiceOrderCreateScreenState
   Widget build(BuildContext context) {
     final membersAsync = ref.watch(membersStreamProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Order Service Baru')),
+      appBar: AppBar(title: const Text('Terima Servis')),
       body: membersAsync.when(
         loading: () => const AppSkeletonDetail(),
         error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat member'),
@@ -106,58 +210,122 @@ class _ServiceOrderCreateScreenState
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
             children: [
-              _label('Member'),
-              DropdownButtonFormField<String>(
-                key: const Key('order-member'),
-                initialValue: _memberId,
-                isExpanded: true,
-                decoration: const InputDecoration(hintText: 'Pilih member'),
-                items: [
-                  for (final Member m in active)
-                    DropdownMenuItem(
-                      value: m.id,
-                      child: Text('${m.name} · ${m.phone}',
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ),
+              _label('Data Pelanggan'),
+              SegmentedButton<bool>(
+                key: const Key('order-customer-mode'),
+                segments: const [
+                  ButtonSegment(value: false, label: Text('Member lama')),
+                  ButtonSegment(value: true, label: Text('Pelanggan baru')),
                 ],
-                onChanged: _busy
-                    ? null
-                    : (v) => setState(() {
-                          _memberId = v;
-                          _unitIds.clear();
-                        }),
+                selected: {_newCustomer},
+                onSelectionChanged: _busy ? null : (v) => setState(() => _newCustomer = v.first),
+              ),
+              const SizedBox(height: 12),
+              if (!_newCustomer)
+                DropdownButtonFormField<String>(
+                  key: const Key('order-member'),
+                  initialValue: _memberId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(hintText: 'Pilih member'),
+                  items: [
+                    for (final Member m in active)
+                      DropdownMenuItem(
+                        value: m.id,
+                        child: Text('${m.name} · ${m.phone}',
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ),
+                  ],
+                  onChanged: _busy
+                      ? null
+                      : (v) => setState(() {
+                            _memberId = v;
+                            _unitIds.clear();
+                          }),
+                )
+              else ...[
+                TextField(
+                  key: const Key('order-name'),
+                  controller: _name,
+                  decoration: const InputDecoration(labelText: 'Nama pelanggan'),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  key: const Key('order-phone'),
+                  controller: _phone,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(labelText: 'No. HP', hintText: 'Mis. 0855xxxxxxxx'),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _address,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Alamat (opsional)'),
+                ),
+              ],
+              const SizedBox(height: 16),
+              _label('Unit AC'),
+              if (!_newCustomer) ...[
+                if (_memberId == null)
+                  const _Hint('Pilih member dulu untuk melihat unit AC-nya, atau tambah unit baru di bawah.')
+                else
+                  _UnitPicker(
+                    memberId: _memberId!,
+                    selected: _unitIds,
+                    onToggle: (id, on) => setState(() {
+                      if (on) {
+                        _unitIds.add(id);
+                      } else {
+                        _unitIds.remove(id);
+                      }
+                    }),
+                  ),
+                const SizedBox(height: 8),
+              ],
+              for (var i = 0; i < _newUnits.length; i++) _newUnitCard(i),
+              OutlinedButton.icon(
+                key: const Key('order-add-unit'),
+                onPressed: _busy ? null : () => setState(() => _newUnits.add(_NewUnitEditor())),
+                icon: const Icon(Icons.add),
+                label: const Text('Tambah unit AC baru'),
               ),
               const SizedBox(height: 16),
               _label('Jenis Pekerjaan'),
-              DropdownButtonFormField<_OrderType>(
+              DropdownButtonFormField<IntakeJobType>(
                 key: const Key('order-type'),
                 initialValue: _type,
                 decoration: const InputDecoration(),
                 items: [
-                  for (final t in _OrderType.values)
+                  for (final t in IntakeJobType.values)
                     DropdownMenuItem(value: t, child: Text(t.label)),
                 ],
                 onChanged: _busy ? null : (v) => setState(() => _type = v!),
               ),
               const SizedBox(height: 16),
-              _label('Unit AC'),
-              if (_memberId == null)
-                const _Hint('Pilih member dulu untuk melihat unit AC-nya.')
-              else
-                _UnitPicker(
-                  memberId: _memberId!,
-                  selected: _unitIds,
-                  onToggle: (id, on) => setState(() {
-                    if (on) {
-                      _unitIds.add(id);
-                    } else {
-                      _unitIds.remove(id);
-                    }
-                  }),
+              _label('Deskripsi Pekerjaan (opsional)'),
+              TextField(
+                controller: _workDesc,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  hintText: 'Mis. Cuci AC rutin semua unit, ganti kapasitor',
                 ),
+              ),
               const SizedBox(height: 16),
-              _label('Jadwal (opsional)'),
+              _label('Keluhan Awal'),
+              TextField(
+                key: const Key('order-complaint'),
+                controller: _complaint,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  hintText: 'Mis. AC tidak dingin, bunyi berisik (servis rutin: isi pekerjaannya, mis. Cuci AC)',
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 16),
+              _label('Jadwal'),
               OutlinedButton.icon(
+                key: const Key('order-date'),
                 onPressed: _busy ? null : _pickDate,
                 icon: const Icon(Icons.event_outlined),
                 label: Text(_scheduled == null
@@ -171,22 +339,14 @@ class _ServiceOrderCreateScreenState
                 enabled: !_busy,
                 onChanged: (v) => setState(() => _technicianIds = v),
               ),
-              const SizedBox(height: 16),
-              _label('Keluhan / Catatan (opsional)'),
-              TextField(
-                controller: _note,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'Mis. AC tidak dingin, bunyi berisik…',
-                ),
-              ),
+              const SizedBox(height: 8),
+              const _Hint('Harga ditetapkan nanti dari halaman job (Harga Jasa & Tagihan).'),
               const SizedBox(height: 24),
               SizedBox(
                 height: 52,
                 child: FilledButton.icon(
-                  onPressed: (_busy || _memberId == null || _unitIds.isEmpty)
-                      ? null
-                      : _submit,
+                  key: const Key('order-submit'),
+                  onPressed: _canSubmit ? () => _submit(members) : null,
                   icon: _busy
                       ? const SizedBox(
                           height: 20,
@@ -194,14 +354,69 @@ class _ServiceOrderCreateScreenState
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white))
                       : const Icon(Icons.check),
-                  label: Text(_unitIds.isEmpty
+                  label: Text(_unitCount == 0
                       ? 'Buat Order'
-                      : 'Buat Order (${_unitIds.length} unit)'),
+                      : 'Buat Order ($_unitCount unit)'),
                 ),
               ),
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _newUnitCard(int i) {
+    final u = _newUnits[i];
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(children: [
+              Expanded(
+                child: Text('Unit baru ${i + 1}', style: const TextStyle(fontWeight: FontWeight.w600)),
+              ),
+              IconButton(
+                tooltip: 'Hapus unit',
+                onPressed: _busy ? null : () => setState(() => _newUnits.removeAt(i).dispose()),
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ]),
+            SwitchListTile(
+              key: Key('order-unit-qr-$i'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('QR dulu (tipe AC diisi teknisi)'),
+              value: u.qrDulu,
+              onChanged: _busy ? null : (v) => setState(() => u.qrDulu = v),
+            ),
+            if (!u.qrDulu) ...[
+              Row(children: [
+                Expanded(child: TextField(controller: u.brand, decoration: const InputDecoration(labelText: 'Merek', isDense: true))),
+                const SizedBox(width: 8),
+                Expanded(child: TextField(controller: u.model, decoration: const InputDecoration(labelText: 'Model', isDense: true))),
+              ]),
+              const SizedBox(height: 8),
+              TextField(
+                controller: u.pk,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: 'PK',
+                  isDense: true,
+                  errorText: u.pkValid ? null : 'PK 0 – 99,99',
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 8),
+            ],
+            TextField(
+              controller: u.room,
+              decoration: const InputDecoration(labelText: 'Lokasi ruangan (opsional)', isDense: true),
+            ),
+          ],
+        ),
       ),
     );
   }
