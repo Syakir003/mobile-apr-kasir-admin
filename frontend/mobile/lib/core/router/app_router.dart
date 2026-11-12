@@ -26,6 +26,7 @@ import '../../features/reports/laporan_rinci_screen.dart';
 import '../../features/reports/laporan_screen.dart';
 import '../../features/keluar_gudang/keluar_gudang_screen.dart';
 import '../../features/stock/stock_adjust_screen.dart';
+import '../../features/stock/stock_opname_screen.dart';
 import '../../features/stock/stok_screen.dart';
 import '../../features/master/package/package_form_screen.dart';
 import '../../features/master/package/package_list_screen.dart';
@@ -286,6 +287,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'adjust',
                 builder: (_, __) => const StockAdjustScreen(),
+              ),
+              GoRoute(
+                path: 'opname',
+                builder: (_, __) => const StockOpnameScreen(),
               ),
             ],
           ),

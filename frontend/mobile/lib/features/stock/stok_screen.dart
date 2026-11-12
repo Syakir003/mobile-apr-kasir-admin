@@ -36,6 +36,12 @@ class _StokScreenState extends ConsumerState<StokScreen> {
         title: const Text('Stok & Mutasi'),
         actions: [
           IconButton(
+            key: const Key('stok-opname'),
+            icon: const Icon(Icons.fact_check_outlined),
+            tooltip: 'Stock opname sparepart',
+            onPressed: () => context.go('/stok/opname'),
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Muat ulang',
             onPressed: () => ref.invalidate(stockOverviewProvider),
