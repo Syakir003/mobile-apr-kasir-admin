@@ -5,10 +5,10 @@ import 'package:epos_ac/data/models/app_user.dart';
 void main() {
   group('destinationsForRole', () {
     test(
-        'admin melihat 20 destinasi termasuk Pengingat, Voucher, Undian, '
+        'admin melihat 21 destinasi termasuk Pengajuan, Pengingat, Voucher, Undian, '
         'Stok, Keluar Gudang, Laporan, Akun, & Audit', () {
       final dests = destinationsForRole(UserRole.admin);
-      expect(dests.length, 20);
+      expect(dests.length, 21);
       expect(dests.first.label, 'Dashboard');
       expect(dests.map((d) => d.route), [
         '/',
@@ -21,6 +21,7 @@ void main() {
         '/members',
         '/orders',
         '/jobs',
+        '/pengajuan',
         '/pengingat',
         '/voucher',
         '/undian',

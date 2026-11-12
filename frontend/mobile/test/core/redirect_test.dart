@@ -124,6 +124,17 @@ void main() {
       '/',
     );
   });
+  test('kasir buka /pengajuan diarahkan ke /; admin tidak', () {
+    expect(
+      computeRedirect(user: kasir, role: UserRole.kasir, loading: false, location: '/pengajuan'),
+      '/',
+    );
+    expect(
+      computeRedirect(user: admin, role: UserRole.admin, loading: false, location: '/pengajuan'),
+      isNull,
+    );
+  });
+
   test('admin buka /audit tidak di-redirect', () {
     expect(
       computeRedirect(

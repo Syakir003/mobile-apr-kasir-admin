@@ -91,6 +91,7 @@ List<Destination> destinationsForRole(UserRole? role) {
       (icon: Icons.people_outlined, label: 'Member', route: '/members'),
       order,
       job,
+      (icon: Icons.playlist_add_check_outlined, label: 'Pengajuan', route: '/pengajuan'),
       pengingat,
       voucher,
       undian,
