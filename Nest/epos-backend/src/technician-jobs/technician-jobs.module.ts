@@ -3,6 +3,7 @@ import { TechnicianJobsService } from './technician-jobs.service';
 import { TechnicianJobsController } from './technician-jobs.controller';
 import { OfflineSyncService } from './offline-sync.service';
 import { ServicePricingService } from './service-pricing.service';
+import { JobDistanceService } from './job-distance.service';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { MaterialRequestsModule } from '../material-requests/material-requests.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -22,7 +23,7 @@ import { AcUnitsModule } from '../ac-units/ac-units.module';
   // AcUnitsModule: addUnit() membuat unit "QR dulu" baru lewat AcUnitsService.createLegacy (barcode satu namespace).
   imports: [RealtimeModule, MaterialRequestsModule, NotificationsModule, RemindersModule, WhatsappModule, AcUnitsModule],
   controllers: [TechnicianJobsController],
-  providers: [TechnicianJobsService, OfflineSyncService, ServicePricingService],
+  providers: [TechnicianJobsService, OfflineSyncService, ServicePricingService, JobDistanceService],
   exports: [TechnicianJobsService],
 })
 export class TechnicianJobsModule {}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { MAPS_INPUT_PLACEHOLDER, mapsInputDisplay } from '@/lib/maps-input';
+import { checkAddress, fixAddress, isMapsLink } from '@/lib/address-check';
+import { AddressHint } from '@/components/address-hint';
 import { PHONE_ERROR_MESSAGE, isValidIndonesianPhone } from '@/lib/phone';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -81,10 +83,17 @@ export function EditMemberDialog({
 function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: () => void }) {
   const queryClient = useQueryClient();
   const originalPhone = (member.phone ?? '').trim();
+  const originalAddress = (member.address ?? '').trim();
   const schema = editMemberSchema.superRefine((v, ctx) => {
     const p = (v.phone ?? '').trim();
     if (p !== originalPhone && !isValidIndonesianPhone(p)) {
       ctx.addIssue({ code: 'custom', path: ['phone'], message: PHONE_ERROR_MESSAGE });
+    }
+    // Alamat hanya diperiksa bila diubah (member lama dengan alamat tak lengkap tetap bisa diedit bagian lainnya).
+    const a = (v.address ?? '').trim();
+    if (a !== originalAddress) {
+      const c = checkAddress(a, { hasMapsLink: isMapsLink(v.mapsUrl) });
+      if (c.blocking) ctx.addIssue({ code: 'custom', path: ['address'], message: c.blocking });
     }
   });
   const form = useForm<EditMemberValues>({
@@ -100,13 +109,16 @@ function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: ()
     },
   });
 
+  const mapsUrlValue = useWatch({ control: form.control, name: 'mapsUrl' });
+
   const saveMutation = useMutation({
     mutationFn: (v: EditMemberValues) =>
       apiClient.patch(`/members/${member.id}`, {
         name: v.name.trim(),
         // Nomor dikirim hanya bila diubah (kosong = hapus nomor).
         ...((v.phone ?? '').trim() !== originalPhone ? { phone: (v.phone ?? '').trim() } : {}),
-        address: (v.address ?? '').trim(),
+        // "Kab." -> "Kabupaten" hanya bila alamat diubah (alamat lama tidak diutak-atik).
+        address: (v.address ?? '').trim() === originalAddress ? originalAddress : fixAddress(v.address ?? ''),
         // Kosong = hapus link (backend menyimpan null).
         mapsUrl: (v.mapsUrl ?? '').trim(),
         ...(v.customerType ? { customerType: v.customerType } : {}),
@@ -163,6 +175,14 @@ function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: ()
               <FormControl>
                 <Textarea rows={2} placeholder="Opsional" {...field} />
               </FormControl>
+              {/* Petunjuk hanya muncul bila alamat diubah dari yang tersimpan. */}
+              {(field.value ?? '').trim() !== originalAddress && (
+                <AddressHint
+                  value={field.value}
+                  hasMapsLink={isMapsLink(mapsUrlValue)}
+                  hideBlocking={!!form.formState.errors.address}
+                />
+              )}
               <FormMessage />
             </FormItem>
           )}

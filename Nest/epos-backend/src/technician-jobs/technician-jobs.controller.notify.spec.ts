@@ -12,7 +12,7 @@ function setup(job: any) {
   };
   const realtime: any = { emitToAdmin: jest.fn() };
   const notifications: any = { notify: jest.fn(async () => undefined) };
-  const ctrl = new TechnicianJobsController(jobs, realtime, {} as any, notifications, {} as any);
+  const ctrl = new TechnicianJobsController(jobs, realtime, {} as any, notifications, {} as any, {} as any);
   return { ctrl, notifications };
 }
 
@@ -63,7 +63,7 @@ describe('TechnicianJobsController.assign — kabari teknisi yang masuk & keluar
     const jobs: any = { assign: jest.fn(async () => assignResult) };
     const realtime: any = { emitToAdmin: jest.fn() };
     const notifications: any = { notify: jest.fn(async () => undefined) };
-    const ctrl = new TechnicianJobsController(jobs, realtime, {} as any, notifications, {} as any);
+    const ctrl = new TechnicianJobsController(jobs, realtime, {} as any, notifications, {} as any, {} as any);
     await ctrl.assign('j1', dto, { sub: 'a1', role: 'admin' } as any);
     return { jobs, notifications };
   };

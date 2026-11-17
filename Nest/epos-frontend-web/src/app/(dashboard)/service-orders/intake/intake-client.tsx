@@ -12,6 +12,8 @@ import { Copy, Plus, QrCode, Trash2, Wrench } from 'lucide-react';
 import { apiClient, ApiError } from '@/lib/api-client';
 import { numberOrUndefined, trimmedOrUndefined } from '@/lib/form-number';
 import { MAPS_INPUT_PLACEHOLDER, mapsInputDisplay } from '@/lib/maps-input';
+import { checkAddress, fixAddress, isMapsLink } from '@/lib/address-check';
+import { AddressHint } from '@/components/address-hint';
 import { phoneError } from '@/lib/phone';
 import { wibDateKey } from '@/lib/wib-date';
 import { statusLabel } from '@/lib/format';
@@ -372,7 +374,11 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
         customer: {
           name: values.name.trim(),
           phone: values.phone.trim(),
-          address: trimmedOrUndefined(values.address),
+          // "Kab." -> "Kabupaten" hanya bila alamat diubah (alamat member lama tidak diutak-atik).
+          address:
+            (values.address ?? '').trim() === (selectedMember?.address ?? '').trim()
+              ? trimmedOrUndefined(values.address)
+              : trimmedOrUndefined(fixAddress(values.address ?? '')),
           mapsUrl: trimmedOrUndefined(values.mapsUrl),
           memberId: selectedMember?.id,
         },
@@ -381,7 +387,15 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
         complaint: trimmedOrUndefined(values.complaint),
         units,
         ...(sendLocations
-          ? { locations: locations.map((l) => ({ address: trimmedOrUndefined(l.address), mapsUrl: trimmedOrUndefined(l.mapsUrl) })) }
+          ? {
+              locations: locations.map((l) => ({
+                address:
+                  l.address.trim() === (selectedMember?.address ?? '').trim()
+                    ? trimmedOrUndefined(l.address)
+                    : trimmedOrUndefined(fixAddress(l.address)),
+                mapsUrl: trimmedOrUndefined(l.mapsUrl),
+              })),
+            }
           : {}),
         ...(technicianIds.length > 0 ? { technicianIds } : {}),
         scheduledDate: trimmedOrUndefined(values.scheduledDate),
@@ -435,6 +449,26 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
       const pk = Number(u.pk);
       if (!u.qrDulu && u.pk.trim() && (Number.isNaN(pk) || pk < 0 || pk > 99.99)) {
         toast.error(`Unit baru #${i + 1}: PK harus berupa angka 0 sampai 99,99.`);
+        return;
+      }
+    }
+    // Alamat wajib menyebut kabupaten/kota (lib/address-check), kecuali Link Maps terisi atau alamat tidak diubah dari data
+    // member (member lama dengan alamat tak lengkap tetap bisa dibuatkan job).
+    const originalAddress = (selectedMember?.address ?? '').trim();
+    const customerAddress = (values.address ?? '').trim();
+    if (customerAddress !== originalAddress) {
+      const c = checkAddress(customerAddress, { hasMapsLink: isMapsLink(values.mapsUrl) });
+      if (c.blocking) {
+        form.setError('address', { message: c.blocking });
+        return;
+      }
+    }
+    for (const [i, l] of locations.entries()) {
+      const a = l.address.trim();
+      if (!a || a === originalAddress) continue;
+      const c = checkAddress(a, { hasMapsLink: isMapsLink(l.mapsUrl) });
+      if (c.blocking) {
+        toast.error(`Titik lokasi ${i + 1}: ${c.blocking}`);
         return;
       }
     }
@@ -502,6 +536,14 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
                     <FormControl>
                       <Textarea rows={2} placeholder="Opsional" {...field} />
                     </FormControl>
+                    {/* Petunjuk hanya muncul bila alamat diubah dari data member yang tersimpan. */}
+                    {(field.value ?? '').trim() !== (selectedMember?.address ?? '').trim() && (
+                      <AddressHint
+                        value={field.value}
+                        hasMapsLink={isMapsLink(form.watch('mapsUrl'))}
+                        hideBlocking={!!form.formState.errors.address}
+                      />
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -541,6 +583,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
                   onChange={(patch) => patchLocation(loc.key, patch)}
                   onCopy={() => copyMemberAddress(loc.key)}
                   onRemove={() => removeLocation(loc.key)}
+                  skipAddress={(selectedMember?.address ?? '').trim()}
                 />
               ))}
               <div>
@@ -974,6 +1017,7 @@ function LocationCard({
   onChange,
   onCopy,
   onRemove,
+  skipAddress,
 }: {
   loc: WorkLocationRow;
   index: number;
@@ -981,6 +1025,8 @@ function LocationCard({
   onChange: (patch: Partial<WorkLocationRow>) => void;
   onCopy: () => void;
   onRemove: () => void;
+  /** Alamat member yang tersimpan: titik yang sama persis dengannya tidak diperiksa (data lama). */
+  skipAddress: string;
 }) {
   const id = `loc-${loc.key}`;
   return (
@@ -1007,6 +1053,9 @@ function LocationCard({
           value={loc.address}
           onChange={(e) => onChange({ address: e.target.value })}
         />
+        {loc.address.trim() !== skipAddress && (
+          <AddressHint value={loc.address} hasMapsLink={isMapsLink(loc.mapsUrl)} />
+        )}
       </div>
       <div className="grid gap-1.5">
         <Label htmlFor={`${id}-maps`}>Link Lokasi (Google Maps)</Label>

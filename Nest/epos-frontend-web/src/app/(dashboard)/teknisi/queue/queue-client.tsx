@@ -4,15 +4,19 @@ import { unitPartsText, type UnitPartProduct } from '@/components/ac-unit-parts'
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ArrowDownWideNarrow,
   CalendarCheck,
   CalendarDays,
   CalendarX,
+  ClipboardList,
   Clock,
   Droplets,
   Hammer,
+  Info,
   MapPin,
+  Navigation,
   Printer,
   RefreshCw,
   Search,
@@ -81,6 +85,7 @@ export interface TechnicianJob {
   technicians?: { id: string; displayName: string }[];
   // Titik lokasi kerja job ini bila berbeda dari alamat member (kosong = ikut alamat member).
   workAddress?: string | null;
+  workMapsUrl?: string | null;
   // Cuma keisi dari GET /technician-jobs/queue (myQueue) — dipakai dashboard
   // teknisi buat nandain job 'assigned' yang masih kena gate "foto sebelum"
   // sebelum bisa start(). findAll() (dipakai admin) gak ngirim field ini.
@@ -96,14 +101,14 @@ export interface TechnicianJob {
   complaintOfJobId?: string | null;
 }
 
-interface QueueRow {
+export interface QueueRow {
   key: string;
   jobs: TechnicianJob[];
 }
 
 // Servis banyak AC (satu order, satu job per unit) tampil sebagai SATU baris; halaman jobnya memuat section tiap
 // unit. Pemasangan dari POS tetap per job (alurnya tidak diubah).
-function groupByOrder(jobs: TechnicianJob[]): QueueRow[] {
+export function groupByOrder(jobs: TechnicianJob[]): QueueRow[] {
   const rows: QueueRow[] = [];
   const byOrder = new Map<string, QueueRow>();
   for (const j of jobs) {
@@ -130,13 +135,13 @@ const MAX_PRINT_UNITS = 100;
 
 const STATUS_ORDER = ['menunggu_penugasan', 'assigned', 'sedang_dikerjakan', 'menunggu_review', 'selesai', 'dibatalkan'];
 const ASSIGNABLE_STATUSES = ['menunggu_penugasan', 'assigned'];
-const unitName = (j: TechnicianJob) =>
+export const unitName = (j: TechnicianJob) =>
   j.unit ? [j.unit.brand, j.unit.model].filter(Boolean).join(' ') || 'Unit AC' : `Order ${j.type}`;
 // Unit tanpa tipe (merk/model kosong, mis. unit "QR dulu"): baris info AC memberi tahu, bukan dikosongkan.
-const NO_TYPE_TEXT = '(Unit AC belum ada Tipe)';
+export const NO_TYPE_TEXT = '(Unit AC belum ada Tipe)';
 const hasBrandModel = (j: TechnicianJob) => !!j.unit && [j.unit.brand, j.unit.model].some(Boolean);
 // Keterangan tipe satu unit untuk daftar unit servis banyak AC: merk + model, atau Indoor/Outdoor, atau tulisan belum ada tipe.
-const unitTypeText = (j: TechnicianJob) =>
+export const unitTypeText = (j: TechnicianJob) =>
   j.unit
     ? [j.unit.brand, j.unit.model].filter(Boolean).join(' ') || unitPartsText(j.unit) || NO_TYPE_TEXT
     : unitName(j);
@@ -177,15 +182,19 @@ const TYPE_META: Record<string, { label: string; icon: LucideIcon; className: st
   pasang: { label: 'Pasang AC', icon: Hammer, className: 'border bg-secondary text-secondary-foreground' },
   bongkar_pasang: { label: 'Bongkar Pasang AC', icon: Hammer, className: 'border bg-secondary text-secondary-foreground' },
 };
-const typeMeta = (type: string) =>
+export const typeMeta = (type: string) =>
   TYPE_META[type] ?? { label: type, icon: Wrench, className: 'border bg-muted text-foreground' };
 
 // Lokasi kerja job: titik lokasi kerja bila diisi, kalau tidak alamat utama member.
-const jobLocation = (j: TechnicianJob) => j.workAddress?.trim() || j.member?.address?.trim() || '';
-const rowLocations = (row: QueueRow) => [...new Set(row.jobs.map(jobLocation).filter(Boolean))];
+export const jobLocation = (j: TechnicianJob) => j.workAddress?.trim() || j.member?.address?.trim() || '';
+// Tempat memperbaiki alamat sebuah job: titik lokasi kerja job itu diubah lewat "Ubah detail order" di halaman job; bila
+// job memakai alamat utama pelanggan, lewat "Ubah Data Member".
+const addressFixHref = (j: TechnicianJob) =>
+  j.workAddress?.trim() || j.workMapsUrl?.trim() ? `/teknisi/jobs/${j.id}` : j.member ? `/members/${j.member.id}` : undefined;
+export const rowLocations = (row: QueueRow) => [...new Set(row.jobs.map(jobLocation).filter(Boolean))];
 
 // Teks yang dicari di kotak pencarian (nama pelanggan, unit, lokasi, catatan, nomor HP, jenis, dan teknisi bagi admin).
-function rowSearchText(row: QueueRow, includeTechnician: boolean): string {
+export function rowSearchText(row: QueueRow, includeTechnician: boolean): string {
   return row.jobs
     .flatMap((j) => [
       j.member?.name,
@@ -236,6 +245,125 @@ function matchesDay(job: TechnicianJob, filter: DayFilter, todayKey: string): bo
   return key === filter;
 }
 
+// ---- Urutan "Terdekat dari toko" ----
+// Jarak dihitung server (POST /technician-jobs/distances): garis lurus dari toko ke lokasi kerja job. Alamat yang
+// koordinatnya belum/tidak bisa didapat ('unknown' / 'pending') ditaruh paling bawah.
+type SortMode = 'default' | 'nearest';
+// Sebab jarak tidak diketahui: tanpa alamat / alamat tanpa kabupaten-kota (tidak dicari) / tidak ditemukan di peta /
+// layanan peta menolak (bisa dicoba lagi).
+type DistanceReason = 'no_address' | 'incomplete' | 'not_found' | 'service_error';
+// Ketelitian jarak: titik pasti (link Maps) > jalan > desa > kecamatan > perkiraan (nama kompleks/daerah) > wilayah
+// (pusat kota/kabupaten: cadangan terakhir bila tidak ada bagian alamat yang ketemu di peta).
+type DistancePrecision = 'titik' | 'jalan' | 'desa' | 'kecamatan' | 'perkiraan' | 'wilayah';
+const PRECISION_LABEL: Record<DistancePrecision, string> = {
+  titik: 'titik pasti',
+  jalan: 'sampai jalan',
+  desa: 'level desa',
+  kecamatan: 'level kecamatan',
+  perkiraan: 'perkiraan daerah',
+  wilayah: 'pusat kota/kabupaten',
+};
+interface JobDistance {
+  jobId: string;
+  km: number | null;
+  state: 'ok' | 'unknown' | 'pending';
+  reason?: DistanceReason;
+  precision?: DistancePrecision;
+}
+interface DistancesResponse {
+  shop: { lat: number; lng: number; label: string };
+  items: JobDistance[];
+  pending: number;
+}
+const MAX_DISTANCE_JOBS = 300; // batas backend per permintaan
+// Server menjawab tiap ~4 detik dengan apa yang sudah selesai; 'pending' dilanjutkan tiap 2 detik sampai batas ini,
+// lalu berhenti dan menawarkan "Coba lagi" (mis. layanan peta sedang membatasi permintaan).
+const DISTANCE_POLL_MS = 2000;
+const MAX_DISTANCE_POLLS = 45;
+
+type RowDistance =
+  | { state: 'ok'; km: number; precision?: DistancePrecision }
+  | { state: 'pending' }
+  | { state: 'unknown'; reason: DistanceReason };
+function rowDistance(row: QueueRow, byJob: Map<string, JobDistance>): RowDistance {
+  let best: number | null = null;
+  let bestPrecision: DistancePrecision | undefined;
+  let pending = false;
+  let reason: DistanceReason = 'no_address';
+  for (const j of row.jobs) {
+    const d = byJob.get(j.id);
+    if (d?.state === 'ok' && d.km !== null) {
+      if (best === null || d.km < best) {
+        best = d.km;
+        bestPrecision = d.precision;
+      }
+    }
+    else if (d?.state === 'pending') pending = true;
+    else if (d?.state === 'unknown' && d.reason) reason = d.reason;
+  }
+  if (best !== null) return { state: 'ok', km: best, precision: bestPrecision };
+  return pending ? { state: 'pending' } : { state: 'unknown', reason };
+}
+const REASON_LABEL: Record<DistanceReason, string> = {
+  no_address: 'Tanpa alamat',
+  incomplete: 'Alamat kurang lengkap (tulis kabupaten/kota)',
+  not_found: 'Alamat tidak ditemukan',
+  service_error: 'Gagal dicari (layanan peta menolak)',
+};
+const kmText = (km: number) => `${km.toLocaleString('id-ID', { maximumFractionDigits: 1 })} km`;
+
+function DistanceBadge({
+  d,
+  loading,
+  fixHref,
+}: {
+  d: RowDistance;
+  loading: boolean;
+  /** Halaman untuk memperbaiki alamat (hanya admin/kasir); tampil untuk alamat yang perlu diperbaiki. */
+  fixHref?: string;
+}) {
+  const base = 'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold';
+  if (d.state === 'ok') {
+    const wilayah = d.precision === 'wilayah';
+    return (
+      <span
+        title={
+          wilayah
+            ? 'Alamat tidak ditemukan di peta: jarak ini ke pusat kota/kabupatennya, bukan ke lokasi sebenarnya.'
+            : undefined
+        }
+        className={cn(
+          base,
+          wilayah
+            ? 'border-status-warning/40 bg-status-warning/15 text-status-warning-foreground dark:text-status-warning'
+            : 'border-primary/25 bg-primary/10 text-primary',
+        )}
+      >
+        <Navigation className="size-3" />± {kmText(d.km)} dari toko
+        {d.precision && d.precision !== 'titik' && (
+          <span className="font-normal opacity-80">· {PRECISION_LABEL[d.precision]}</span>
+        )}
+      </span>
+    );
+  }
+  const done = d.state === 'unknown' && !loading;
+  return (
+    <>
+      <span className={cn(base, 'bg-muted text-muted-foreground')}>
+        <Navigation className="size-3" />
+        {d.state === 'pending' || loading
+          ? 'Menghitung jarak...'
+          : `Jarak tidak diketahui: ${REASON_LABEL[d.state === 'unknown' ? d.reason : 'not_found'].toLowerCase()}`}
+      </span>
+      {done && fixHref && (d.reason === 'incomplete' || d.reason === 'not_found') && (
+        <Link href={fixHref} className="text-[11px] font-semibold text-primary underline underline-offset-2">
+          Perbaiki alamat
+        </Link>
+      )}
+    </>
+  );
+}
+
 export function TeknisiQueueClient({ role }: { role: Role }) {
   const isTeknisi = role === 'teknisi';
   const isAdmin = role === 'admin';
@@ -245,6 +373,9 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const [query, setQuery] = React.useState('');
   const [dayFilter, setDayFilter] = React.useState<DayFilter>('all');
   const [todayKey] = React.useState(() => wibDateKey(new Date()));
+  const [sortMode, setSortMode] = React.useState<SortMode>('default');
+  // Jumlah pembaruan data jarak saat pencarian ulang dimulai; batas MAX_DISTANCE_POLLS dihitung dari titik ini.
+  const [pollBase, setPollBase] = React.useState(0);
   // Cetak QR massal: tombol "Cetak QR" di samping tombol muat ulang mengaktifkan mode pilih (kotak centang muncul di
   // tiap baris). `picked` = kunci baris yang dicentang; hanya baris yang sedang tampil yang dihitung.
   const [selecting, setSelecting] = React.useState(false);
@@ -276,11 +407,81 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const searchTerm = query.trim().toLowerCase();
   const filtersActive = searchTerm !== '' || dayFilter !== 'all';
   // Penyaringan per BARIS (servis banyak AC tetap utuh): cocok bila salah satu unitnya cocok.
-  const rows = groupByOrder(filtered).filter(
+  const baseRows = groupByOrder(filtered).filter(
     (row) =>
       (!searchTerm || rowSearchText(row, isAdmin).includes(searchTerm)) &&
       row.jobs.some((j) => matchesDay(j, dayFilter, todayKey)),
   );
+
+  // Jarak dihitung untuk job pada daftar Aktif/Selesai yang sedang dibuka (bukan hanya yang lolos pencarian), jadi
+  // mengetik di kolom cari tidak memicu perhitungan ulang. Kunci query memuat id-nya.
+  const distanceJobIds = filtered.slice(0, MAX_DISTANCE_JOBS).map((j) => j.id);
+  const queryClient = useQueryClient();
+  const distancesKey = ['technician-jobs', 'distances', distanceJobIds.join(',')];
+  const distancesQuery = useQuery({
+    queryKey: distancesKey,
+    queryFn: () => apiClient.post<DistancesResponse>('/technician-jobs/distances', { jobIds: distanceJobIds }),
+    enabled: sortMode === 'nearest' && distanceJobIds.length > 0,
+    staleTime: 5 * 60_000,
+    refetchInterval: (q) =>
+      q.state.data?.items.some((i) => i.state === 'pending') &&
+      q.state.dataUpdateCount - pollBase < MAX_DISTANCE_POLLS
+        ? DISTANCE_POLL_MS
+        : false,
+  });
+  const distanceItems = distancesQuery.data?.items ?? [];
+  const hasPending = distanceItems.some((i) => i.state === 'pending');
+  const updateCount = queryClient.getQueryState(distancesKey)?.dataUpdateCount ?? 0;
+  const pollsExhausted = hasPending && updateCount - pollBase >= MAX_DISTANCE_POLLS;
+  const distanceDone = distanceItems.filter((i) => i.state !== 'pending').length;
+  function retryDistances() {
+    setPollBase(updateCount);
+    void distancesQuery.refetch();
+  }
+  const distanceByJob = new Map((distancesQuery.data?.items ?? []).map((d) => [d.jobId, d]));
+  const nearest = sortMode === 'nearest';
+  const rowDistances = new Map(baseRows.map((r) => [r.key, rowDistance(r, distanceByJob)]));
+  const rows = nearest
+    ? [...baseRows].sort((a, b) => {
+        const da = rowDistances.get(a.key)!;
+        const db = rowDistances.get(b.key)!;
+        if (da.state === 'ok' && db.state === 'ok') return da.km - db.km;
+        return Number(db.state === 'ok') - Number(da.state === 'ok'); // yang jaraknya tahu lebih dulu; sisanya urutan asal
+      })
+    : baseRows;
+  // "Menghitung" hanya selama benar-benar ada yang belum selesai (bukan tiap kali permintaan latar berjalan).
+  const distancesLoading = nearest && (distancesQuery.isLoading || (hasPending && !pollsExhausted));
+  const unknownCount = nearest ? rows.filter((r) => rowDistances.get(r.key)!.state !== 'ok').length : 0;
+  // Baris yang jaraknya hanya sampai pusat kota/kabupaten (alamatnya tidak ketemu di peta).
+  const wilayahCount = nearest
+    ? rows.filter((r) => {
+        const d = rowDistances.get(r.key)!;
+        return d.state === 'ok' && d.precision === 'wilayah';
+      }).length
+    : 0;
+  const wilayahNote =
+    wilayahCount > 0
+      ? ` ${wilayahCount} job hanya diketahui sampai kota/kabupaten (jarak ke pusat wilayahnya, bukan lokasi sebenarnya).`
+      : '';
+  // Rincian sebab untuk pesan di atas daftar: "3 tanpa alamat, 20 alamat tidak ditemukan, ...".
+  const reasonCounts = { no_address: 0, incomplete: 0, not_found: 0, service_error: 0 };
+  if (nearest) {
+    for (const r of rows) {
+      const d = rowDistances.get(r.key)!;
+      if (d.state === 'unknown') reasonCounts[d.reason] += 1;
+    }
+  }
+  const reasonSummary = (
+    [
+      ['no_address', 'tanpa alamat'],
+      ['incomplete', 'alamat kurang lengkap (belum ada kabupaten/kota)'],
+      ['not_found', 'alamat tidak ditemukan di peta'],
+      ['service_error', 'gagal dicari karena layanan peta menolak'],
+    ] as const
+  )
+    .filter(([k]) => reasonCounts[k] > 0)
+    .map(([k, label]) => `${reasonCounts[k]} ${label}`)
+    .join(', ');
   function resetFilters() {
     setQuery('');
     setDayFilter('all');
@@ -314,6 +515,21 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   function printSelected() {
     router.push(`/teknisi/queue/print-labels?units=${encodeURIComponent(selectedUnitIds.join(','))}`);
   }
+  // Cetak daftar pekerjaan: membawa filter yang sedang aktif (hari -> rentang tanggal, Aktif/Selesai, kata kunci) ke
+  // halaman cetak, yang punya filter tanggalnya sendiri untuk diubah di sana.
+  function printList() {
+    let from = '';
+    let to = '';
+    if (dayFilter === 'today') from = to = todayKey;
+    else if (dayFilter === 'tomorrow') from = to = addDaysKey(todayKey, 1);
+    else if (dayFilter === 'week') [from, to] = weekRange(todayKey);
+    else if (dayFilter !== 'all') from = to = dayFilter;
+    const params = new URLSearchParams({ status: showDone ? 'selesai' : 'aktif' });
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    if (query.trim()) params.set('q', query.trim());
+    router.push(`/teknisi/queue/print-list?${params.toString()}`);
+  }
 
   return (
     <div className="grid gap-6">
@@ -343,6 +559,12 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
               Batal
             </Button>
           )}
+          {!isTeknisi && !selecting && (
+            <Button variant="outline" onClick={printList}>
+              <ClipboardList className="size-4" />
+              Cetak Daftar
+            </Button>
+          )}
           {!isTeknisi &&
             (selecting ? (
               <Button disabled={selectedUnitIds.length === 0 || tooMany} onClick={printSelected}>
@@ -364,12 +586,16 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
       {/* Daftar job: satu panel (pita kontrol berlatar muted, baris dipisah garis tipis), warna dan gaya sama dengan
           tabel sebelumnya. Satu baris = satu job (servis banyak AC = satu baris untuk seluruh unit). */}
       <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="grid gap-2.5 border-b bg-muted/60 px-5 py-3">
-          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="grid gap-3.5 border-b bg-card px-5 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold tracking-tight">Daftar Job</h2>
-                {!jobsQuery.isLoading && !jobsQuery.isError && <Badge variant="secondary">{rows.length}</Badge>}
+                <h2 className="text-sm font-semibold tracking-tight">Daftar Job</h2>
+                {!jobsQuery.isLoading && !jobsQuery.isError && (
+                  <Badge variant="outline" className="rounded-full border-primary/30 bg-primary/10 px-2 text-primary">
+                    {rows.length}
+                  </Badge>
+                )}
               </div>
               {!isTeknisi && selecting && printable.length > 0 && (
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -382,42 +608,44 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 </label>
               )}
               {!isTeknisi && (
-                <div className="flex gap-2">
+                <div className="inline-flex gap-1 rounded-lg border bg-muted/60 p-1">
                   <Button
                     size="sm"
-                    variant={showDone ? 'outline' : 'default'}
+                    variant={showDone ? 'ghost' : 'default'}
                     aria-pressed={!showDone}
                     onClick={() => setShowDone(false)}
+                    className={cn('h-7 rounded-md px-3 text-xs', showDone && 'text-muted-foreground')}
                   >
                     Aktif
                   </Button>
                   <Button
                     size="sm"
-                    variant={showDone ? 'default' : 'outline'}
+                    variant={showDone ? 'default' : 'ghost'}
                     aria-pressed={showDone}
                     onClick={() => setShowDone(true)}
+                    className={cn('h-7 rounded-md px-3 text-xs', !showDone && 'text-muted-foreground')}
                   >
                     Selesai
                   </Button>
                 </div>
               )}
             </div>
-            <div className="relative w-full lg:w-80">
+            <div className="relative w-full lg:w-96">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Cari nama pelanggan, unit, lokasi..."
                 aria-label="Cari job"
-                className="h-8 bg-background pl-9 text-sm"
+                className="h-9 rounded-lg bg-muted/50 pl-9 text-sm"
               />
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2 overflow-x-auto p-0.5 text-xs">
-              <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
-                <CalendarDays className="size-3.5 text-primary" />
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto p-0.5 text-xs">
+              <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <CalendarDays className="size-3.5" />
                 Filter Hari:
               </span>
               {dayPills.map((pill) => (
@@ -434,7 +662,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 </Button>
               ))}
             </div>
-            <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+            <div className="flex shrink-0 items-center gap-2">
               <span className="text-xs text-muted-foreground">Pilih Tgl:</span>
               <Input
                 type="date"
@@ -456,7 +684,66 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 </Button>
               )}
             </div>
+            <div className="flex shrink-0 items-center gap-2 text-xs">
+              <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <ArrowDownWideNarrow className="size-3.5" />
+                Urutkan:
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant={nearest ? 'outline' : 'default'}
+                aria-pressed={!nearest}
+                onClick={() => setSortMode('default')}
+              >
+                Urutan Biasa
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={nearest ? 'default' : 'outline'}
+                aria-pressed={nearest}
+                onClick={() => setSortMode('nearest')}
+              >
+                Terdekat dari Toko
+              </Button>
+            </div>
           </div>
+
+          {nearest && (
+            <div
+              className={cn(
+                'flex items-start gap-2 rounded-md border px-3 py-2 text-xs',
+                distancesQuery.isError
+                  ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                  : 'border-primary/25 bg-primary/10 text-primary',
+              )}
+            >
+              <Info className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                {distancesQuery.isError
+                  ? 'Gagal menghitung jarak. Daftar tetap tampil dengan urutan biasa.'
+                  : distancesLoading
+                    ? distanceItems.length > 0
+                      ? `Menghitung jarak dari alamat... ${distanceDone} dari ${distanceItems.length} job selesai. Daftar terurut bertahap.`
+                      : 'Menghitung jarak dari alamat...'
+                    : pollsExhausted
+                      ? 'Sebagian alamat belum selesai dihitung (layanan peta sedang sibuk). Job itu ada di paling bawah.'
+                      : unknownCount > 0
+                        ? `Jarak garis lurus dari toko. ${unknownCount} job belum terhitung dan ada di paling bawah: ${reasonSummary}.${wilayahNote}`
+                        : `Jarak garis lurus dari toko.${wilayahNote}`}
+              </span>
+              {(distancesQuery.isError || pollsExhausted || (!distancesLoading && reasonCounts.service_error > 0)) && (
+                <button
+                  type="button"
+                  onClick={retryDistances}
+                  className="ml-auto shrink-0 font-semibold underline underline-offset-2"
+                >
+                  Coba lagi
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {jobsQuery.isLoading && <p className="px-5 py-6 text-sm text-muted-foreground">Memuat job...</p>}
@@ -523,6 +810,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
             const note = row.jobs.map((j) => j.notes?.trim()).find(Boolean);
             const scheduled = row.jobs.find((j) => j.scheduledDate)?.scheduledDate;
             const showAssign = isAdmin && !!assignTarget;
+            const hasTechnician = !!(job.technicians?.length || job.technician);
             return (
               <li key={row.key} className="px-5 py-3.5 transition-colors hover:bg-muted/50">
                 <div className="flex items-start gap-3">
@@ -536,7 +824,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                     />
                   )}
                   <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between md:gap-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                       <Link
                         href={`/teknisi/jobs/${job.id}`}
                         className="min-w-0 flex-1 space-y-1.5 rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -559,19 +847,26 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                         )}
                         {note && <p className="text-xs italic text-muted-foreground">Catatan: {note}</p>}
                       </Link>
-                      <div className="flex max-w-full flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
-                        {showAssign && (
-                          <TechnicianAssignDialog
-                            jobId={assignTarget.id}
-                            allInOrder={many}
-                            current={assignTarget.technicianIds ?? (assignTarget.technician ? [assignTarget.technician.id] : [])}
-                            technicians={technicians}
-                          />
-                        )}
-                        <Badge variant={statusBadgeVariant(rowStatus)} className="gap-1.5">
-                          <span className="size-1.5 rounded-full bg-current" />
-                          {statusLabel(rowStatus)}
-                        </Badge>
+                      <div className="flex max-w-full flex-col items-start gap-1.5 sm:shrink-0 sm:items-end">
+                        <div className="flex max-w-full flex-wrap items-center gap-2 sm:justify-end">
+                          {showAssign && (
+                            <TechnicianAssignDialog
+                              jobId={assignTarget.id}
+                              allInOrder={many}
+                              current={assignTarget.technicianIds ?? (assignTarget.technician ? [assignTarget.technician.id] : [])}
+                              technicians={technicians}
+                            />
+                          )}
+                          <Badge variant={statusBadgeVariant(rowStatus)} className="gap-1.5">
+                            <span className="size-1.5 rounded-full bg-current" />
+                            {statusLabel(rowStatus)}
+                          </Badge>
+                        </div>
+                        {/* Waktu masuk: kanan atas kartu (>= sm); di layar sempit ikut baris chip di bawah. */}
+                        <span className="hidden items-center gap-1 text-[11px] text-muted-foreground sm:inline-flex">
+                          <Clock className="size-3.5" />
+                          Masuk {formatDateTime(job.createdAt)}
+                        </span>
                       </div>
                     </div>
 
@@ -585,6 +880,13 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                         <TypeIcon className="size-3" />
                         {meta.label}
                       </span>
+                      {nearest && (
+                        <DistanceBadge
+                          d={rowDistances.get(row.key)!}
+                          loading={distancesLoading}
+                          fixHref={isTeknisi ? undefined : addressFixHref(job)}
+                        />
+                      )}
                       {row.jobs.some((j) => j.complaintOfJobId) && <Badge variant="warning">Komplain</Badge>}
                       {scheduled && (
                         <span className="inline-flex items-center gap-1">
@@ -594,12 +896,12 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                           </span>
                         </span>
                       )}
-                      {isAdmin && !showAssign && (
-                        <span className="inline-flex items-center gap-1">
-                          <UserRound className="size-3.5 text-primary" />
-                          <span className="font-medium text-foreground">
-                            {technicianNames(job)}
-                          </span>
+                      {/* Nama pemegang job selalu tampil bila sudah ada teknisi (juga saat tombol "Ubah teknisi" ada);
+                          job yang belum ditugaskan dan punya tombol "Tugaskan teknisi" tidak perlu tulisan tambahan. */}
+                      {!isTeknisi && (hasTechnician || !showAssign) && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                          <UserRound className="size-3" />
+                          {technicianNames(job)}
                         </span>
                       )}
                       {!isTeknisi && needsPrice && (
@@ -607,7 +909,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                           {many ? 'Tentukan harga jasa tiap unit' : 'Tentukan harga jasa'}
                         </span>
                       )}
-                      <span className="inline-flex items-center gap-1 text-[11px] sm:ml-auto">
+                      <span className="inline-flex items-center gap-1 text-[11px] sm:hidden">
                         <Clock className="size-3.5" />
                         Masuk {formatDateTime(job.createdAt)}
                       </span>
