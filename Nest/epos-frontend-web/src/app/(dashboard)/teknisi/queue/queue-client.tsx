@@ -251,11 +251,21 @@ type SortMode = 'default' | 'nearest';
 // Sebab jarak tidak diketahui: tanpa alamat / alamat tanpa kabupaten-kota (tidak dicari) / tidak ditemukan di peta /
 // layanan peta menolak (bisa dicoba lagi).
 type DistanceReason = 'no_address' | 'incomplete' | 'not_found' | 'service_error';
+// Ketelitian jarak: titik pasti (link Maps) > jalan > desa > kecamatan > perkiraan (nama kompleks/daerah).
+type DistancePrecision = 'titik' | 'jalan' | 'desa' | 'kecamatan' | 'perkiraan';
+const PRECISION_LABEL: Record<DistancePrecision, string> = {
+  titik: 'titik pasti',
+  jalan: 'sampai jalan',
+  desa: 'level desa',
+  kecamatan: 'level kecamatan',
+  perkiraan: 'perkiraan daerah',
+};
 interface JobDistance {
   jobId: string;
   km: number | null;
   state: 'ok' | 'unknown' | 'pending';
   reason?: DistanceReason;
+  precision?: DistancePrecision;
 }
 interface DistancesResponse {
   shop: { lat: number; lng: number; label: string };
@@ -269,20 +279,26 @@ const DISTANCE_POLL_MS = 2000;
 const MAX_DISTANCE_POLLS = 45;
 
 type RowDistance =
-  | { state: 'ok'; km: number }
+  | { state: 'ok'; km: number; precision?: DistancePrecision }
   | { state: 'pending' }
   | { state: 'unknown'; reason: DistanceReason };
 function rowDistance(row: QueueRow, byJob: Map<string, JobDistance>): RowDistance {
   let best: number | null = null;
+  let bestPrecision: DistancePrecision | undefined;
   let pending = false;
   let reason: DistanceReason = 'no_address';
   for (const j of row.jobs) {
     const d = byJob.get(j.id);
-    if (d?.state === 'ok' && d.km !== null) best = best === null ? d.km : Math.min(best, d.km);
+    if (d?.state === 'ok' && d.km !== null) {
+      if (best === null || d.km < best) {
+        best = d.km;
+        bestPrecision = d.precision;
+      }
+    }
     else if (d?.state === 'pending') pending = true;
     else if (d?.state === 'unknown' && d.reason) reason = d.reason;
   }
-  if (best !== null) return { state: 'ok', km: best };
+  if (best !== null) return { state: 'ok', km: best, precision: bestPrecision };
   return pending ? { state: 'pending' } : { state: 'unknown', reason };
 }
 const REASON_LABEL: Record<DistanceReason, string> = {
@@ -308,6 +324,9 @@ function DistanceBadge({
     return (
       <span className={cn(base, 'border-primary/25 bg-primary/10 text-primary')}>
         <Navigation className="size-3" />± {kmText(d.km)} dari toko
+        {d.precision && d.precision !== 'titik' && (
+          <span className="font-normal opacity-80">· {PRECISION_LABEL[d.precision]}</span>
+        )}
       </span>
     );
   }

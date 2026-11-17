@@ -29,15 +29,30 @@ export const isMapsLink = (v: string | null | undefined) => /^https?:\/\/\S+$/i.
 export function fixAddress(text: string): string {
   return text
     .trim()
-    .replace(/\bkab\b\.?/gi, 'Kabupaten')
-    .replace(/\bkodya\b\.?/gi, 'Kota');
+    .replace(/\bkab\b\.?\s*/gi, 'Kabupaten ') // "Kab.Mojokerto" (tanpa spasi) tidak boleh jadi "KabupatenMojokerto"
+    .replace(/\bkodya\b\.?\s*/gi, 'Kota ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-const stripProvince = (t: string) => t.replace(/(?:[,\s]*\b(?:jawa timur|jatim|indonesia)\b\.?)+\s*$/i, '').trim();
+/**
+ * Bagian yang diabaikan sepenuhnya, di mana pun posisinya (cerminan dropIgnorable di backend): keterangan dalam kurung,
+ * provinsi, dan kode pos. Kode pos setelah "Jawa Timur" TIDAK boleh membuat alamat dianggap tak lengkap.
+ */
+const stripIgnorable = (t: string) =>
+  t
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[()]/g, ' ')
+    .replace(/\b(?:jawa timur|jatim|indonesia)\b\.?/gi, ' ')
+    .replace(/\b\d{5}\b/g, ' ')
+    .replace(/\s+,/g, ',')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[\s,]+$/, '');
 
 /** Bagian alamat di luar kabupaten/kota, atau null bila kabupaten/kota tidak disebut. */
 function splitRegion(fixed: string): { rest: string } | null {
-  const t = stripProvince(fixed);
+  const t = stripIgnorable(fixed);
   const all = [...t.matchAll(/\b(?:kota|kabupaten)\s+[a-z]+/gi)];
   if (all.length > 0) {
     const m = all[all.length - 1];
@@ -52,7 +67,13 @@ function splitRegion(fixed: string): { rest: string } | null {
   return null;
 }
 
-const alnum = (s: string) => s.replace(/[^a-z0-9]/gi, '');
+// Huruf pada nama yang tersisa setelah RT/RW/No./Blok dan token berangka dibuang (sama dengan komponen yang dipakai backend).
+const nameLetters = (s: string) =>
+  s
+    .split(/[\s,]+/)
+    .filter((w) => w && !/\d/.test(w) && !/^(?:rt|rw|no|nomor|blok|blk)\.?$/i.test(w))
+    .join('')
+    .replace(/[^a-z]/gi, '');
 
 export function checkAddress(raw: string | undefined | null, opts: { hasMapsLink?: boolean } = {}): AddressCheck {
   const text = (raw ?? '').trim();
@@ -75,7 +96,7 @@ export function checkAddress(raw: string | undefined | null, opts: { hasMapsLink
       warnings,
     };
   }
-  if (alnum(region.rest).length < 3) {
+  if (nameLetters(region.rest).length < 3) {
     return { blocking: 'Tambahkan nama jalan, desa, atau kecamatan sebelum kabupaten/kota.', warnings };
   }
   return { blocking: null, warnings };

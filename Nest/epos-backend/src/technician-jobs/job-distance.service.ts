@@ -15,7 +15,9 @@ import {
   searchTextFromMapsUrl,
   SHOP_LOCATION,
   validLatLng,
+  type GeocodeQuery,
   type GeocodeRegion,
+  type GeoPrecision,
   type LatLng,
   type NominatimRow,
 } from '../common/geo.util';
@@ -36,6 +38,8 @@ export interface JobDistanceItem {
   state: JobDistanceState;
   /** Hanya untuk state 'unknown'. */
   reason?: JobDistanceReason;
+  /** Hanya untuk state 'ok': 'titik' (link Maps) > 'jalan' > 'desa' > 'kecamatan' > 'perkiraan' (nama kompleks/daerah). */
+  precision?: GeoPrecision;
 }
 
 // Host link pendek yang boleh dibuka server untuk membaca tujuan akhirnya (pengaman SSRF: selain ini tidak diikuti).
@@ -56,15 +60,24 @@ const TTL_FOUND_MS = 30 * 24 * 3600_000;
 const TTL_NOT_FOUND_MS = 24 * 3600_000;
 const BACKOFF_MS = 60_000;
 const CACHE_MAX = 5000;
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 
 interface CacheEntry {
   value: LatLng | null;
+  /** Ketelitian hasil (jenis komponen alamat yang cocok); hanya untuk value non-null. */
+  precision?: GeoPrecision;
   expiresAt: number;
 }
+const PRECISIONS: readonly string[] = [
+  'titik',
+  'jalan',
+  'desa',
+  'kecamatan',
+  'perkiraan',
+];
 /** Hasil resolusi satu alamat: titik, tidak ditemukan, atau belum selesai (anggaran waktu habis / layanan sibuk). */
 type Resolved =
-  | { kind: 'ok'; point: LatLng }
+  | { kind: 'ok'; point: LatLng; precision: GeoPrecision }
   | { kind: 'unknown'; reason: JobDistanceReason }
   | { kind: 'pending' };
 
@@ -112,9 +125,12 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
     try {
       const raw = JSON.parse(await fs.readFile(this.cacheFile, 'utf8')) as {
         version?: number;
-        entries?: Record<string, { value: LatLng | null; expiresAt: number }>;
+        entries?: Record<
+          string,
+          { value: LatLng | null; precision?: string; expiresAt: number }
+        >;
       };
-      // Versi lama disimpan sebelum verifikasi wilayah (bisa memuat titik salah daerah): dibuang.
+      // Versi lama disimpan sebelum verifikasi wilayah/komponen (bisa memuat titik salah daerah): dibuang.
       if (raw.version !== CACHE_VERSION) {
         this.logger.log('Cache jarak versi lama dibuang');
         return;
@@ -128,7 +144,10 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
             ? null
             : validLatLng(Number(e.value?.lat), Number(e.value?.lng));
         if (e.value !== null && !value) continue;
-        this.cache.set(key, { value, expiresAt: e.expiresAt });
+        const precision = PRECISIONS.includes(e.precision ?? '')
+          ? (e.precision as GeoPrecision)
+          : undefined;
+        this.cache.set(key, { value, precision, expiresAt: e.expiresAt });
         loaded += 1;
       }
       this.logger.log(`Cache jarak dimuat: ${loaded} alamat`);
@@ -229,6 +248,7 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
             jobId,
             km: Math.round(haversineKm(SHOP_LOCATION, r.point) * 10) / 10,
             state: 'ok' as const,
+            precision: r.precision,
           },
         ];
       }
@@ -257,7 +277,7 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
     // Instan bila salah satu pertanyaan sudah ketemu, atau semuanya sudah pernah dicari (tidak ada yang ketemu).
     let allCached = true;
     for (const q of plan.queries) {
-      const e = this.getCache(this.geoKey(q));
+      const e = this.getCache(this.geoKey(q.q));
       if (e?.value) return true;
       if (!e) allCached = false;
     }
@@ -270,7 +290,7 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
     deadline: number,
   ): Promise<Resolved> {
     const direct = parseCoordsFromMapsUrl(url);
-    if (direct) return { kind: 'ok', point: direct };
+    if (direct) return { kind: 'ok', point: direct, precision: 'titik' };
 
     if (url && this.isShortLink(url)) {
       const r = await this.once(`short:${url}`, () =>
@@ -289,7 +309,7 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
     // Dari yang paling spesifik ke yang makin umum; tiap pertanyaan punya cache sendiri, jadi pencarian yang terputus
     // (anggaran waktu habis) dilanjutkan dari pertanyaan berikutnya, tidak mengulang dari awal.
     for (const q of plan.queries) {
-      const r = await this.once(this.geoKey(q), () =>
+      const r = await this.once(this.geoKey(q.q), () =>
         this.geocode(q, region, deadline),
       );
       if (r.kind !== 'unknown' || r.reason !== 'not_found') return r; // ketemu / pending / layanan error
@@ -322,7 +342,11 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
     const hit = this.getCache(key);
     if (hit)
       return hit.value
-        ? { kind: 'ok', point: hit.value }
+        ? {
+            kind: 'ok',
+            point: hit.value,
+            precision: hit.precision ?? 'perkiraan',
+          }
         : { kind: 'unknown', reason: 'not_found' };
     const running = this.inflight.get(key);
     if (running) return running;
@@ -341,11 +365,16 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
     return e;
   }
 
-  private setCache(key: string, value: LatLng | null) {
+  private setCache(
+    key: string,
+    value: LatLng | null,
+    precision?: GeoPrecision,
+  ) {
     if (this.cache.size >= CACHE_MAX)
       this.cache.delete(this.cache.keys().next().value as string);
     this.cache.set(key, {
       value,
+      precision,
       expiresAt: Date.now() + (value ? TTL_FOUND_MS : TTL_NOT_FOUND_MS),
     });
     this.scheduleSave();
@@ -378,8 +407,8 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
             GOOGLE_MAPS_HOST.test(next.hostname));
         const coords = parseCoordsFromMapsUrl(next.toString());
         if (coords) {
-          this.setCache(`short:${url}`, coords);
-          return { kind: 'ok', point: coords };
+          this.setCache(`short:${url}`, coords, 'titik');
+          return { kind: 'ok', point: coords, precision: 'titik' };
         }
         if (!hostOk) break;
         current = next.toString();
@@ -395,14 +424,14 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
   // ---- geocoding (Nominatim, antre 1 permintaan/detik) ----
 
   private async geocode(
-    text: string,
+    query: GeocodeQuery,
     region: GeocodeRegion,
     deadline: number,
   ): Promise<Resolved> {
     return this.queued(deadline, async () => {
       try {
         const qs = new URLSearchParams({
-          q: text,
+          q: query.q,
           format: 'jsonv2',
           limit: '3',
           addressdetails: '1',
@@ -429,11 +458,12 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
           return { kind: 'unknown', reason: 'service_error' };
         }
         const rows = (await res.json()) as NominatimRow[];
-        // Verifikasi dua kunci: wilayah cocok dengan kabupaten/kota yang ditulis dan bukan hasil setingkat wilayah.
-        const point = pickVerifiedPoint(rows, region);
-        this.setCache(this.geoKey(text), point);
-        return point
-          ? { kind: 'ok', point }
+        // Verifikasi dua kunci: wilayah cocok dengan kabupaten/kota yang ditulis, dan salah satu komponen yang dicari
+        // (jalan/desa/kecamatan/kata kompleks) benar-benar muncul di jawaban.
+        const hit = pickVerifiedPoint(rows, region, query.terms);
+        this.setCache(this.geoKey(query.q), hit?.point ?? null, hit?.precision);
+        return hit
+          ? { kind: 'ok', point: hit.point, precision: hit.precision }
           : { kind: 'unknown', reason: 'not_found' };
       } catch (err) {
         this.logger.warn(`Geocoding gagal: ${(err as Error).name}`);

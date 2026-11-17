@@ -1,19 +1,23 @@
 import { JobDistanceService } from './job-distance.service';
 import { MAPS_SEARCH_PREFIX } from '../common/maps-url.util';
 
-// Jawaban Nominatim yang lolos verifikasi: titik dekat toko, tempat spesifik, wilayah Mojokerto.
-const HIT = {
+// Jawaban Nominatim yang lolos kedua verifikasi: wilayah Mojokerto + memuat nama tempat yang dicari.
+const hit = (field: string, name: string, county = 'Mojokerto') => ({
   lat: '-7.4700',
   lon: '112.4400',
-  addresstype: 'road',
-  address: { county: 'Mojokerto', state: 'Jawa Timur' },
-};
+  addresstype: field,
+  address: { county, state: 'Jawa Timur', [field]: name },
+});
 // Jawaban dari daerah lain bernama mirip (kasus "Gebang Malang" jatuh ke Kabupaten Malang).
 const SALAH_DAERAH = {
   lat: '-8.3429',
   lon: '112.49235',
   addresstype: 'hamlet',
-  address: { county: 'Kabupaten Malang', state: 'Jawa Timur' },
+  address: {
+    county: 'Kabupaten Malang',
+    hamlet: 'Gebang',
+    state: 'Jawa Timur',
+  },
 };
 
 function setup(jobs: any[]) {
@@ -55,7 +59,7 @@ describe('JobDistanceService', () => {
     global.fetch = realFetch;
   });
 
-  it('koordinat di link Maps dipakai langsung, tanpa panggilan jaringan', async () => {
+  it('koordinat di link Maps dipakai langsung, tanpa panggilan jaringan, ketelitian "titik"', async () => {
     const { svc } = setup([
       job('j1', {
         member: {
@@ -67,6 +71,7 @@ describe('JobDistanceService', () => {
     const r = await svc.distances(['j1'], asAdmin);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(r.items[0].state).toBe('ok');
+    expect(r.items[0].precision).toBe('titik');
     expect(r.items[0].km).toBeGreaterThan(1);
     expect(r.items[0].km).toBeLessThan(5);
   });
@@ -87,10 +92,9 @@ describe('JobDistanceService', () => {
   });
 
   it('link pencarian buatan sistem digeocode dari teksnya, hasil di-cache', async () => {
-    fetchMock.mockResolvedValue(jsonRes([HIT]));
+    fetchMock.mockResolvedValue(jsonRes([hit('town', 'Mojosari')]));
     const url =
-      MAPS_SEARCH_PREFIX +
-      encodeURIComponent('Mojosari, Kabupaten Mojokerto');
+      MAPS_SEARCH_PREFIX + encodeURIComponent('Mojosari, Kabupaten Mojokerto');
     const { svc } = setup([
       job('j1', { member: { address: null, mapsUrl: url } }),
     ]);
@@ -99,7 +103,9 @@ describe('JobDistanceService', () => {
     const b = await svc.distances(['j1'], asAdmin);
 
     expect(a.items[0].state).toBe('ok');
+    expect(a.items[0].precision).toBe('kecamatan');
     expect(b.items[0].km).toBe(a.items[0].km);
+    expect(b.items[0].precision).toBe('kecamatan'); // ketelitian ikut tersimpan di cache
     expect(fetchMock).toHaveBeenCalledTimes(1); // panggilan kedua dari cache
     const calledUrl = String(fetchMock.mock.calls[0][0]);
     expect(calledUrl).toContain('nominatim.openstreetmap.org');
@@ -111,11 +117,8 @@ describe('JobDistanceService', () => {
   });
 
   it('dua job beralamat sama hanya satu panggilan geocoding', async () => {
-    fetchMock.mockResolvedValue(jsonRes([HIT]));
+    fetchMock.mockResolvedValue(jsonRes([hit('town', 'Krian', 'Sidoarjo')]));
     const m = { address: 'Krian, Kabupaten Sidoarjo', mapsUrl: null };
-    fetchMock.mockResolvedValue(
-      jsonRes([{ ...HIT, address: { county: 'Sidoarjo' } }]),
-    );
     const { svc } = setup([job('j1', { member: m }), job('j2', { member: m })]);
     const r = await svc.distances(['j1', 'j2'], asAdmin);
     expect(r.items.map((i) => i.state)).toEqual(['ok', 'ok']);
@@ -182,10 +185,11 @@ describe('JobDistanceService', () => {
     ]);
     const r = await svc.distances(['j1'], asAdmin);
     expect(r.items[0].state).toBe('ok');
+    expect(r.items[0].precision).toBe('titik');
   });
 });
 
-describe('JobDistanceService — pencarian berjenjang dan verifikasi dua kunci', () => {
+describe('JobDistanceService — cakupan dikecilkan dan dua verifikasi', () => {
   const realFetch = global.fetch;
   let fetchMock: jest.Mock;
   beforeEach(() => {
@@ -196,10 +200,10 @@ describe('JobDistanceService — pencarian berjenjang dan verifikasi dua kunci',
     global.fetch = realFetch;
   });
 
-  it('bagian depan tidak ketemu -> dialihkan ke bagian tengah/belakang sampai ketemu', async () => {
+  it('pencarian lengkap kosong -> dikecilkan ke bagian belakang sampai ketemu', async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonRes([])) // jalan + desa + kabupaten: kosong
-      .mockResolvedValueOnce(jsonRes([HIT])); // desa + kabupaten: ketemu
+      .mockResolvedValueOnce(jsonRes([])) // jalan + kelurahan: kosong
+      .mockResolvedValueOnce(jsonRes([hit('village', 'Kuwung')])); // kelurahan saja: ketemu
     const { svc } = setup([
       withAddress(
         'j1',
@@ -209,12 +213,29 @@ describe('JobDistanceService — pencarian berjenjang dan verifikasi dua kunci',
     const r = await svc.distances(['j1'], asAdmin);
     expect(r.items[0].state).toBe('ok');
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(queryOf(fetchMock, 0)).toBe('Gang Mawar, Kuwung, Kabupaten Mojokerto');
+    expect(queryOf(fetchMock, 0)).toBe(
+      'Gang Mawar, Kuwung, Kabupaten Mojokerto',
+    );
     expect(queryOf(fetchMock, 1)).toBe('Kuwung, Kabupaten Mojokerto');
   });
 
-  it('nama ruko di tengah dilewati: jalan + daerah dicari bersama (kasus Jl. Airlangga)', async () => {
-    fetchMock.mockResolvedValue(jsonRes([HIT]));
+  it('kode pos dan provinsi tidak ikut dikirim ke peta', async () => {
+    fetchMock.mockResolvedValue(jsonRes([hit('road', 'Jalan Pahlawan')]));
+    const { svc } = setup([
+      withAddress(
+        'j1',
+        'Jl. Pahlawan, Ngoro, Kabupaten Mojokerto, Jawa Timur 61385',
+      ),
+    ]);
+    const r = await svc.distances(['j1'], asAdmin);
+    expect(queryOf(fetchMock, 0)).toBe(
+      'Jalan Pahlawan, Ngoro, Kabupaten Mojokerto',
+    );
+    expect(r.items[0]).toMatchObject({ state: 'ok', precision: 'jalan' });
+  });
+
+  it('nama ruko dilewati: jalan + daerah dicari bersama (kasus Jl. Airlangga)', async () => {
+    fetchMock.mockResolvedValue(jsonRes([hit('road', 'Jalan Airlangga')]));
     const { svc } = setup([
       withAddress(
         'j1',
@@ -222,13 +243,15 @@ describe('JobDistanceService — pencarian berjenjang dan verifikasi dua kunci',
       ),
     ]);
     await svc.distances(['j1'], asAdmin);
-    expect(queryOf(fetchMock, 0)).toBe('Jalan Airlangga, Mojosari, Kabupaten Mojokerto');
+    expect(queryOf(fetchMock, 0)).toBe(
+      'Jalan Airlangga, Mojosari, Kabupaten Mojokerto',
+    );
   });
 
-  it('hasil dari daerah lain ditolak lalu lanjut ke pertanyaan berikutnya (kasus Gebang Malang)', async () => {
+  it('kunci 1: hasil dari daerah lain ditolak lalu lanjut ke pertanyaan berikutnya (kasus Gebang Malang)', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonRes([SALAH_DAERAH])) // Kabupaten Malang: ditolak
-      .mockResolvedValueOnce(jsonRes([HIT]));
+      .mockResolvedValueOnce(jsonRes([hit('village', 'Gayaman')]));
     const { svc } = setup([
       withAddress('j1', 'Gebang Malang, Gayaman, Kabupaten Mojokerto'),
     ]);
@@ -238,11 +261,9 @@ describe('JobDistanceService — pencarian berjenjang dan verifikasi dua kunci',
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('semua jawaban dari daerah lain = not_found, bukan jarak yang menyesatkan', async () => {
-    fetchMock.mockResolvedValue(jsonRes([SALAH_DAERAH]));
-    const { svc } = setup([
-      withAddress('j1', 'Gebang Malang, Gayaman, Kabupaten Mojokerto'),
-    ]);
+  it('kunci 2: wilayah benar tapi tempatnya tak berhubungan dengan alamat = ditolak', async () => {
+    fetchMock.mockResolvedValue(jsonRes([hit('road', 'Jalan Raya Lain')]));
+    const { svc } = setup([withAddress('j1', 'Sooko, Kabupaten Mojokerto')]);
     const r = await svc.distances(['j1'], asAdmin);
     expect(r.items[0]).toMatchObject({
       state: 'unknown',
@@ -251,9 +272,16 @@ describe('JobDistanceService — pencarian berjenjang dan verifikasi dua kunci',
     });
   });
 
-  it('hasil setingkat wilayah saja (pusat kabupaten) ditolak', async () => {
+  it('hasil setingkat kabupaten (tanpa nama tempat) ditolak', async () => {
     fetchMock.mockResolvedValue(
-      jsonRes([{ ...HIT, addresstype: 'county', address: { county: 'Mojokerto' } }]),
+      jsonRes([
+        {
+          lat: '-7.47',
+          lon: '112.44',
+          addresstype: 'county',
+          address: { county: 'Mojokerto' },
+        },
+      ]),
     );
     const { svc } = setup([withAddress('j1', 'Sooko, Kabupaten Mojokerto')]);
     const r = await svc.distances(['j1'], asAdmin);
@@ -261,7 +289,9 @@ describe('JobDistanceService — pencarian berjenjang dan verifikasi dua kunci',
   });
 
   it('koordinat di luar Indonesia ditolak', async () => {
-    fetchMock.mockResolvedValue(jsonRes([{ ...HIT, lat: '48.85', lon: '2.35' }]));
+    fetchMock.mockResolvedValue(
+      jsonRes([{ ...hit('town', 'Paris'), lat: '48.85', lon: '2.35' }]),
+    );
     const { svc } = setup([withAddress('j1', 'Paris, Kabupaten Mojokerto')]);
     const r = await svc.distances(['j1'], asAdmin);
     expect(r.items[0]).toMatchObject({ state: 'unknown', reason: 'not_found' });
@@ -269,13 +299,14 @@ describe('JobDistanceService — pencarian berjenjang dan verifikasi dua kunci',
 
   it('semua pertanyaan kosong = not_found, dan tidak dicari ulang (cache per pertanyaan)', async () => {
     fetchMock.mockResolvedValue(jsonRes([]));
+    // Tiga pertanyaan (jalan+kelurahan, kelurahan, jalan): selesai dalam anggaran waktu satu permintaan.
     const { svc } = setup([
-      withAddress('j1', 'Gg. Mawar, Kuwung, Meri, Kota Mojokerto'),
+      withAddress('j1', 'Gg. Mawar, Kuwung, Kota Mojokerto'),
     ]);
     const a = await svc.distances(['j1'], asAdmin);
     expect(a.items[0]).toMatchObject({ state: 'unknown', reason: 'not_found' });
     const calls = fetchMock.mock.calls.length;
-    expect(calls).toBeLessThanOrEqual(5);
+    expect(calls).toBe(3);
     await svc.distances(['j1'], asAdmin);
     expect(fetchMock).toHaveBeenCalledTimes(calls);
   });
@@ -284,10 +315,15 @@ describe('JobDistanceService — pencarian berjenjang dan verifikasi dua kunci',
     const { svc } = setup([
       withAddress('j1', 'Jl. Ra Basuni No. 450 Sooko'),
       withAddress('j2', 'Gebang Malang'),
-      withAddress('j3', 'Kabupaten Mojokerto'), // hanya wilayah, tanpa bagian spesifik
+      withAddress('j3', 'Kabupaten Mojokerto'), // hanya wilayah, tanpa komponen nama
+      withAddress(
+        'j4',
+        'Perumahan Citra Harmoni Blok F1 No.52 Trosobo Sidoarjo',
+      ),
     ]);
-    const r = await svc.distances(['j1', 'j2', 'j3'], asAdmin);
+    const r = await svc.distances(['j1', 'j2', 'j3', 'j4'], asAdmin);
     expect(r.items.map((i) => [i.state, i.reason])).toEqual([
+      ['unknown', 'incomplete'],
       ['unknown', 'incomplete'],
       ['unknown', 'incomplete'],
       ['unknown', 'incomplete'],
@@ -298,7 +334,10 @@ describe('JobDistanceService — pencarian berjenjang dan verifikasi dua kunci',
   it('tanpa alamat dan tanpa link = unknown/no_address, tanpa panggilan jaringan', async () => {
     const { svc } = setup([job('j1')]);
     const r = await svc.distances(['j1'], asAdmin);
-    expect(r.items[0]).toMatchObject({ state: 'unknown', reason: 'no_address' });
+    expect(r.items[0]).toMatchObject({
+      state: 'unknown',
+      reason: 'no_address',
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

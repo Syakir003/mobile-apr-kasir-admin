@@ -6,8 +6,8 @@ import { JobDistanceService } from './job-distance.service';
 const HIT = {
   lat: '-7.4700',
   lon: '112.4400',
-  addresstype: 'road',
-  address: { county: 'Mojokerto' },
+  addresstype: 'town',
+  address: { county: 'Mojokerto', town: 'Mojosari' },
 };
 const ADDR = 'Mojosari, Kabupaten Mojokerto';
 const KEY = 'geo:mojosari, kabupaten mojokerto';
@@ -59,17 +59,19 @@ describe('JobDistanceService — cache file', () => {
     await fs.writeFile(file, JSON.stringify({ version, entries }));
   };
 
-  it('hasil geocoding tersimpan ke file dan dipakai instance baru tanpa panggilan jaringan', async () => {
+  it('hasil geocoding (beserta ketelitiannya) tersimpan ke file dan dipakai instance baru tanpa panggilan jaringan', async () => {
     const a = makeSvc(ADDR);
     await a.onModuleInit(); // file belum ada: mulai kosong, tidak error
     const r1 = await a.distances(['j1'], asAdmin);
     expect(r1.items[0].state).toBe('ok');
+    expect(r1.items[0].precision).toBe('kecamatan');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await a.flushCache();
 
     const saved = JSON.parse(await fs.readFile(file, 'utf8'));
-    expect(saved.version).toBe(2);
+    expect(saved.version).toBe(3);
     expect(Object.keys(saved.entries)).toEqual([KEY]);
+    expect(saved.entries[KEY].precision).toBe('kecamatan');
 
     // "restart": instance baru membaca file yang sama.
     const b = makeSvc(ADDR);
@@ -95,20 +97,26 @@ describe('JobDistanceService — cache file', () => {
 
   it('entri kedaluwarsa, koordinat di luar Indonesia, dan bentuk salah dibuang saat dimuat', async () => {
     const future = Date.now() + 3600_000;
-    await writeCache(2, {
+    await writeCache(3, {
       'geo:kedaluwarsa, kabupaten mojokerto': {
         value: { lat: -7.47, lng: 112.44 },
+        precision: 'kecamatan',
         expiresAt: Date.now() - 1000,
       },
       'geo:paris, kabupaten mojokerto': {
         value: { lat: 48.85, lng: 2.35 },
+        precision: 'kecamatan',
         expiresAt: future,
       },
       'geo:rusak, kabupaten mojokerto': {
         value: 'bukan titik',
         expiresAt: future,
       },
-      [KEY]: { value: { lat: -7.47, lng: 112.44 }, expiresAt: future },
+      [KEY]: {
+        value: { lat: -7.47, lng: 112.44 },
+        precision: 'kecamatan',
+        expiresAt: future,
+      },
     });
     for (const text of ['Kedaluwarsa', 'Paris', 'Rusak']) {
       const s = makeSvc(`${text}, Kabupaten Mojokerto`);
@@ -124,14 +132,20 @@ describe('JobDistanceService — cache file', () => {
     expect(fetchMock).not.toHaveBeenCalled(); // yang valid dipakai dari file
   });
 
-  it('cache versi lama (sebelum verifikasi wilayah) dibuang seluruhnya', async () => {
-    await writeCache(1, {
-      [KEY]: { value: { lat: -7.47, lng: 112.44 }, expiresAt: Date.now() + 3600_000 },
-    });
-    const s = makeSvc(ADDR);
-    await s.onModuleInit();
-    await s.distances(['j1'], asAdmin);
-    expect(fetchMock).toHaveBeenCalledTimes(1); // dicari ulang, titik lama tidak dipercaya
+  it('cache versi lama (sebelum verifikasi komponen) dibuang seluruhnya', async () => {
+    for (const version of [1, 2]) {
+      await writeCache(version, {
+        [KEY]: {
+          value: { lat: -7.47, lng: 112.44 },
+          expiresAt: Date.now() + 3600_000,
+        },
+      });
+      fetchMock.mockClear();
+      const s = makeSvc(ADDR);
+      await s.onModuleInit();
+      await s.distances(['j1'], asAdmin);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // dicari ulang, titik lama tidak dipercaya
+    }
   });
 
   it('file cache rusak tidak membuat layanan gagal', async () => {
