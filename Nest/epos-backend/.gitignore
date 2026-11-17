@@ -61,3 +61,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # foto bukti servis (data pelanggan)
 /uploads/
+
+# cache koordinat alamat (jarak Terdekat dari Toko) - memuat teks alamat pelanggan
+/data/

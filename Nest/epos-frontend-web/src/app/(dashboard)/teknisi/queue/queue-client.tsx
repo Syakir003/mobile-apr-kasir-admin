@@ -243,10 +243,13 @@ function matchesDay(job: TechnicianJob, filter: DayFilter, todayKey: string): bo
 // Jarak dihitung server (POST /technician-jobs/distances): garis lurus dari toko ke lokasi kerja job. Alamat yang
 // koordinatnya belum/tidak bisa didapat ('unknown' / 'pending') ditaruh paling bawah.
 type SortMode = 'default' | 'nearest';
+// Sebab jarak tidak diketahui: tanpa alamat / alamat tidak ditemukan di peta / layanan peta menolak (bisa dicoba lagi).
+type DistanceReason = 'no_address' | 'not_found' | 'service_error';
 interface JobDistance {
   jobId: string;
   km: number | null;
   state: 'ok' | 'unknown' | 'pending';
+  reason?: DistanceReason;
 }
 interface DistancesResponse {
   shop: { lat: number; lng: number; label: string };
@@ -259,18 +262,28 @@ const MAX_DISTANCE_JOBS = 300; // batas backend per permintaan
 const DISTANCE_POLL_MS = 2000;
 const MAX_DISTANCE_POLLS = 45;
 
-type RowDistance = { state: 'ok'; km: number } | { state: 'pending' } | { state: 'unknown' };
+type RowDistance =
+  | { state: 'ok'; km: number }
+  | { state: 'pending' }
+  | { state: 'unknown'; reason: DistanceReason };
 function rowDistance(row: QueueRow, byJob: Map<string, JobDistance>): RowDistance {
   let best: number | null = null;
   let pending = false;
+  let reason: DistanceReason = 'no_address';
   for (const j of row.jobs) {
     const d = byJob.get(j.id);
     if (d?.state === 'ok' && d.km !== null) best = best === null ? d.km : Math.min(best, d.km);
     else if (d?.state === 'pending') pending = true;
+    else if (d?.state === 'unknown' && d.reason) reason = d.reason;
   }
   if (best !== null) return { state: 'ok', km: best };
-  return pending ? { state: 'pending' } : { state: 'unknown' };
+  return pending ? { state: 'pending' } : { state: 'unknown', reason };
 }
+const REASON_LABEL: Record<DistanceReason, string> = {
+  no_address: 'Tanpa alamat',
+  not_found: 'Alamat tidak ditemukan',
+  service_error: 'Gagal dicari (layanan peta menolak)',
+};
 const kmText = (km: number) => `${km.toLocaleString('id-ID', { maximumFractionDigits: 1 })} km`;
 
 function DistanceBadge({ d, loading }: { d: RowDistance; loading: boolean }) {
@@ -285,7 +298,9 @@ function DistanceBadge({ d, loading }: { d: RowDistance; loading: boolean }) {
   return (
     <span className={cn(base, 'bg-muted text-muted-foreground')}>
       <Navigation className="size-3" />
-      {d.state === 'pending' || loading ? 'Menghitung jarak...' : 'Jarak tidak diketahui'}
+      {d.state === 'pending' || loading
+        ? 'Menghitung jarak...'
+        : `Jarak tidak diketahui: ${REASON_LABEL[d.reason].toLowerCase()}`}
     </span>
   );
 }
@@ -378,6 +393,24 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   // "Menghitung" hanya selama benar-benar ada yang belum selesai (bukan tiap kali permintaan latar berjalan).
   const distancesLoading = nearest && (distancesQuery.isLoading || (hasPending && !pollsExhausted));
   const unknownCount = nearest ? rows.filter((r) => rowDistances.get(r.key)!.state !== 'ok').length : 0;
+  // Rincian sebab untuk pesan di atas daftar: "3 tanpa alamat, 20 alamat tidak ditemukan, ...".
+  const reasonCounts = { no_address: 0, not_found: 0, service_error: 0 };
+  if (nearest) {
+    for (const r of rows) {
+      const d = rowDistances.get(r.key)!;
+      if (d.state === 'unknown') reasonCounts[d.reason] += 1;
+    }
+  }
+  const reasonSummary = (
+    [
+      ['no_address', 'tanpa alamat'],
+      ['not_found', 'alamat tidak ditemukan di peta'],
+      ['service_error', 'gagal dicari karena layanan peta menolak'],
+    ] as const
+  )
+    .filter(([k]) => reasonCounts[k] > 0)
+    .map(([k, label]) => `${reasonCounts[k]} ${label}`)
+    .join(', ');
   function resetFilters() {
     setQuery('');
     setDayFilter('all');
@@ -605,10 +638,10 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                     : pollsExhausted
                       ? 'Sebagian alamat belum selesai dihitung (layanan peta sedang sibuk). Job itu ada di paling bawah.'
                       : unknownCount > 0
-                        ? `Jarak garis lurus dari toko. ${unknownCount} job yang alamatnya belum terbaca ada di paling bawah.`
+                        ? `Jarak garis lurus dari toko. ${unknownCount} job belum terhitung dan ada di paling bawah: ${reasonSummary}.`
                         : 'Jarak garis lurus dari toko.'}
               </span>
-              {(distancesQuery.isError || pollsExhausted) && (
+              {(distancesQuery.isError || pollsExhausted || (!distancesLoading && reasonCounts.service_error > 0)) && (
                 <button
                   type="button"
                   onClick={retryDistances}
