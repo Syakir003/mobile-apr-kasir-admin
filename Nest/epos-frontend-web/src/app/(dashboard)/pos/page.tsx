@@ -13,6 +13,8 @@ import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
 import { optionalNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { phoneError } from '@/lib/phone';
+import { checkAddress, fixAddress } from '@/lib/address-check';
+import { AddressHint } from '@/components/address-hint';
 import { Button } from '@/components/ui/button';
 import { MemberPicker } from '@/components/member-picker';
 import { Input } from '@/components/ui/input';
@@ -942,7 +944,11 @@ export default function PosPage() {
         customer: {
           name: values.name.trim(),
           phone: values.phone.trim(),
-          address: trimmedOrUndefined(values.address),
+          // "Kab." -> "Kabupaten" hanya bila alamat diubah dari data member yang tersimpan.
+          address:
+            (values.address ?? '').trim() === (selectedMember?.address ?? '').trim()
+              ? trimmedOrUndefined(values.address)
+              : trimmedOrUndefined(fixAddress(values.address ?? '')),
           // Kalau kasir milih member lama dari pencarian, kirim id-nya
           // eksplisit — backend langsung pakai member itu, skip pencocokan
           // by-phone (lihat CheckoutCustomerDto.memberId).
@@ -1039,6 +1045,16 @@ export default function PosPage() {
     if (phoneErr) {
       form.setError('phone', { message: phoneErr });
       return;
+    }
+    // Alamat (bila diisi/diubah) wajib menyebut kabupaten/kota: lib/address-check. Alamat member lama yang tidak diubah
+    // tidak diperiksa. Kolom ini opsional: kosong boleh (pelanggan walk-in).
+    const addr = (values.address ?? '').trim();
+    if (addr !== (selectedMember?.address ?? '').trim()) {
+      const c = checkAddress(addr);
+      if (c.blocking) {
+        form.setError('address', { message: c.blocking });
+        return;
+      }
     }
     if (lines.length === 0) {
       toast.error('Keranjang masih kosong.');
@@ -1660,6 +1676,10 @@ export default function PosPage() {
                       <FormControl>
                         <Textarea rows={2} placeholder="Opsional" {...field} />
                       </FormControl>
+                      {/* Petunjuk hanya muncul bila alamat diubah dari data member yang tersimpan. */}
+                      {(field.value ?? '').trim() !== (selectedMember?.address ?? '').trim() && (
+                        <AddressHint value={field.value} hideBlocking={!!form.formState.errors.address} />
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}

@@ -84,6 +84,7 @@ export interface TechnicianJob {
   technicians?: { id: string; displayName: string }[];
   // Titik lokasi kerja job ini bila berbeda dari alamat member (kosong = ikut alamat member).
   workAddress?: string | null;
+  workMapsUrl?: string | null;
   // Cuma keisi dari GET /technician-jobs/queue (myQueue) — dipakai dashboard
   // teknisi buat nandain job 'assigned' yang masih kena gate "foto sebelum"
   // sebelum bisa start(). findAll() (dipakai admin) gak ngirim field ini.
@@ -185,6 +186,10 @@ const typeMeta = (type: string) =>
 
 // Lokasi kerja job: titik lokasi kerja bila diisi, kalau tidak alamat utama member.
 const jobLocation = (j: TechnicianJob) => j.workAddress?.trim() || j.member?.address?.trim() || '';
+// Tempat memperbaiki alamat sebuah job: titik lokasi kerja job itu diubah lewat "Ubah detail order" di halaman job; bila
+// job memakai alamat utama pelanggan, lewat "Ubah Data Member".
+const addressFixHref = (j: TechnicianJob) =>
+  j.workAddress?.trim() || j.workMapsUrl?.trim() ? `/teknisi/jobs/${j.id}` : j.member ? `/members/${j.member.id}` : undefined;
 const rowLocations = (row: QueueRow) => [...new Set(row.jobs.map(jobLocation).filter(Boolean))];
 
 // Teks yang dicari di kotak pencarian (nama pelanggan, unit, lokasi, catatan, nomor HP, jenis, dan teknisi bagi admin).
@@ -243,8 +248,9 @@ function matchesDay(job: TechnicianJob, filter: DayFilter, todayKey: string): bo
 // Jarak dihitung server (POST /technician-jobs/distances): garis lurus dari toko ke lokasi kerja job. Alamat yang
 // koordinatnya belum/tidak bisa didapat ('unknown' / 'pending') ditaruh paling bawah.
 type SortMode = 'default' | 'nearest';
-// Sebab jarak tidak diketahui: tanpa alamat / alamat tidak ditemukan di peta / layanan peta menolak (bisa dicoba lagi).
-type DistanceReason = 'no_address' | 'not_found' | 'service_error';
+// Sebab jarak tidak diketahui: tanpa alamat / alamat tanpa kabupaten-kota (tidak dicari) / tidak ditemukan di peta /
+// layanan peta menolak (bisa dicoba lagi).
+type DistanceReason = 'no_address' | 'incomplete' | 'not_found' | 'service_error';
 interface JobDistance {
   jobId: string;
   km: number | null;
@@ -281,12 +287,22 @@ function rowDistance(row: QueueRow, byJob: Map<string, JobDistance>): RowDistanc
 }
 const REASON_LABEL: Record<DistanceReason, string> = {
   no_address: 'Tanpa alamat',
+  incomplete: 'Alamat kurang lengkap (tulis kabupaten/kota)',
   not_found: 'Alamat tidak ditemukan',
   service_error: 'Gagal dicari (layanan peta menolak)',
 };
 const kmText = (km: number) => `${km.toLocaleString('id-ID', { maximumFractionDigits: 1 })} km`;
 
-function DistanceBadge({ d, loading }: { d: RowDistance; loading: boolean }) {
+function DistanceBadge({
+  d,
+  loading,
+  fixHref,
+}: {
+  d: RowDistance;
+  loading: boolean;
+  /** Halaman untuk memperbaiki alamat (hanya admin/kasir); tampil untuk alamat yang perlu diperbaiki. */
+  fixHref?: string;
+}) {
   const base = 'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold';
   if (d.state === 'ok') {
     return (
@@ -295,13 +311,21 @@ function DistanceBadge({ d, loading }: { d: RowDistance; loading: boolean }) {
       </span>
     );
   }
+  const done = d.state === 'unknown' && !loading;
   return (
-    <span className={cn(base, 'bg-muted text-muted-foreground')}>
-      <Navigation className="size-3" />
-      {d.state === 'pending' || loading
-        ? 'Menghitung jarak...'
-        : `Jarak tidak diketahui: ${REASON_LABEL[d.reason].toLowerCase()}`}
-    </span>
+    <>
+      <span className={cn(base, 'bg-muted text-muted-foreground')}>
+        <Navigation className="size-3" />
+        {d.state === 'pending' || loading
+          ? 'Menghitung jarak...'
+          : `Jarak tidak diketahui: ${REASON_LABEL[d.state === 'unknown' ? d.reason : 'not_found'].toLowerCase()}`}
+      </span>
+      {done && fixHref && (d.reason === 'incomplete' || d.reason === 'not_found') && (
+        <Link href={fixHref} className="text-[11px] font-semibold text-primary underline underline-offset-2">
+          Perbaiki alamat
+        </Link>
+      )}
+    </>
   );
 }
 
@@ -394,7 +418,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const distancesLoading = nearest && (distancesQuery.isLoading || (hasPending && !pollsExhausted));
   const unknownCount = nearest ? rows.filter((r) => rowDistances.get(r.key)!.state !== 'ok').length : 0;
   // Rincian sebab untuk pesan di atas daftar: "3 tanpa alamat, 20 alamat tidak ditemukan, ...".
-  const reasonCounts = { no_address: 0, not_found: 0, service_error: 0 };
+  const reasonCounts = { no_address: 0, incomplete: 0, not_found: 0, service_error: 0 };
   if (nearest) {
     for (const r of rows) {
       const d = rowDistances.get(r.key)!;
@@ -404,6 +428,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const reasonSummary = (
     [
       ['no_address', 'tanpa alamat'],
+      ['incomplete', 'alamat kurang lengkap (belum ada kabupaten/kota)'],
       ['not_found', 'alamat tidak ditemukan di peta'],
       ['service_error', 'gagal dicari karena layanan peta menolak'],
     ] as const
@@ -789,7 +814,11 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                         {meta.label}
                       </span>
                       {nearest && (
-                        <DistanceBadge d={rowDistances.get(row.key)!} loading={distancesLoading} />
+                        <DistanceBadge
+                          d={rowDistances.get(row.key)!}
+                          loading={distancesLoading}
+                          fixHref={isTeknisi ? undefined : addressFixHref(job)}
+                        />
                       )}
                       {row.jobs.some((j) => j.complaintOfJobId) && <Badge variant="warning">Komplain</Badge>}
                       {scheduled && (

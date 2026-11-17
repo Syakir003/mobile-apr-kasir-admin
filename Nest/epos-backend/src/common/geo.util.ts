@@ -71,53 +71,236 @@ export function searchTextFromMapsUrl(
   }
 }
 
-/**
- * Kandidat pertanyaan geocoding untuk satu alamat, dari yang paling spesifik ke yang makin umum. Nominatim sering
- * mengembalikan KOSONG untuk alamat lengkap (nomor rumah, RT/RW, nama perumahan, salah ketik), tetapi menemukan bagian
- * daerahnya. Urutan: (1) alamat tanpa "noise" (RT/RW, No., Blok, singkatan Kel./Kec./Ds.), (2) tanpa bagian paling
- * depan, (3) dua bagian terakhir (biasanya kelurahan/kecamatan + kota). Maksimal `max`, tanpa duplikat.
- * Kata "Kota"/"Kab." sengaja dipertahankan: membedakan Kota dan Kabupaten Mojokerto.
- */
-export function geocodeQueryCandidates(raw: string, max = 3): string[] {
-  const original = raw.replace(/\s+/g, ' ').trim();
-  if (!original) return [];
-  const cleaned = original
-    .replace(/\brt\s*\/\s*rw\s*[:.]?\s*\d+\s*\/\s*\d+/gi, ' ') // RT/RW 02/03
-    .replace(/\brt\s*\.?\s*\d+(?:\s*\/\s*(?:rw\s*\.?\s*)?\d+)?/gi, ' ') // RT.01/RW.06, RT 02
-    .replace(/\brw\s*\.?\s*\d+/gi, ' ') // RW 03
+// ---------------------------------------------------------------------------------------------------------------
+// Rencana pencarian alamat (geocoding). Aturan alamat yang diharapkan (dijaga form web):
+//   "<jalan/perumahan> No. X, <desa/kelurahan>, <kecamatan>, Kabupaten|Kota <nama>"
+// Bagian paling belakang = kabupaten/kota (WAJIB; tanpa itu hasil bisa meleset ke daerah lain bernama sama, mis.
+// "Gebang Malang" -> Kabupaten Malang). Alamat lama/mobile yang tidak patuh tetap dicoba semampunya.
+// ---------------------------------------------------------------------------------------------------------------
+
+export interface GeocodeRegion {
+  /** Nama saja, mis. "Mojokerto" (dipakai membandingkan dengan wilayah di jawaban Nominatim). */
+  name: string;
+  /** Teks untuk pertanyaan, mis. "Kabupaten Mojokerto" / "Kota Mojokerto" / "Mojokerto" (tanpa kata kunci). */
+  label: string;
+}
+export interface GeocodePlan {
+  /** null = alamat tidak menyebut kabupaten/kota (tidak lengkap): tidak dicari sama sekali. */
+  region: GeocodeRegion | null;
+  /** Pertanyaan dari yang paling spesifik ke yang paling umum; semuanya memuat kabupaten/kota. Kosong bila tak lengkap. */
+  queries: string[];
+}
+
+/** Kabupaten/kota Jawa Timur: dikenali sebagai wilayah bila ditulis tanpa kata "Kab."/"Kota" di bagian terakhir. */
+export const KNOWN_REGION_NAMES = [
+  'bangkalan',
+  'banyuwangi',
+  'batu',
+  'blitar',
+  'bojonegoro',
+  'bondowoso',
+  'gresik',
+  'jember',
+  'jombang',
+  'kediri',
+  'lamongan',
+  'lumajang',
+  'madiun',
+  'magetan',
+  'malang',
+  'mojokerto',
+  'nganjuk',
+  'ngawi',
+  'pacitan',
+  'pamekasan',
+  'pasuruan',
+  'ponorogo',
+  'probolinggo',
+  'sampang',
+  'sidoarjo',
+  'situbondo',
+  'sumenep',
+  'surabaya',
+  'trenggalek',
+  'tuban',
+  'tulungagung',
+];
+const KNOWN_REGIONS = new Set(KNOWN_REGION_NAMES);
+const MAX_QUERIES = 5;
+
+// Nama gedung/kompleks yang tidak ada di peta dan membuat pertanyaan kosong; bagian ini dilewati.
+const COMPLEX_WORD =
+  /\b(?:ruko|rukan|perum|perumahan|komplek|kompleks|kawasan|gedung|plaza|mall|apartemen|aspol|asrama|village|garden|residence|cluster|pergudangan|industri|industrial|park)\b/i;
+
+const capitalize = (s: string) =>
+  s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+/** Singkatan yang tidak dikenali Nominatim diperluas ("Kab." -> "Kabupaten", "Jl." -> "Jalan", dst). */
+function expandAbbreviations(s: string): string {
+  return s
+    .replace(/\bkab\b\.?/gi, 'Kabupaten')
+    .replace(/\bkodya\b\.?/gi, 'Kota')
+    .replace(/\bjl\b\.?/gi, 'Jalan')
+    .replace(/\bgg\b\.?/gi, 'Gang');
+}
+
+/** Buang noise yang tidak membantu peta: RT/RW, nomor rumah, blok, dan kata penanda wilayah (Kec./Kel./Ds./...). */
+function stripNoise(s: string): string {
+  return s
+    .replace(/\brt\s*\/\s*rw\s*[:.]?\s*\d+\s*\/\s*\d+/gi, ' ')
+    .replace(/\brt\s*\.?\s*\d+(?:\s*\/\s*(?:rw\s*\.?\s*)?\d+)?/gi, ' ')
+    .replace(/\brw\s*\.?\s*\d+/gi, ' ')
     .replace(
-      /\b(?:no|nomor|blok|blk)\s*\.?\s*[a-z]?\d+[a-z]?(?:\s*[-/]\s*\d+[a-z]?)?/gi,
+      /\b(?:no|nomor)\s*\.?\s*[a-z]?\d+[a-z]?(?:\s*[-/]\s*\d+[a-z]?)?/gi,
       ' ',
-    ) // No. 12, Blok A5
+    )
+    .replace(/\b(?:blok|blk)\s*\.?\s*[a-z]?[\d-]*[a-z]?\b/gi, ' ')
     .replace(/\b(?:kel|kec|ds|dsn|desa|dusun|kelurahan|kecamatan)\b\.?/gi, ' ')
     .replace(/\s+,/g, ',')
     .replace(/(?:,\s*){2,}/g, ', ')
     .replace(/\s+/g, ' ')
     .replace(/^[\s,.-]+|[\s,.-]+$/g, '');
+}
 
-  const out: string[] = [];
-  const push = (s: string) => {
-    const t = s.trim();
-    if (t.length >= 3 && !out.some((o) => o.toLowerCase() === t.toLowerCase()))
-      out.push(t);
-  };
-  push(cleaned);
-  const parts = cleaned
+/** Pisahkan kabupaten/kota dari sisa alamat. Kata kunci ("Kabupaten X"/"Kota X") dicari dari belakang. */
+function extractRegion(text: string): {
+  region: GeocodeRegion | null;
+  rest: string;
+} {
+  const t = text
+    .replace(/(?:[,\s]*\b(?:jawa timur|jatim|indonesia)\b\.?)+\s*$/i, '')
+    .trim();
+  const matches = [...t.matchAll(/\b(kota|kabupaten)\s+([a-z]+)/gi)];
+  if (matches.length > 0) {
+    const m = matches[matches.length - 1];
+    const name = capitalize(m[2]);
+    const idx = m.index ?? 0;
+    return {
+      region: { name, label: `${capitalize(m[1])} ${name}` },
+      rest: `${t.slice(0, idx)} ${t.slice(idx + m[0].length)}`
+        .replace(/\s+/g, ' ')
+        .trim(),
+    };
+  }
+  // Tanpa kata kunci: hanya diterima bila alamat ber-koma dan bagian terakhir adalah nama kabupaten/kota yang dikenal.
+  const parts = t
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1].toLowerCase();
+    if (KNOWN_REGIONS.has(last)) {
+      return {
+        region: { name: capitalize(last), label: capitalize(last) },
+        rest: parts.slice(0, -1).join(', '),
+      };
+    }
+  }
+  return { region: null, rest: t };
+}
+
+/**
+ * Rencana pencarian untuk satu alamat. Tiap pertanyaan memuat kabupaten/kota (kunci 1) ditambah bagian spesifik lain
+ * (kunci 2: jalan/desa/kecamatan), dari yang paling lengkap ke yang makin umum. Bagian yang tidak dikenal peta
+ * (nama ruko/kompleks, nomor, RT/RW) dilewati, jadi bagian depan yang gagal tidak menggagalkan bagian tengah/belakang.
+ */
+export function buildGeocodePlan(raw: string): GeocodePlan {
+  const original = raw.replace(/\s+/g, ' ').trim();
+  if (!original) return { region: null, queries: [] };
+  const { region, rest } = extractRegion(expandAbbreviations(original));
+  if (!region) return { region: null, queries: [] };
+
+  const cleaned = stripNoise(rest);
+  const segments = cleaned
     .split(',')
     .map((s) => s.trim())
-    .filter(Boolean);
-  if (parts.length >= 3) {
-    push(parts.slice(1).join(', '));
-    push(parts.slice(-2).join(', '));
-  } else if (parts.length === 2) {
-    push(parts[1]);
-  } else {
-    const words = cleaned.split(' ');
-    if (words.length >= 4) push(words.slice(1).join(' '));
-    if (words.length >= 5) push(words.slice(-3).join(' '));
+    .filter((s) => s.replace(/[^a-z0-9]/gi, '').length >= 3);
+
+  const out: string[] = [];
+  const push = (specific: string) => {
+    const s = specific.replace(/\s+/g, ' ').trim();
+    if (s.replace(/[^a-z0-9]/gi, '').length < 3) return;
+    const q = `${s}, ${region.label}`;
+    if (!out.some((o) => o.toLowerCase() === q.toLowerCase())) out.push(q);
+  };
+
+  if (segments.length >= 2) {
+    // Alamat ber-koma: bagian = jalan, desa, kecamatan, ... Nama kompleks dipotong dari tiap bagian.
+    const S = segments
+      .map((s) => {
+        const m = COMPLEX_WORD.exec(s);
+        return m ? s.slice(0, m.index).trim() : s;
+      })
+      .filter((s) => s.replace(/[^a-z0-9]/gi, '').length >= 3);
+    if (S.length > 0) {
+      push(S.join(', '));
+      if (S.length >= 3) push(`${S[0]}, ${S[S.length - 1]}`); // jalan + kecamatan, desa dilewati
+      for (let k = 1; k < S.length; k++) push(S.slice(k).join(', '));
+      // Desa dan kecamatan sering tertulis menyatu tanpa koma ("Randubango Kec. Mojosari"): kata terakhir bagian
+      // terakhir dicoba sendiri sebagai cadangan terakhir (kecamatan + kabupaten).
+      const lastWords = S[S.length - 1].split(' ').filter(Boolean);
+      if (lastWords.length >= 2) push(lastWords[lastWords.length - 1]);
+    }
+  } else if (segments.length === 1) {
+    // Tanpa koma (alamat lama): jendela kata dari yang lengkap ke bagian belakang (biasanya desa/kecamatan).
+    const W = segments[0].split(' ').filter(Boolean);
+    push(W.join(' '));
+    const ci = W.findIndex((w) => COMPLEX_WORD.test(w));
+    if (ci >= 1 && ci < W.length - 1)
+      push(`${W.slice(0, ci).join(' ')} ${W[W.length - 1]}`); // jalan + kata terakhir
+    if (W.length >= 3) push(W.slice(1).join(' '));
+    if (W.length >= 2) push(W.slice(-2).join(' '));
+    push(W[W.length - 1]);
   }
-  if (out.length === 0) push(original);
-  return out.slice(0, max);
+  return { region, queries: out.slice(0, MAX_QUERIES) };
+}
+
+// ---- verifikasi jawaban Nominatim ----
+
+export interface NominatimRow {
+  lat?: string;
+  lon?: string;
+  addresstype?: string;
+  address?: Record<string, string | undefined>;
+}
+// Hasil setingkat wilayah (bukan tempat spesifik): titik pusat kabupaten/kota sama untuk semua pelanggan -> ditolak.
+const REGION_LEVEL_TYPES = new Set([
+  'county',
+  'city',
+  'state',
+  'state_district',
+  'region',
+  'province',
+  'country',
+]);
+const regionKey = (s: string | undefined) =>
+  (s ?? '')
+    .toLowerCase()
+    .replace(/^(?:kabupaten|kab\.?|kota|kodya)\s+/, '')
+    .trim();
+
+/**
+ * Ambil hasil Nominatim pertama yang lolos DUA kunci: (1) wilayah (county/city/state_district) sama dengan kabupaten/kota
+ * yang ditulis, dan (2) bukan hasil setingkat wilayah saja. null bila tak ada yang lolos.
+ */
+export function pickVerifiedPoint(
+  rows: NominatimRow[],
+  region: GeocodeRegion,
+): LatLng | null {
+  const want = regionKey(region.name);
+  for (const row of rows) {
+    const point = validLatLng(Number(row.lat), Number(row.lon));
+    if (!point) continue;
+    if (REGION_LEVEL_TYPES.has(row.addresstype ?? '')) continue;
+    const got = [
+      row.address?.county,
+      row.address?.city,
+      row.address?.state_district,
+    ].map(regionKey);
+    if (!got.includes(want)) continue;
+    return point;
+  }
+  return null;
 }
 
 /** Jarak garis lurus (km) antara dua titik, rumus haversine. Bukan jarak jalan. */

@@ -8,6 +8,8 @@ import { Pencil } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { MAPS_INPUT_PLACEHOLDER, mapsInputDisplay } from '@/lib/maps-input';
+import { checkAddress, fixAddress, isMapsLink } from '@/lib/address-check';
+import { AddressHint } from '@/components/address-hint';
 import { wibDateKey } from '@/lib/wib-date';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -153,6 +155,18 @@ function EditOrderForm({
         return a.address.trim() !== b.address.trim() || a.mapsUrl.trim() !== b.mapsUrl.trim();
       })
       .map((j) => ({ jobId: j.id, address: loc[j.id].address.trim(), mapsUrl: loc[j.id].mapsUrl.trim() }));
+    // Alamat lokasi kerja yang diubah wajib menyebut kabupaten/kota (kecuali Link Maps terisi); kosong = ikut alamat
+    // pelanggan, jadi boleh. Alamat yang tidak diubah tidak diperiksa (data lama).
+    for (const c of changedLocs) {
+      if (!c.address) continue;
+      const check = checkAddress(c.address, { hasMapsLink: isMapsLink(c.mapsUrl) });
+      if (check.blocking) {
+        const job = jobs.find((j) => j.id === c.jobId);
+        toast.error(`${job ? unitLabel(job) : 'Lokasi kerja'}: ${check.blocking}`);
+        return;
+      }
+    }
+    for (const c of changedLocs) if (c.address) c.address = fixAddress(c.address);
     const body = {
       ...(date !== initialDate ? { scheduledDate: date } : {}),
       ...(!isPemasangan && !isKomplain && jobType !== first.type ? { jobType } : {}),
@@ -237,6 +251,9 @@ function EditOrderForm({
                 value={loc[j.id].address}
                 onChange={(e) => setLoc((cur) => ({ ...cur, [j.id]: { ...cur[j.id], address: e.target.value } }))}
               />
+              {loc[j.id].address.trim() !== initialLoc[j.id].address.trim() && loc[j.id].address.trim() !== '' && (
+                <AddressHint value={loc[j.id].address} hasMapsLink={isMapsLink(loc[j.id].mapsUrl)} />
+              )}
               <Input
                 aria-label={`Link lokasi kerja ${unitLabel(j)}`}
                 placeholder={MAPS_INPUT_PLACEHOLDER}

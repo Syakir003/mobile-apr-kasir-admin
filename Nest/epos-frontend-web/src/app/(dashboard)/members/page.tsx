@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
@@ -12,6 +12,8 @@ import { Plus, Search } from 'lucide-react';
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
 import { MAPS_INPUT_PLACEHOLDER } from '@/lib/maps-input';
+import { checkAddress, fixAddress, isMapsLink } from '@/lib/address-check';
+import { AddressHint } from '@/components/address-hint';
 import { phoneError } from '@/lib/phone';
 import { TIER_LABEL, TIER_OPTIONS, type PriceTier } from '@/lib/price-tier';
 import { Badge } from '@/components/ui/badge';
@@ -95,6 +97,10 @@ const createMemberSchema = z.object({
   customerType: z.enum(['rumah', 'perusahaan', 'toko', '']).optional(),
   // Tipe pembeli (2026-10-13) — menentukan harga & hak beli di POS.
   priceTier: z.enum(['retail', 'installer', 'reseller']),
+}).superRefine((v, ctx) => {
+  // Alamat (bila diisi) wajib menyebut kabupaten/kota, kecuali Link Maps sudah diisi: lihat lib/address-check.
+  const c = checkAddress(v.address, { hasMapsLink: isMapsLink(v.mapsUrl) });
+  if (c.blocking) ctx.addIssue({ code: 'custom', path: ['address'], message: c.blocking });
 });
 type CreateMemberValues = z.infer<typeof createMemberSchema>;
 const emptyCreateValues: CreateMemberValues = {
@@ -138,6 +144,9 @@ export default function MembersPage() {
     defaultValues: emptyCreateValues,
   });
 
+  // Link Maps yang sedang diketik: bila berupa link, aturan "alamat wajib memuat kabupaten/kota" tidak berlaku.
+  const createMapsUrl = useWatch({ control: createForm.control, name: 'mapsUrl' });
+
   function openCreate() {
     createForm.reset(emptyCreateValues);
     setPendingDuplicate(null);
@@ -149,7 +158,7 @@ export default function MembersPage() {
       apiClient.post<CreateMemberResult>('/members', {
         name: values.name.trim(),
         phone: values.phone?.trim() || undefined,
-        address: values.address?.trim() || undefined,
+        address: values.address?.trim() ? fixAddress(values.address) : undefined,
         mapsUrl: values.mapsUrl?.trim() || undefined,
         customerType: values.customerType || undefined,
         priceTier: values.priceTier,
@@ -323,6 +332,11 @@ export default function MembersPage() {
                     <FormControl>
                       <Input placeholder="Opsional" {...field} />
                     </FormControl>
+                    <AddressHint
+                      value={field.value}
+                      hasMapsLink={isMapsLink(createMapsUrl)}
+                      hideBlocking={!!createForm.formState.errors.address}
+                    />
                     <FormMessage />
                   </FormItem>
                 )}

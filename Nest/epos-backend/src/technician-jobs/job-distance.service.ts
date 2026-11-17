@@ -8,22 +8,27 @@ import { promises as fs } from 'fs';
 import { dirname, resolve } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  geocodeQueryCandidates,
+  buildGeocodePlan,
   haversineKm,
   parseCoordsFromMapsUrl,
+  pickVerifiedPoint,
   searchTextFromMapsUrl,
   SHOP_LOCATION,
   validLatLng,
+  type GeocodeRegion,
   type LatLng,
+  type NominatimRow,
 } from '../common/geo.util';
 import { assignedTo } from './job-assignees';
 
 export type JobDistanceState = 'ok' | 'unknown' | 'pending';
 /**
- * Kenapa jarak tidak diketahui: 'no_address' = job tanpa alamat/link; 'not_found' = alamat ada tapi tidak ditemukan di peta
- * (semua versi sederhananya sudah dicoba); 'service_error' = layanan peta menolak/gagal (mis. diblokir), bisa dicoba lagi.
+ * Kenapa jarak tidak diketahui: 'no_address' = job tanpa alamat/link; 'incomplete' = alamat tidak menyebut kabupaten/kota
+ * (tidak dicari, supaya tidak meleset ke daerah lain); 'not_found' = alamat lengkap tapi tidak ditemukan di peta (semua
+ * versi sederhananya sudah dicoba); 'service_error' = layanan peta menolak/gagal (mis. diblokir), bisa dicoba lagi.
  */
-export type JobDistanceReason = 'no_address' | 'not_found' | 'service_error';
+export type JobDistanceReason =
+  'no_address' | 'incomplete' | 'not_found' | 'service_error';
 export interface JobDistanceItem {
   jobId: string;
   /** Jarak garis lurus dari toko (km, 1 desimal); null bila belum/tidak diketahui. */
@@ -51,6 +56,7 @@ const TTL_FOUND_MS = 30 * 24 * 3600_000;
 const TTL_NOT_FOUND_MS = 24 * 3600_000;
 const BACKOFF_MS = 60_000;
 const CACHE_MAX = 5000;
+const CACHE_VERSION = 2;
 
 interface CacheEntry {
   value: LatLng | null;
@@ -105,8 +111,14 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
     if (!this.cacheFile) return;
     try {
       const raw = JSON.parse(await fs.readFile(this.cacheFile, 'utf8')) as {
+        version?: number;
         entries?: Record<string, { value: LatLng | null; expiresAt: number }>;
       };
+      // Versi lama disimpan sebelum verifikasi wilayah (bisa memuat titik salah daerah): dibuang.
+      if (raw.version !== CACHE_VERSION) {
+        this.logger.log('Cache jarak versi lama dibuang');
+        return;
+      }
       const now = Date.now();
       let loaded = 0;
       for (const [key, e] of Object.entries(raw.entries ?? {})) {
@@ -152,9 +164,13 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
       try {
         await fs.mkdir(dirname(file), { recursive: true });
         const tmp = `${file}.tmp`;
-        await fs.writeFile(tmp, JSON.stringify({ version: 1, entries }), {
-          mode: 0o600,
-        });
+        await fs.writeFile(
+          tmp,
+          JSON.stringify({ version: CACHE_VERSION, entries }),
+          {
+            mode: 0o600,
+          },
+        );
         await fs.rename(tmp, file);
       } catch (err) {
         this.logger.warn(`Cache jarak gagal disimpan: ${(err as Error).name}`);
@@ -236,10 +252,12 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
     if (!text) return true; // tak ada yang bisa dicari = hasil (unknown) instan
     if (t.url && this.isShortLink(t.url) && this.getCache(`short:${t.url}`))
       return true;
-    // Instan bila salah satu kandidat sudah ketemu, atau semua kandidat sudah pernah dicari (tidak ada yang ketemu).
+    const plan = buildGeocodePlan(text);
+    if (!plan.region || plan.queries.length === 0) return true; // tidak lengkap = hasil instan
+    // Instan bila salah satu pertanyaan sudah ketemu, atau semuanya sudah pernah dicari (tidak ada yang ketemu).
     let allCached = true;
-    for (const c of geocodeQueryCandidates(text)) {
-      const e = this.getCache(this.geoKey(c));
+    for (const q of plan.queries) {
+      const e = this.getCache(this.geoKey(q));
       if (e?.value) return true;
       if (!e) allCached = false;
     }
@@ -263,11 +281,16 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
 
     const query = searchTextFromMapsUrl(url) ?? text;
     if (!query) return { kind: 'unknown', reason: 'no_address' };
-    // Dari yang paling spesifik ke yang makin umum; tiap kandidat punya cache sendiri, jadi pencarian yang terputus
-    // (anggaran waktu habis) dilanjutkan dari kandidat berikutnya, tidak mengulang dari awal.
-    for (const candidate of geocodeQueryCandidates(query)) {
-      const r = await this.once(this.geoKey(candidate), () =>
-        this.geocode(candidate, deadline),
+    const plan = buildGeocodePlan(query);
+    // Tanpa kabupaten/kota: tidak dicari (hasil bisa meleset ke daerah lain bernama sama). Form web mewajibkannya.
+    if (!plan.region || plan.queries.length === 0)
+      return { kind: 'unknown', reason: 'incomplete' };
+    const region = plan.region;
+    // Dari yang paling spesifik ke yang makin umum; tiap pertanyaan punya cache sendiri, jadi pencarian yang terputus
+    // (anggaran waktu habis) dilanjutkan dari pertanyaan berikutnya, tidak mengulang dari awal.
+    for (const q of plan.queries) {
+      const r = await this.once(this.geoKey(q), () =>
+        this.geocode(q, region, deadline),
       );
       if (r.kind !== 'unknown' || r.reason !== 'not_found') return r; // ketemu / pending / layanan error
     }
@@ -371,13 +394,18 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
 
   // ---- geocoding (Nominatim, antre 1 permintaan/detik) ----
 
-  private async geocode(text: string, deadline: number): Promise<Resolved> {
+  private async geocode(
+    text: string,
+    region: GeocodeRegion,
+    deadline: number,
+  ): Promise<Resolved> {
     return this.queued(deadline, async () => {
       try {
         const qs = new URLSearchParams({
           q: text,
           format: 'jsonv2',
-          limit: '1',
+          limit: '3',
+          addressdetails: '1',
           countrycodes: 'id',
         });
         const res = await fetch(`${NOMINATIM_URL}?${qs.toString()}`, {
@@ -400,11 +428,9 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
           }
           return { kind: 'unknown', reason: 'service_error' };
         }
-        const rows = (await res.json()) as { lat?: string; lon?: string }[];
-        const first = rows[0];
-        const point = first
-          ? validLatLng(Number(first.lat), Number(first.lon))
-          : null;
+        const rows = (await res.json()) as NominatimRow[];
+        // Verifikasi dua kunci: wilayah cocok dengan kabupaten/kota yang ditulis dan bukan hasil setingkat wilayah.
+        const point = pickVerifiedPoint(rows, region);
         this.setCache(this.geoKey(text), point);
         return point
           ? { kind: 'ok', point }
