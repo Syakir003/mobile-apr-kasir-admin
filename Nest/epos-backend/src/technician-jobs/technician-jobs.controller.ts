@@ -34,6 +34,8 @@ import { AddFindingDto } from './dto/add-finding.dto';
 import { UpdateFindingDto } from './dto/update-finding.dto';
 import { SetServicePricingDto } from './dto/set-service-pricing.dto';
 import { ServicePricingService } from './service-pricing.service';
+import { JobDistanceService } from './job-distance.service';
+import { JobDistancesDto } from './dto/job-distances.dto';
 import { SendBackDto } from './dto/send-back.dto';
 import { SubmitForReviewDto } from './dto/submit-for-review.dto';
 import { CancelJobDto } from './dto/cancel-job.dto';
@@ -53,6 +55,7 @@ export class TechnicianJobsController {
     private readonly offlineSync: OfflineSyncService,
     private readonly notifications: NotificationsService,
     private readonly pricing: ServicePricingService,
+    private readonly distanceService: JobDistanceService,
   ) {}
 
   // technicianId diambil dari JWT `sub`, BUKAN dari query param — biar
@@ -100,6 +103,14 @@ export class TechnicianJobsController {
   @Get()
   findAll(@Query() query: FindAllJobsQueryDto) {
     return this.jobs.findAll(query.status);
+  }
+
+  // Jarak job ke toko untuk urutan "Terdekat" di Antrian Servis (lihat JobDistanceService). Teknisi hanya mendapat
+  // job miliknya. POST dengan segmen statis, tidak bentrok dengan route ':id/...'.
+  @Roles('admin', 'kasir', 'teknisi')
+  @Post('distances')
+  distances(@Body() dto: JobDistancesDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.distanceService.distances(dto.jobIds, { id: user.sub, role: user.role });
   }
 
   // Siklus 2 (Servis Masuk Mandiri). Route statis 'history' WAJIB didaftarkan

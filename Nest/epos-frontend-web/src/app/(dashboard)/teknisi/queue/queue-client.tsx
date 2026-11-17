@@ -6,13 +6,16 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
+  ArrowDownWideNarrow,
   CalendarCheck,
   CalendarDays,
   CalendarX,
   Clock,
   Droplets,
   Hammer,
+  Info,
   MapPin,
+  Navigation,
   Printer,
   RefreshCw,
   Search,
@@ -236,6 +239,53 @@ function matchesDay(job: TechnicianJob, filter: DayFilter, todayKey: string): bo
   return key === filter;
 }
 
+// ---- Urutan "Terdekat dari toko" ----
+// Jarak dihitung server (POST /technician-jobs/distances): garis lurus dari toko ke lokasi kerja job. Alamat yang
+// koordinatnya belum/tidak bisa didapat ('unknown' / 'pending') ditaruh paling bawah.
+type SortMode = 'default' | 'nearest';
+interface JobDistance {
+  jobId: string;
+  km: number | null;
+  state: 'ok' | 'unknown' | 'pending';
+}
+interface DistancesResponse {
+  shop: { lat: number; lng: number; label: string };
+  items: JobDistance[];
+}
+const MAX_DISTANCE_JOBS = 300; // batas backend per permintaan
+const MAX_DISTANCE_POLLS = 10; // 'pending' dicoba ulang tiap 4 detik, lalu menyerah
+
+type RowDistance = { state: 'ok'; km: number } | { state: 'pending' } | { state: 'unknown' };
+function rowDistance(row: QueueRow, byJob: Map<string, JobDistance>): RowDistance {
+  let best: number | null = null;
+  let pending = false;
+  for (const j of row.jobs) {
+    const d = byJob.get(j.id);
+    if (d?.state === 'ok' && d.km !== null) best = best === null ? d.km : Math.min(best, d.km);
+    else if (d?.state === 'pending') pending = true;
+  }
+  if (best !== null) return { state: 'ok', km: best };
+  return pending ? { state: 'pending' } : { state: 'unknown' };
+}
+const kmText = (km: number) => `${km.toLocaleString('id-ID', { maximumFractionDigits: 1 })} km`;
+
+function DistanceBadge({ d, loading }: { d: RowDistance; loading: boolean }) {
+  const base = 'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold';
+  if (d.state === 'ok') {
+    return (
+      <span className={cn(base, 'border-primary/25 bg-primary/10 text-primary')}>
+        <Navigation className="size-3" />± {kmText(d.km)} dari toko
+      </span>
+    );
+  }
+  return (
+    <span className={cn(base, 'bg-muted text-muted-foreground')}>
+      <Navigation className="size-3" />
+      {d.state === 'pending' || loading ? 'Menghitung jarak...' : 'Jarak tidak diketahui'}
+    </span>
+  );
+}
+
 export function TeknisiQueueClient({ role }: { role: Role }) {
   const isTeknisi = role === 'teknisi';
   const isAdmin = role === 'admin';
@@ -245,6 +295,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const [query, setQuery] = React.useState('');
   const [dayFilter, setDayFilter] = React.useState<DayFilter>('all');
   const [todayKey] = React.useState(() => wibDateKey(new Date()));
+  const [sortMode, setSortMode] = React.useState<SortMode>('default');
   // Cetak QR massal: tombol "Cetak QR" di samping tombol muat ulang mengaktifkan mode pilih (kotak centang muncul di
   // tiap baris). `picked` = kunci baris yang dicentang; hanya baris yang sedang tampil yang dihitung.
   const [selecting, setSelecting] = React.useState(false);
@@ -276,11 +327,38 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const searchTerm = query.trim().toLowerCase();
   const filtersActive = searchTerm !== '' || dayFilter !== 'all';
   // Penyaringan per BARIS (servis banyak AC tetap utuh): cocok bila salah satu unitnya cocok.
-  const rows = groupByOrder(filtered).filter(
+  const baseRows = groupByOrder(filtered).filter(
     (row) =>
       (!searchTerm || rowSearchText(row, isAdmin).includes(searchTerm)) &&
       row.jobs.some((j) => matchesDay(j, dayFilter, todayKey)),
   );
+
+  // Jarak dihitung untuk job pada daftar Aktif/Selesai yang sedang dibuka (bukan hanya yang lolos pencarian), jadi
+  // mengetik di kolom cari tidak memicu perhitungan ulang. Kunci query memuat id-nya.
+  const distanceJobIds = filtered.slice(0, MAX_DISTANCE_JOBS).map((j) => j.id);
+  const distancesQuery = useQuery({
+    queryKey: ['technician-jobs', 'distances', distanceJobIds.join(',')],
+    queryFn: () => apiClient.post<DistancesResponse>('/technician-jobs/distances', { jobIds: distanceJobIds }),
+    enabled: sortMode === 'nearest' && distanceJobIds.length > 0,
+    staleTime: 5 * 60_000,
+    refetchInterval: (q) =>
+      q.state.data?.items.some((i) => i.state === 'pending') && q.state.dataUpdateCount < MAX_DISTANCE_POLLS
+        ? 4000
+        : false,
+  });
+  const distanceByJob = new Map((distancesQuery.data?.items ?? []).map((d) => [d.jobId, d]));
+  const nearest = sortMode === 'nearest';
+  const rowDistances = new Map(baseRows.map((r) => [r.key, rowDistance(r, distanceByJob)]));
+  const rows = nearest
+    ? [...baseRows].sort((a, b) => {
+        const da = rowDistances.get(a.key)!;
+        const db = rowDistances.get(b.key)!;
+        if (da.state === 'ok' && db.state === 'ok') return da.km - db.km;
+        return Number(db.state === 'ok') - Number(da.state === 'ok'); // yang jaraknya tahu lebih dulu; sisanya urutan asal
+      })
+    : baseRows;
+  const distancesLoading = nearest && (distancesQuery.isLoading || distancesQuery.isFetching);
+  const unknownCount = nearest ? rows.filter((r) => rowDistances.get(r.key)!.state !== 'ok').length : 0;
   function resetFilters() {
     setQuery('');
     setDayFilter('all');
@@ -364,12 +442,16 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
       {/* Daftar job: satu panel (pita kontrol berlatar muted, baris dipisah garis tipis), warna dan gaya sama dengan
           tabel sebelumnya. Satu baris = satu job (servis banyak AC = satu baris untuk seluruh unit). */}
       <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="grid gap-2.5 border-b bg-muted/60 px-5 py-3">
-          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="grid gap-3.5 border-b bg-card px-5 py-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold tracking-tight">Daftar Job</h2>
-                {!jobsQuery.isLoading && !jobsQuery.isError && <Badge variant="secondary">{rows.length}</Badge>}
+                <h2 className="text-sm font-semibold tracking-tight">Daftar Job</h2>
+                {!jobsQuery.isLoading && !jobsQuery.isError && (
+                  <Badge variant="outline" className="rounded-full border-primary/30 bg-primary/10 px-2 text-primary">
+                    {rows.length}
+                  </Badge>
+                )}
               </div>
               {!isTeknisi && selecting && printable.length > 0 && (
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -382,42 +464,44 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 </label>
               )}
               {!isTeknisi && (
-                <div className="flex gap-2">
+                <div className="inline-flex gap-1 rounded-lg border bg-muted/60 p-1">
                   <Button
                     size="sm"
-                    variant={showDone ? 'outline' : 'default'}
+                    variant={showDone ? 'ghost' : 'default'}
                     aria-pressed={!showDone}
                     onClick={() => setShowDone(false)}
+                    className={cn('h-7 rounded-md px-3 text-xs', showDone && 'text-muted-foreground')}
                   >
                     Aktif
                   </Button>
                   <Button
                     size="sm"
-                    variant={showDone ? 'default' : 'outline'}
+                    variant={showDone ? 'default' : 'ghost'}
                     aria-pressed={showDone}
                     onClick={() => setShowDone(true)}
+                    className={cn('h-7 rounded-md px-3 text-xs', !showDone && 'text-muted-foreground')}
                   >
                     Selesai
                   </Button>
                 </div>
               )}
             </div>
-            <div className="relative w-full lg:w-80">
+            <div className="relative w-full lg:w-96">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Cari nama pelanggan, unit, lokasi..."
                 aria-label="Cari job"
-                className="h-8 bg-background pl-9 text-sm"
+                className="h-9 rounded-lg bg-muted/50 pl-9 text-sm"
               />
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2 overflow-x-auto p-0.5 text-xs">
-              <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
-                <CalendarDays className="size-3.5 text-primary" />
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto p-0.5 text-xs">
+              <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <CalendarDays className="size-3.5" />
                 Filter Hari:
               </span>
               {dayPills.map((pill) => (
@@ -434,7 +518,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 </Button>
               ))}
             </div>
-            <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+            <div className="flex shrink-0 items-center gap-2">
               <span className="text-xs text-muted-foreground">Pilih Tgl:</span>
               <Input
                 type="date"
@@ -456,7 +540,53 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 </Button>
               )}
             </div>
+            <div className="flex shrink-0 items-center gap-2 text-xs">
+              <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <ArrowDownWideNarrow className="size-3.5" />
+                Urutkan:
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant={nearest ? 'outline' : 'default'}
+                aria-pressed={!nearest}
+                onClick={() => setSortMode('default')}
+              >
+                Urutan Biasa
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={nearest ? 'default' : 'outline'}
+                aria-pressed={nearest}
+                onClick={() => setSortMode('nearest')}
+              >
+                Terdekat dari Toko
+              </Button>
+            </div>
           </div>
+
+          {nearest && (
+            <div
+              className={cn(
+                'flex items-start gap-2 rounded-md border px-3 py-2 text-xs',
+                distancesQuery.isError
+                  ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                  : 'border-primary/25 bg-primary/10 text-primary',
+              )}
+            >
+              <Info className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                {distancesQuery.isError
+                  ? 'Gagal menghitung jarak. Daftar tetap tampil dengan urutan biasa.'
+                  : distancesLoading
+                    ? 'Menghitung jarak dari alamat...'
+                    : unknownCount > 0
+                      ? `Jarak garis lurus dari toko. ${unknownCount} job yang alamatnya belum terbaca ada di paling bawah.`
+                      : 'Jarak garis lurus dari toko.'}
+              </span>
+            </div>
+          )}
         </div>
 
         {jobsQuery.isLoading && <p className="px-5 py-6 text-sm text-muted-foreground">Memuat job...</p>}
@@ -523,6 +653,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
             const note = row.jobs.map((j) => j.notes?.trim()).find(Boolean);
             const scheduled = row.jobs.find((j) => j.scheduledDate)?.scheduledDate;
             const showAssign = isAdmin && !!assignTarget;
+            const hasTechnician = !!(job.technicians?.length || job.technician);
             return (
               <li key={row.key} className="px-5 py-3.5 transition-colors hover:bg-muted/50">
                 <div className="flex items-start gap-3">
@@ -536,7 +667,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                     />
                   )}
                   <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between md:gap-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                       <Link
                         href={`/teknisi/jobs/${job.id}`}
                         className="min-w-0 flex-1 space-y-1.5 rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -559,19 +690,26 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                         )}
                         {note && <p className="text-xs italic text-muted-foreground">Catatan: {note}</p>}
                       </Link>
-                      <div className="flex max-w-full flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
-                        {showAssign && (
-                          <TechnicianAssignDialog
-                            jobId={assignTarget.id}
-                            allInOrder={many}
-                            current={assignTarget.technicianIds ?? (assignTarget.technician ? [assignTarget.technician.id] : [])}
-                            technicians={technicians}
-                          />
-                        )}
-                        <Badge variant={statusBadgeVariant(rowStatus)} className="gap-1.5">
-                          <span className="size-1.5 rounded-full bg-current" />
-                          {statusLabel(rowStatus)}
-                        </Badge>
+                      <div className="flex max-w-full flex-col items-start gap-1.5 sm:shrink-0 sm:items-end">
+                        <div className="flex max-w-full flex-wrap items-center gap-2 sm:justify-end">
+                          {showAssign && (
+                            <TechnicianAssignDialog
+                              jobId={assignTarget.id}
+                              allInOrder={many}
+                              current={assignTarget.technicianIds ?? (assignTarget.technician ? [assignTarget.technician.id] : [])}
+                              technicians={technicians}
+                            />
+                          )}
+                          <Badge variant={statusBadgeVariant(rowStatus)} className="gap-1.5">
+                            <span className="size-1.5 rounded-full bg-current" />
+                            {statusLabel(rowStatus)}
+                          </Badge>
+                        </div>
+                        {/* Waktu masuk: kanan atas kartu (>= sm); di layar sempit ikut baris chip di bawah. */}
+                        <span className="hidden items-center gap-1 text-[11px] text-muted-foreground sm:inline-flex">
+                          <Clock className="size-3.5" />
+                          Masuk {formatDateTime(job.createdAt)}
+                        </span>
                       </div>
                     </div>
 
@@ -585,6 +723,9 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                         <TypeIcon className="size-3" />
                         {meta.label}
                       </span>
+                      {nearest && (
+                        <DistanceBadge d={rowDistances.get(row.key)!} loading={distancesLoading} />
+                      )}
                       {row.jobs.some((j) => j.complaintOfJobId) && <Badge variant="warning">Komplain</Badge>}
                       {scheduled && (
                         <span className="inline-flex items-center gap-1">
@@ -594,12 +735,12 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                           </span>
                         </span>
                       )}
-                      {isAdmin && !showAssign && (
-                        <span className="inline-flex items-center gap-1">
-                          <UserRound className="size-3.5 text-primary" />
-                          <span className="font-medium text-foreground">
-                            {technicianNames(job)}
-                          </span>
+                      {/* Nama pemegang job selalu tampil bila sudah ada teknisi (juga saat tombol "Ubah teknisi" ada);
+                          job yang belum ditugaskan dan punya tombol "Tugaskan teknisi" tidak perlu tulisan tambahan. */}
+                      {!isTeknisi && (hasTechnician || !showAssign) && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                          <UserRound className="size-3" />
+                          {technicianNames(job)}
                         </span>
                       )}
                       {!isTeknisi && needsPrice && (
@@ -607,7 +748,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                           {many ? 'Tentukan harga jasa tiap unit' : 'Tentukan harga jasa'}
                         </span>
                       )}
-                      <span className="inline-flex items-center gap-1 text-[11px] sm:ml-auto">
+                      <span className="inline-flex items-center gap-1 text-[11px] sm:hidden">
                         <Clock className="size-3.5" />
                         Masuk {formatDateTime(job.createdAt)}
                       </span>
