@@ -10,6 +10,7 @@ import {
   CalendarCheck,
   CalendarDays,
   CalendarX,
+  ClipboardList,
   Clock,
   Droplets,
   Hammer,
@@ -100,14 +101,14 @@ export interface TechnicianJob {
   complaintOfJobId?: string | null;
 }
 
-interface QueueRow {
+export interface QueueRow {
   key: string;
   jobs: TechnicianJob[];
 }
 
 // Servis banyak AC (satu order, satu job per unit) tampil sebagai SATU baris; halaman jobnya memuat section tiap
 // unit. Pemasangan dari POS tetap per job (alurnya tidak diubah).
-function groupByOrder(jobs: TechnicianJob[]): QueueRow[] {
+export function groupByOrder(jobs: TechnicianJob[]): QueueRow[] {
   const rows: QueueRow[] = [];
   const byOrder = new Map<string, QueueRow>();
   for (const j of jobs) {
@@ -134,13 +135,13 @@ const MAX_PRINT_UNITS = 100;
 
 const STATUS_ORDER = ['menunggu_penugasan', 'assigned', 'sedang_dikerjakan', 'menunggu_review', 'selesai', 'dibatalkan'];
 const ASSIGNABLE_STATUSES = ['menunggu_penugasan', 'assigned'];
-const unitName = (j: TechnicianJob) =>
+export const unitName = (j: TechnicianJob) =>
   j.unit ? [j.unit.brand, j.unit.model].filter(Boolean).join(' ') || 'Unit AC' : `Order ${j.type}`;
 // Unit tanpa tipe (merk/model kosong, mis. unit "QR dulu"): baris info AC memberi tahu, bukan dikosongkan.
-const NO_TYPE_TEXT = '(Unit AC belum ada Tipe)';
+export const NO_TYPE_TEXT = '(Unit AC belum ada Tipe)';
 const hasBrandModel = (j: TechnicianJob) => !!j.unit && [j.unit.brand, j.unit.model].some(Boolean);
 // Keterangan tipe satu unit untuk daftar unit servis banyak AC: merk + model, atau Indoor/Outdoor, atau tulisan belum ada tipe.
-const unitTypeText = (j: TechnicianJob) =>
+export const unitTypeText = (j: TechnicianJob) =>
   j.unit
     ? [j.unit.brand, j.unit.model].filter(Boolean).join(' ') || unitPartsText(j.unit) || NO_TYPE_TEXT
     : unitName(j);
@@ -181,19 +182,19 @@ const TYPE_META: Record<string, { label: string; icon: LucideIcon; className: st
   pasang: { label: 'Pasang AC', icon: Hammer, className: 'border bg-secondary text-secondary-foreground' },
   bongkar_pasang: { label: 'Bongkar Pasang AC', icon: Hammer, className: 'border bg-secondary text-secondary-foreground' },
 };
-const typeMeta = (type: string) =>
+export const typeMeta = (type: string) =>
   TYPE_META[type] ?? { label: type, icon: Wrench, className: 'border bg-muted text-foreground' };
 
 // Lokasi kerja job: titik lokasi kerja bila diisi, kalau tidak alamat utama member.
-const jobLocation = (j: TechnicianJob) => j.workAddress?.trim() || j.member?.address?.trim() || '';
+export const jobLocation = (j: TechnicianJob) => j.workAddress?.trim() || j.member?.address?.trim() || '';
 // Tempat memperbaiki alamat sebuah job: titik lokasi kerja job itu diubah lewat "Ubah detail order" di halaman job; bila
 // job memakai alamat utama pelanggan, lewat "Ubah Data Member".
 const addressFixHref = (j: TechnicianJob) =>
   j.workAddress?.trim() || j.workMapsUrl?.trim() ? `/teknisi/jobs/${j.id}` : j.member ? `/members/${j.member.id}` : undefined;
-const rowLocations = (row: QueueRow) => [...new Set(row.jobs.map(jobLocation).filter(Boolean))];
+export const rowLocations = (row: QueueRow) => [...new Set(row.jobs.map(jobLocation).filter(Boolean))];
 
 // Teks yang dicari di kotak pencarian (nama pelanggan, unit, lokasi, catatan, nomor HP, jenis, dan teknisi bagi admin).
-function rowSearchText(row: QueueRow, includeTechnician: boolean): string {
+export function rowSearchText(row: QueueRow, includeTechnician: boolean): string {
   return row.jobs
     .flatMap((j) => [
       j.member?.name,
@@ -514,6 +515,21 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   function printSelected() {
     router.push(`/teknisi/queue/print-labels?units=${encodeURIComponent(selectedUnitIds.join(','))}`);
   }
+  // Cetak daftar pekerjaan: membawa filter yang sedang aktif (hari -> rentang tanggal, Aktif/Selesai, kata kunci) ke
+  // halaman cetak, yang punya filter tanggalnya sendiri untuk diubah di sana.
+  function printList() {
+    let from = '';
+    let to = '';
+    if (dayFilter === 'today') from = to = todayKey;
+    else if (dayFilter === 'tomorrow') from = to = addDaysKey(todayKey, 1);
+    else if (dayFilter === 'week') [from, to] = weekRange(todayKey);
+    else if (dayFilter !== 'all') from = to = dayFilter;
+    const params = new URLSearchParams({ status: showDone ? 'selesai' : 'aktif' });
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    if (query.trim()) params.set('q', query.trim());
+    router.push(`/teknisi/queue/print-list?${params.toString()}`);
+  }
 
   return (
     <div className="grid gap-6">
@@ -541,6 +557,12 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           {!isTeknisi && selecting && (
             <Button variant="ghost" onClick={stopSelecting}>
               Batal
+            </Button>
+          )}
+          {!isTeknisi && !selecting && (
+            <Button variant="outline" onClick={printList}>
+              <ClipboardList className="size-4" />
+              Cetak Daftar
             </Button>
           )}
           {!isTeknisi &&
