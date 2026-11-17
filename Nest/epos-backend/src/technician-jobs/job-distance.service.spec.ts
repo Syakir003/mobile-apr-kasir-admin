@@ -272,7 +272,7 @@ describe('JobDistanceService — cakupan dikecilkan dan dua verifikasi', () => {
     });
   });
 
-  it('hasil setingkat kabupaten (tanpa nama tempat) ditolak', async () => {
+  it('hasil setingkat kabupaten TIDAK lolos dua verifikasi, hanya dipakai sebagai cadangan terakhir ("wilayah")', async () => {
     fetchMock.mockResolvedValue(
       jsonRes([
         {
@@ -285,7 +285,7 @@ describe('JobDistanceService — cakupan dikecilkan dan dua verifikasi', () => {
     );
     const { svc } = setup([withAddress('j1', 'Sooko, Kabupaten Mojokerto')]);
     const r = await svc.distances(['j1'], asAdmin);
-    expect(r.items[0]).toMatchObject({ state: 'unknown', reason: 'not_found' });
+    expect(r.items[0]).toMatchObject({ state: 'ok', precision: 'wilayah' });
   });
 
   it('koordinat di luar Indonesia ditolak', async () => {
@@ -297,33 +297,119 @@ describe('JobDistanceService — cakupan dikecilkan dan dua verifikasi', () => {
     expect(r.items[0]).toMatchObject({ state: 'unknown', reason: 'not_found' });
   });
 
-  it('semua pertanyaan kosong = not_found, dan tidak dicari ulang (cache per pertanyaan)', async () => {
+  it('semua pertanyaan (termasuk cadangan wilayah) kosong = not_found, dan tidak dicari ulang', async () => {
     fetchMock.mockResolvedValue(jsonRes([]));
-    // Tiga pertanyaan (jalan+kelurahan, kelurahan, jalan): selesai dalam anggaran waktu satu permintaan.
-    const { svc } = setup([
-      withAddress('j1', 'Gg. Mawar, Kuwung, Kota Mojokerto'),
-    ]);
+    // Satu pertanyaan spesifik + satu pertanyaan wilayah: selesai dalam anggaran waktu satu permintaan.
+    const { svc } = setup([withAddress('j1', 'Kuwung, Kota Mojokerto')]);
     const a = await svc.distances(['j1'], asAdmin);
     expect(a.items[0]).toMatchObject({ state: 'unknown', reason: 'not_found' });
     const calls = fetchMock.mock.calls.length;
-    expect(calls).toBe(3);
+    expect(calls).toBe(2);
+    expect(queryOf(fetchMock, 0)).toBe('Kuwung, Kota Mojokerto');
+    expect(queryOf(fetchMock, 1)).toBe('Kota Mojokerto');
     await svc.distances(['j1'], asAdmin);
     expect(fetchMock).toHaveBeenCalledTimes(calls);
+  });
+
+  it('level terendah = kota/kabupaten: tidak ada bagian alamat yang lolos -> pusat wilayah (satu verifikasi: wilayah cocok)', async () => {
+    const wilayah = {
+      lat: '-7.4700',
+      lon: '112.4400',
+      addresstype: 'city',
+      address: { city: 'Kota Mojokerto', state: 'Jawa Timur' },
+    };
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        jsonRes(
+          new URL(url).searchParams.get('q') === 'Kota Mojokerto'
+            ? [wilayah]
+            : [],
+        ),
+      ),
+    );
+    const { svc } = setup([
+      withAddress('j1', 'Jl. Majapahit ( Belakang BCA ) Kota Mojokerto'),
+    ]);
+    const r = await svc.distances(['j1'], asAdmin);
+    expect(r.items[0]).toMatchObject({ state: 'ok', precision: 'wilayah' });
+    expect(r.items[0].km).toBeGreaterThan(0);
+    expect(queryOf(fetchMock, 0)).toBe('Jalan Majapahit, Kota Mojokerto'); // spesifik dicoba dulu
+    expect(queryOf(fetchMock, 1)).toBe('Kota Mojokerto'); // lalu wilayah
+  });
+
+  it('cadangan wilayah dipakai bersama: banyak alamat tak ketemu di wilayah yang sama = satu pertanyaan wilayah', async () => {
+    const wilayah = {
+      lat: '-7.4700',
+      lon: '112.4400',
+      addresstype: 'county',
+      address: { county: 'Mojokerto' },
+    };
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        jsonRes(
+          new URL(url).searchParams.get('q') === 'Kabupaten Mojokerto'
+            ? [wilayah]
+            : [],
+        ),
+      ),
+    );
+    const { svc } = setup([
+      withAddress('j1', 'Aaa, Kabupaten Mojokerto'),
+      withAddress('j2', 'Bbb, Kabupaten Mojokerto'),
+    ]);
+    const r = await svc.distances(['j1', 'j2'], asAdmin);
+    expect(r.items.map((i) => i.precision)).toEqual(['wilayah', 'wilayah']);
+    const wilayahCalls = fetchMock.mock.calls.filter(
+      (_c, i) => queryOf(fetchMock, i) === 'Kabupaten Mojokerto',
+    );
+    expect(wilayahCalls).toHaveLength(1);
+  });
+
+  it('cadangan wilayah juga memverifikasi wilayahnya: pusat daerah lain ditolak', async () => {
+    fetchMock.mockResolvedValue(
+      jsonRes([
+        {
+          lat: '-8.17',
+          lon: '112.68',
+          addresstype: 'county',
+          address: { county: 'Kabupaten Malang' },
+        },
+      ]),
+    );
+    const { svc } = setup([withAddress('j1', 'Aaa, Kabupaten Mojokerto')]);
+    const r = await svc.distances(['j1'], asAdmin);
+    expect(r.items[0]).toMatchObject({ state: 'unknown', reason: 'not_found' });
+  });
+
+  it('alamat hanya menyebut kabupaten/kota (tanpa komponen nama) = langsung pusat wilayah', async () => {
+    fetchMock.mockResolvedValue(
+      jsonRes([
+        {
+          lat: '-7.4700',
+          lon: '112.4400',
+          addresstype: 'county',
+          address: { county: 'Mojokerto' },
+        },
+      ]),
+    );
+    const { svc } = setup([withAddress('j1', 'Kabupaten Mojokerto')]);
+    const r = await svc.distances(['j1'], asAdmin);
+    expect(r.items[0]).toMatchObject({ state: 'ok', precision: 'wilayah' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(queryOf(fetchMock, 0)).toBe('Kabupaten Mojokerto');
   });
 
   it('tanpa kabupaten/kota = unknown/incomplete, TANPA panggilan jaringan', async () => {
     const { svc } = setup([
       withAddress('j1', 'Jl. Ra Basuni No. 450 Sooko'),
       withAddress('j2', 'Gebang Malang'),
-      withAddress('j3', 'Kabupaten Mojokerto'), // hanya wilayah, tanpa komponen nama
       withAddress(
-        'j4',
+        'j3',
         'Perumahan Citra Harmoni Blok F1 No.52 Trosobo Sidoarjo',
       ),
     ]);
-    const r = await svc.distances(['j1', 'j2', 'j3', 'j4'], asAdmin);
+    const r = await svc.distances(['j1', 'j2', 'j3'], asAdmin);
     expect(r.items.map((i) => [i.state, i.reason])).toEqual([
-      ['unknown', 'incomplete'],
       ['unknown', 'incomplete'],
       ['unknown', 'incomplete'],
       ['unknown', 'incomplete'],

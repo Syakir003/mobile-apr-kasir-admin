@@ -85,15 +85,19 @@ export function searchTextFromMapsUrl(
 // kecamatan -> kecamatan saja -> desa saja -> ...) dan setiap hasil harus lolos DUA verifikasi (lihat pickVerifiedPoint).
 // ---------------------------------------------------------------------------------------------------------------
 
-/** Ketelitian hasil: titik pasti (link Maps) > jalan > desa/kelurahan > kecamatan > perkiraan (nama kompleks/daerah). */
+/**
+ * Ketelitian hasil: titik pasti (link Maps) > jalan > desa/kelurahan > kecamatan > perkiraan (nama kompleks/daerah) >
+ * wilayah (pusat kota/kabupaten: cadangan terakhir bila tidak ada bagian alamat yang ketemu).
+ */
 export type GeoPrecision =
-  'titik' | 'jalan' | 'desa' | 'kecamatan' | 'perkiraan';
+  'titik' | 'jalan' | 'desa' | 'kecamatan' | 'perkiraan' | 'wilayah';
 const PRECISION_RANK: GeoPrecision[] = [
   'titik',
   'jalan',
   'desa',
   'kecamatan',
   'perkiraan',
+  'wilayah',
 ];
 
 export interface GeocodeRegion {
@@ -105,7 +109,7 @@ export interface GeocodeRegion {
 /** Satu komponen alamat yang ikut dicari, beserta jenisnya (menentukan ketelitian bila cocok). */
 export interface GeocodeTerm {
   text: string;
-  kind: Exclude<GeoPrecision, 'titik'>;
+  kind: Exclude<GeoPrecision, 'titik' | 'wilayah'>;
 }
 export interface GeocodeQuery {
   /** Pertanyaan ke Nominatim: komponen + kabupaten/kota. */
@@ -455,6 +459,37 @@ export function pickVerifiedPoint(
       .map((t) => t.kind as GeoPrecision)
       .sort((a, b) => PRECISION_RANK.indexOf(a) - PRECISION_RANK.indexOf(b))[0];
     return { point, precision };
+  }
+  return null;
+}
+
+// Jenis hasil Nominatim yang berupa wilayah itu sendiri (batas kabupaten/kota), bukan tempat di dalamnya.
+const REGION_LEVEL_TYPES = new Set([
+  'county',
+  'city',
+  'state_district',
+  'region',
+]);
+
+/**
+ * Cadangan terakhir (satu verifikasi saja: wilayahnya cocok): titik pusat kabupaten/kota yang ditulis. Hanya menerima
+ * hasil yang memang berupa wilayah itu sendiri. Dipakai bila SEMUA pertanyaan spesifik tidak lolos dua verifikasi, supaya
+ * job tetap punya perkiraan jarak; ketelitiannya 'wilayah' dan ditandai jelas di layar.
+ */
+export function pickRegionPoint(
+  rows: NominatimRow[],
+  region: GeocodeRegion,
+): { point: LatLng; precision: GeoPrecision } | null {
+  const want = regionKey(region.name);
+  for (const row of rows) {
+    const point = validLatLng(Number(row.lat), Number(row.lon));
+    if (!point || !REGION_LEVEL_TYPES.has(row.addresstype ?? '')) continue;
+    const got = [
+      row.address?.county,
+      row.address?.city,
+      row.address?.state_district,
+    ].map(regionKey);
+    if (got.includes(want)) return { point, precision: 'wilayah' };
   }
   return null;
 }

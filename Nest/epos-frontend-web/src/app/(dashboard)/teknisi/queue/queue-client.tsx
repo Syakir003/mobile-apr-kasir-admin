@@ -251,14 +251,16 @@ type SortMode = 'default' | 'nearest';
 // Sebab jarak tidak diketahui: tanpa alamat / alamat tanpa kabupaten-kota (tidak dicari) / tidak ditemukan di peta /
 // layanan peta menolak (bisa dicoba lagi).
 type DistanceReason = 'no_address' | 'incomplete' | 'not_found' | 'service_error';
-// Ketelitian jarak: titik pasti (link Maps) > jalan > desa > kecamatan > perkiraan (nama kompleks/daerah).
-type DistancePrecision = 'titik' | 'jalan' | 'desa' | 'kecamatan' | 'perkiraan';
+// Ketelitian jarak: titik pasti (link Maps) > jalan > desa > kecamatan > perkiraan (nama kompleks/daerah) > wilayah
+// (pusat kota/kabupaten: cadangan terakhir bila tidak ada bagian alamat yang ketemu di peta).
+type DistancePrecision = 'titik' | 'jalan' | 'desa' | 'kecamatan' | 'perkiraan' | 'wilayah';
 const PRECISION_LABEL: Record<DistancePrecision, string> = {
   titik: 'titik pasti',
   jalan: 'sampai jalan',
   desa: 'level desa',
   kecamatan: 'level kecamatan',
   perkiraan: 'perkiraan daerah',
+  wilayah: 'pusat kota/kabupaten',
 };
 interface JobDistance {
   jobId: string;
@@ -321,8 +323,21 @@ function DistanceBadge({
 }) {
   const base = 'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold';
   if (d.state === 'ok') {
+    const wilayah = d.precision === 'wilayah';
     return (
-      <span className={cn(base, 'border-primary/25 bg-primary/10 text-primary')}>
+      <span
+        title={
+          wilayah
+            ? 'Alamat tidak ditemukan di peta: jarak ini ke pusat kota/kabupatennya, bukan ke lokasi sebenarnya.'
+            : undefined
+        }
+        className={cn(
+          base,
+          wilayah
+            ? 'border-status-warning/40 bg-status-warning/15 text-status-warning-foreground dark:text-status-warning'
+            : 'border-primary/25 bg-primary/10 text-primary',
+        )}
+      >
         <Navigation className="size-3" />± {kmText(d.km)} dari toko
         {d.precision && d.precision !== 'titik' && (
           <span className="font-normal opacity-80">· {PRECISION_LABEL[d.precision]}</span>
@@ -436,6 +451,17 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   // "Menghitung" hanya selama benar-benar ada yang belum selesai (bukan tiap kali permintaan latar berjalan).
   const distancesLoading = nearest && (distancesQuery.isLoading || (hasPending && !pollsExhausted));
   const unknownCount = nearest ? rows.filter((r) => rowDistances.get(r.key)!.state !== 'ok').length : 0;
+  // Baris yang jaraknya hanya sampai pusat kota/kabupaten (alamatnya tidak ketemu di peta).
+  const wilayahCount = nearest
+    ? rows.filter((r) => {
+        const d = rowDistances.get(r.key)!;
+        return d.state === 'ok' && d.precision === 'wilayah';
+      }).length
+    : 0;
+  const wilayahNote =
+    wilayahCount > 0
+      ? ` ${wilayahCount} job hanya diketahui sampai kota/kabupaten (jarak ke pusat wilayahnya, bukan lokasi sebenarnya).`
+      : '';
   // Rincian sebab untuk pesan di atas daftar: "3 tanpa alamat, 20 alamat tidak ditemukan, ...".
   const reasonCounts = { no_address: 0, incomplete: 0, not_found: 0, service_error: 0 };
   if (nearest) {
@@ -682,8 +708,8 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                     : pollsExhausted
                       ? 'Sebagian alamat belum selesai dihitung (layanan peta sedang sibuk). Job itu ada di paling bawah.'
                       : unknownCount > 0
-                        ? `Jarak garis lurus dari toko. ${unknownCount} job belum terhitung dan ada di paling bawah: ${reasonSummary}.`
-                        : 'Jarak garis lurus dari toko.'}
+                        ? `Jarak garis lurus dari toko. ${unknownCount} job belum terhitung dan ada di paling bawah: ${reasonSummary}.${wilayahNote}`
+                        : `Jarak garis lurus dari toko.${wilayahNote}`}
               </span>
               {(distancesQuery.isError || pollsExhausted || (!distancesLoading && reasonCounts.service_error > 0)) && (
                 <button

@@ -1,6 +1,7 @@
 import {
   buildGeocodePlan,
   haversineKm,
+  pickRegionPoint,
   pickVerifiedPoint,
   parseCoordsFromMapsUrl,
   searchTextFromMapsUrl,
@@ -390,5 +391,57 @@ describe('pickVerifiedPoint — verifikasi dua kunci', () => {
       ),
     ).toBeNull();
     expect(pickVerifiedPoint([], mojokerto, [T('x', 'jalan')])).toBeNull();
+  });
+});
+
+describe('pickRegionPoint — cadangan terakhir, satu verifikasi', () => {
+  const mojokerto = { name: 'Mojokerto', label: 'Kabupaten Mojokerto' };
+
+  it('menerima hasil setingkat kabupaten/kota yang wilayahnya cocok, ketelitian "wilayah"', () => {
+    const kab = {
+      lat: '-7.47',
+      lon: '112.44',
+      addresstype: 'county',
+      address: { county: 'Mojokerto' },
+    };
+    expect(pickRegionPoint([kab], mojokerto)).toEqual({
+      point: { lat: -7.47, lng: 112.44 },
+      precision: 'wilayah',
+    });
+    const kota = {
+      lat: '-7.47',
+      lon: '112.43',
+      addresstype: 'city',
+      address: { city: 'Kota Mojokerto' },
+    };
+    expect(
+      pickRegionPoint([kota], { name: 'Mojokerto', label: 'Kota Mojokerto' })
+        ?.precision,
+    ).toBe('wilayah');
+  });
+
+  it('menolak wilayah lain, tempat biasa (bukan wilayah itu sendiri), dan koordinat di luar Indonesia', () => {
+    const malang = {
+      lat: '-8.17',
+      lon: '112.68',
+      addresstype: 'county',
+      address: { county: 'Kabupaten Malang' },
+    };
+    const jalan = {
+      lat: '-7.47',
+      lon: '112.44',
+      addresstype: 'road',
+      address: { county: 'Mojokerto', road: 'Jalan Raya' },
+    };
+    const paris = {
+      lat: '48.85',
+      lon: '2.35',
+      addresstype: 'county',
+      address: { county: 'Mojokerto' },
+    };
+    expect(pickRegionPoint([malang], mojokerto)).toBeNull();
+    expect(pickRegionPoint([jalan], mojokerto)).toBeNull();
+    expect(pickRegionPoint([paris], mojokerto)).toBeNull();
+    expect(pickRegionPoint([], mojokerto)).toBeNull();
   });
 });

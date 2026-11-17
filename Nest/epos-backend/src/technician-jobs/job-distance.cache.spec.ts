@@ -92,7 +92,8 @@ describe('JobDistanceService — cache file', () => {
     await b.onModuleInit();
     const r = await b.distances(['j1'], asAdmin);
     expect(r.items[0].state).toBe('unknown');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Instance pertama: satu pertanyaan spesifik + satu pertanyaan wilayah. Setelah "restart" tidak ada panggilan baru.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('entri kedaluwarsa, koordinat di luar Indonesia, dan bentuk salah dibuang saat dimuat', async () => {
@@ -123,7 +124,18 @@ describe('JobDistanceService — cache file', () => {
       await s.onModuleInit();
       await s.distances(['j1'], asAdmin);
     }
-    expect(fetchMock).toHaveBeenCalledTimes(3); // ketiganya dicari ulang
+    // Ketiganya dicari ulang (bukan dipercaya dari file): tiap alamat memicu pertanyaan spesifiknya sendiri.
+    // (Jumlah pertanyaan wilayah tidak diperiksa: penulisan cache ke file berjalan terjadwal dan bisa berbagi hasil.)
+    const asked = fetchMock.mock.calls.map(
+      (c) => new URL(String(c[0])).searchParams.get('q') as string,
+    );
+    expect(asked).toEqual(
+      expect.arrayContaining([
+        'Kedaluwarsa, Kabupaten Mojokerto',
+        'Paris, Kabupaten Mojokerto',
+        'Rusak, Kabupaten Mojokerto',
+      ]),
+    );
     fetchMock.mockClear();
     const ok = makeSvc(ADDR);
     await ok.onModuleInit();

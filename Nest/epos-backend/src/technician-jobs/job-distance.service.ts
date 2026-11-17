@@ -11,6 +11,7 @@ import {
   buildGeocodePlan,
   haversineKm,
   parseCoordsFromMapsUrl,
+  pickRegionPoint,
   pickVerifiedPoint,
   searchTextFromMapsUrl,
   SHOP_LOCATION,
@@ -74,6 +75,7 @@ const PRECISIONS: readonly string[] = [
   'desa',
   'kecamatan',
   'perkiraan',
+  'wilayah',
 ];
 /** Hasil resolusi satu alamat: titik, tidak ditemukan, atau belum selesai (anggaran waktu habis / layanan sibuk). */
 type Resolved =
@@ -273,15 +275,15 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
     if (t.url && this.isShortLink(t.url) && this.getCache(`short:${t.url}`))
       return true;
     const plan = buildGeocodePlan(text);
-    if (!plan.region || plan.queries.length === 0) return true; // tidak lengkap = hasil instan
-    // Instan bila salah satu pertanyaan sudah ketemu, atau semuanya sudah pernah dicari (tidak ada yang ketemu).
+    if (!plan.region) return true; // tidak lengkap = hasil instan
+    // Instan bila salah satu pertanyaan sudah ketemu, atau semuanya (termasuk cadangan wilayah) sudah pernah dicari.
     let allCached = true;
     for (const q of plan.queries) {
       const e = this.getCache(this.geoKey(q.q));
       if (e?.value) return true;
       if (!e) allCached = false;
     }
-    return allCached;
+    return allCached && !!this.getCache(this.geoKey(plan.region.label));
   }
 
   private async resolve(
@@ -303,8 +305,7 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
     if (!query) return { kind: 'unknown', reason: 'no_address' };
     const plan = buildGeocodePlan(query);
     // Tanpa kabupaten/kota: tidak dicari (hasil bisa meleset ke daerah lain bernama sama). Form web mewajibkannya.
-    if (!plan.region || plan.queries.length === 0)
-      return { kind: 'unknown', reason: 'incomplete' };
+    if (!plan.region) return { kind: 'unknown', reason: 'incomplete' };
     const region = plan.region;
     // Dari yang paling spesifik ke yang makin umum; tiap pertanyaan punya cache sendiri, jadi pencarian yang terputus
     // (anggaran waktu habis) dilanjutkan dari pertanyaan berikutnya, tidak mengulang dari awal.
@@ -314,7 +315,11 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
       );
       if (r.kind !== 'unknown' || r.reason !== 'not_found') return r; // ketemu / pending / layanan error
     }
-    return { kind: 'unknown', reason: 'not_found' };
+    // Tidak ada bagian alamat yang lolos dua verifikasi: cadangan terakhir = pusat kota/kabupaten yang ditulis (satu
+    // verifikasi saja: wilayahnya cocok). Satu pertanyaan per wilayah, dipakai bersama oleh semua alamat di wilayah itu.
+    return this.once(this.geoKey(region.label), () =>
+      this.geocode({ q: region.label, terms: [] }, region, deadline),
+    );
   }
 
   private geoKey(text: string) {
@@ -460,7 +465,11 @@ export class JobDistanceService implements OnModuleInit, OnModuleDestroy {
         const rows = (await res.json()) as NominatimRow[];
         // Verifikasi dua kunci: wilayah cocok dengan kabupaten/kota yang ditulis, dan salah satu komponen yang dicari
         // (jalan/desa/kecamatan/kata kompleks) benar-benar muncul di jawaban.
-        const hit = pickVerifiedPoint(rows, region, query.terms);
+        // terms kosong = pertanyaan wilayah (cadangan terakhir): cukup satu verifikasi, wilayahnya cocok.
+        const hit =
+          query.terms.length === 0
+            ? pickRegionPoint(rows, region)
+            : pickVerifiedPoint(rows, region, query.terms);
         this.setCache(this.geoKey(query.q), hit?.point ?? null, hit?.precision);
         return hit
           ? { kind: 'ok', point: hit.point, precision: hit.precision }
