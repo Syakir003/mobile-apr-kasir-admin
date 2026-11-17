@@ -4,7 +4,7 @@ import { unitPartsText, type UnitPartProduct } from '@/components/ac-unit-parts'
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDownWideNarrow,
   CalendarCheck,
@@ -251,9 +251,13 @@ interface JobDistance {
 interface DistancesResponse {
   shop: { lat: number; lng: number; label: string };
   items: JobDistance[];
+  pending: number;
 }
 const MAX_DISTANCE_JOBS = 300; // batas backend per permintaan
-const MAX_DISTANCE_POLLS = 10; // 'pending' dicoba ulang tiap 4 detik, lalu menyerah
+// Server menjawab tiap ~4 detik dengan apa yang sudah selesai; 'pending' dilanjutkan tiap 2 detik sampai batas ini,
+// lalu berhenti dan menawarkan "Coba lagi" (mis. layanan peta sedang membatasi permintaan).
+const DISTANCE_POLL_MS = 2000;
+const MAX_DISTANCE_POLLS = 45;
 
 type RowDistance = { state: 'ok'; km: number } | { state: 'pending' } | { state: 'unknown' };
 function rowDistance(row: QueueRow, byJob: Map<string, JobDistance>): RowDistance {
@@ -296,6 +300,8 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const [dayFilter, setDayFilter] = React.useState<DayFilter>('all');
   const [todayKey] = React.useState(() => wibDateKey(new Date()));
   const [sortMode, setSortMode] = React.useState<SortMode>('default');
+  // Jumlah pembaruan data jarak saat pencarian ulang dimulai; batas MAX_DISTANCE_POLLS dihitung dari titik ini.
+  const [pollBase, setPollBase] = React.useState(0);
   // Cetak QR massal: tombol "Cetak QR" di samping tombol muat ulang mengaktifkan mode pilih (kotak centang muncul di
   // tiap baris). `picked` = kunci baris yang dicentang; hanya baris yang sedang tampil yang dihitung.
   const [selecting, setSelecting] = React.useState(false);
@@ -336,16 +342,28 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   // Jarak dihitung untuk job pada daftar Aktif/Selesai yang sedang dibuka (bukan hanya yang lolos pencarian), jadi
   // mengetik di kolom cari tidak memicu perhitungan ulang. Kunci query memuat id-nya.
   const distanceJobIds = filtered.slice(0, MAX_DISTANCE_JOBS).map((j) => j.id);
+  const queryClient = useQueryClient();
+  const distancesKey = ['technician-jobs', 'distances', distanceJobIds.join(',')];
   const distancesQuery = useQuery({
-    queryKey: ['technician-jobs', 'distances', distanceJobIds.join(',')],
+    queryKey: distancesKey,
     queryFn: () => apiClient.post<DistancesResponse>('/technician-jobs/distances', { jobIds: distanceJobIds }),
     enabled: sortMode === 'nearest' && distanceJobIds.length > 0,
     staleTime: 5 * 60_000,
     refetchInterval: (q) =>
-      q.state.data?.items.some((i) => i.state === 'pending') && q.state.dataUpdateCount < MAX_DISTANCE_POLLS
-        ? 4000
+      q.state.data?.items.some((i) => i.state === 'pending') &&
+      q.state.dataUpdateCount - pollBase < MAX_DISTANCE_POLLS
+        ? DISTANCE_POLL_MS
         : false,
   });
+  const distanceItems = distancesQuery.data?.items ?? [];
+  const hasPending = distanceItems.some((i) => i.state === 'pending');
+  const updateCount = queryClient.getQueryState(distancesKey)?.dataUpdateCount ?? 0;
+  const pollsExhausted = hasPending && updateCount - pollBase >= MAX_DISTANCE_POLLS;
+  const distanceDone = distanceItems.filter((i) => i.state !== 'pending').length;
+  function retryDistances() {
+    setPollBase(updateCount);
+    void distancesQuery.refetch();
+  }
   const distanceByJob = new Map((distancesQuery.data?.items ?? []).map((d) => [d.jobId, d]));
   const nearest = sortMode === 'nearest';
   const rowDistances = new Map(baseRows.map((r) => [r.key, rowDistance(r, distanceByJob)]));
@@ -357,7 +375,8 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
         return Number(db.state === 'ok') - Number(da.state === 'ok'); // yang jaraknya tahu lebih dulu; sisanya urutan asal
       })
     : baseRows;
-  const distancesLoading = nearest && (distancesQuery.isLoading || distancesQuery.isFetching);
+  // "Menghitung" hanya selama benar-benar ada yang belum selesai (bukan tiap kali permintaan latar berjalan).
+  const distancesLoading = nearest && (distancesQuery.isLoading || (hasPending && !pollsExhausted));
   const unknownCount = nearest ? rows.filter((r) => rowDistances.get(r.key)!.state !== 'ok').length : 0;
   function resetFilters() {
     setQuery('');
@@ -580,11 +599,24 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 {distancesQuery.isError
                   ? 'Gagal menghitung jarak. Daftar tetap tampil dengan urutan biasa.'
                   : distancesLoading
-                    ? 'Menghitung jarak dari alamat...'
-                    : unknownCount > 0
-                      ? `Jarak garis lurus dari toko. ${unknownCount} job yang alamatnya belum terbaca ada di paling bawah.`
-                      : 'Jarak garis lurus dari toko.'}
+                    ? distanceItems.length > 0
+                      ? `Menghitung jarak dari alamat... ${distanceDone} dari ${distanceItems.length} job selesai. Daftar terurut bertahap.`
+                      : 'Menghitung jarak dari alamat...'
+                    : pollsExhausted
+                      ? 'Sebagian alamat belum selesai dihitung (layanan peta sedang sibuk). Job itu ada di paling bawah.'
+                      : unknownCount > 0
+                        ? `Jarak garis lurus dari toko. ${unknownCount} job yang alamatnya belum terbaca ada di paling bawah.`
+                        : 'Jarak garis lurus dari toko.'}
               </span>
+              {(distancesQuery.isError || pollsExhausted) && (
+                <button
+                  type="button"
+                  onClick={retryDistances}
+                  className="ml-auto shrink-0 font-semibold underline underline-offset-2"
+                >
+                  Coba lagi
+                </button>
+              )}
             </div>
           )}
         </div>

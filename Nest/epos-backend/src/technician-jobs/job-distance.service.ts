@@ -29,7 +29,9 @@ const NOMINATIM_GAP_MS = 1100;
 const USER_AGENT = 'epos-ac-antrian-servis/1.0';
 
 // Anggaran waktu satu permintaan: alamat yang belum sempat dihitung dikembalikan 'pending' (frontend mencoba lagi).
-const TIME_BUDGET_MS = 12_000;
+// Pendek sengaja: hasil yang sudah ada langsung kembali ke layar dan sisanya dilanjutkan di permintaan berikutnya
+// (cache menyimpan yang sudah selesai), jadi daftar terurut bertahap alih-alih menunggu semua alamat.
+const TIME_BUDGET_MS = 4_000;
 const TTL_FOUND_MS = 30 * 24 * 3600_000;
 const TTL_NOT_FOUND_MS = 24 * 3600_000;
 const BACKOFF_MS = 60_000;
@@ -100,7 +102,7 @@ export class JobDistanceService {
       }
       return [{ jobId, km: null, state: r.kind }];
     });
-    return { shop: SHOP_LOCATION, items };
+    return { shop: SHOP_LOCATION, items, pending: items.filter((i) => i.state === 'pending').length };
   }
 
   // ---- resolusi satu alamat ----
@@ -201,8 +203,7 @@ export class JobDistanceService {
   // ---- geocoding (Nominatim, antre 1 permintaan/detik) ----
 
   private async geocode(text: string, deadline: number): Promise<Resolved> {
-    return this.queued(async () => {
-      if (Date.now() > deadline || Date.now() < this.backoffUntil) return { kind: 'pending' } as Resolved;
+    return this.queued(deadline, async () => {
       try {
         const qs = new URLSearchParams({ q: text, format: 'jsonv2', limit: '1', countrycodes: 'id' });
         const res = await fetch(`${NOMINATIM_URL}?${qs.toString()}`, {
@@ -228,10 +229,15 @@ export class JobDistanceService {
   }
 
   /** Jalankan tugas jaringan satu per satu dengan jeda minimal NOMINATIM_GAP_MS antar panggilan. */
-  private queued(task: () => Promise<Resolved>): Promise<Resolved> {
+  private queued(deadline: number, task: () => Promise<Resolved>): Promise<Resolved> {
     const run = this.chain.then(async () => {
+      // Anggaran waktu habis / sedang dijeda: lewati TANPA menunggu jeda antar-panggilan (tidak ada panggilan keluar,
+      // jadi tidak perlu jeda) dan tanpa mengubah lastNominatimAt, supaya tugas yang dilewati tidak memperlambat respons.
+      const skip = () => Date.now() > deadline || Date.now() < this.backoffUntil;
+      if (skip()) return { kind: 'pending' } as Resolved;
       const wait = this.lastNominatimAt + NOMINATIM_GAP_MS - Date.now();
       if (wait > 0) await sleep(wait);
+      if (skip()) return { kind: 'pending' } as Resolved;
       this.lastNominatimAt = Date.now();
       return task();
     });
