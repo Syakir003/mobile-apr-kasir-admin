@@ -6,9 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowDownWideNarrow,
   CalendarCheck,
-  CalendarDays,
   CalendarX,
   ClipboardList,
   Clock,
@@ -645,17 +643,45 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
       {/* Daftar job: satu panel (pita kontrol berlatar muted, baris dipisah garis tipis), warna dan gaya sama dengan
           tabel sebelumnya. Satu baris = satu job (servis banyak AC = satu baris untuk seluruh unit). */}
       <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="grid gap-3.5 border-b bg-card px-5 py-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold tracking-tight">Daftar Job</h2>
-                {!jobsQuery.isLoading && !jobsQuery.isError && (
-                  <Badge variant="outline" className="rounded-full border-primary/30 bg-primary/10 px-2 text-primary">
-                    {rows.length}
-                  </Badge>
-                )}
-              </div>
+        <div className="grid gap-3 border-b bg-card px-4 py-4 sm:px-5">
+          {/* Baris 1: judul + tab status (jumlah tampil di tab terpilih) dan pencarian, dipisah garis dari filter. */}
+          <div className="flex flex-col gap-3 border-b pb-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+              <h2 className="mr-1 text-sm font-semibold tracking-tight">Daftar Job</h2>
+              {isTeknisi && !jobsQuery.isLoading && !jobsQuery.isError && (
+                <Badge variant="outline" className="rounded-full border-primary/30 bg-primary/10 px-2 text-primary">
+                  {rows.length}
+                </Badge>
+              )}
+              {!isTeknisi && (
+                <div role="tablist" aria-label="Status job" className="flex flex-wrap items-center gap-1">
+                  {(Object.keys(STATUS_TAB_LABEL) as StatusTab[]).map((tab) => {
+                    const selected = statusTab === tab;
+                    return (
+                      <button
+                        key={tab}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        onClick={() => setStatusTab(tab)}
+                        className={cn(
+                          'inline-flex h-8 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors',
+                          selected
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                        )}
+                      >
+                        {STATUS_TAB_LABEL[tab]}
+                        {selected && !jobsQuery.isLoading && !jobsQuery.isError && (
+                          <span className="rounded-full bg-primary-foreground/20 px-1.5 text-[11px] font-semibold leading-5 tabular-nums">
+                            {rows.length}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {!isTeknisi && selecting && printable.length > 0 && (
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
                   <Checkbox
@@ -665,41 +691,6 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                   />
                   Pilih semua
                 </label>
-              )}
-              {!isTeknisi && (
-                <div className="inline-flex gap-1 rounded-lg border bg-muted/60 p-1">
-                  {(Object.keys(STATUS_TAB_LABEL) as StatusTab[]).map((tab) => (
-                    <Button
-                      key={tab}
-                      size="sm"
-                      variant={statusTab === tab ? 'default' : 'ghost'}
-                      aria-pressed={statusTab === tab}
-                      onClick={() => setStatusTab(tab)}
-                      className={cn('h-7 rounded-md px-3 text-xs', statusTab !== tab && 'text-muted-foreground')}
-                    >
-                      {STATUS_TAB_LABEL[tab]}
-                    </Button>
-                  ))}
-                </div>
-              )}
-              {!isTeknisi && (
-                <Select value={technicianFilter} onValueChange={setTechnicianFilter}>
-                  <SelectTrigger aria-label="Filter teknisi" className="h-9 w-60 rounded-lg bg-muted/50 text-xs">
-                    <UserRound className="size-3.5 shrink-0 text-muted-foreground" />
-                    <SelectValue placeholder="Semua teknisi" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Semua teknisi ({scopedRows.length})</SelectItem>
-                    {(techChoices.none > 0 || technicianFilter === NO_TECHNICIAN) && (
-                      <SelectItem value={NO_TECHNICIAN}>Belum ditugaskan ({techChoices.none})</SelectItem>
-                    )}
-                    {techChoices.options.map((o) => (
-                      <SelectItem key={o.id} value={o.id}>
-                        {o.name} ({o.count})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               )}
             </div>
             <div className="relative w-full lg:w-96">
@@ -714,10 +705,33 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div className="flex min-w-0 items-center gap-2 overflow-x-auto p-0.5 text-xs">
-              <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                <CalendarDays className="size-3.5" />
+          {/* Baris 2: filter teknisi + filter hari + pilih tanggal; membungkus rapi di layar sempit. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
+            {!isTeknisi && (
+              <Select value={technicianFilter} onValueChange={setTechnicianFilter}>
+                <SelectTrigger
+                  aria-label="Filter teknisi"
+                  className="h-8 w-auto min-w-44 max-w-full gap-2 rounded-lg bg-background text-xs"
+                >
+                  <UserRound className="size-3.5 shrink-0 text-muted-foreground" />
+                  <SelectValue placeholder="Semua teknisi" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua teknisi ({scopedRows.length})</SelectItem>
+                  {(techChoices.none > 0 || technicianFilter === NO_TECHNICIAN) && (
+                    <SelectItem value={NO_TECHNICIAN}>Belum ditugaskan ({techChoices.none})</SelectItem>
+                  )}
+                  {techChoices.options.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>
+                      {o.name} ({o.count})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {!isTeknisi && <span aria-hidden className="hidden h-5 w-px bg-border sm:block" />}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Filter Hari:
               </span>
               {dayPills.map((pill) => (
@@ -728,21 +742,21 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                   variant={dayFilter === pill.key ? 'default' : 'outline'}
                   aria-pressed={dayFilter === pill.key}
                   onClick={() => setDayFilter(pill.key)}
-                  className="shrink-0 whitespace-nowrap"
+                  className="whitespace-nowrap"
                 >
                   {pill.label}
                 </Button>
               ))}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="text-xs text-muted-foreground">Pilih Tgl:</span>
-              <Input
-                type="date"
-                value={pickedDate}
-                onChange={(e) => setDayFilter(e.target.value || 'all')}
-                aria-label="Pilih tanggal jadwal"
-                className="h-8 w-auto bg-background text-xs"
-              />
+              <label className="flex h-8 items-center gap-1.5 rounded-lg border bg-background px-2.5 focus-within:ring-2 focus-within:ring-ring/40">
+                <span className="shrink-0 text-xs text-muted-foreground">Pilih Tgl:</span>
+                <input
+                  type="date"
+                  value={pickedDate}
+                  onChange={(e) => setDayFilter(e.target.value || 'all')}
+                  aria-label="Pilih tanggal jadwal"
+                  className="h-7 w-32 bg-transparent text-xs outline-none"
+                />
+              </label>
               {filtersActive && (
                 <Button
                   type="button"
@@ -756,30 +770,31 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                 </Button>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-2 text-xs">
-              <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                <ArrowDownWideNarrow className="size-3.5" />
-                Urutkan:
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant={nearest ? 'outline' : 'default'}
-                aria-pressed={!nearest}
-                onClick={() => setSortMode('default')}
-              >
-                Urutan Biasa
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={nearest ? 'default' : 'outline'}
-                aria-pressed={nearest}
-                onClick={() => setSortMode('nearest')}
-              >
-                Terdekat dari Toko
-              </Button>
-            </div>
+          </div>
+
+          {/* Baris 3: urutan. */}
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Urutkan:
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant={nearest ? 'outline' : 'default'}
+              aria-pressed={!nearest}
+              onClick={() => setSortMode('default')}
+            >
+              Urutan Biasa
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={nearest ? 'default' : 'outline'}
+              aria-pressed={nearest}
+              onClick={() => setSortMode('nearest')}
+            >
+              Terdekat dari Toko
+            </Button>
           </div>
 
           {nearest && (
