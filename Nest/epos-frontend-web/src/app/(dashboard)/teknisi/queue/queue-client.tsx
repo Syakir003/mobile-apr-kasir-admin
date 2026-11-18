@@ -36,6 +36,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TechnicianAssignDialog, technicianNames } from '@/components/technician-multi-picker';
 
 // Menu "Servis & Teknisi" dipakai admin DAN teknisi lewat rute yang sama
@@ -192,6 +193,55 @@ export const jobLocation = (j: TechnicianJob) => j.workAddress?.trim() || j.memb
 const addressFixHref = (j: TechnicianJob) =>
   j.workAddress?.trim() || j.workMapsUrl?.trim() ? `/teknisi/jobs/${j.id}` : j.member ? `/members/${j.member.id}` : undefined;
 export const rowLocations = (row: QueueRow) => [...new Set(row.jobs.map(jobLocation).filter(Boolean))];
+
+// ---- Filter status dan teknisi (admin & kasir) ----
+
+// 'aktif' = belum selesai dan BELUM diajukan (penugasan, sedang dikerjakan); 'review' = hanya yang menunggu review
+// admin; 'selesai' = sisanya (selesai/dibatalkan). Tiga tab ini tidak saling tumpang tindih.
+export type StatusTab = 'aktif' | 'review' | 'selesai';
+export const STATUS_TAB_LABEL: Record<StatusTab, string> = {
+  aktif: 'Aktif',
+  review: 'Menunggu Review',
+  selesai: 'Selesai',
+};
+export function matchesStatusTab(j: TechnicianJob, tab: StatusTab): boolean {
+  if (tab === 'review') return j.status === 'menunggu_review';
+  const active = ACTIVE_JOB_STATUSES.includes(j.status);
+  return tab === 'aktif' ? active && j.status !== 'menunggu_review' : !active;
+}
+
+/** Nilai filter untuk job yang belum punya teknisi. 'all' = semua teknisi. Selain itu = id teknisi. */
+export const NO_TECHNICIAN = '__none__';
+/** Semua teknisi sebuah job (satu job bisa dipegang beberapa teknisi setara). */
+export function jobTechnicians(j: TechnicianJob): { id: string; displayName: string }[] {
+  if (j.technicians?.length) return j.technicians;
+  return j.technician ? [{ id: j.technician.id, displayName: j.technician.displayName }] : [];
+}
+export function jobMatchesTechnician(j: TechnicianJob, filter: string): boolean {
+  if (filter === 'all') return true;
+  const ts = jobTechnicians(j);
+  return filter === NO_TECHNICIAN ? ts.length === 0 : ts.some((t) => t.id === filter);
+}
+/**
+ * Pilihan teknisi: semua teknisi yang pernah muncul di daftar job (stabil walau tab/hari berganti), beserta jumlah BARIS
+ * (order) pada `rows`, dan jumlah baris yang belum ditugaskan. Diambil dari data job, jadi tersedia juga untuk kasir
+ * (GET /users hanya untuk admin).
+ */
+export function technicianOptions(allJobs: TechnicianJob[], rows: QueueRow[]) {
+  const names = new Map<string, string>();
+  for (const j of allJobs) for (const t of jobTechnicians(j)) names.set(t.id, t.displayName);
+  const counts = new Map<string, number>();
+  let none = 0;
+  for (const r of rows) {
+    const ids = new Set(r.jobs.flatMap((j) => jobTechnicians(j).map((t) => t.id)));
+    if (ids.size === 0) none += 1;
+    for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  const options = [...names.entries()]
+    .map(([id, name]) => ({ id, name, count: counts.get(id) ?? 0 }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'id'));
+  return { options, none };
+}
 
 // Teks yang dicari di kotak pencarian (nama pelanggan, unit, lokasi, catatan, nomor HP, jenis, dan teknisi bagi admin).
 export function rowSearchText(row: QueueRow, includeTechnician: boolean): string {
@@ -368,7 +418,9 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const isTeknisi = role === 'teknisi';
   const isAdmin = role === 'admin';
   const router = useRouter();
-  const [showDone, setShowDone] = React.useState(false);
+  const [statusTab, setStatusTab] = React.useState<StatusTab>('aktif');
+  // Filter teknisi: 'all' | NO_TECHNICIAN | id teknisi. Hanya untuk admin & kasir (teknisi hanya melihat jobnya sendiri).
+  const [technicianFilter, setTechnicianFilter] = React.useState('all');
   // Pencarian + filter hari (jadwal). Tanggal "hari ini" dikunci saat halaman dibuka (WIB).
   const [query, setQuery] = React.useState('');
   const [dayFilter, setDayFilter] = React.useState<DayFilter>('all');
@@ -401,17 +453,22 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   const jobs = jobsQuery.data ?? [];
   // Query teknisi (/queue) sudah difilter aktif dari server — toggle
   // Aktif/Selesai cuma relevan buat admin (findAll ngembaliin semua status).
-  const filtered = !isTeknisi
-    ? jobs.filter((j) => (showDone ? !ACTIVE_JOB_STATUSES.includes(j.status) : ACTIVE_JOB_STATUSES.includes(j.status)))
-    : jobs;
+  const filtered = !isTeknisi ? jobs.filter((j) => matchesStatusTab(j, statusTab)) : jobs;
   const searchTerm = query.trim().toLowerCase();
-  const filtersActive = searchTerm !== '' || dayFilter !== 'all';
+  const filtersActive = searchTerm !== '' || dayFilter !== 'all' || technicianFilter !== 'all';
   // Penyaringan per BARIS (servis banyak AC tetap utuh): cocok bila salah satu unitnya cocok.
-  const baseRows = groupByOrder(filtered).filter(
+  const scopedRows = groupByOrder(filtered).filter(
     (row) =>
       (!searchTerm || rowSearchText(row, isAdmin).includes(searchTerm)) &&
       row.jobs.some((j) => matchesDay(j, dayFilter, todayKey)),
   );
+  // Jumlah job per teknisi dihitung pada tab status + hari + pencarian yang sedang aktif (sebelum filter teknisi),
+  // jadi tiap pilihan menunjukkan berapa job yang akan tampil bila dipilih.
+  const techChoices = technicianOptions(jobs, scopedRows);
+  const baseRows =
+    isTeknisi || technicianFilter === 'all'
+      ? scopedRows
+      : scopedRows.filter((row) => row.jobs.some((j) => jobMatchesTechnician(j, technicianFilter)));
 
   // Jarak dihitung untuk job pada daftar Aktif/Selesai yang sedang dibuka (bukan hanya yang lolos pencarian), jadi
   // mengetik di kolom cari tidak memicu perhitungan ulang. Kunci query memuat id-nya.
@@ -485,6 +542,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
   function resetFilters() {
     setQuery('');
     setDayFilter('all');
+    setTechnicianFilter('all');
   }
 
   const dayPills: { key: DayFilter; label: string }[] = [
@@ -524,7 +582,8 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
     else if (dayFilter === 'tomorrow') from = to = addDaysKey(todayKey, 1);
     else if (dayFilter === 'week') [from, to] = weekRange(todayKey);
     else if (dayFilter !== 'all') from = to = dayFilter;
-    const params = new URLSearchParams({ status: showDone ? 'selesai' : 'aktif' });
+    const params = new URLSearchParams({ status: statusTab });
+    if (technicianFilter !== 'all') params.set('teknisi', technicianFilter);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
     if (query.trim()) params.set('q', query.trim());
@@ -609,25 +668,38 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
               )}
               {!isTeknisi && (
                 <div className="inline-flex gap-1 rounded-lg border bg-muted/60 p-1">
-                  <Button
-                    size="sm"
-                    variant={showDone ? 'ghost' : 'default'}
-                    aria-pressed={!showDone}
-                    onClick={() => setShowDone(false)}
-                    className={cn('h-7 rounded-md px-3 text-xs', showDone && 'text-muted-foreground')}
-                  >
-                    Aktif
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={showDone ? 'default' : 'ghost'}
-                    aria-pressed={showDone}
-                    onClick={() => setShowDone(true)}
-                    className={cn('h-7 rounded-md px-3 text-xs', !showDone && 'text-muted-foreground')}
-                  >
-                    Selesai
-                  </Button>
+                  {(Object.keys(STATUS_TAB_LABEL) as StatusTab[]).map((tab) => (
+                    <Button
+                      key={tab}
+                      size="sm"
+                      variant={statusTab === tab ? 'default' : 'ghost'}
+                      aria-pressed={statusTab === tab}
+                      onClick={() => setStatusTab(tab)}
+                      className={cn('h-7 rounded-md px-3 text-xs', statusTab !== tab && 'text-muted-foreground')}
+                    >
+                      {STATUS_TAB_LABEL[tab]}
+                    </Button>
+                  ))}
                 </div>
+              )}
+              {!isTeknisi && (
+                <Select value={technicianFilter} onValueChange={setTechnicianFilter}>
+                  <SelectTrigger aria-label="Filter teknisi" className="h-9 w-60 rounded-lg bg-muted/50 text-xs">
+                    <UserRound className="size-3.5 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Semua teknisi" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Semua teknisi ({scopedRows.length})</SelectItem>
+                    {(techChoices.none > 0 || technicianFilter === NO_TECHNICIAN) && (
+                      <SelectItem value={NO_TECHNICIAN}>Belum ditugaskan ({techChoices.none})</SelectItem>
+                    )}
+                    {techChoices.options.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name} ({o.count})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             </div>
             <div className="relative w-full lg:w-96">
@@ -770,7 +842,11 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
               <>
                 <Wrench className="size-8" />
                 <p className="text-sm">
-                  {!isTeknisi && showDone ? 'Belum ada job selesai.' : 'Belum ada job aktif.'}
+                  {isTeknisi || statusTab === 'aktif'
+                    ? 'Belum ada job aktif.'
+                    : statusTab === 'review'
+                      ? 'Tidak ada job yang menunggu review.'
+                      : 'Belum ada job selesai.'}
                 </p>
               </>
             )}

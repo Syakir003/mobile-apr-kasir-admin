@@ -8,16 +8,17 @@ import { JobListPrintClient } from './job-list-print-client';
 export default async function JobListPrintPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; status?: string; q?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; status?: string; q?: string; teknisi?: string }>;
 }) {
   const session = await requireSession();
   if (session.user.role === 'teknisi') redirect('/teknisi/queue');
-  const { from, to, status, q } = await searchParams;
+  const { from, to, status, q, teknisi } = await searchParams;
   return (
     <JobListPrintClient
       initialFrom={from ?? ''}
       initialTo={to ?? ''}
-      initialStatus={status === 'selesai' || status === 'semua' ? status : 'aktif'}
+      initialStatus={status === 'selesai' || status === 'review' || status === 'semua' ? status : 'aktif'}
+      initialTechnician={teknisi ?? 'all'}
       initialQuery={q ?? ''}
     />
   );
