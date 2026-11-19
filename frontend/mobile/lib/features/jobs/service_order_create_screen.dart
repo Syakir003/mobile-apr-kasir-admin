@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/address_check.dart';
 import '../../core/utils/error_message.dart';
+import '../../core/widgets/address_hint.dart';
 import '../../data/models/ac_unit.dart';
 import '../../data/models/member.dart';
 import '../members/member_providers.dart';
@@ -142,7 +144,7 @@ class _NewUnitEditor {
 class _LocationEditor {
   final address = TextEditingController();
   final maps = TextEditingController();
-  IntakeLocation toLocation() => IntakeLocation(address: address.text, mapsUrl: maps.text);
+  IntakeLocation toLocation() => IntakeLocation(address: fixAddress(address.text), mapsUrl: maps.text);
   void dispose() {
     address.dispose();
     maps.dispose();
@@ -222,18 +224,37 @@ class _ServiceOrderCreateScreenState
         }
       });
 
+  /// Alamat wajib menyebut kabupaten/kota (aturan sama dengan web), kecuali Link Maps terisi. Alamat titik lokasi yang
+  /// sama dengan alamat member lama tidak diperiksa (data lama). Mengembalikan pesan pertama yang menghalangi, atau null.
+  String? _addressProblem(Member? member) {
+    if (_newCustomer) {
+      final b = addressBlocking(_address.text);
+      if (b != null) return 'Alamat pelanggan: $b';
+    }
+    for (final (i, l) in _locations.indexed) {
+      final b = addressBlocking(l.address.text, original: member?.address, hasMapsLink: isMapsLink(l.maps.text));
+      if (b != null) return 'Titik lokasi ${i + 1}: $b';
+    }
+    return null;
+  }
+
   Future<void> _submit(List<Member> members) async {
-    setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
+    final member = _newCustomer ? null : members.where((m) => m.id == _memberId).firstOrNull;
+    final problem = _addressProblem(member);
+    if (problem != null) {
+      messenger.showSnackBar(SnackBar(content: Text(problem), backgroundColor: AppColors.danger));
+      return;
+    }
+    setState(() => _busy = true);
     try {
-      final member = _newCustomer ? null : members.where((m) => m.id == _memberId).firstOrNull;
       await ref.read(createServiceOrderCallerProvider)(buildIntakePayload(
         memberId: member?.id,
         memberName: member?.name,
         name: _name.text,
         phone: _phone.text,
-        address: _address.text,
+        address: fixAddress(_address.text),
         jobType: _type,
         workDescription: _workDesc.text,
         complaint: _complaint.text,
@@ -320,6 +341,7 @@ class _ServiceOrderCreateScreenState
                   maxLines: 2,
                   decoration: const InputDecoration(labelText: 'Alamat (opsional)'),
                 ),
+                AddressHint(address: _address),
               ],
               const SizedBox(height: 16),
               _label('Titik Lokasi Kerja'),
@@ -470,6 +492,16 @@ class _ServiceOrderCreateScreenState
                 hintText: 'Kosong = ikut alamat pelanggan',
                 isDense: true,
               ),
+            ),
+            AddressHint(
+              address: l.address,
+              maps: l.maps,
+              original: _newCustomer
+                  ? null
+                  : (ref.read(membersStreamProvider).value ?? const <Member>[])
+                      .where((m) => m.id == _memberId)
+                      .firstOrNull
+                      ?.address,
             ),
             const SizedBox(height: 8),
             TextField(

@@ -6,7 +6,9 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/phone.dart';
 import '../../data/models/member.dart';
 import 'member_providers.dart';
+import '../../core/utils/address_check.dart';
 import '../../core/utils/error_message.dart';
+import '../../core/widgets/address_hint.dart';
 import '../../core/widgets/form_field.dart';
 import '../../core/widgets/form_scaffold.dart';
 
@@ -71,15 +73,22 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
     return duplicate ? 'Nomor HP sudah terdaftar' : null;
   }
 
+  // Alamat wajib menyebut kabupaten/kota (aturan sama dengan web), kecuali Link Maps terisi atau alamat tidak diubah
+  // dari data lama (member lama dengan alamat tak lengkap tetap bisa diedit bagian lainnya).
+  String? _addressValidator(String? v) =>
+      addressBlocking(v, original: widget.initial?.address, hasMapsLink: isMapsLink(_mapsUrl.text));
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _busy = true);
     final notesText = _notes.text.trim();
+    final addressText = _address.text.trim();
     final member = Member(
       id: widget.initial?.id ?? '',
       name: _name.text.trim(),
       phone: normalizePhone(_phone.text.trim()),
-      address: _address.text.trim(),
+      // "Kab." -> "Kabupaten" hanya bila alamat diubah (alamat lama tidak diutak-atik).
+      address: addressText == (widget.initial?.address ?? '').trim() ? addressText : fixAddress(addressText),
       mapsUrl: _mapsUrl.text.trim(),
       customerType: _customerType,
       memberSince: widget.initial?.memberSince,
@@ -172,7 +181,9 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
               maxLines: 2,
               controller: _address,
               enabled: !_busy,
+              validator: _addressValidator,
             ),
+            AddressHint(address: _address, maps: _mapsUrl, original: widget.initial?.address, hideBlocking: true),
             const SizedBox(height: kFieldGap),
             AppTextField(
               key: const Key('mapsUrl'),

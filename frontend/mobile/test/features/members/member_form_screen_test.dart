@@ -73,7 +73,7 @@ void main() {
 
     await tester.enterText(find.byKey(const Key('name')), 'Budi Santoso');
     await tester.enterText(find.byKey(const Key('phone')), '0812-3456-7890');
-    await tester.enterText(find.byKey(const Key('address')), 'Jl. Melati 3');
+    await tester.enterText(find.byKey(const Key('address')), 'Jl. Melati 3, Mojosari, Kab. Mojokerto');
 
     await tester.tap(find.byKey(const Key('submit')));
     await tester.pumpAndSettle();
@@ -82,12 +82,34 @@ void main() {
     final created = repo.created.single;
     expect(created.name, 'Budi Santoso');
     expect(created.phone, '+6281234567890');
-    expect(created.address, 'Jl. Melati 3');
+    expect(created.address, 'Jl. Melati 3, Mojosari, Kabupaten Mojokerto'); // "Kab." diperluas
     expect(created.customerType, 'rumah');
     expect(created.memberSince, isNull);
     expect(created.totalAcUnits, 0);
     expect(created.active, isTrue);
     expect(created.id, '');
+  });
+
+  testWidgets('alamat tanpa kabupaten/kota ditolak; kosong atau Link Maps boleh', (tester) async {
+    _useTallViewport(tester);
+    final repo = FakeCrudRepository<Member>();
+    addTearDown(repo.dispose);
+    await tester.pumpWidget(_host(repo));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('name')), 'Budi Santoso');
+    await tester.enterText(find.byKey(const Key('phone')), '0812-3456-7890');
+    await tester.enterText(find.byKey(const Key('address')), 'Jl. Melati 3');
+    await tester.tap(find.byKey(const Key('submit')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Tulis kabupaten atau kotanya'), findsOneWidget);
+    expect(repo.created, isEmpty);
+
+    // Link Maps sungguhan mengalahkan aturan.
+    await tester.enterText(find.byKey(const Key('mapsUrl')), 'https://maps.app.goo.gl/abc');
+    await tester.tap(find.byKey(const Key('submit')));
+    await tester.pumpAndSettle();
+    expect(repo.created, hasLength(1));
   });
 
   testWidgets('HP duplikat (setelah normalisasi) ditolak', (tester) async {

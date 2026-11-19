@@ -9,7 +9,9 @@ import 'cart_state.dart';
 import 'member_picker_sheet.dart';
 import 'pos_providers.dart';
 import '../jobs/technician_multi_picker.dart';
+import '../../core/utils/address_check.dart';
 import '../../core/utils/error_message.dart';
+import '../../core/widgets/address_hint.dart';
 import '../../core/widgets/form_field.dart';
 import '../../core/widgets/form_scaffold.dart';
 import '../../core/widgets/app_card.dart';
@@ -43,10 +45,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   late final TextEditingController _voucherCode;
   bool _busy = false;
 
+  /// Alamat member terpilih: tidak diperiksa selama tidak diubah (data lama boleh tak lengkap).
+  String _originalAddress = '';
+
   @override
   void initState() {
     super.initState();
     final cart = ref.read(cartProvider);
+    if (cart.memberId.isNotEmpty) _originalAddress = cart.customerAddress;
     _name = TextEditingController(text: cart.customerName);
     _phone = TextEditingController(text: cart.customerPhone);
     _address = TextEditingController(text: cart.customerAddress);
@@ -78,6 +84,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   String? _requiredValidator(String? v) =>
       (v == null || v.trim().isEmpty) ? 'Wajib diisi' : null;
 
+  // Alamat (bila diisi/diubah) wajib menyebut kabupaten/kota; kosong boleh (pelanggan walk-in).
+  String? _addressValidator(String? v) => addressBlocking(v, original: _originalAddress);
+
   /// Kolom uang memakai [AppMoneyField], yang hanya menerima digit dan
   /// menyisipkan pemisah ribuan sendiri — nilai negatif atau berhuruf sudah
   /// tidak mungkin masuk. Validator ini tinggal menjaga batas bawahnya.
@@ -105,6 +114,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       _name.text = picked.name;
       _phone.text = picked.phone;
       _address.text = picked.address;
+      _originalAddress = picked.address;
     });
   }
 
@@ -114,6 +124,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       _name.clear();
       _phone.clear();
       _address.clear();
+      _originalAddress = '';
     });
   }
 
@@ -141,7 +152,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     notifier.setCustomer(
       name: _name.text.trim(),
       phone: _phone.text.trim(),
-      address: _address.text.trim(),
+      // "Kab." -> "Kabupaten" hanya bila alamat diubah.
+      address: _address.text.trim() == _originalAddress.trim() ? _address.text.trim() : fixAddress(_address.text),
     );
     notifier.setDiscount(parseRupiahInput(_discount.text));
     notifier.setTaxPercent(double.tryParse(_taxPercent.text.trim()) ?? 0);
@@ -248,7 +260,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   maxLines: 2,
                   controller: _address,
                   enabled: !_busy,
+                  validator: _addressValidator,
                 ),
+                AddressHint(address: _address, original: _originalAddress, hideBlocking: true),
               ],
             ),
             if (memberSelected && cart.lines.any(_isService)) ...[

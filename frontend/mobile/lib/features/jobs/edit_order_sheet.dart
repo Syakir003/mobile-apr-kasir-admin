@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/address_check.dart';
 import '../../core/utils/error_message.dart';
+import '../../core/widgets/address_hint.dart';
 import '../../data/models/technician_job.dart';
 import 'job_providers.dart';
 import 'service_order_create_screen.dart' show IntakeJobType;
@@ -138,6 +140,20 @@ class _EditOrderSheetState extends ConsumerState<EditOrderSheet> {
   }
 
   Future<void> _save() async {
+    final messenger = ScaffoldMessenger.of(context);
+    // Alamat lokasi kerja yang diubah wajib menyebut kabupaten/kota (kecuali Link Maps terisi); kosong = ikut alamat
+    // pelanggan, jadi boleh. Alamat yang tidak diubah tidak diperiksa (data lama).
+    final locs = <String, (String, String)>{};
+    for (final j in widget.jobs) {
+      final l = _locs[j.id]!;
+      final blocking = addressBlocking(l.$1.text, original: j.workAddress, hasMapsLink: isMapsLink(l.$2.text));
+      if (blocking != null) {
+        messenger.showSnackBar(SnackBar(content: Text('${_unitLabel(j)}: $blocking'), backgroundColor: AppColors.danger));
+        return;
+      }
+      final changed = l.$1.text.trim() != j.workAddress.trim();
+      locs[j.id] = (changed ? fixAddress(l.$1.text) : l.$1.text, l.$2.text);
+    }
     final body = buildOrderEditPayload(
       initialDate: _initialDate,
       date: _ymd(_date!),
@@ -147,9 +163,8 @@ class _EditOrderSheetState extends ConsumerState<EditOrderSheet> {
       initialNote: _first.orderNote ?? '',
       note: _note.text,
       initialLocs: {for (final j in widget.jobs) j.id: (j.workAddress, j.workMapsUrl)},
-      locs: {for (final e in _locs.entries) e.key: (e.value.$1.text, e.value.$2.text)},
+      locs: locs,
     );
-    final messenger = ScaffoldMessenger.of(context);
     final nav = Navigator.of(context);
     if (body.isEmpty) {
       messenger.showSnackBar(const SnackBar(content: Text('Tidak ada yang diubah.')));
@@ -250,6 +265,7 @@ class _EditOrderSheetState extends ConsumerState<EditOrderSheet> {
                       enabled: !_busy,
                       decoration: const InputDecoration(isDense: true, hintText: 'Alamat lokasi kerja (kosong = ikut pelanggan)'),
                     ),
+                    AddressHint(address: _locs[j.id]!.$1, maps: _locs[j.id]!.$2, original: j.workAddress),
                     const SizedBox(height: 6),
                     TextField(
                       controller: _locs[j.id]!.$2,
