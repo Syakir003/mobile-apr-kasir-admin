@@ -526,3 +526,100 @@ describe('ServiceOrdersService.createManual — banyak teknisi', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });
+
+// Slot "Jumlah unit, teknisi yang scan": order cuci pabrik (20 AC, minta cuci 10, pelanggan tidak tahu unit mana).
+// Job slot dibuat tanpa unit dan tanpa baris unit order; unitnya baru terisi saat teknisi memindai barcode.
+describe('ServiceOrdersService.intake — slot unit yang discan teknisi (scanUnitCount)', () => {
+  it('hanya slot: N job tanpa unit, tidak ada unit dibuat, tidak ada label yang perlu dicetak', async () => {
+    const { svc, tx, acUnits, technicianJobs } = setup();
+    technicianJobs.createForOrder
+      .mockResolvedValueOnce({ id: 's1', status: 'assigned' })
+      .mockResolvedValueOnce({ id: 's2', status: 'assigned' })
+      .mockResolvedValueOnce({ id: 's3', status: 'assigned' });
+    const res: any = await svc.intake(
+      { customer, complaint: 'Cuci AC', jobType: 'cuci', scanUnitCount: 3, technicianIds: ['t1'] },
+      'a1',
+    );
+    expect(technicianJobs.createForOrder).toHaveBeenCalledTimes(3);
+    for (const [, params] of technicianJobs.createForOrder.mock.calls) {
+      expect(params).toMatchObject({ unitId: null, type: 'cuci', complaint: 'Cuci AC', technicianIds: ['t1'], memberId: 'm1' });
+    }
+    expect(tx.serviceOrderUnit.create).not.toHaveBeenCalled();
+    expect(acUnits.createLegacy).not.toHaveBeenCalled();
+    expect(acUnits.registerExisting).not.toHaveBeenCalled();
+    expect(tx.member.update).not.toHaveBeenCalled();
+    expect(res).toMatchObject({
+      unitId: null,
+      barcodeValue: null,
+      jobId: 's1',
+      scanSlotJobIds: ['s1', 's2', 's3'],
+      jobs: [],
+      unitsToLabel: [],
+    });
+    expect(tx.auditLog.create.mock.calls[0][0].data.detail).toMatchObject({ scanSlots: 3, slotJobIds: ['s1', 's2', 's3'] });
+  });
+
+  it('slot bersama unit yang sudah dipilih: unit dibuat seperti biasa, slot tambahan, total tetap satu order', async () => {
+    const { svc, tx, technicianJobs } = setup();
+    const res: any = await svc.intake(
+      { customer, complaint: 'Cuci AC', jobType: 'cuci', units: [{ newUnit: { qrDulu: true } }], scanUnitCount: 2 },
+      'a1',
+    );
+    expect(technicianJobs.createForOrder).toHaveBeenCalledTimes(3);
+    const unitIds = technicianJobs.createForOrder.mock.calls.map(([, p]: any) => p.unitId);
+    expect(unitIds.filter((u: unknown) => u === null)).toHaveLength(2);
+    expect(unitIds).toContain('u-qr');
+    expect(tx.serviceOrderUnit.create).toHaveBeenCalledTimes(1); // hanya untuk unit nyata
+    expect(res.unitId).toBe('u-qr');
+    expect(res.unitsToLabel).toEqual(['u-qr']);
+  });
+
+  it('slot memakai titik lokasi tunggal bila hanya ada satu titik', async () => {
+    const { svc, technicianJobs } = setup();
+    await svc.intake(
+      { customer, complaint: 'Cuci AC', scanUnitCount: 1, locations: [{ address: 'Pabrik Sidoarjo' }] },
+      'a1',
+    );
+    expect(technicianJobs.createForOrder.mock.calls[0][1]).toMatchObject({ workAddress: 'Pabrik Sidoarjo' });
+  });
+
+  it('total unit + slot melebihi 20 ditolak sebelum ada yang dibuat', async () => {
+    const { svc, prisma } = setup();
+    const units = Array.from({ length: 5 }, () => ({ newUnit: { qrDulu: true } }));
+    await expect(svc.intake({ customer, complaint: 'x', units, scanUnitCount: 16 }, 'a1')).rejects.toThrow(/Maksimal 20 unit/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('existingUnitId/newUnit tunggal bersama slot ditolak (kirim lewat units[])', async () => {
+    const { svc } = setup();
+    await expect(
+      svc.intake({ customer, complaint: 'x', existingUnitId: 'u1', scanUnitCount: 2 }, 'a1'),
+    ).rejects.toThrow(/units\[\]/);
+  });
+
+  it('tanpa unit dan tanpa slot: tetap ditolak seperti sebelumnya', async () => {
+    const { svc } = setup();
+    await expect(svc.intake({ customer, complaint: 'x' }, 'a1')).rejects.toThrow(/Wajib pilih unit existing/);
+  });
+
+  it('validasi DTO: scanUnitCount bilangan bulat 1-20', async () => {
+    const check = async (scanUnitCount?: unknown) =>
+      (
+        await validate(
+          plainToInstance(ServiceIntakeDto, {
+            customer: { name: 'A', phone: '0812345678' },
+            complaint: 'x',
+            scheduledDate: '2026-11-10',
+            scanUnitCount,
+          }),
+        )
+      ).filter((e) => e.property === 'scanUnitCount').length;
+    expect(await check(undefined)).toBe(0);
+    expect(await check(1)).toBe(0);
+    expect(await check(20)).toBe(0);
+    expect(await check(0)).toBe(1);
+    expect(await check(21)).toBe(1);
+    expect(await check(2.5)).toBe(1);
+    expect(await check('sepuluh')).toBe(1);
+  });
+});

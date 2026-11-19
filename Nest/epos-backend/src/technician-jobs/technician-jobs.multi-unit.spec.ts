@@ -756,6 +756,8 @@ describe('TechnicianJobsService.start — job yang dialihkan harus di-scan ulang
       technicianJobAssignee: { count: jest.fn(async () => 1) }, // t2 = teknisi baru, assignee job ini
       technicianJob: { findUnique: jest.fn(async () => full) },
       jobFindingPhoto: { count: jest.fn(async () => 1) }, // foto sebelum dari teknisi sebelumnya
+      auditLog: { findFirst: jest.fn(async () => null) }, // bukan unit hasil scan pengisi slot -> scan Mulai Job tetap wajib
+      jobHandover: { count: jest.fn(async () => 0) },
       $transaction: jest.fn(async (fn: any) => fn(tx)),
     };
     return { svc: new TechnicianJobsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any), tx };

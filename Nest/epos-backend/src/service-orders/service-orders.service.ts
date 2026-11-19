@@ -97,9 +97,20 @@ export class ServiceOrdersService {
     if (dto.units?.length && (dto.existingUnitId || dto.newUnit)) {
       throw new BadRequestException('Pakai units[] ATAU existingUnitId/newUnit, jangan keduanya');
     }
+    // Slot "teknisi yang scan": jumlah job kosong; unitnya baru terisi saat teknisi memindai barcode di lokasi.
+    const slotCount = dto.scanUnitCount ?? 0;
+    const hasSingleUnit = !!(dto.existingUnitId || dto.newUnit);
+    if (slotCount > 0 && hasSingleUnit && !dto.units?.length) {
+      throw new BadRequestException('Dengan slot unit yang discan teknisi, kirim unit yang sudah dipilih lewat units[]');
+    }
     const entries: IntakeUnitDto[] = dto.units?.length
       ? dto.units
-      : [{ existingUnitId: dto.existingUnitId, newUnit: dto.newUnit }];
+      : slotCount > 0
+        ? []
+        : [{ existingUnitId: dto.existingUnitId, newUnit: dto.newUnit }];
+    if (entries.length + slotCount > 20) {
+      throw new BadRequestException('Maksimal 20 unit AC per order servis (termasuk slot yang discan teknisi)');
+    }
     const existingIds = new Set<string>();
     for (const e of entries) {
       if (!e.existingUnitId && !e.newUnit) {
@@ -205,6 +216,23 @@ export class ServiceOrdersService {
       // kosong kalau customer sudah bilang keluhannya saat intake (Siklus 5
       // revisi, checklist temuan dinamis).
       const jobs: { id: string; status: string }[] = [];
+      // Slot unit yang belum diketahui: job tanpa unit (tanpa baris service_order_units); diisi saat teknisi scan.
+      const slotJobs: { id: string; status: string }[] = [];
+      for (let i = 0; i < slotCount; i++) {
+        slotJobs.push(
+          await this.technicianJobs.createForOrder(tx, {
+            orderId: order.id,
+            memberId: member.id,
+            unitId: null,
+            technicianIds,
+            type: jobType,
+            actorId,
+            scheduledDate,
+            complaint,
+            ...resolveWorkLocation(dto.locations, undefined),
+          }),
+        );
+      }
       for (const [i, unit] of units.entries()) {
         await tx.serviceOrderUnit.create({
           data: { orderId: order.id, unitId: unit.id, status: 'terjadwal' },
@@ -230,25 +258,29 @@ export class ServiceOrdersService {
           action: 'service_order.intake',
           target: order.id,
           detail: {
-            unitId: units[0].id,
-            jobId: jobs[0].id,
+            unitId: units[0]?.id ?? null,
+            jobId: (jobs[0] ?? slotJobs[0]).id,
             jobType,
             unitIds: units.map((u) => u.id),
-            jobIds: jobs.map((j) => j.id),
+            jobIds: [...jobs, ...slotJobs].map((j) => j.id),
+            ...(slotCount > 0 ? { scanSlots: slotCount, slotJobIds: slotJobs.map((j) => j.id) } : {}),
             ...(qrDuluCount > 0 ? { qrDulu: true, qrDuluCount } : {}),
           },
         },
       });
 
       // Field tingkat atas = unit/job PERTAMA (bentuk lama, dipakai app mobile); `jobs` memuat semuanya.
+      const first = jobs[0] ?? slotJobs[0];
       return {
         serviceOrderId: order.id,
         memberId: member.id,
-        unitId: units[0].id,
-        barcodeValue: units[0].barcodeValue,
-        unitLabeled: units[0].labeled,
-        jobId: jobs[0].id,
-        jobStatus: jobs[0].status,
+        unitId: units[0]?.id ?? null,
+        barcodeValue: units[0]?.barcodeValue ?? null,
+        unitLabeled: units[0]?.labeled ?? true,
+        jobId: first.id,
+        jobStatus: first.status,
+        // Slot yang menunggu scan teknisi (tanpa unit): tidak ada label yang perlu dicetak untuknya.
+        scanSlotJobIds: slotJobs.map((j) => j.id),
         jobs: units.map((u, i) => ({
           jobId: jobs[i].id,
           jobStatus: jobs[i].status,

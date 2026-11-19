@@ -202,7 +202,7 @@ export function TeknisiDashboardClient({ role }: { role: Role; displayName: stri
 function jobTitle(job: TechnicianJob): string {
   return job.unit
     ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'
-    : `Order ${job.type}`;
+    : 'Unit menunggu discan';
 }
 
 // Padanan MetricCard di dashboard mobile — varian `featured` (kartu

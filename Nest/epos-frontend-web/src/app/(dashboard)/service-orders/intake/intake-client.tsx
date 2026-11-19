@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Copy, Plus, QrCode, Trash2, Wrench } from 'lucide-react';
+import { Copy, Minus, Plus, QrCode, Trash2, Wrench } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { numberOrUndefined, trimmedOrUndefined } from '@/lib/form-number';
@@ -87,13 +87,16 @@ interface UserRow {
 interface IntakeResult {
   serviceOrderId: string;
   memberId: string;
-  // Field tingkat atas = unit/job PERTAMA (bentuk lama); `jobs` memuat semua unit order ini.
-  unitId: string;
-  barcodeValue: string;
+  // Field tingkat atas = unit/job PERTAMA (bentuk lama); `jobs` memuat semua unit order ini. Order yang hanya berisi slot
+  // "teknisi yang scan" belum punya unit (unitId/barcodeValue null).
+  unitId: string | null;
+  barcodeValue: string | null;
   unitLabeled: boolean;
   jobId: string;
   jobStatus: string;
   jobs: { jobId: string; unitId: string; barcodeValue: string; unitLabeled: boolean; jobStatus: string }[];
+  // Job slot "unit belum diketahui" (diisi teknisi lewat scan); tidak ada label yang perlu dicetak untuknya.
+  scanSlotJobIds?: string[];
   // Unit yang labelnya masih perlu dicetak; kosong = semua sudah terlabel (tidak perlu halaman cetak).
   unitsToLabel: string[];
 }
@@ -133,6 +136,8 @@ interface WorkLocationRow {
 }
 const DEFAULT_LOC_KEY = 0;
 const MAX_LOCATIONS = 10;
+// Batas unit per order (sama dengan backend): unit terpilih + unit baru + slot yang discan teknisi.
+const MAX_ORDER_UNITS = 20;
 // Daftar unit terdaftar milik member: maks. baris ke bawah sebelum mengalir ke kolom berikutnya (digeser ke samping).
 const MAX_UNIT_ROWS = 10;
 const blankLocation = (key: number): WorkLocationRow => ({ key, address: '', mapsUrl: '' });
@@ -173,6 +178,8 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
   const [existingUnitIds, setExistingUnitIds] = React.useState<string[]>([]);
   const [rowsState, setRowsState] = React.useState<NewUnitRow[] | null>(null);
   const nextRowKey = React.useRef(1);
+  // Slot "jumlah unit, teknisi yang scan": job tanpa unit yang diisi teknisi dengan memindai barcode di lokasi.
+  const [scanSlotCount, setScanSlotCount] = React.useState(0);
   const [technicianIds, setTechnicianIds] = React.useState<string[]>([]);
   // Titik lokasi kerja (bawaan satu titik kosong = ikut alamat pelanggan) + pilihan titik tiap unit terdaftar yang dicentang.
   const [locations, setLocations] = React.useState<WorkLocationRow[]>([blankLocation(DEFAULT_LOC_KEY)]);
@@ -198,7 +205,8 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
     selectableUnitIds.length > 0 && selectableUnitIds.every((id) => existingUnitIds.includes(id));
   const defaultRows = memberUnits.length > 0 ? [] : [blankRow(DEFAULT_ROW_KEY)];
   const newUnits = rowsState ?? defaultRows;
-  const totalUnits = existingUnitIds.length + newUnits.length;
+  const totalUnits = existingUnitIds.length + newUnits.length + scanSlotCount;
+  const maxSlots = Math.max(0, MAX_ORDER_UNITS - existingUnitIds.length - newUnits.length);
 
   // Pembaruan fungsional (bukan dari nilai render terakhir) supaya klik beruntun tidak saling menimpa.
   function editRows(fn: (rows: NewUnitRow[]) => NewUnitRow[]) {
@@ -269,12 +277,14 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
     setExistingUnitIds([]);
     setExistingLoc({});
     setRowsState(null);
+    setScanSlotCount(0);
   }
 
   function clearSelectedMember() {
     setSelectedMember(null);
     setExistingUnitIds([]);
     setRowsState(null);
+    setScanSlotCount(0);
     form.setValue('name', '');
     form.setValue('phone', '');
     form.setValue('address', '');
@@ -385,7 +395,9 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
         jobType: values.jobType,
         workDescription: trimmedOrUndefined(values.workDescription),
         complaint: trimmedOrUndefined(values.complaint),
-        units,
+        // units[] kosong ditolak backend: kirim hanya bila ada unit yang dipilih/ditambah.
+        ...(units.length > 0 ? { units } : {}),
+        ...(scanSlotCount > 0 ? { scanUnitCount: scanSlotCount } : {}),
         ...(sendLocations
           ? {
               locations: locations.map((l) => ({
@@ -403,15 +415,18 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
       return apiClient.post<IntakeResult>('/service-orders/intake', body);
     },
     onSuccess: (result) => {
-      const many = result.jobs.length > 1;
+      const slots = result.scanSlotJobIds?.length ?? 0;
+      const many = result.jobs.length + slots > 1;
       // Unit yang sudah terlabel (ada riwayat servis) tidak perlu cetak label lagi: kalau SEMUA unit order ini sudah
       // terlabel, langsung ke halaman job (admin maupun kasir; kasir dari sana menetapkan harga jasa). Untuk banyak
       // unit, satu halaman job memuat section tiap unit.
       if (result.unitsToLabel.length === 0) {
         toast.success(
-          many
-            ? `Job servis dibuat untuk ${result.jobs.length} unit AC. Semua unit sudah terlabel, tidak perlu cetak label lagi.`
-            : 'Job servis dibuat. Unit AC sudah terlabel, tidak perlu cetak label lagi.',
+          slots > 0
+            ? `Job servis dibuat untuk ${result.jobs.length + slots} unit AC. ${slots} unit akan discan teknisi di lokasi, tidak ada label yang perlu dicetak.`
+            : many
+              ? `Job servis dibuat untuk ${result.jobs.length} unit AC. Semua unit sudah terlabel, tidak perlu cetak label lagi.`
+              : 'Job servis dibuat. Unit AC sudah terlabel, tidak perlu cetak label lagi.',
         );
         router.push(`/teknisi/jobs/${result.jobId}`);
         return;
@@ -424,7 +439,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
       );
       // Unit baru (belum pernah tercatat) baru dapat barcode di titik ini: langsung ke halaman cetak label QR-nya.
       // Campuran dengan unit lama yang sudah terlabel: hanya unit yang perlu dicetak yang ikut.
-      const onlySome = result.unitsToLabel.length < result.jobs.length;
+      const onlySome = result.unitsToLabel.length < result.jobs.length || slots > 0;
       router.push(
         `/service-orders/${result.serviceOrderId}/print-labels${onlySome ? `?units=${result.unitsToLabel.join(',')}` : ''}`,
       );
@@ -442,7 +457,11 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
       return;
     }
     if (totalUnits === 0) {
-      toast.error('Pilih unit yang sudah terdaftar atau tambahkan unit AC baru, minimal satu.');
+      toast.error('Pilih unit yang sudah terdaftar, tambahkan unit AC baru, atau isi jumlah unit yang discan teknisi, minimal satu.');
+      return;
+    }
+    if (totalUnits > MAX_ORDER_UNITS) {
+      toast.error(`Maksimal ${MAX_ORDER_UNITS} unit AC per order (termasuk unit yang discan teknisi).`);
       return;
     }
     for (const [i, u] of newUnits.entries()) {
@@ -745,6 +764,56 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
                   </Button>
                 </div>
               </div>
+
+              {/* Jumlah unit sudah pasti tetapi unitnya belum diketahui (mis. pabrik punya 20 AC, minta cuci 10): teknisi
+                  yang memindai barcode tiap AC di lokasi. Pelanggan harus dipilih dulu (unit yang discan harus miliknya). */}
+              {selectedMember && memberUnits.length > 0 && (
+                <div className="grid gap-2 rounded-md border border-dashed p-3">
+                  <p className="text-sm font-medium">Jumlah unit, teknisi yang scan</p>
+                  <p className="text-xs text-muted-foreground">
+                    Pakai ini kalau jumlah AC yang dikerjakan sudah pasti tetapi unit mana saja belum diketahui (mis.
+                    pabrik punya 20 AC, minta cuci 10). Teknisi memindai barcode tiap AC di lokasi, dan unit itu otomatis
+                    masuk ke job. Hanya unit berlabel milik pelanggan ini yang bisa discan; AC tanpa label tetap lewat
+                    &quot;Tambah Unit QR dulu&quot;. Boleh dikombinasikan dengan unit yang dicentang di atas.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label="Kurangi jumlah unit"
+                      disabled={scanSlotCount <= 0}
+                      onClick={() => setScanSlotCount((n) => Math.max(0, n - 1))}
+                    >
+                      <Minus className="size-4" />
+                    </Button>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={maxSlots}
+                      aria-label="Jumlah unit yang discan teknisi"
+                      className="w-20 text-center"
+                      value={scanSlotCount}
+                      onChange={(e) => {
+                        const n = Math.floor(Number(e.target.value));
+                        setScanSlotCount(Number.isFinite(n) ? Math.min(maxSlots, Math.max(0, n)) : 0);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label="Tambah jumlah unit"
+                      disabled={scanSlotCount >= maxSlots}
+                      onClick={() => setScanSlotCount((n) => Math.min(maxSlots, n + 1))}
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                    <span className="text-xs text-muted-foreground">unit yang discan teknisi (maks. {maxSlots})</span>
+                  </div>
+                </div>
+              )}
 
               <p className="text-xs text-muted-foreground">
                 Total {totalUnits} unit AC dalam order ini

@@ -9,4 +9,10 @@ export class CancelJobDto {
    * (app mobile, job satu unit) perilakunya tidak berubah: pengajuan job itu ikut dibatalkan.
    */
   @IsOptional() @IsBoolean() moveRequestsToSibling?: boolean;
+
+  /**
+   * Servis banyak AC: batalkan SEMUA unit order ini yang belum selesai sekaligus (satu tombol, bukan satu per satu).
+   * Menang atas moveRequestsToSibling (semua unit aktif ikut dibatalkan, jadi tidak ada unit tujuan pemindahan).
+   */
+  @IsOptional() @IsBoolean() allInOrder?: boolean;
 }
