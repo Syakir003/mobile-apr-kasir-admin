@@ -3,6 +3,20 @@ import 'package:epos_ac/core/widgets/adaptive_scaffold.dart';
 import 'package:epos_ac/data/models/app_user.dart';
 
 void main() {
+  test('nama menu sama dengan web (nav-config.ts)', () {
+    String label(UserRole r, String route) =>
+        destinationsForRole(r).firstWhere((d) => d.route == route).label;
+    expect(label(UserRole.admin, '/pos'), 'Kasir (POS)');
+    expect(label(UserRole.admin, '/transactions'), 'Riwayat Transaksi');
+    expect(label(UserRole.admin, '/jobs'), 'Antrian Servis');
+    expect(label(UserRole.admin, '/products'), 'Produk AC');
+    expect(label(UserRole.admin, '/packages'), 'Paket Instalasi');
+    expect(label(UserRole.admin, '/pengajuan'), 'Permintaan Material');
+    expect(label(UserRole.teknisi, '/jobs'), 'Job Saya');
+    expect(label(UserRole.teknisi, '/scan'), 'Scan Unit');
+    expect(label(UserRole.gudang, '/keluar-gudang'), 'Keluar Gudang (Scan)');
+  });
+
   group('menuSectionsFor', () {
     test('admin: grup ala web memuat setiap destinasi tepat satu kali', () {
       final sections = menuSectionsFor(UserRole.admin);
@@ -59,9 +73,9 @@ void main() {
       ]);
       expect(dests.map((d) => d.label), contains('Stok'));
       expect(dests.map((d) => d.label), contains('Laporan'));
-      expect(dests.map((d) => d.label), contains('Akun'));
-      expect(dests.map((d) => d.label), contains('Audit'));
-      expect(dests.map((d) => d.label), contains('Pengingat'));
+      expect(dests.map((d) => d.label), contains('Pengguna'));
+      expect(dests.map((d) => d.label), contains('Log Audit'));
+      expect(dests.map((d) => d.label), contains('Pengingat WA'));
       expect(dests.map((d) => d.label), contains('Voucher'));
       expect(dests.map((d) => d.label), contains('Undian'));
     });
@@ -79,10 +93,10 @@ void main() {
       expect(dests.map((d) => d.route), isNot(contains('/pengingat')));
     });
 
-    test('teknisi melihat Dashboard, Job, Riwayat, Scan, Profil', () {
+    test('teknisi melihat Dashboard, Job Saya, Scan Unit, Riwayat, Profil', () {
       final dests = destinationsForRole(UserRole.teknisi);
       expect(dests.length, 5);
-      expect(dests.map((d) => d.route), ['/', '/jobs', '/riwayat', '/scan', '/profile']);
+      expect(dests.map((d) => d.route), ['/', '/jobs', '/scan', '/riwayat', '/profile']);
     });
 
     test(

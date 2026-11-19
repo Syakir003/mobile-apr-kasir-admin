@@ -20,27 +20,27 @@ List<Destination> destinationsForRole(UserRole? role) {
   );
   const pos = (
     icon: Icons.point_of_sale,
-    label: 'Transaksi',
+    label: 'Kasir (POS)',
     route: '/pos',
   );
   const riwayat = (
     icon: Icons.receipt_long_outlined,
-    label: 'Riwayat',
+    label: 'Riwayat Transaksi',
     route: '/transactions',
   );
   const scan = (
     icon: Icons.qr_code_scanner,
-    label: 'Scan',
+    label: 'Scan Unit',
     route: '/scan',
   );
   const order = (
     icon: Icons.assignment_outlined,
-    label: 'Order',
+    label: 'Order Servis',
     route: '/orders',
   );
   const job = (
     icon: Icons.handyman_outlined,
-    label: 'Job',
+    label: 'Antrian Servis',
     route: '/jobs',
   );
   const riwayatServis = (
@@ -57,7 +57,7 @@ List<Destination> destinationsForRole(UserRole? role) {
   // melihat data pelanggan, lihat `redirect.dart`).
   const pengingat = (
     icon: Icons.notifications_active_outlined,
-    label: 'Pengingat',
+    label: 'Pengingat WA',
     route: '/pengingat',
   );
   // Kelola voucher/undian — admin only. Kasir menukar kode lewat Checkout,
@@ -76,7 +76,7 @@ List<Destination> destinationsForRole(UserRole? role) {
   // admin & gudang saja (sama seperti backend `/kasir-scan`).
   const keluarGudang = (
     icon: Icons.outbox_outlined,
-    label: 'Keluar Gudang',
+    label: 'Keluar Gudang (Scan)',
     route: '/keluar-gudang',
   );
   if (role == UserRole.admin) {
@@ -84,24 +84,24 @@ List<Destination> destinationsForRole(UserRole? role) {
       dashboard,
       pos,
       riwayat,
-      (icon: Icons.ac_unit, label: 'Produk', route: '/products'),
+      (icon: Icons.ac_unit, label: 'Produk AC', route: '/products'),
       (icon: Icons.build_outlined, label: 'Sparepart', route: '/spareparts'),
       (icon: Icons.room_service_outlined, label: 'Jasa', route: '/services'),
-      (icon: Icons.inventory_2_outlined, label: 'Paket', route: '/packages'),
+      (icon: Icons.inventory_2_outlined, label: 'Paket Instalasi', route: '/packages'),
       (icon: Icons.people_outlined, label: 'Member', route: '/members'),
       order,
       job,
-      (icon: Icons.playlist_add_check_outlined, label: 'Pengajuan', route: '/pengajuan'),
+      (icon: Icons.playlist_add_check_outlined, label: 'Permintaan Material', route: '/pengajuan'),
       (icon: Icons.rule_folder_outlined, label: 'Koreksi Unit', route: '/koreksi-unit'),
-      (icon: Icons.history_edu_outlined, label: 'Data Lampau', route: '/data-lampau'),
+      (icon: Icons.history_edu_outlined, label: 'Input Data Lampau', route: '/data-lampau'),
       pengingat,
       voucher,
       undian,
       (icon: Icons.inventory_outlined, label: 'Stok', route: '/stok'),
       keluarGudang,
       (icon: Icons.bar_chart_outlined, label: 'Laporan', route: '/laporan'),
-      (icon: Icons.manage_accounts_outlined, label: 'Akun', route: '/users'),
-      (icon: Icons.history, label: 'Audit', route: '/audit'),
+      (icon: Icons.manage_accounts_outlined, label: 'Pengguna', route: '/users'),
+      (icon: Icons.history, label: 'Log Audit', route: '/audit'),
       scan,
       profile,
     ];
@@ -110,12 +110,19 @@ List<Destination> destinationsForRole(UserRole? role) {
     return const [dashboard, pos, riwayat, order, pengingat, profile];
   }
   if (role == UserRole.teknisi) {
-    return const [dashboard, job, riwayatServis, scan, profile];
+    // Urutan dan nama sama dengan menu teknisi di web (nav-config.ts).
+    return const [
+      dashboard,
+      (icon: Icons.handyman_outlined, label: 'Job Saya', route: '/jobs'),
+      scan,
+      riwayatServis,
+      profile,
+    ];
   }
   if (role == UserRole.gudang) {
     return const [
       dashboard,
-      (icon: Icons.ac_unit, label: 'Produk', route: '/products'),
+      (icon: Icons.ac_unit, label: 'Produk AC', route: '/products'),
       (icon: Icons.build_outlined, label: 'Sparepart', route: '/spareparts'),
       (icon: Icons.inventory_outlined, label: 'Stok', route: '/stok'),
       keluarGudang,
@@ -149,16 +156,13 @@ int selectedIndexFor(List<Destination> destinations, String location) {
 typedef MenuSection = ({String? label, IconData? icon, List<Destination> items});
 
 /// Menu bergrup yang mengikuti sidebar web (nav-config.ts). Web hanya
-/// mengelompokkan admin; role lain tetap datar. Label di sini boleh beda dari
-/// `destinationsForRole` (yang dipakai bottom bar sempit) supaya sama dengan web.
+/// mengelompokkan admin; role lain tetap datar. Nama menu (di sini dan di
+/// `destinationsForRole`) sama dengan web.
 List<MenuSection> menuSectionsFor(UserRole? role) {
   final dests = destinationsForRole(role);
   if (role != UserRole.admin) return [(label: null, icon: null, items: dests)];
 
-  Destination d(String route, [String? label]) {
-    final base = dests.firstWhere((x) => x.route == route);
-    return label == null ? base : (icon: base.icon, label: label, route: route);
-  }
+  Destination d(String route) => dests.firstWhere((x) => x.route == route);
 
   MenuSection leaf(String route) => (label: null, icon: null, items: [d(route)]);
   MenuSection group(String label, IconData icon, List<Destination> items) =>
@@ -167,37 +171,37 @@ List<MenuSection> menuSectionsFor(UserRole? role) {
   return [
     leaf('/'),
     group('Penjualan', Icons.shopping_cart_outlined, [
-      d('/pos', 'Kasir (POS)'),
-      d('/transactions', 'Riwayat Transaksi'),
+      d('/pos'),
+      d('/transactions'),
       d('/voucher'),
       d('/undian'),
     ]),
     group('Servis AC', Icons.handyman_outlined, [
-      d('/jobs', 'Antrian Servis'),
-      d('/orders', 'Order Servis'),
-      d('/pengajuan', 'Permintaan Material'),
-      d('/scan', 'Scan Unit'),
+      d('/jobs'),
+      d('/orders'),
+      d('/pengajuan'),
+      d('/scan'),
     ]),
     group('Pelanggan', Icons.favorite_border, [
       d('/members'),
-      d('/pengingat', 'Pengingat WA'),
+      d('/pengingat'),
     ]),
     group('Stok & Gudang', Icons.warehouse_outlined, [
-      d('/keluar-gudang', 'Keluar Gudang (Scan)'),
+      d('/keluar-gudang'),
       d('/stok'),
       d('/koreksi-unit'),
     ]),
     group('Data Master', Icons.storage_outlined, [
-      d('/products', 'Produk AC'),
+      d('/products'),
       d('/spareparts'),
       d('/services'),
-      d('/packages', 'Paket Instalasi'),
+      d('/packages'),
     ]),
     leaf('/laporan'),
     group('Pengaturan', Icons.settings_outlined, [
-      d('/users', 'Pengguna'),
-      d('/data-lampau', 'Input Data Lampau'),
-      d('/audit', 'Log Audit'),
+      d('/users'),
+      d('/data-lampau'),
+      d('/audit'),
     ]),
     leaf('/profile'),
   ];
