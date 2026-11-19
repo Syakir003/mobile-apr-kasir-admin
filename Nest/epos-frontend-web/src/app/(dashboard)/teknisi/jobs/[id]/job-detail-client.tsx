@@ -5,7 +5,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, CheckCircle2, ChevronDown, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Camera, CheckCircle2, ChevronDown, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate, formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
@@ -174,12 +174,12 @@ interface UserRow {
 // beda path/body/pesan. Didefinisikan di level modul (bukan di dalam
 // JobDetailClient) biar jelas ini hook biasa, dipanggil tanpa syarat di
 // urutan yang sama tiap render (rules of hooks).
-function useJobAction<TBody = void>(jobId: string, path: string, successMsg: string) {
+function useJobAction<TBody = void>(jobId: string, path: string, successMsg: string | (() => string)) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body?: TBody) => apiClient.patch(`/technician-jobs/${jobId}${path}`, body ?? {}),
     onSuccess: () => {
-      toast.success(successMsg);
+      toast.success(typeof successMsg === 'function' ? successMsg() : successMsg);
       // Seluruh awalan 'technician-jobs' (job ini, daftar, antrian, dan job saudara di halaman banyak AC — pembatalan
       // satu unit bisa memindahkan pengajuan sparepart ke unit lain).
       queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
@@ -196,6 +196,8 @@ interface EmbeddedProps {
   index: number;
   total: number;
   defaultOpen: boolean;
+  /** Kirim Temuan ditekan padahal unit (job id ini) belum discan: halaman banyak AC membuka popup scan & Mulai Job miliknya. */
+  onNeedScan?: (jobId: string) => void;
 }
 
 // Seperti useJobAction, tapi untuk aksi SELURUH order servis banyak AC (body allInOrder); onDone menyegarkan semua section.
@@ -237,15 +239,15 @@ function useClaimUnit(jobId: string) {
       queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
       toast.success(
         r.remainingSlots > 0
-          ? `Unit masuk ke pekerjaan. Sisa ${r.remainingSlots} slot yang belum discan.`
-          : 'Unit masuk ke pekerjaan. Semua slot sudah terisi.',
+          ? `Scan berhasil. Unit masuk ke pekerjaan. Sisa ${r.remainingSlots} slot yang belum discan.`
+          : 'Scan berhasil. Unit masuk ke pekerjaan. Semua slot sudah terisi.',
       );
       if (r.needsData) {
         toast.warning('Data unit ini belum lengkap. Scan QR-nya di Scan Unit dan isi merk + PK sebelum unit bisa dimulai.');
       }
     },
     onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : 'Gagal memasukkan unit.');
+      toast.error(err instanceof ApiError ? `Scan gagal. ${err.message}` : 'Scan gagal. Unit tidak bisa dimasukkan.');
     },
   });
 }
@@ -277,11 +279,16 @@ export function JobDetailClient({
   );
 
   const [scanInput, setScanInput] = React.useState('');
+  // Popup "scan unit & Mulai Job dulu" yang dibuka tombol Kirim Temuan saat unit belum discan.
+  const [startDialogOpen, setStartDialogOpen] = React.useState(false);
   const [sendBackNote, setSendBackNote] = React.useState('');
   // Keterangan teknisi (kartu di bagian bawah halaman); dipanggil sebelum early return supaya urutan hook tetap.
   const keterangan = useKeterangan(jobId, jobQuery.data?.order?.technicianNote ?? null);
 
-  const startMutation = useJobAction<{ scannedBarcode?: string }>(jobId, '/start', 'Job dimulai.');
+  // Dimulai dari popup yang dibuka Kirim Temuan: pesannya langsung menyuruh kirim temuan (dibaca saat tombol ditekan).
+  const startMutation = useJobAction<{ scannedBarcode?: string }>(jobId, '/start', () =>
+    startDialogOpen ? 'Scan berhasil, job dimulai. Silakan kirim temuan.' : 'Job dimulai.',
+  );
   const claimMutation = useClaimUnit(jobId);
   const submitForReviewMutation = useJobAction(jobId, '/submit-for-review', 'Diajukan untuk review.');
   const approveMutation = useJobAction<{ reminderEnabled: boolean; serviceIntervalDays?: number }>(
@@ -512,6 +519,8 @@ export function JobDetailClient({
                   jobId={job.id}
                   finding={finding}
                   canEdit={canEditFindings}
+                  // Sama dengan gate backend (addFindingPhoto): foto sesudah baru setelah Mulai Job (scan unit).
+                  afterLocked={job.status !== 'sedang_dikerjakan'}
                   showAuthors={(job.handovers?.length ?? 0) > 0}
                 />
               ))}
@@ -525,6 +534,9 @@ export function JobDetailClient({
                   }
                   findingsSentAt={job.findingsSentAt}
                   priced={priced}
+                  // Tombol tetap aktif; kalau unit belum discan, penekanannya membuka popup scan & Mulai Job dulu.
+                  needsScan={job.status === 'assigned' && !scanDone(job)}
+                  onNeedScan={() => (embedded?.onNeedScan ? embedded.onNeedScan(job.id) : setStartDialogOpen(true))}
                 />
               )}
             </CardContent>
@@ -552,8 +564,94 @@ export function JobDetailClient({
     unitDetailCards
   );
 
+  // Hasil scan barcode unit (panel Aksi maupun popup): barcode harus sama dengan unit job ini (aturan yang sama dengan
+  // start() di backend), dan hasilnya selalu diberi tahu lewat notifikasi, berhasil maupun gagal.
+  const handleScan = (code: string) => {
+    if (job.unit && code !== job.unit.barcodeValue) {
+      toast.error('Scan gagal. Barcode tidak sesuai unit pada job ini.');
+      return;
+    }
+    setScanInput(code);
+    toast.success(
+      startDialogOpen
+        ? 'Scan berhasil. Tekan Mulai Job, lalu silakan kirim temuan.'
+        : 'Scan berhasil. Tekan Mulai Job untuk melanjutkan.',
+    );
+  };
+
+  // Kontrol scan + Mulai Job (satu unit): dipakai di panel Aksi dan di popup "scan dulu" saat Kirim Temuan ditekan
+  // sebelum unit discan.
+  const startControls = (
+    <>
+        {waived && (
+          <p className="text-xs text-muted-foreground">
+            Unit sudah discan saat dimasukkan ke pekerjaan, jadi tidak perlu scan ulang. Unggah foto Sebelum
+            lalu mulai.
+          </p>
+        )}
+        {/* Unit "QR dulu": backend menolak start() selama datanya belum lengkap — arahkan ke Scan Unit di
+            depan, bukan setelah teknisi menekan Mulai. Tombol Mulai sengaja tidak dikunci di sini (cache
+            30 dtk bisa basi sesudah data dilengkapi); backend tetap penentu. */}
+        {job.unit?.status === 'menunggu_data' && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-xs">
+            <p className="min-w-0 flex-1">
+              Data unit AC ini belum dilengkapi (QR dulu). Scan QR-nya di Scan Unit dan isi{' '}
+              <span className="font-medium">merk + PK</span> dulu sebelum job bisa dimulai.
+            </p>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/ac-units/scan">
+                <ScanLine className="size-4" />
+                Buka Scan Unit
+              </Link>
+            </Button>
+          </div>
+        )}
+        {/* Balikin gate lama (konsep app mobile teknisi): foto
+            SEBELUM wajib ada dulu, sebelum job boleh dimulai - sudah
+            ditegakkan juga di backend (start()), ini cuma versi
+            proaktifnya biar teknisi gak nunggu klik-dulu-baru-tau. */}
+        {!hasBeforePhoto && (
+          <p className="rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-xs">
+            Unggah foto <span className="font-medium">Sebelum</span> dulu (tambah/lihat di
+            kartu &ldquo;Temuan &amp; Foto Sebelum/Sesudah&rdquo; di bawah) sebelum bisa
+            memulai pekerjaan.
+          </p>
+        )}
+        {!waived && <BarcodeScanner onDetect={handleScan} manualPlaceholder="Barcode unit" />}
+        {!waived && scanInput && (
+          <p className="text-xs text-muted-foreground">
+            Kode terbaca: <span className="font-medium text-foreground">{scanInput}</span>
+          </p>
+        )}
+        <Button
+          disabled={(!waived && !scanInput.trim()) || !hasBeforePhoto || startMutation.isPending}
+          onClick={() => startMutation.mutate(waived ? {} : { scannedBarcode: scanInput.trim() })}
+        >
+          {startMutation.isPending ? 'Memproses...' : 'Mulai Job'}
+        </Button>
+    </>
+  );
+
   const content = (
     <div className="grid gap-6">
+      {/* Teknisi membuka job yang unitnya belum discan: pengingat sekali per kunjungan (halaman banyak AC: di MultiUnitJobView). */}
+      {!embedded && isTeknisi && (
+        <StartJobDialog
+          open={startDialogOpen}
+          needScan={job.status === 'assigned' && !scanDone(job)}
+          onClose={() => setStartDialogOpen(false)}
+        >
+          {startControls}
+        </StartJobDialog>
+      )}
+      {!embedded && isTeknisi && (
+        <ScanUnitReminderDialog
+          unscanned={job.status === 'assigned' && !scanDone(job) ? 1 : 0}
+          slots={job.status === 'assigned' && isSlot(job) ? 1 : 0}
+          // Slot tidak bisa diberi foto sebelum discan, jadi hanya unit berlabel yang belum punya foto sebelum.
+          needsPhoto={job.status === 'assigned' && !scanDone(job) && !isSlot(job) && !hasBeforePhoto ? 1 : 0}
+        />
+      )}
       {!embedded && (
         <div>
           <Link
@@ -761,52 +859,7 @@ export function JobDetailClient({
             {!embedded && isTeknisi && job.status === 'assigned' && !isSlotJob && (
               <div className="grid gap-2">
                 <label className="text-sm font-medium">{waived ? 'Mulai Job' : 'Mulai Job (scan barcode unit)'}</label>
-                {waived && (
-                  <p className="text-xs text-muted-foreground">
-                    Unit sudah discan saat dimasukkan ke pekerjaan, jadi tidak perlu scan ulang. Unggah foto Sebelum
-                    lalu mulai.
-                  </p>
-                )}
-                {/* Unit "QR dulu": backend menolak start() selama datanya belum lengkap — arahkan ke Scan Unit di
-                    depan, bukan setelah teknisi menekan Mulai. Tombol Mulai sengaja tidak dikunci di sini (cache
-                    30 dtk bisa basi sesudah data dilengkapi); backend tetap penentu. */}
-                {job.unit?.status === 'menunggu_data' && (
-                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-xs">
-                    <p className="min-w-0 flex-1">
-                      Data unit AC ini belum dilengkapi (QR dulu). Scan QR-nya di Scan Unit dan isi{' '}
-                      <span className="font-medium">merk + PK</span> dulu sebelum job bisa dimulai.
-                    </p>
-                    <Button asChild size="sm" variant="outline">
-                      <Link href="/ac-units/scan">
-                        <ScanLine className="size-4" />
-                        Buka Scan Unit
-                      </Link>
-                    </Button>
-                  </div>
-                )}
-                {/* Balikin gate lama (konsep app mobile teknisi): foto
-                    SEBELUM wajib ada dulu, sebelum job boleh dimulai - sudah
-                    ditegakkan juga di backend (start()), ini cuma versi
-                    proaktifnya biar teknisi gak nunggu klik-dulu-baru-tau. */}
-                {!hasBeforePhoto && (
-                  <p className="rounded-md border border-status-warning/35 bg-status-warning/10 px-3 py-2 text-xs">
-                    Unggah foto <span className="font-medium">Sebelum</span> dulu (tambah/lihat di
-                    kartu &ldquo;Temuan &amp; Foto Sebelum/Sesudah&rdquo; di bawah) sebelum bisa
-                    memulai pekerjaan.
-                  </p>
-                )}
-                {!waived && <BarcodeScanner onDetect={(code) => setScanInput(code)} manualPlaceholder="Barcode unit" />}
-                {!waived && scanInput && (
-                  <p className="text-xs text-muted-foreground">
-                    Kode terbaca: <span className="font-medium text-foreground">{scanInput}</span>
-                  </p>
-                )}
-                <Button
-                  disabled={(!waived && !scanInput.trim()) || !hasBeforePhoto || startMutation.isPending}
-                  onClick={() => startMutation.mutate(waived ? {} : { scannedBarcode: scanInput.trim() })}
-                >
-                  {startMutation.isPending ? 'Memproses...' : 'Mulai Job'}
-                </Button>
+                {startControls}
                 {/* Customer sering minta tambah AC begitu teknisi tiba, sebelum job dimulai: tidak perlu mulai dulu. */}
                 {job.type !== 'pemasangan' && <AddUnitButton jobId={job.id} jobType={job.type} />}
               </div>
@@ -949,6 +1002,111 @@ const isScanned = (j: { startedAt: string | null; status: string }) =>
 // teknisi memindai barcode unitnya.
 const isSlot = (j: { unit: unknown }) => !j.unit;
 
+/**
+ * Popup "scan unit & Mulai Job dulu" yang dibuka tombol Kirim Temuan saat unitnya belum discan. Isinya kontrol scan + Mulai
+ * Job yang sama dengan panel Aksi, jadi teknisi bisa scan dan memulai job langsung dari sini. Menutup sendiri begitu
+ * semua unit sudah discan/dimulai (`needScan` jadi false).
+ */
+function StartJobDialog({
+  open,
+  needScan,
+  unitName,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  needScan: boolean;
+  /** Halaman banyak AC: unit yang temuannya mau dikirim. */
+  unitName?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  React.useEffect(() => {
+    if (open && !needScan) onClose();
+  }, [open, needScan, onClose]);
+  return (
+    <Dialog open={open && needScan} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ScanLine className="size-5" />
+            Scan unit &amp; Mulai Job dulu
+          </DialogTitle>
+          <DialogDescription>
+            {unitName ? `Temuan untuk ${unitName} baru bisa dikirim` : 'Temuan baru bisa dikirim'} setelah unit discan dan
+            job dimulai. Scan barcode unit di bawah lalu tekan Mulai Job, setelah itu tekan Kirim Temuan lagi.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">{children}</div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Nanti saja
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Popup pengingat saat teknisi membuka job yang unitnya belum discan. Muncul SETIAP kali halaman job dibuka selama masih
+ * ada unit yang belum discan (tidak ada "jangan tampilkan lagi"); sekali ditutup tidak muncul lagi di kunjungan itu walau
+ * data dimuat ulang, dan otomatis hilang begitu semua unit sudah discan. Dua versi:
+ *  - `needsPhoto` > 0 (ada unit yang belum punya foto sebelum sama sekali, jadi teknisi belum bisa Mulai Job): suruh kirim
+ *    foto sebelum dulu, lalu scan & tekan Mulai Job (tombolnya ada di panel Aksi Job, di bawah halaman).
+ *  - selain itu: "Silakan scan unitnya terlebih dahulu".
+ * `unscanned` = jumlah unit yang masih perlu discan, `slots` = di antaranya yang unitnya belum diketahui (slot tidak bisa
+ * diberi foto sebelum discan, jadi tidak pernah masuk hitungan `needsPhoto`).
+ */
+function ScanUnitReminderDialog({
+  unscanned,
+  slots,
+  needsPhoto,
+}: {
+  unscanned: number;
+  slots: number;
+  needsPhoto: number;
+}) {
+  const [dismissed, setDismissed] = React.useState(false);
+  const open = unscanned > 0 && !dismissed;
+  const photoFirst = needsPhoto > 0;
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && setDismissed(true)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {photoFirst ? <Camera className="size-5" /> : <ScanLine className="size-5" />}
+            {photoFirst ? 'Kirim foto sebelum pengerjaan dulu' : 'Silakan scan unitnya terlebih dahulu'}
+          </DialogTitle>
+          <DialogDescription>
+            {photoFirst ? (
+              <>
+                {unscanned > 1 ? `${needsPhoto} unit AC belum punya foto sebelum. ` : ''}
+                Silakan kirim foto sebelum pengerjaan terlebih dahulu, lalu scan unit sebelum Mulai Job. Scroll ke bawah
+                untuk menemukan tombol Mulai Job.
+                {slots > 0 ? ' Unit yang belum diketahui discan dulu lewat panel Aksi Job.' : ''}
+              </>
+            ) : (
+              <>
+                {unscanned > 1 ? `${unscanned} unit AC pada pekerjaan ini belum discan. ` : 'Unit AC pada pekerjaan ini belum discan. '}
+                {slots > 0
+                  ? 'Scan barcode AC di lokasi lewat panel Aksi Job, dan unitnya otomatis masuk ke pekerjaan ini. '
+                  : 'Scan barcode unit lewat panel Aksi Job untuk memulai pekerjaan. '}
+                Foto sebelum boleh diunggah lebih dulu, tetapi foto sesudah baru bisa diunggah setelah Mulai Job.
+              </>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" onClick={() => setDismissed(true)}>
+            Mengerti
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Unit sudah dihitung discan: sudah dimulai, ATAU masuk lewat scan pengisi slot (scan itu dihitung sebagai scan Mulai Job).
 const scanDone = (j: { startedAt: string | null; status: string; unit: unknown; startScanWaived?: boolean }) =>
   isScanned(j) || (j.status === 'assigned' && !!j.unit && !!j.startScanWaived);
@@ -1058,11 +1216,16 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
   // Mulai Job: satu panel untuk semua unit. Scan barcode salah satu unit yang belum discan = unit itu dimulai
   // (backend tetap memvalidasi barcode cocok, foto sebelum ada, data unit lengkap, seperti satu unit).
   const [scanInput, setScanInput] = React.useState('');
+  // Popup "scan unit & Mulai Job dulu" yang dibuka tombol Kirim Temuan pada unit yang belum discan (id job unit itu).
+  const [startForJobId, setStartForJobId] = React.useState<string | null>(null);
   const startUnitMutation = useMutation({
     mutationFn: ({ jobId, scannedBarcode }: { jobId: string; scannedBarcode?: string }) =>
       apiClient.patch(`/technician-jobs/${jobId}/start`, { scannedBarcode }),
-    onSuccess: () => {
-      toast.success('Unit dimulai.');
+    onSuccess: (_data, vars) => {
+      // Unit yang tadi mau dikirim temuannya sudah dimulai: langsung arahkan kirim temuan.
+      toast.success(
+        vars.jobId === startForJobId ? 'Scan berhasil, unit dimulai. Silakan kirim temuan.' : 'Unit dimulai.',
+      );
       setScanInput('');
       refreshAll();
     },
@@ -1081,10 +1244,26 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
   const knownBarcodes = activeJobs.flatMap((j) => (j.unit ? [j.unit.barcodeValue] : []));
   const handleDetect = (code: string) => {
     if (slotCount > 0 && !knownBarcodes.includes(code)) {
+      // Hasil (berhasil/gagal) diberitahukan oleh useClaimUnit.
       if (!claimMutation.isPending) claimMutation.mutate(code);
       return;
     }
+    // Hasil scan selalu diberi tahu: cocok dengan unit yang belum discan = berhasil, selain itu gagal beserta alasannya.
+    const match = notStarted.find((j) => j.status === 'assigned' && j.unit?.barcodeValue === code);
+    if (!match) {
+      toast.error(
+        knownBarcodes.includes(code)
+          ? 'Scan gagal. Unit ini sudah discan/dimulai.'
+          : 'Scan gagal. Barcode ini bukan unit pada pekerjaan ini.',
+      );
+      return;
+    }
     setScanInput(code);
+    toast.success(
+      startForJobId
+        ? `Scan berhasil: ${unitLabel(match)}. Tekan Mulai Job, lalu silakan kirim temuan.`
+        : `Scan berhasil: ${unitLabel(match)}. Tekan Mulai Job untuk melanjutkan.`,
+    );
   };
   // Unit hasil scan pengisi slot langsung bisa dimulai (tanpa scan ulang) begitu foto sebelumnya ada.
   const startWithoutScan = notStarted.filter((j) => j.status === 'assigned' && !isSlot(j) && !!j.startScanWaived);
@@ -1123,9 +1302,62 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
   const requestJobs = jobs.filter((j) => ['assigned', 'sedang_dikerjakan'].includes(j.status));
   const requestJob = requestJobs.find((j) => !isSlot(j)) ?? requestJobs[0];
 
+  // Kontrol scan + Mulai Job (semua unit): dipakai di panel Aksi dan di popup "scan dulu" saat Kirim Temuan ditekan
+  // pada unit yang belum discan.
+  const startControls = (
+    <>
+        {needsScanner && <BarcodeScanner onDetect={handleDetect} manualPlaceholder="Barcode unit" />}
+        {claimMutation.isPending && <p className="text-xs text-muted-foreground">Memasukkan unit...</p>}
+        {scanCode && (
+          <p className="text-xs text-muted-foreground">
+            Kode terbaca: <span className="font-medium text-foreground">{scanCode}</span>
+            {scanMatch ? ` - ${unitLabel(scanMatch)}` : ' - tidak cocok dengan unit yang belum discan'}
+          </p>
+        )}
+        {notStarted.some((j) => !isSlot(j) && !j.startScanWaived) && (
+          <Button
+            disabled={!scanMatch || !hasBeforePhotoOf(scanMatch) || startUnitMutation.isPending}
+            onClick={() => scanMatch && startUnitMutation.mutate({ jobId: scanMatch.id, scannedBarcode: scanCode })}
+          >
+            {startUnitMutation.isPending ? 'Memproses...' : scanMatch ? `Mulai Job - ${unitLabel(scanMatch)}` : 'Mulai Job'}
+          </Button>
+        )}
+        {startWithoutScan.map((j) => (
+          <Button
+            key={j.id}
+            variant="outline"
+            disabled={!hasBeforePhotoOf(j) || startUnitMutation.isPending}
+            onClick={() => startUnitMutation.mutate({ jobId: j.id })}
+          >
+            Mulai Job - {unitLabel(j)} (tanpa scan ulang)
+          </Button>
+        ))}
+    </>
+  );
   const invoice = job.order?.invoice;
+  const unscannedJobs = allLoaded ? notStarted.filter((j) => j.status === 'assigned' && !scanDone(j)) : [];
   return (
     <div className="grid gap-6">
+      {isTeknisi && (
+        <StartJobDialog
+          open={startForJobId !== null}
+          needScan={unscannedJobs.some((j) => j.id === startForJobId)}
+          unitName={(() => {
+            const target = jobs.find((j) => j.id === startForJobId);
+            return target ? unitLabel(target) : undefined;
+          })()}
+          onClose={() => setStartForJobId(null)}
+        >
+          {startControls}
+        </StartJobDialog>
+      )}
+      {isTeknisi && (
+        <ScanUnitReminderDialog
+          unscanned={unscannedJobs.length}
+          slots={unscannedJobs.filter(isSlot).length}
+          needsPhoto={unscannedJobs.filter((j) => !isSlot(j) && !hasBeforePhotoOf(j)).length}
+        />
+      )}
       <div>
         <Link
           href="/teknisi/queue"
@@ -1229,7 +1461,12 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                 key={e.id}
                 jobId={e.id}
                 role={role}
-                embedded={{ index: i, total: entries.length, defaultOpen: e.id === job.id || entries.length <= 2 }}
+                embedded={{
+                  index: i,
+                  total: entries.length,
+                  defaultOpen: e.id === job.id || entries.length <= 2,
+                  onNeedScan: (jobId) => setStartForJobId(jobId),
+                }}
               />
             ))}
           </div>
@@ -1342,32 +1579,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                       </Button>
                     </div>
                   )}
-                  {needsScanner && <BarcodeScanner onDetect={handleDetect} manualPlaceholder="Barcode unit" />}
-                  {claimMutation.isPending && <p className="text-xs text-muted-foreground">Memasukkan unit...</p>}
-                  {scanCode && (
-                    <p className="text-xs text-muted-foreground">
-                      Kode terbaca: <span className="font-medium text-foreground">{scanCode}</span>
-                      {scanMatch ? ` - ${unitLabel(scanMatch)}` : ' - tidak cocok dengan unit yang belum discan'}
-                    </p>
-                  )}
-                  {notStarted.some((j) => !isSlot(j) && !j.startScanWaived) && (
-                    <Button
-                      disabled={!scanMatch || !hasBeforePhotoOf(scanMatch) || startUnitMutation.isPending}
-                      onClick={() => scanMatch && startUnitMutation.mutate({ jobId: scanMatch.id, scannedBarcode: scanCode })}
-                    >
-                      {startUnitMutation.isPending ? 'Memproses...' : scanMatch ? `Mulai Job - ${unitLabel(scanMatch)}` : 'Mulai Job'}
-                    </Button>
-                  )}
-                  {startWithoutScan.map((j) => (
-                    <Button
-                      key={j.id}
-                      variant="outline"
-                      disabled={!hasBeforePhotoOf(j) || startUnitMutation.isPending}
-                      onClick={() => startUnitMutation.mutate({ jobId: j.id })}
-                    >
-                      Mulai Job - {unitLabel(j)} (tanpa scan ulang)
-                    </Button>
-                  ))}
+                  {startControls}
                 </div>
               )}
 
@@ -1886,11 +2098,14 @@ function FindingCard({
   jobId,
   finding,
   canEdit,
+  afterLocked,
   showAuthors,
 }: {
   jobId: string;
   finding: JobFinding;
   canEdit: boolean;
+  /** Job belum dimulai (belum scan unit): foto sesudah belum bisa diunggah, foto sebelum tetap bisa. */
+  afterLocked?: boolean;
   /** Job pernah dialihkan: tampilkan siapa yang mencatat temuan dan mengunggah foto. */
   showAuthors?: boolean;
 }) {
@@ -1927,6 +2142,7 @@ function FindingCard({
           findingId={finding.id}
           kind="sesudah"
           canEdit={canEdit}
+          uploadLockedHint={afterLocked ? 'Bisa diunggah setelah Mulai Job (scan unit dulu).' : undefined}
           showAuthors={showAuthors}
         />
       </div>
@@ -2008,6 +2224,7 @@ function FindingPhotoGroup({
   findingId,
   kind,
   canEdit,
+  uploadLockedHint,
   showAuthors,
 }: {
   label: string;
@@ -2016,6 +2233,8 @@ function FindingPhotoGroup({
   findingId: string;
   kind: 'sebelum' | 'sesudah';
   canEdit: boolean;
+  /** Terisi = unggah dikunci (tombol + Foto diganti petunjuk ini). */
+  uploadLockedHint?: string;
   showAuthors?: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -2057,8 +2276,11 @@ function FindingPhotoGroup({
             )}
           </div>
         ))}
-        {canEdit && (
+        {canEdit && !uploadLockedHint && (
           <FindingPhotoUploadButton jobId={jobId} findingId={findingId} kind={kind} />
+        )}
+        {canEdit && uploadLockedHint && (
+          <p className="text-[11px] leading-snug text-muted-foreground">{uploadLockedHint}</p>
         )}
       </div>
       {uploaders.length > 0 && <p className="text-[11px] text-muted-foreground">Foto oleh {uploaders.join(', ')}</p>}

@@ -1328,6 +1328,14 @@ export class TechnicianJobsService {
       );
     }
     this.assertUnitScanned(job);
+    // Foto SESUDAH baru boleh setelah Mulai Job (scan barcode unit). Foto sebelum sengaja tidak digate: Mulai Job
+    // sendiri mewajibkan foto sebelum lebih dulu (lihat start()). Job yang dialihkan ke teknisi lain kembali ke
+    // 'assigned', jadi teknisi pengganti wajib scan ulang dulu sebelum menambah foto sesudah (foto lama tetap).
+    if (kind === 'sesudah' && job.status !== TechnicianJobStatus.sedang_dikerjakan) {
+      throw new BadRequestException(
+        'Foto sesudah baru bisa diunggah setelah Mulai Job. Scan barcode unit dulu, lalu mulai pekerjaannya.',
+      );
+    }
     const finding = await this.prisma.jobFinding.findUnique({
       where: { id: findingId },
     });
