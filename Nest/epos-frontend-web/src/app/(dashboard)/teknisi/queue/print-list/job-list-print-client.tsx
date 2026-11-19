@@ -10,20 +10,29 @@ import { formatDate } from '@/lib/format';
 import { wibDateKey } from '@/lib/wib-date';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  ACTIVE_JOB_STATUSES,
+  matchesStatusTab,
+  NO_TECHNICIAN,
   NO_TYPE_TEXT,
   groupByOrder,
   jobLocation,
+  jobMatchesTechnician,
   rowSearchText,
+  technicianOptions,
   typeMeta,
   unitTypeText,
   type QueueRow,
   type TechnicianJob,
 } from '../queue-client';
 
-type StatusFilter = 'aktif' | 'selesai' | 'semua';
-const STATUS_LABEL: Record<StatusFilter, string> = { aktif: 'Aktif', selesai: 'Selesai', semua: 'Semua status' };
+type StatusFilter = 'aktif' | 'review' | 'selesai' | 'semua';
+const STATUS_LABEL: Record<StatusFilter, string> = {
+  aktif: 'Aktif',
+  review: 'Menunggu Review',
+  selesai: 'Selesai',
+  semua: 'Semua status',
+};
 
 // Tanggal jadwal satu baris (servis banyak AC: satu order = satu jadwal). Tanpa jadwal = ''.
 const rowDate = (row: QueueRow) => {
@@ -47,17 +56,21 @@ export function JobListPrintClient({
   initialTo,
   initialStatus,
   initialQuery,
+  initialTechnician,
 }: {
   initialFrom: string;
   initialTo: string;
   initialStatus: StatusFilter;
   initialQuery: string;
+  initialTechnician: string;
 }) {
   const router = useRouter();
   const [from, setFrom] = React.useState(initialFrom);
   const [to, setTo] = React.useState(initialTo);
   const [status, setStatus] = React.useState<StatusFilter>(initialStatus);
   const [query, setQuery] = React.useState(initialQuery);
+  // Filter teknisi hanya menyaring pekerjaan; nama teknisi tetap tidak dicetak.
+  const [technician, setTechnician] = React.useState(initialTechnician);
 
   // Kunci yang sama dengan Antrian Servis (admin/kasir): data dibagi lewat cache, tidak diambil dua kali.
   const { data, isLoading, isError } = useQuery({
@@ -69,9 +82,9 @@ export function JobListPrintClient({
     const term = query.trim().toLowerCase();
     const filtered = (data ?? []).filter((j) => {
       if (j.status === 'dibatalkan') return false; // pekerjaan batal tidak masuk daftar, di status apa pun
-      const active = ACTIVE_JOB_STATUSES.includes(j.status);
-      if (status === 'aktif' && !active) return false;
-      if (status === 'selesai' && active) return false;
+      // Sama persis dengan tab di Antrian Servis (satu fungsi): Aktif tanpa yang menunggu review.
+      if (status !== 'semua' && !matchesStatusTab(j, status)) return false;
+      if (!jobMatchesTechnician(j, technician)) return false;
       if (from || to) {
         if (!j.scheduledDate) return false; // tanpa jadwal tidak masuk bila tanggal dibatasi
         const key = wibDateKey(j.scheduledDate);
@@ -88,7 +101,8 @@ export function JobListPrintClient({
         if (da !== db) return da === '' ? 1 : db === '' ? -1 : da < db ? -1 : 1;
         return (a.jobs[0].member?.name ?? '').localeCompare(b.jobs[0].member?.name ?? '', 'id');
       });
-  }, [data, status, from, to, query]);
+  }, [data, status, from, to, query, technician]);
+  const techChoices = React.useMemo(() => technicianOptions(data ?? [], []), [data]);
 
   const byDay = React.useMemo(() => {
     const m = new Map<string, QueueRow[]>();
@@ -157,6 +171,23 @@ export function JobListPrintClient({
                 </Button>
               ))}
             </div>
+          </div>
+          <div className="grid gap-1">
+            <span className="text-xs text-muted-foreground">Teknisi</span>
+            <Select value={technician} onValueChange={setTechnician}>
+              <SelectTrigger aria-label="Filter teknisi" className="h-9 w-52 text-sm">
+                <SelectValue placeholder="Semua teknisi" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua teknisi</SelectItem>
+                <SelectItem value={NO_TECHNICIAN}>Belum ditugaskan</SelectItem>
+                {techChoices.options.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>
+                    {o.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <label className="grid min-w-48 flex-1 gap-1">
             <span className="text-xs text-muted-foreground">Kata kunci (pelanggan, unit, lokasi)</span>
