@@ -3,7 +3,18 @@ import 'package:epos_ac/data/models/technician_job.dart';
 import 'package:epos_ac/features/jobs/job_list_logic.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-TechnicianJob _job(String id, {DateTime? at, String member = 'Budi', String addr = '', String work = '', String tech = ''}) =>
+TechnicianJob _job(
+  String id, {
+  DateTime? at,
+  String member = 'Budi',
+  String addr = '',
+  String work = '',
+  String tech = '',
+  JobStatus status = JobStatus.assigned,
+  bool priced = true,
+  DateTime? findings,
+  String? complaintOf,
+}) =>
     TechnicianJob(
       id: id,
       orderId: 'o$id',
@@ -11,7 +22,10 @@ TechnicianJob _job(String id, {DateTime? at, String member = 'Budi', String addr
       unitId: 'u',
       technicianId: 't',
       type: 'cuci',
-      status: JobStatus.assigned,
+      status: status,
+      priced: priced,
+      findingsSentAt: findings,
+      complaintOfJobId: complaintOf,
       scheduledDate: at,
       memberName: member,
       memberAddress: addr,
@@ -107,6 +121,23 @@ void main() {
       expect(r.items[0].km, 3.4);
       expect(r.items[1].reason, DistanceReason.incomplete);
       expect(r.items[2].state, DistanceState.pending);
+    });
+  });
+
+  group('baris', () {
+    test('rowLocations: lokasi unik, urutan dipertahankan, kosong dibuang', () {
+      final row = [_job('a', work: 'Jl. A'), _job('b', addr: 'Jl. B'), _job('c', work: 'Jl. A'), _job('d')];
+      expect(rowLocations(row), ['Jl. A', 'Jl. B']);
+    });
+
+    test('rowNeedsPrice: butuh harga setelah temuan/diajukan selesai, kecuali sudah ditagih atau komplain', () {
+      final sent = DateTime(2026, 11, 18);
+      expect(rowNeedsPrice([_job('a')]), isFalse); // belum ada temuan
+      expect(rowNeedsPrice([_job('a', findings: sent, priced: false)]), isTrue);
+      expect(rowNeedsPrice([_job('a', status: JobStatus.menungguReview, priced: false)]), isTrue);
+      expect(rowNeedsPrice([_job('a', findings: sent, priced: true)]), isFalse);
+      expect(rowNeedsPrice([_job('a', findings: sent, priced: false, complaintOf: 'x')]), isFalse);
+      expect(rowNeedsPrice([_job('a', findings: sent, priced: true), _job('b', findings: sent, priced: false)]), isTrue);
     });
   });
 }

@@ -17,6 +17,10 @@ TechnicianJob _job({
   String model = 'Dualcool',
   String technician = '',
   String orderId = 'o1',
+  String workAddress = '',
+  String? notes,
+  bool priced = true,
+  DateTime? findingsSentAt,
 }) {
   return TechnicianJob(
     id: id,
@@ -30,6 +34,10 @@ TechnicianJob _job({
     unitBrand: brand,
     unitModel: model,
     technicianName: technician,
+    workAddress: workAddress,
+    notes: notes,
+    priced: priced,
+    findingsSentAt: findingsSentAt,
   );
 }
 
@@ -62,8 +70,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Job Saya'), findsOneWidget);
-    expect(find.text('LG A'), findsOneWidget); // aktif
-    expect(find.text('Panasonic B'), findsNothing); // selesai disembunyikan
+    expect(find.textContaining('LG A'), findsOneWidget); // aktif
+    expect(find.textContaining('Panasonic B'), findsNothing); // selesai disembunyikan
   });
 
   testWidgets('teknisi: tanpa tab Selesai (ada di layar Riwayat), job selesai tak tampil', (tester) async {
@@ -77,8 +85,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Selesai'), findsNothing);
-    expect(find.text('LG A'), findsOneWidget);
-    expect(find.text('Panasonic B'), findsNothing);
+    expect(find.textContaining('LG A'), findsOneWidget);
+    expect(find.textContaining('Panasonic B'), findsNothing);
   });
 
   testWidgets('admin: tab Selesai menampilkan job selesai', (tester) async {
@@ -94,8 +102,8 @@ void main() {
     await tester.tap(find.text('Selesai'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Panasonic B'), findsOneWidget);
-    expect(find.text('LG A'), findsNothing);
+    expect(find.textContaining('Panasonic B'), findsOneWidget);
+    expect(find.textContaining('LG A'), findsNothing);
   });
 
   testWidgets('admin: judul "Job Teknisi" & menampilkan nama teknisi',
@@ -109,7 +117,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Job Teknisi'), findsOneWidget);
-    expect(find.text('Teknisi: Andi'), findsOneWidget);
+    expect(find.text('Andi'), findsOneWidget);
   });
 
   testWidgets('pencarian menyaring job; tak ada yang cocok -> Reset filter', (tester) async {
@@ -194,5 +202,40 @@ void main() {
     await tester.pumpWidget(_wrap(user: teknisi, jobs: const []));
     await tester.pumpAndSettle();
     expect(find.text('Belum ada job aktif.'), findsOneWidget);
+  });
+
+  testWidgets('baris job memuat pelanggan, lokasi kerja, catatan, teknisi, dan harga jasa (admin); teknisi tanpa dua yang terakhir',
+      (tester) async {
+    final jobs = [
+      _job(
+        id: 'j1',
+        status: JobStatus.menungguReview,
+        technician: 'Andi',
+        workAddress: 'Jl. Mawar 5, Mojosari, Kabupaten Mojokerto',
+        notes: 'Bawa tangga',
+        priced: false,
+        findingsSentAt: DateTime(2026, 11, 18),
+      ),
+    ];
+    await tester.pumpWidget(_wrap(user: admin, jobs: jobs));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Budi · LG Dualcool'), findsOneWidget);
+    expect(find.text('Jl. Mawar 5, Mojosari, Kabupaten Mojokerto'), findsOneWidget);
+    expect(find.text('Catatan: Bawa tangga'), findsOneWidget);
+    expect(find.text('Andi'), findsOneWidget);
+    expect(find.text('Tentukan harga jasa'), findsOneWidget);
+    expect(find.text('1 job'), findsOneWidget);
+    expect(find.byKey(const Key('job-reset')), findsNothing);
+
+    await tester.enterText(find.byKey(const Key('job-search')), 'budi');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('job-reset')), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(_wrap(user: teknisi, jobs: jobs));
+    await tester.pumpAndSettle();
+    expect(find.text('Jl. Mawar 5, Mojosari, Kabupaten Mojokerto'), findsOneWidget);
+    expect(find.text('Andi'), findsNothing);
+    expect(find.text('Tentukan harga jasa'), findsNothing);
   });
 }

@@ -14,6 +14,7 @@ import '../../data/models/job_distance.dart';
 import '../../data/models/technician_job.dart';
 import '../notifications/notification_bell.dart';
 import 'job_list_logic.dart';
+import 'job_list_pdf.dart' show unitTypeText;
 import 'job_providers.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
@@ -281,18 +282,38 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
                 if (rows.isEmpty) {
                   return _NoMatch(onReset: _resetFilters);
                 }
+                final filtersActive = term.isNotEmpty || _dayFilter != 'all';
                 return ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: rows.length + (header == null ? 0 : 1),
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                  itemCount: rows.length + 1 + (header == null ? 0 : 1),
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (_, i) {
-                    if (header != null && i == 0) return header;
-                    final row = rows[i - (header == null ? 0 : 1)];
+                    // Jumlah job pada daftar (seperti lencana "Daftar Job" di web) + tombol Reset saat ada filter.
+                    if (i == 0) {
+                      return SizedBox(
+                        height: 36,
+                        child: Row(children: [
+                          Text('${rows.length} job',
+                              key: const Key('job-count'),
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.slate600)),
+                          const Spacer(),
+                          if (filtersActive)
+                            TextButton.icon(
+                              key: const Key('job-reset'),
+                              onPressed: _resetFilters,
+                              icon: const Icon(Icons.close, size: 14),
+                              label: const Text('Reset'),
+                              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+                            ),
+                        ]),
+                      );
+                    }
+                    if (header != null && i == 1) return header;
+                    final row = rows[i - 1 - (header == null ? 0 : 1)];
                     final d = distances[row];
-                    return JobCard(
-                      job: row.first,
+                    return JobQueueCard(
                       group: row,
-                      showTechnician: !isTeknisi,
+                      showStaff: !isTeknisi,
                       distance: d,
                       distanceLoading: _loadingDist,
                       onFixAddress: isTeknisi
@@ -513,6 +534,141 @@ class JobCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Baris Antrian Servis (cerminan baris daftar di queue-client.tsx web): "pelanggan · unit", info AC dan lokasi kerja,
+/// catatan, lalu chip jenis, jarak, jadwal, teknisi, dan "Tentukan harga jasa". Satu baris = satu order
+/// (servis banyak AC = satu baris untuk seluruh unit).
+class JobQueueCard extends StatelessWidget {
+  const JobQueueCard({
+    super.key,
+    required this.group,
+    this.showStaff = false,
+    this.distance,
+    this.distanceLoading = false,
+    this.onFixAddress,
+  });
+
+  final List<TechnicianJob> group;
+
+  /// Admin & kasir: chip teknisi dan "Tentukan harga jasa" ikut tampil (teknisi tidak melihatnya, sama dengan web).
+  final bool showStaff;
+  final RowDistance? distance;
+  final bool distanceLoading;
+  final VoidCallback? onFixAddress;
+
+  @override
+  Widget build(BuildContext context) {
+    final job = group.first;
+    final many = group.length > 1;
+    final status = many ? group.map((j) => j.status).reduce((a, b) => a.index <= b.index ? a : b) : job.status;
+    final customer = job.memberName.isEmpty ? 'Order servis' : job.memberName;
+    final unitName = job.unitTitle.isEmpty ? 'Order ${job.typeLabel}' : job.unitTitle;
+    final unitsText = many ? group.map(unitTypeText).join(' • ') : job.unitParts;
+    final locations = rowLocations(group);
+    final locationText = locations.isEmpty
+        ? ''
+        : '${locations.first}${locations.length > 1 ? ' (+${locations.length - 1} lokasi lain)' : ''}';
+    final note = group.map((j) => (j.notes ?? '').trim()).where((n) => n.isNotEmpty).firstOrNull;
+    final scheduled = group.map((j) => j.scheduledDate).whereType<DateTime>().firstOrNull;
+    final names = {for (final j in group) ...(j.technicianNames.isNotEmpty ? j.technicianNames : [if (j.technicianName.isNotEmpty) j.technicianName])};
+    const muted = TextStyle(fontSize: 12, color: AppColors.slate600);
+
+    return Card(
+      child: InkWell(
+        onTap: () => context.go('/jobs/${job.id}'),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(children: [
+                        TextSpan(text: customer, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        const TextSpan(text: ' · ', style: TextStyle(color: AppColors.slate400)),
+                        TextSpan(text: many ? '${group.length} unit AC' : unitName),
+                      ]),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15, height: 1.3, color: AppColors.slate900),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(child: StatusBadge(label: status.label, color: jobStatusColor(status), constrained: true)),
+                ],
+              ),
+              if (unitsText.isNotEmpty) ...[const SizedBox(height: 4), Text(unitsText, style: muted)],
+              if (locationText.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 1),
+                    child: Icon(Icons.place_outlined, size: 14, color: AppColors.teal700),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(child: Text(locationText, style: muted.copyWith(fontWeight: FontWeight.w500))),
+                ]),
+              ],
+              if (note != null) ...[
+                const SizedBox(height: 4),
+                Text('Catatan: $note', style: muted.copyWith(fontStyle: FontStyle.italic)),
+              ],
+              const SizedBox(height: 8),
+              Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                _QueueChip(job.typeLabel, fg: AppColors.slate600, bg: AppColors.slate100),
+                if (distance != null) _DistanceBadge(d: distance!, loading: distanceLoading, onFix: onFixAddress),
+                if (group.any((j) => j.isComplaint))
+                  const _QueueChip('Komplain', fg: AppColors.warning, bg: Color(0x26F59E0B), key: Key('complaint-badge')),
+                if (scheduled != null)
+                  _QueueChip('Jadwal ${formatTanggalSingkat(scheduled)}', icon: Icons.event_outlined, fg: AppColors.slate600, bg: AppColors.slate100),
+                if (showStaff)
+                  _QueueChip(
+                    names.isEmpty ? 'Belum ditugaskan' : names.join(', '),
+                    icon: Icons.person_outline,
+                    fg: names.isEmpty ? AppColors.slate600 : AppColors.teal700,
+                    bg: names.isEmpty ? AppColors.slate100 : AppColors.teal50,
+                  ),
+                if (showStaff && rowNeedsPrice(group))
+                  _QueueChip(many ? 'Tentukan harga jasa tiap unit' : 'Tentukan harga jasa',
+                      fg: AppColors.warning, bg: const Color(0x26F59E0B)),
+              ]),
+              if (job.createdAt != null) ...[
+                const SizedBox(height: 6),
+                Text('Masuk ${formatTanggalSingkat(job.createdAt!)} ${_jam(job.createdAt!)}',
+                    style: const TextStyle(fontSize: 11.5, color: AppColors.slate400)),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _jam(DateTime d) => '${d.hour.toString().padLeft(2, '0')}.${d.minute.toString().padLeft(2, '0')}';
+
+class _QueueChip extends StatelessWidget {
+  const _QueueChip(this.text, {super.key, required this.fg, required this.bg, this.icon});
+
+  final String text;
+  final Color fg;
+  final Color bg;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(AppRadius.sm)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (icon != null) ...[Icon(icon, size: 13, color: fg), const SizedBox(width: 4)],
+          Flexible(child: Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg))),
+        ]),
+      );
 }
 
 /// Lencana jarak ke toko di kartu job (cerminan `DistanceBadge` di web).

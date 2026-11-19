@@ -143,3 +143,18 @@ String kmText(double km) {
   final s = km.toStringAsFixed(1);
   return '${s.endsWith('.0') ? s.substring(0, s.length - 2) : s.replaceAll('.', ',')} km';
 }
+
+/// Lokasi kerja unik satu baris (servis banyak AC bisa punya beberapa titik), urutan kemunculan dipertahankan.
+List<String> rowLocations(List<TechnicianJob> row) {
+  final seen = <String>{};
+  return [
+    for (final j in row)
+      if (jobLocation(j).isNotEmpty && seen.add(jobLocation(j))) jobLocation(j),
+  ];
+}
+
+/// Perlu ditetapkan harga jasanya: temuan sudah dikirim atau sudah diajukan selesai, belum ada tagihannya. Job komplain
+/// tidak ditagih sehingga tidak pernah perlu harga.
+bool rowNeedsPrice(List<TechnicianJob> row) => row.any(
+      (j) => !j.isComplaint && (j.findingsSentAt != null || j.status == JobStatus.menungguReview) && !j.priced,
+    );
