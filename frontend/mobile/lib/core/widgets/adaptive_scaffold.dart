@@ -119,6 +119,8 @@ List<Destination> destinationsForRole(UserRole? role) {
       (icon: Icons.build_outlined, label: 'Sparepart', route: '/spareparts'),
       (icon: Icons.inventory_outlined, label: 'Stok', route: '/stok'),
       keluarGudang,
+      // Admin membacanya di tab Stok Laporan Rinci, jadi hanya gudang punya menu ini (sama dengan web).
+      (icon: Icons.summarize_outlined, label: 'Laporan Stok', route: '/stok/laporan'),
       profile,
     ];
   }

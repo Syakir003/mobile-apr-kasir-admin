@@ -9,6 +9,7 @@ import '../../core/widgets/app_filter_chip.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../data/models/technician_job.dart' show JobStatus;
+import 'stock_report_view.dart';
 
 // Laporan rinci (admin) dengan rentang tanggal bebas, padanan halaman web /laporan: Penjualan, Servis, Laba-Rugi, Stok.
 // Endpoint: GET /reports/{sales,service,profit-loss,stock-movements}?from=&to= (angka sudah number dari server).
@@ -117,10 +118,13 @@ class ProfitLossReport {
 class StockReport {
   StockReport(Map<String, dynamic> j)
       : items = _list(j['items']),
+        // Server membuang ringkasan uang untuk role gudang.
+        hasMoney = j['ringkasan'] != null,
         modal = _n((j['ringkasan'] as Map?)?['totalModalTersisa']),
         omzet = _n((j['ringkasan'] as Map?)?['totalOmzetTerjual']),
         untung = _n((j['ringkasan'] as Map?)?['totalUntungTerjual']);
   final List<Map<String, dynamic>> items;
+  final bool hasMoney;
   final num modal;
   final num omzet;
   final num untung;
@@ -244,7 +248,7 @@ class _LaporanRinciScreenState extends ConsumerState<LaporanRinciScreen> {
                         _SalesTab(range: _range),
                         _ServiceTab(range: _range),
                         _ProfitTab(range: _range),
-                        _StockTab(range: _range),
+                        StockReportView(range: _range),
                       ],
                     ),
             ),
@@ -459,53 +463,4 @@ class _ProfitTab extends ConsumerWidget {
           ]),
         ]),
       );
-}
-
-class _StockTab extends ConsumerStatefulWidget {
-  const _StockTab({required this.range});
-  final Range range;
-
-  @override
-  ConsumerState<_StockTab> createState() => _StockTabState();
-}
-
-class _StockTabState extends ConsumerState<_StockTab> {
-  String _kind = 'all';
-
-  @override
-  Widget build(BuildContext context) {
-    final key = (widget.range, _kind);
-    return _Async<StockReport>(
-      value: ref.watch(stockReportProvider(key)),
-      onRetry: () => ref.invalidate(stockReportProvider(key)),
-      builder: (s) => ListView(padding: const EdgeInsets.all(16), children: [
-        Row(children: [
-          for (final (v, l) in const [('all', 'Semua'), ('product', 'Produk'), ('sparepart', 'Sparepart')]) ...[
-            AppFilterChip(label: l, selected: _kind == v, onTap: () => setState(() => _kind = v)),
-            const SizedBox(width: 8),
-          ],
-        ]),
-        const SizedBox(height: 12),
-        _grid([
-          _Stat('Modal Tersisa', formatRupiahNum(s.modal)),
-          _Stat('Omzet Terjual', formatRupiahNum(s.omzet)),
-          _Stat('Untung Terjual', formatRupiahNum(s.untung)),
-        ]),
-        const SizedBox(height: 12),
-        _Section('Pergerakan Stok', [
-          for (final r in s.items)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('${r['name']}', style: const TextStyle(fontWeight: FontWeight.w500)),
-                Text(
-                  'Awal ${_n(r['stokAwal'])} · Masuk ${_n(r['stokMasuk'])} · Keluar ${_n(r['stokKeluar'])} · Sisa ${_n(r['sisaStok'])} ${r['unit'] ?? ''}',
-                  style: const TextStyle(fontSize: 12, color: AppColors.slate600),
-                ),
-              ]),
-            ),
-        ]),
-      ]),
-    );
-  }
 }

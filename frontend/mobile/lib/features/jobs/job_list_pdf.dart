@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../../core/pdf/pdf_kop.dart';
 import '../../core/pdf/pdf_theme.dart';
 import '../../core/utils/tanggal.dart';
 import '../../data/models/technician_job.dart';
@@ -153,20 +154,7 @@ Future<Uint8List> buildJobListPdf(
   }
 
   final widgets = <pw.Widget>[
-    // Kop surat: sama dengan laporan lain.
-    pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.center, children: [
-      pw.Image(logo, height: 44),
-      pw.Expanded(
-        child: pw.Column(children: [
-          pw.Text('AYUB AC', style: const pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
-          pw.Text('Penjualan • Service • Spare Part • Rental AC', style: const pw.TextStyle(fontSize: 8)),
-          pw.Text('JL. GUNUNG ANYAR RT. 01 RW. 06, KEL. GUNUNG GEDANGAN - MOJOKERTO', style: const pw.TextStyle(fontSize: 8)),
-          pw.Text('Telp. 0857 332 7112 - 0822 3388 9990 - 0321 - 325831', style: const pw.TextStyle(fontSize: 8)),
-        ]),
-      ),
-      pw.SizedBox(width: 44),
-    ]),
-    pw.Divider(thickness: 1.5),
+    pdfKop(logo),
     pw.Center(child: pw.Text('DAFTAR PEKERJAAN SERVIS', style: const pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold))),
     pw.SizedBox(height: 4),
     pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [

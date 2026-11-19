@@ -34,6 +34,7 @@ import '../../features/keluar_gudang/keluar_gudang_screen.dart';
 import '../../features/stock/stock_adjust_screen.dart';
 import '../../features/stock/stock_detail_screen.dart';
 import '../../features/stock/stock_opname_screen.dart';
+import '../../features/reports/stock_report_screen.dart';
 import '../../features/stock/stock_providers.dart' show StockRow;
 import '../../features/stock/stok_screen.dart';
 import '../../features/master/package/package_form_screen.dart';
@@ -269,6 +270,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       ? ServiceOrderCreateScreen(
                           initialMemberId: extra['memberId'] as String?,
                           initialUnitIds: [for (final id in (extra['unitIds'] as List? ?? const [])) '$id'],
+                          initialDueOnly: extra['dueOnly'] == true,
                         )
                       : const ServiceOrderCreateScreen();
                 },
@@ -338,6 +340,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'opname',
                 builder: (_, __) => const StockOpnameScreen(),
+              ),
+              GoRoute(
+                path: 'laporan',
+                builder: (_, __) => const StockReportScreen(),
               ),
             ],
           ),

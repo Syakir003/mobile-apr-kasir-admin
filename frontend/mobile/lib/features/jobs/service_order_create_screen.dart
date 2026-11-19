@@ -109,11 +109,20 @@ Map<String, dynamic> buildIntakePayload({
 /// pekerjaan, keluhan, jadwal, dan teknisi. Menulis lewat `POST /service-orders/intake`. Harga ditetapkan
 /// kemudian dari kartu Harga Jasa & Tagihan di halaman job.
 class ServiceOrderCreateScreen extends ConsumerStatefulWidget {
-  const ServiceOrderCreateScreen({super.key, this.initialMemberId, this.initialUnitIds = const []});
+  const ServiceOrderCreateScreen({
+    super.key,
+    this.initialMemberId,
+    this.initialUnitIds = const [],
+    this.initialDueOnly = false,
+  });
 
   /// Terisi dari Monitoring Jadwal: member dan unit jatuh tempo sudah terpilih.
   final String? initialMemberId;
   final List<String> initialUnitIds;
+
+  /// Dari notifikasi "servis jatuh tempo": semua unit member yang jatuh tempo (siklus <= 3 hari lagi, termasuk yang
+  /// sudah lewat) dicentang otomatis.
+  final bool initialDueOnly;
 
   @override
   ConsumerState<ServiceOrderCreateScreen> createState() =>
@@ -174,6 +183,25 @@ class _ServiceOrderCreateScreenState
     super.initState();
     _memberId = widget.initialMemberId;
     _unitIds.addAll(widget.initialUnitIds);
+    // Sama dengan web: servis dari jadwal berarti Cuci AC rutin.
+    if (widget.initialUnitIds.isNotEmpty || widget.initialDueOnly) {
+      _type = IntakeJobType.cuci;
+      _complaint.text = 'Cuci AC rutin (siklus servis)';
+    }
+    final memberId = widget.initialMemberId;
+    if (widget.initialDueOnly && memberId != null) _selectDueUnits(memberId);
+  }
+
+  Future<void> _selectDueUnits(String memberId) async {
+    final units = await ref.read(memberUnitsProvider(memberId).future);
+    if (!mounted) return;
+    final limit = DateTime.now().add(const Duration(days: 3));
+    setState(() {
+      for (final u in units) {
+        final next = u.nextServiceDate;
+        if (u.status == AcUnitStatus.aktif && next != null && !next.isAfter(limit)) _unitIds.add(u.id);
+      }
+    });
   }
 
   @override

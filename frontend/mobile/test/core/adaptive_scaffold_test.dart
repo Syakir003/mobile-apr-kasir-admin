@@ -85,7 +85,8 @@ void main() {
       expect(dests.map((d) => d.route), ['/', '/jobs', '/riwayat', '/scan', '/profile']);
     });
 
-    test('gudang melihat Dashboard, Produk, Sparepart, Stok, Keluar Gudang, Profil',
+    test(
+        'gudang melihat Dashboard, Produk, Sparepart, Stok, Keluar Gudang, Laporan Stok, Profil',
         () {
       final dests = destinationsForRole(UserRole.gudang);
       expect(dests.map((d) => d.route), [
@@ -94,6 +95,7 @@ void main() {
         '/spareparts',
         '/stok',
         '/keluar-gudang',
+        '/stok/laporan',
         '/profile',
       ]);
     });

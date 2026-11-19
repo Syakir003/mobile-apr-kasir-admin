@@ -36,4 +36,24 @@ void main() {
     expect(empty.type, 'info');
     expect(empty.isJob, isFalse);
   });
+
+  test('route: tujuan ketuk notifikasi sama dengan web', () {
+    String? r(String type, [String? target]) =>
+        AppNotification.fromMap('n', {'type': type, 'target': target}).route;
+    expect(r('job_returned', 'j1'), '/jobs/j1');
+    expect(r('job_cancelled'), '/jobs');
+    expect(r('request_submitted'), '/pengajuan');
+    expect(r('job_handover', 'j1'), '/jobs');
+    expect(r('penjualan_baru'), '/keluar-gudang');
+    expect(r('stok_menipis'), '/spareparts');
+    expect(r('opname_selesai'), '/stok/opname');
+    expect(r('unit_correction'), '/koreksi-unit');
+    expect(r('unit_data_completed', 'm1'), '/pengingat/jadwal/m1');
+    expect(r('service_due', 'm1'), '/orders/new');
+    expect(r('info'), isNull);
+    expect(
+      AppNotification.fromMap('n', {'type': 'service_due', 'target': 'm1'}).routeExtra,
+      {'memberId': 'm1', 'dueOnly': true},
+    );
+  });
 }

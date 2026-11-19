@@ -397,6 +397,7 @@ void main() {
         '/spareparts',
         '/stok',
         '/stok/adjust',
+        '/stok/laporan',
         '/keluar-gudang',
         '/keluar-gudang/inv1',
         '/notifications',

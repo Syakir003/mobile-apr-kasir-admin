@@ -67,6 +67,14 @@ class _NotificationTile extends StatelessWidget {
       'findings_sent' => (Icons.assignment_outlined, AppColors.warning),
       // Teknisi lama: job sudah pindah dari antriannya (tidak bisa dibuka lagi), jadi tanpa navigasi.
       'job_handover' => (Icons.swap_horiz, AppColors.slate500),
+      'job_returned' || 'job_cancelled' => (Icons.undo, AppColors.warning),
+      'job_review' || 'unit_added' => (Icons.fact_check_outlined, AppColors.teal600),
+      'penjualan_baru' => (Icons.outbox_outlined, AppColors.teal600),
+      'stok_menipis' => (Icons.inventory_2_outlined, AppColors.warning),
+      'opname_selesai' => (Icons.inventory_outlined, AppColors.slate500),
+      'unit_correction' => (Icons.rule_folder_outlined, AppColors.warning),
+      'service_due' => (Icons.event_repeat_outlined, AppColors.warning),
+      'unit_data_completed' => (Icons.ac_unit, AppColors.teal600),
       _ => (Icons.notifications_outlined, AppColors.slate500),
     };
     return ListTile(
@@ -103,11 +111,8 @@ class _NotificationTile extends StatelessWidget {
               ),
             ),
       onTap: () {
-        if (item.isJob && item.target != null) {
-          context.push('/jobs/${item.target}');
-        } else if (item.isRequest) {
-          context.push('/jobs');
-        }
+        final route = item.route;
+        if (route != null) context.push(route, extra: item.routeExtra);
       },
     );
   }
