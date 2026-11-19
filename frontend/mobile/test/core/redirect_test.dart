@@ -276,6 +276,13 @@ void main() {
       isNull,
     );
   });
+  test('cetak daftar pekerjaan: teknisi diarahkan ke /, kasir boleh; /jobs/:id tetap terbuka bagi teknisi', () {
+    String? go(AppUser u, UserRole r, String loc) =>
+        computeRedirect(user: u, role: r, loading: false, location: loc);
+    expect(go(teknisi, UserRole.teknisi, '/jobs/print-list'), '/');
+    expect(go(kasir, UserRole.kasir, '/jobs/print-list'), isNull);
+    expect(go(teknisi, UserRole.teknisi, '/jobs/abc123'), isNull);
+  });
   test('teknisi buka /jobs (job miliknya) tidak di-redirect', () {
     expect(
       computeRedirect(

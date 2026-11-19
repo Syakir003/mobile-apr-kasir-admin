@@ -5,6 +5,7 @@ import '../../core/router/app_router.dart';
 import '../../data/models/app_user.dart';
 import '../../data/models/ac_unit.dart';
 import '../../data/models/invoice.dart';
+import '../../data/models/job_distance.dart';
 import '../../data/models/job_finding.dart';
 import '../../data/models/material_request.dart';
 import '../../data/models/service_order.dart';
@@ -297,6 +298,15 @@ final createServiceOrderCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
   return (payload) async {
     await _api.post('/service-orders/intake', body: payload);
+  };
+});
+
+/// `POST /technician-jobs/distances` — jarak job ke toko untuk urutan "Terdekat" (maks 300 id per permintaan). Server
+/// menghitung bertahap: id yang belum selesai dikembalikan `pending`, pemanggil menanyakan lagi.
+final jobDistancesCallerProvider = Provider<Future<JobDistancesResult> Function(List<String> jobIds)>((ref) {
+  return (jobIds) async {
+    final r = await _api.post('/technician-jobs/distances', body: {'jobIds': jobIds});
+    return JobDistancesResult.fromJson(Map<String, dynamic>.from(r as Map));
   };
 });
 

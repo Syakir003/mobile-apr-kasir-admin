@@ -18,6 +18,8 @@ import '../../features/auth/login_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/jobs/job_detail_screen.dart';
 import '../../features/jobs/job_history_screen.dart';
+import '../../features/jobs/job_list_pdf.dart' show PrintStatus;
+import '../../features/jobs/job_list_print_screen.dart';
 import '../../features/jobs/job_list_screen.dart';
 import '../../features/jobs/material_requests_admin_screen.dart';
 import '../../features/reminders/reminder_schedule_screen.dart';
@@ -233,6 +235,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/jobs',
             builder: (_, __) => const JobListScreen(),
             routes: [
+              // Statis: WAJIB sebelum ':id'. Nilai awal filter dibawa dari layar daftar lewat query.
+              GoRoute(
+                path: 'print-list',
+                builder: (_, state) {
+                  final q = state.uri.queryParameters;
+                  return JobListPrintScreen(
+                    initialFrom: q['from'] ?? '',
+                    initialTo: q['to'] ?? '',
+                    initialStatus: PrintStatus.parse(q['status']),
+                    initialQuery: q['q'] ?? '',
+                  );
+                },
+              ),
               GoRoute(
                 path: ':id',
                 builder: (_, state) => JobDetailScreen(

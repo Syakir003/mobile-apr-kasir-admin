@@ -31,6 +31,8 @@ const _kasirAdminPrefixes = [
   '/pos',
   '/transactions',
   '/orders',
+  // Cetak daftar pekerjaan servis: admin & kasir (sama dengan web; teknisi hanya melihat jobnya sendiri).
+  '/jobs/print-list',
   // Antrean pengingat memuat nama, nomor HP, dan alamat pelanggan — tertutup
   // dari teknisi, sama seperti RLS `wa_outbox` di migrasi 0023.
   '/pengingat',
