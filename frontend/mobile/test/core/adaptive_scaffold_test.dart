@@ -3,6 +3,28 @@ import 'package:epos_ac/core/widgets/adaptive_scaffold.dart';
 import 'package:epos_ac/data/models/app_user.dart';
 
 void main() {
+  group('menuSectionsFor', () {
+    test('admin: grup ala web memuat setiap destinasi tepat satu kali', () {
+      final sections = menuSectionsFor(UserRole.admin);
+      final routes = [for (final s in sections) for (final d in s.items) d.route];
+      expect(routes.toSet(),
+          destinationsForRole(UserRole.admin).map((d) => d.route).toSet());
+      expect(routes.length, routes.toSet().length);
+      expect(
+        sections.where((s) => s.label != null).map((s) => s.label),
+        ['Penjualan', 'Servis AC', 'Pelanggan', 'Stok & Gudang', 'Data Master', 'Pengaturan'],
+      );
+    });
+
+    test('role lain tetap datar tanpa grup', () {
+      for (final role in [UserRole.kasir, UserRole.teknisi, UserRole.gudang]) {
+        final sections = menuSectionsFor(role);
+        expect(sections.length, 1);
+        expect(sections.single.label, isNull);
+      }
+    });
+  });
+
   group('destinationsForRole', () {
     test(
         'admin melihat 23 destinasi termasuk Pengajuan, Pengingat, Voucher, Undian, '

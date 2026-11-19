@@ -76,9 +76,13 @@ void main() {
     await tester.tap(find.text('Lainnya'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Pengingat'), findsOneWidget);
+    // Grup bersifat accordion seperti web: tertutup sampai header diketuk.
+    expect(find.text('Pengingat WA'), findsNothing);
+    await tester.tap(find.text('Pelanggan'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pengingat WA'), findsOneWidget);
 
-    // Item terakhir (Profil, ke-15 di overflow) harus terjangkau lewat scroll
+    // Item terakhir (Profil) harus terjangkau lewat scroll
     // — bukan cuma yang kebetulan muat di layar pertama.
     await tester.dragUntilVisible(
       find.text('Profil'),
@@ -160,6 +164,8 @@ void main() {
     expect(find.text('layar /laporan'), findsOneWidget);
 
     await tester.tap(find.text('Lainnya'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Penjualan'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Voucher'));
     await tester.pumpAndSettle();

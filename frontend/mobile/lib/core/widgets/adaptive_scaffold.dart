@@ -142,6 +142,65 @@ int selectedIndexFor(List<Destination> destinations, String location) {
   return best;
 }
 
+/// Satu bagian menu: grup yang bisa dibuka-tutup (label != null) atau item
+/// lepas (label == null). Dipakai sidebar dan sheet "Lainnya".
+typedef MenuSection = ({String? label, IconData? icon, List<Destination> items});
+
+/// Menu bergrup yang mengikuti sidebar web (nav-config.ts). Web hanya
+/// mengelompokkan admin; role lain tetap datar. Label di sini boleh beda dari
+/// `destinationsForRole` (yang dipakai bottom bar sempit) supaya sama dengan web.
+List<MenuSection> menuSectionsFor(UserRole? role) {
+  final dests = destinationsForRole(role);
+  if (role != UserRole.admin) return [(label: null, icon: null, items: dests)];
+
+  Destination d(String route, [String? label]) {
+    final base = dests.firstWhere((x) => x.route == route);
+    return label == null ? base : (icon: base.icon, label: label, route: route);
+  }
+
+  MenuSection leaf(String route) => (label: null, icon: null, items: [d(route)]);
+  MenuSection group(String label, IconData icon, List<Destination> items) =>
+      (label: label, icon: icon, items: items);
+
+  return [
+    leaf('/'),
+    group('Penjualan', Icons.shopping_cart_outlined, [
+      d('/pos', 'Kasir (POS)'),
+      d('/transactions', 'Riwayat Transaksi'),
+      d('/voucher'),
+      d('/undian'),
+    ]),
+    group('Servis AC', Icons.handyman_outlined, [
+      d('/jobs', 'Antrian Servis'),
+      d('/orders', 'Order Servis'),
+      d('/pengajuan', 'Permintaan Material'),
+      d('/scan', 'Scan Unit'),
+    ]),
+    group('Pelanggan', Icons.favorite_border, [
+      d('/members'),
+      d('/pengingat', 'Pengingat WA'),
+    ]),
+    group('Stok & Gudang', Icons.warehouse_outlined, [
+      d('/keluar-gudang', 'Keluar Gudang (Scan)'),
+      d('/stok'),
+      d('/koreksi-unit'),
+    ]),
+    group('Data Master', Icons.storage_outlined, [
+      d('/products', 'Produk AC'),
+      d('/spareparts'),
+      d('/services'),
+      d('/packages', 'Paket Instalasi'),
+    ]),
+    leaf('/laporan'),
+    group('Pengaturan', Icons.settings_outlined, [
+      d('/users', 'Pengguna'),
+      d('/data-lampau', 'Input Data Lampau'),
+      d('/audit', 'Log Audit'),
+    ]),
+    leaf('/profile'),
+  ];
+}
+
 String _roleLabel(UserRole? role) => switch (role) {
       UserRole.admin => 'Admin',
       UserRole.kasir => 'Kasir',
@@ -180,20 +239,22 @@ class AdaptiveScaffold extends ConsumerWidget {
         // tombol back Android kembali ke menu sebelumnya sesuai urutan
         // kunjungan, bukan langsung keluar app. Dijaga dari push duplikat
         // kalau menu yang sama ditekan lagi saat sudah aktif.
-        void onSelected(int index) {
-          final route = destinations[index].route;
+        void onRoute(String route) {
           if (location != route) context.push(route);
         }
 
+        void onSelected(int index) => onRoute(destinations[index].route);
+
+        final sections = menuSectionsFor(role);
         final wide = MediaQuery.sizeOf(context).width >= 800;
         if (wide) {
           return Scaffold(
             body: Row(
               children: [
                 _Sidebar(
-                  destinations: destinations,
-                  selectedIndex: selectedIndex,
-                  onSelected: onSelected,
+                  sections: sections,
+                  selectedRoute: destinations[selectedIndex].route,
+                  onRoute: onRoute,
                   user: user,
                   onLogout: () => ref.read(authRepositoryProvider).signOut(),
                 ),
@@ -208,6 +269,8 @@ class AdaptiveScaffold extends ConsumerWidget {
             destinations: destinations,
             selectedIndex: selectedIndex,
             onSelected: onSelected,
+            sections: sections,
+            onRoute: onRoute,
           ),
         );
       },
@@ -223,11 +286,15 @@ class _MobileNav extends StatelessWidget {
     required this.destinations,
     required this.selectedIndex,
     required this.onSelected,
+    required this.sections,
+    required this.onRoute,
   });
 
   final List<Destination> destinations;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final List<MenuSection> sections;
+  final ValueChanged<String> onRoute;
 
   /// Jumlah destinasi utama sebelum digantikan tab "Lainnya".
   static const _maxPrimary = 4;
@@ -274,69 +341,91 @@ class _MobileNav extends StatelessWidget {
   }
 
   void _openMore(BuildContext context) {
-    final overflow = destinations.skip(_maxPrimary).toList();
-    final selectedInOverflow = selectedIndex - _maxPrimary;
+    final selectedRoute = destinations[selectedIndex].route;
     showModalBottomSheet<void>(
       context: context,
-      // Admin punya sampai 15 item overflow — tanpa ini sheet dibatasi 9/16
-      // tinggi layar dan Column-nya (tidak scroll) meluber, jadi separuh menu
-      // tidak bisa dijangkau sama sekali.
+      // Admin punya 23 menu — tanpa ini sheet dibatasi 9/16 tinggi layar dan
+      // Column-nya (tidak scroll) meluber, jadi sebagian menu tak terjangkau.
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 10),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.slate200,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
+      builder: (sheetContext) {
+        void go(String route) {
+          Navigator.of(sheetContext).pop();
+          onRoute(route);
+        }
+
+        Widget tile(Destination d, {bool nested = false}) {
+          final selected = d.route == selectedRoute;
+          return ListTile(
+            dense: nested,
+            contentPadding: EdgeInsets.only(left: nested ? 40 : 16, right: 16),
+            leading: Icon(
+              d.icon,
+              size: nested ? 20 : null,
+              color: selected ? AppColors.teal700 : AppColors.slate500,
+            ),
+            title: Text(
+              d.label,
+              style: TextStyle(
+                color: selected ? AppColors.teal700 : AppColors.slate900,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 6),
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  for (var i = 0; i < overflow.length; i++)
-                    ListTile(
-                      leading: Icon(
-                        overflow[i].icon,
-                        color: i == selectedInOverflow
-                            ? AppColors.teal700
-                            : AppColors.slate500,
-                      ),
-                      title: Text(
-                        overflow[i].label,
-                        style: TextStyle(
-                          color: i == selectedInOverflow
-                              ? AppColors.teal700
-                              : AppColors.slate900,
-                          fontWeight: i == selectedInOverflow
-                              ? FontWeight.w600
-                              : FontWeight.w500,
+            selected: selected,
+            selectedTileColor: AppColors.teal50,
+            onTap: () => go(d.route),
+          );
+        }
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.slate200,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final s in sections)
+                      if (s.label == null)
+                        for (final d in s.items) tile(d)
+                      else
+                        // Grup yang berisi halaman aktif terbuka dulu, seperti web.
+                        ExpansionTile(
+                          shape: const Border(),
+                          collapsedShape: const Border(),
+                          initiallyExpanded:
+                              s.items.any((d) => d.route == selectedRoute),
+                          leading: Icon(s.icon, color: AppColors.slate500),
+                          title: Text(
+                            s.label!,
+                            style: const TextStyle(
+                              color: AppColors.slate900,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          children: [for (final d in s.items) tile(d, nested: true)],
                         ),
-                      ),
-                      selected: i == selectedInOverflow,
-                      selectedTileColor: AppColors.teal50,
-                      onTap: () {
-                        Navigator.of(sheetContext).pop();
-                        onSelected(_maxPrimary + i);
-                      },
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -344,16 +433,16 @@ class _MobileNav extends StatelessWidget {
 /// Sidebar bergaya desain Figma: header logo, menu per-role, footer user.
 class _Sidebar extends StatelessWidget {
   const _Sidebar({
-    required this.destinations,
-    required this.selectedIndex,
-    required this.onSelected,
+    required this.sections,
+    required this.selectedRoute,
+    required this.onRoute,
     required this.user,
     required this.onLogout,
   });
 
-  final List<Destination> destinations;
-  final int selectedIndex;
-  final ValueChanged<int> onSelected;
+  final List<MenuSection> sections;
+  final String selectedRoute;
+  final ValueChanged<String> onRoute;
   final AppUser? user;
   final VoidCallback onLogout;
 
@@ -361,7 +450,8 @@ class _Sidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     // Sidebar teal dengan sudut kanan membulat 32px dan bayangan ke arah
     // konten — mengikuti frame `SideNavBar` (10:267) pada desain.
-    final showCta = destinations.any((d) => d.route == '/pos');
+    final routes = [for (final s in sections) for (final d in s.items) d.route];
+    final showCta = routes.contains('/pos');
 
     return Container(
       width: 260,
@@ -441,11 +531,9 @@ class _Sidebar extends StatelessWidget {
                 color: AppColors.navAccent,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
                 child: InkWell(
-                  // Lewat onSelected (bukan context.go langsung) supaya ikut
+                  // Lewat onRoute (bukan context.go langsung) supaya ikut
                   // masuk back stack seperti menu lain.
-                  onTap: () => onSelected(
-                    destinations.indexWhere((d) => d.route == '/pos'),
-                  ),
+                  onTap: () => onRoute('/pos'),
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                   child: const Padding(
                     padding:
@@ -495,12 +583,11 @@ class _Sidebar extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.only(left: 8, top: 6, bottom: 10),
                 children: [
-                  for (var i = 0; i < destinations.length; i++)
-                    _SidebarItem(
-                      destination: destinations[i],
-                      selected: i == selectedIndex,
-                      onTap: () => onSelected(i),
-                    ),
+                  _SidebarMenu(
+                    sections: sections,
+                    selectedRoute: selectedRoute,
+                    onRoute: onRoute,
+                  ),
                 ],
               ),
             ),
@@ -520,9 +607,7 @@ class _Sidebar extends StatelessWidget {
                   label: user?.displayName.isNotEmpty == true
                       ? user!.displayName
                       : 'Profil',
-                  onTap: () => onSelected(
-                    destinations.indexWhere((d) => d.route == '/profile'),
-                  ),
+                  onTap: () => onRoute('/profile'),
                 ),
                 _SidebarAction(
                   icon: Icons.logout,
@@ -587,16 +672,167 @@ class _SidebarAction extends StatelessWidget {
   }
 }
 
+/// Daftar menu sidebar: grup accordion (seperti sidebar web) dan item lepas.
+/// Grup yang berisi halaman aktif otomatis terbuka.
+class _SidebarMenu extends StatefulWidget {
+  const _SidebarMenu({
+    required this.sections,
+    required this.selectedRoute,
+    required this.onRoute,
+  });
+
+  final List<MenuSection> sections;
+  final String selectedRoute;
+  final ValueChanged<String> onRoute;
+
+  @override
+  State<_SidebarMenu> createState() => _SidebarMenuState();
+}
+
+class _SidebarMenuState extends State<_SidebarMenu> {
+  final _open = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _openActiveGroup();
+  }
+
+  @override
+  void didUpdateWidget(_SidebarMenu old) {
+    super.didUpdateWidget(old);
+    if (old.selectedRoute != widget.selectedRoute) _openActiveGroup();
+  }
+
+  void _openActiveGroup() {
+    for (final s in widget.sections) {
+      if (s.label != null &&
+          s.items.any((d) => d.route == widget.selectedRoute)) {
+        _open.add(s.label!);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (final s in widget.sections)
+          if (s.label == null)
+            for (final d in s.items)
+              _SidebarItem(
+                destination: d,
+                selected: d.route == widget.selectedRoute,
+                onTap: () => widget.onRoute(d.route),
+              )
+          else
+            _SidebarGroup(
+              label: s.label!,
+              icon: s.icon!,
+              open: _open.contains(s.label),
+              hasActive: s.items.any((d) => d.route == widget.selectedRoute),
+              onToggle: () => setState(() {
+                if (!_open.remove(s.label)) _open.add(s.label!);
+              }),
+              children: [
+                for (final d in s.items)
+                  _SidebarItem(
+                    destination: d,
+                    selected: d.route == widget.selectedRoute,
+                    onTap: () => widget.onRoute(d.route),
+                    indent: 20,
+                  ),
+              ],
+            ),
+      ],
+    );
+  }
+}
+
+/// Header grup yang bisa dibuka-tutup beserta anak-anaknya.
+class _SidebarGroup extends StatelessWidget {
+  const _SidebarGroup({
+    required this.label,
+    required this.icon,
+    required this.open,
+    required this.hasActive,
+    required this.onToggle,
+    required this.children,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool open;
+  final bool hasActive;
+  final VoidCallback onToggle;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = hasActive ? Colors.white : AppColors.navMuted;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: InkWell(
+            onTap: onToggle,
+            borderRadius: const BorderRadius.horizontal(
+              left: Radius.circular(AppRadius.pill),
+            ),
+            hoverColor: Colors.white.withValues(alpha: 0.06),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(icon, size: 18, color: fg),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: AppFonts.display,
+                        fontSize: 15,
+                        height: 20 / 15,
+                        fontWeight: FontWeight.w500,
+                        color: fg,
+                      ),
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: open ? 0.5 : 0,
+                    duration: AppDurations.base,
+                    child: Icon(Icons.expand_more, size: 18, color: fg),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        AnimatedSize(
+          duration: AppDurations.base,
+          curve: AppCurves.standard,
+          alignment: Alignment.topCenter,
+          child: open ? Column(children: children) : const SizedBox(width: double.infinity),
+        ),
+      ],
+    );
+  }
+}
+
 class _SidebarItem extends StatelessWidget {
   const _SidebarItem({
     required this.destination,
     required this.selected,
     required this.onTap,
+    this.indent = 0,
   });
 
   final Destination destination;
   final bool selected;
   final VoidCallback onTap;
+  final double indent;
 
   @override
   Widget build(BuildContext context) {
@@ -625,7 +861,7 @@ class _SidebarItem extends StatelessWidget {
             borderRadius: shape,
             hoverColor: Colors.white.withValues(alpha: 0.06),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              padding: EdgeInsets.fromLTRB(24 + indent, 12, 24, 12),
               child: Row(
                 children: [
                   AnimatedScale(
