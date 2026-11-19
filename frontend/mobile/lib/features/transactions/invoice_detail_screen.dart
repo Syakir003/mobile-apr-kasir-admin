@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:printing/printing.dart';
@@ -11,7 +12,10 @@ import 'delivery_note_pdf.dart';
 import 'invoice_pdf.dart';
 import 'invoice_providers.dart';
 import 'payment_form_sheet.dart';
+import 'receipt_escpos.dart';
 import 'receipt_pdf.dart';
+import 'thermal_printer.dart';
+import '../members/member_providers.dart' show membersStreamProvider;
 import '../../core/utils/error_message.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
@@ -100,6 +104,19 @@ class InvoiceDetailScreen extends ConsumerWidget {
                   label: const Text('Bagikan Struk'),
                 ),
               ),
+              // Printer thermal 58mm lewat Bluetooth (padanan "Cetak ke Thermal" di web): hanya di Android.
+              if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 50,
+                  child: OutlinedButton.icon(
+                    key: const Key('print-thermal'),
+                    onPressed: () => _printThermal(context, ref, invoice),
+                    icon: const Icon(Icons.bluetooth_outlined),
+                    label: const Text('Cetak Thermal'),
+                  ),
+                ),
+              ],
               const SizedBox(height: 10),
               SizedBox(
                 height: 50,
@@ -174,6 +191,23 @@ Future<void> _shareReceipt(
   } catch (e) {
     messenger.showSnackBar(SnackBar(
       content: Text('Gagal menyiapkan struk: ${errorMessage(e)}'),
+      backgroundColor: AppColors.danger,
+    ));
+  }
+}
+
+/// Cetak struk langsung ke printer thermal 58mm lewat Bluetooth.
+Future<void> _printThermal(BuildContext context, WidgetRef ref, Invoice invoice) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final address = ref.read(membersStreamProvider).value?.where((m) => m.id == invoice.memberId).firstOrNull?.address;
+  try {
+    await printThermal(context, buildReceiptBytes(ReceiptEscPos.fromInvoice(invoice, address: address)));
+    messenger.showSnackBar(const SnackBar(content: Text('Struk dikirim ke printer.')));
+  } on ThermalPrintException catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text(e.message), backgroundColor: AppColors.danger));
+  } catch (e) {
+    messenger.showSnackBar(SnackBar(
+      content: Text('Gagal mencetak ke printer thermal: ${errorMessage(e)}'),
       backgroundColor: AppColors.danger,
     ));
   }
