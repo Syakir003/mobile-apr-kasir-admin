@@ -511,6 +511,16 @@ class _ServiceOrderCreateScreenState
                   icon: const Icon(Icons.delete_outline),
                 ),
             ]),
+            // Sama dengan web: salin alamat utama + link Maps pelanggan ke titik ini.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: Key('order-loc-copy-$i'),
+                onPressed: _busy ? null : () => _copyCustomerLocation(i),
+                icon: const Icon(Icons.copy_outlined, size: 16),
+                label: const Text('Samakan dengan alamat pelanggan'),
+              ),
+            ),
             TextField(
               key: Key('order-loc-address-$i'),
               controller: l.address,
@@ -539,10 +549,38 @@ class _ServiceOrderCreateScreenState
               enabled: !_busy,
               decoration: const InputDecoration(labelText: 'Link Google Maps (opsional)', isDense: true),
             ),
+            const SizedBox(height: 6),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Alamat dan link boleh diketik biasa (nama daerah atau tempat pun cukup): tombol Buka di Maps di halaman '
+                'job membuka linknya, atau mencari teks yang diketik. Dikosongkan = ikut alamat utama pelanggan.',
+                style: TextStyle(fontSize: 12.5, color: AppColors.slate500),
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  /// Salin alamat utama pelanggan (member terpilih, atau yang sedang diketik untuk pelanggan baru) dan link Maps-nya
+  /// ke titik lokasi [i].
+  void _copyCustomerLocation(int i) {
+    final member = _newCustomer
+        ? null
+        : (ref.read(membersStreamProvider).value ?? const <Member>[]).where((m) => m.id == _memberId).firstOrNull;
+    final address = _newCustomer ? _address.text : (member?.address ?? '');
+    if (address.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Alamat pelanggan belum ada. Pilih member atau isi alamat pelanggan dulu.'),
+      ));
+      return;
+    }
+    setState(() {
+      _locations[i].address.text = address;
+      _locations[i].maps.text = member?.mapsUrl ?? '';
+    });
   }
 
   Widget _newUnitCard(int i) {

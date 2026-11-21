@@ -1366,7 +1366,7 @@ class _InfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maps = mapsUriFor(job);
-    // Baris tanpa isi (Ruangan, Barcode belum ada, Lokasi tanpa tautan) tidak ditampilkan: sebelumnya tabel 8 baris
+    // Baris tanpa isi (No. HP, Alamat, Lokasi tanpa tautan) tidak ditampilkan: sebelumnya tabel 8 baris
     // berisi "-" menghabiskan layar pertama.
     final rows = <Widget>[
       _row('Pelanggan', job.memberName.isEmpty ? '-' : job.memberName),
@@ -1376,7 +1376,8 @@ class _InfoCard extends StatelessWidget {
       if (showUnit && job.unitId != null) ...[
         _row('Unit AC', job.unitTitle.isEmpty ? '-' : job.unitTitle),
         if (job.unitParts.isNotEmpty) _row('Unit dalam paket', job.unitParts),
-        if (job.unitRoom.isNotEmpty) _row('Ruangan', job.unitRoom),
+        // Ruangan selalu tampil ("-" bila kosong), seperti Detail Unit di web.
+        _row('Ruangan', job.unitRoom.isEmpty ? '-' : job.unitRoom),
         _row('Barcode', job.unitBarcode.isEmpty ? 'Belum digenerate' : job.unitBarcode),
       ],
       // Titik lokasi kerja bila berbeda dari alamat pelanggan (sama dengan baris "Lokasi kerja" di web).
