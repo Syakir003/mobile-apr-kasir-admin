@@ -170,4 +170,55 @@ void main() {
       expect(find.byKey(const ValueKey('after-locked-sesudah')), findsNothing);
     });
   });
+  group('bar aksi bawah (teknisi)', () {
+    Finder inBar(Finder f) => find.descendant(of: find.byKey(const Key('job-action-bar')), matching: f);
+
+    testWidgets('Ditugaskan tanpa foto sebelum: tombol Mulai di bar, nonaktif, dengan alasan', (tester) async {
+      tall(tester);
+      await tester.pumpWidget(_app(_job(), findings: const [JobFinding(id: 'f1', title: 'Bocor')]));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mengerti'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('job-action-bar')), findsOneWidget);
+      expect(inBar(find.text('Mulai Pekerjaan')), findsOneWidget);
+      expect(inBar(find.textContaining('foto SEBELUM')), findsOneWidget);
+      expect(tester.widget<FilledButton>(inBar(find.byType(FilledButton))).onPressed, isNull);
+      // Tidak digandakan di isi halaman.
+      expect(find.text('Mulai Pekerjaan'), findsOneWidget);
+    });
+
+    testWidgets('sudah ada foto sebelum: tombol Mulai aktif tanpa alasan', (tester) async {
+      tall(tester);
+      await tester.pumpWidget(_app(_job(waived: true),
+          findings: const [JobFinding(id: 'f1', title: 'Bocor', photos: [_before])]));
+      await tester.pumpAndSettle();
+      expect(tester.widget<FilledButton>(inBar(find.byType(FilledButton))).onPressed, isNotNull);
+      expect(inBar(find.byType(Text)).evaluate().length, 1); // hanya label tombol
+    });
+
+    testWidgets('slot: bar berisi Scan Unit AC', (tester) async {
+      tall(tester);
+      await tester.pumpWidget(_app(_job(unitId: null)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mengerti'));
+      await tester.pumpAndSettle();
+      expect(inBar(find.text('Scan Unit AC')), findsOneWidget);
+    });
+
+    testWidgets('sedang dikerjakan: bar berisi Ajukan Selesai', (tester) async {
+      tall(tester);
+      await tester.pumpWidget(_app(_job(status: JobStatus.sedangDikerjakan),
+          findings: const [JobFinding(id: 'f1', title: 'Bocor', photos: [_before])]));
+      await tester.pumpAndSettle();
+      expect(inBar(find.text('Ajukan Selesai')), findsOneWidget);
+    });
+
+    testWidgets('selesai: tanpa bar', (tester) async {
+      tall(tester);
+      await tester.pumpWidget(_app(_job(status: JobStatus.selesai)));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('job-action-bar')), findsNothing);
+    });
+  });
 }

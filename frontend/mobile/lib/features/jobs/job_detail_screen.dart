@@ -454,6 +454,9 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         if (ref.watch(jobProvider(id)).value case final j?) j,
     ];
 
+    // Bar aksi teknisi (Mulai/Ajukan) menempel di bawah layar. Diisi saat `body` dievaluasi, lalu dibaca oleh
+    // `bottomNavigationBar` (argumen bernama dievaluasi sesuai urutan penulisan: body harus di atasnya).
+    Widget? bar;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detail Job'),
@@ -501,8 +504,13 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             _keterangan.text = job.technicianNote!;
             _keteranganInit = true;
           }
-          if (job.siblingIds.isNotEmpty) return _multiUnitBody(job, role);
+          if (job.siblingIds.isNotEmpty) {
+            final r = _multiUnitBody(job, role);
+            bar = r.bar;
+            return r.body;
+          }
           final findings = ref.watch(jobFindingsProvider(job.id)).value;
+          if (role == UserRole.teknisi) bar = _singleBar(job, findings);
           if (role == UserRole.teknisi) {
             _maybeRemind([job], (j) => findings?.any((f) => f.hasBefore), multi: false);
           }
@@ -587,7 +595,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
                         job.status == JobStatus.sedangDikerjakan),
               ),
               const SizedBox(height: 20),
-              ..._actions(job, role, findings),
+              ..._actions(job, role),
               if (role == UserRole.admin)
                 EditOrderButton(jobs: [job], onSaved: () => ref.invalidate(jobProvider(job.id))),
               if (role == UserRole.admin)
@@ -600,12 +608,13 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           );
         },
       ),
+      bottomNavigationBar: bar,
     );
   }
 
   /// Servis banyak AC: satu halaman per order, section per unit; satu panel Mulai (scan tiap unit),
   /// satu Ajukan Selesai, satu pengajuan sparepart (sama dengan halaman web).
-  Widget _multiUnitBody(TechnicianJob first, UserRole? role) {
+  ({Widget body, Widget? bar}) _multiUnitBody(TechnicianJob first, UserRole? role) {
     final ids = [first.id, ...first.siblingIds];
     final all = <TechnicianJob>[];
     for (final id in ids) {
@@ -707,7 +716,55 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           _ => (j.status.label, false),
         };
 
-    return ListView(
+    // Bar aksi bawah: satu tombol utama + satu baris alasan bila belum bisa.
+    Widget? bar;
+    if (isTeknisi && notStarted.isNotEmpty) {
+      if (slotCount > 0 || notStarted.any((j) => !j.isSlot && !j.startScanWaived)) {
+        final hint = notStarted.any((j) => j.unitAwaitingData)
+            ? 'Data unit AC belum dilengkapi (QR dulu).'
+            : slotCount > 0
+                ? 'Scan barcode AC di lokasi untuk memasukkannya ke pekerjaan ($slotCount slot belum terisi). '
+                    'Ajukan Selesai baru bisa setelah semua slot terisi atau dibatalkan.'
+                : (startable.isEmpty && startWithoutScan.isEmpty)
+                    ? 'Tambah temuan dan unggah foto SEBELUM di tiap unit dulu untuk memulai pekerjaan.'
+                    : null;
+        bar = _actionBar(
+          hint: hint,
+          icon: Icons.qr_code_scanner,
+          label: slotCount > 0
+              ? 'Scan unit & Mulai Job ($scannedCount/${active.length} unit discan)'
+              : 'Mulai Pekerjaan ($scannedCount/${active.length} unit discan)',
+          onPressed: slotCount > 0
+              ? () => _scanWithSlots(holder, startable, active, ids, [
+                    for (final j in notStarted)
+                      (
+                        label: unitName(j),
+                        hint: startable.contains(j) || startWithoutScan.contains(j) ? null : whyNotStartable(j)
+                      ),
+                  ])
+              : startable.isEmpty
+                  ? null
+                  : () => _startUnit(startable, [
+                        for (final j in notStarted)
+                          (label: unitName(j), hint: startable.contains(j) ? null : whyNotStartable(j)),
+                      ]),
+        );
+      }
+    } else if (isTeknisi && working.isNotEmpty) {
+      final stuck = working.where((j) => blockerOf(j) != null).toList();
+      bar = _actionBar(
+        hint: canSubmitAll
+            ? null
+            : stuck.isEmpty
+                ? 'Memuat data unit…'
+                : '${unitName(stuck.first)}: ${blockerOf(stuck.first)}',
+        icon: Icons.check_circle_outline,
+        label: 'Ajukan Selesai (${working.length} unit)',
+        onPressed: canSubmitAll ? () => _submitAll(first, holder, ids) : null,
+      );
+    }
+
+    final body = ListView(
       padding: const EdgeInsets.all(16),
       children: [
         _OrderHeaderCard(
@@ -773,53 +830,12 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         // Keterangan: satu untuk seluruh order, dikirim lewat job aktif mana pun (holder).
         ..._keteranganSection(current: first, host: holder, editable: isTeknisi && holders.isNotEmpty),
         const SizedBox(height: 20),
+        // Tombol utama (Mulai/Ajukan) ada di bar bawah layar; di sini hanya yang pendukung.
         if (isTeknisi && notStarted.isNotEmpty) ...[
           if (notStarted.any((j) => j.unitAwaitingData)) ...[
             _awaitingDataPanel(),
             const SizedBox(height: 10),
-          ] else if (slotCount > 0) ...[
-            NoticePanel(
-              tone: NoticeTone.warning,
-              icon: Icons.qr_code_scanner,
-              text:
-                  'Scan barcode AC di lokasi untuk memasukkannya ke pekerjaan ($slotCount slot belum terisi). '
-                  'Ajukan Selesai baru bisa setelah semua slot terisi atau dibatalkan.',
-            ),
-            const SizedBox(height: 10),
-          ] else if (startable.isEmpty && startWithoutScan.isEmpty) ...[
-            const NoticePanel(
-              tone: NoticeTone.warning,
-              icon: Icons.lock_outline,
-              text: 'Tambah temuan dan unggah foto SEBELUM di tiap unit dulu untuk memulai pekerjaan.',
-            ),
-            const SizedBox(height: 10),
           ],
-          if (slotCount > 0 || notStarted.any((j) => !j.isSlot && !j.startScanWaived))
-            _primaryButton(
-              icon: Icons.qr_code_scanner,
-              label: slotCount > 0
-                  ? 'Scan unit & Mulai Job ($scannedCount/${active.length} unit discan)'
-                  : 'Mulai Pekerjaan ($scannedCount/${active.length} unit discan)',
-              onPressed: slotCount > 0
-                  ? () => _scanWithSlots(holder, startable, active, ids, [
-                        for (final j in notStarted)
-                          (
-                            label: unitName(j),
-                            hint: startable.contains(j) || startWithoutScan.contains(j)
-                                ? null
-                                : whyNotStartable(j)
-                          ),
-                      ])
-                  : startable.isEmpty
-                      ? null
-                      : () => _startUnit(startable, [
-                            for (final j in notStarted)
-                              (
-                                label: unitName(j),
-                                hint: startable.contains(j) ? null : whyNotStartable(j)
-                              ),
-                          ]),
-            ),
           for (final j in startWithoutScan)
             Padding(
               padding: const EdgeInsets.only(top: 10),
@@ -832,25 +848,6 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             ),
           if (addUnitHost != null) _addUnitButton(addUnitHost),
         ] else if (isTeknisi && working.isNotEmpty) ...[
-          if (!canSubmitAll)
-            ...() {
-              final stuck = working.where((j) => blockerOf(j) != null).toList();
-              return [
-                NoticePanel(
-                  tone: NoticeTone.warning,
-                  icon: Icons.hourglass_empty,
-                  text: stuck.isEmpty
-                      ? 'Memuat data unit…'
-                      : '${unitName(stuck.first)}: ${blockerOf(stuck.first)}',
-                ),
-                const SizedBox(height: 10),
-              ];
-            }(),
-          _primaryButton(
-            icon: Icons.check_circle_outline,
-            label: 'Ajukan Selesai (${working.length} unit)',
-            onPressed: canSubmitAll ? () => _submitAll(first, holder, ids) : null,
-          ),
           if (addUnitHost != null) _addUnitButton(addUnitHost),
         ] else if (active.isNotEmpty)
           _StatusHint(status: active.first.status),
@@ -871,6 +868,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           ),
       ],
     );
+    return (body: body, bar: bar);
   }
 
   /// Kartu Keterangan teknisi (kosong bila tidak bisa diedit dan memang belum ada isinya).
@@ -926,64 +924,20 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         ],
       );
 
-  List<Widget> _actions(TechnicianJob job, UserRole? role, List<JobFinding>? loaded) {
-    final findings = loaded ?? const <JobFinding>[];
-    final hasBefore = findings.any((f) => f.hasBefore);
+  List<Widget> _actions(TechnicianJob job, UserRole? role) {
     final isTeknisi = role == UserRole.teknisi;
     final isAdmin = role == UserRole.admin;
     final isKasir = role == UserRole.kasir;
     final widgets = <Widget>[];
 
-    // Teknisi: mulai / selesaikan job miliknya.
+    // Teknisi: tombol utama (Mulai / Scan Unit AC / Ajukan Selesai) ada di bar bawah layar (`_singleBar`); di sini
+    // hanya panel pendukung dan Tambah Unit.
+    var barShown = false;
     if (isTeknisi) {
-      if (job.status == JobStatus.assigned && job.isSlot) {
-        // Slot: scan barcode AC di lokasi memasukkan unitnya ke pekerjaan ini (bukan Mulai Job).
-        widgets.add(_primaryButton(
-          icon: Icons.qr_code_scanner,
-          label: 'Scan Unit AC',
-          onPressed: () => _claimSlot(job, [job.id, ...job.siblingIds]),
-        ));
-      } else if (job.status == JobStatus.assigned) {
-        // Server mewajibkan: unit ber-barcode, minimal satu foto SEBELUM pada temuan.
-        final noBarcode = job.unitId == null || job.unitBarcode.isEmpty;
-        if (job.unitAwaitingData) {
-          widgets.add(_awaitingDataPanel(printFor: job.unitId == null ? null : job));
-          widgets.add(const SizedBox(height: 10));
-        } else if (noBarcode) {
-          widgets.add(const NoticePanel(
-            tone: NoticeTone.warning,
-            icon: Icons.lock_outline,
-            text: 'Unit pada job ini belum punya barcode. Hubungi admin.',
-          ));
-          widgets.add(const SizedBox(height: 10));
-        } else if (!hasBefore) {
-          widgets.add(const NoticePanel(
-            tone: NoticeTone.warning,
-            icon: Icons.lock_outline,
-            text: 'Tambah temuan dan unggah foto SEBELUM dulu untuk memulai pekerjaan.',
-          ));
-          widgets.add(const SizedBox(height: 10));
-        }
-        widgets.add(_primaryButton(
-          icon: Icons.qr_code_scanner,
-          label: 'Mulai Pekerjaan',
-          onPressed: (hasBefore && !noBarcode && !job.unitAwaitingData) ? () => _start(job) : null,
-        ));
-      } else if (job.status == JobStatus.sedangDikerjakan) {
-        final blocked = loaded == null ? null : submitBlockedReason(job, findings);
-        if (blocked != null) {
-          widgets.add(NoticePanel(
-            tone: NoticeTone.warning,
-            icon: Icons.hourglass_empty,
-            text: blocked,
-          ));
-          widgets.add(const SizedBox(height: 10));
-        }
-        widgets.add(_primaryButton(
-          icon: Icons.check_circle_outline,
-          label: 'Ajukan Selesai',
-          onPressed: (loaded != null && blocked == null) ? () => _submitReview(job) : null,
-        ));
+      barShown = job.status == JobStatus.assigned || job.status == JobStatus.sedangDikerjakan;
+      if (job.status == JobStatus.assigned && !job.isSlot && job.unitAwaitingData) {
+        widgets.add(_awaitingDataPanel(printFor: job.unitId == null ? null : job));
+        widgets.add(const SizedBox(height: 10));
       }
       // Customer sering minta tambah AC begitu teknisi tiba (sebelum mulai) atau di tengah servis; pemasangan tidak.
       if (job.type != 'pemasangan' &&
@@ -1015,10 +969,88 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       ));
     }
 
-    if (widgets.isEmpty) {
+    if (widgets.isEmpty && !barShown) {
       widgets.add(_StatusHint(status: job.status));
     }
     return widgets;
+  }
+
+  /// Bar bawah layar berisi satu tombol utama dan (bila belum bisa) satu baris alasannya. Selalu terlihat tanpa scroll.
+  Widget _actionBar({
+    String? hint,
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+  }) {
+    return DecoratedBox(
+      key: const Key('job-action-bar'),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AppColors.hairline)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (hint != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(hint,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12.5, height: 1.3, color: AppColors.slate600)),
+                ),
+              _primaryButton(icon: icon, label: label, onPressed: onPressed),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Bar aksi teknisi untuk job satu unit: Mulai (Ditugaskan), Scan Unit AC (slot), atau Ajukan Selesai.
+  Widget? _singleBar(TechnicianJob job, List<JobFinding>? loaded) {
+    final findings = loaded ?? const <JobFinding>[];
+    if (job.status == JobStatus.assigned && job.isSlot) {
+      return _actionBar(
+        hint: 'Scan barcode AC di lokasi; unitnya otomatis masuk ke pekerjaan ini.',
+        icon: Icons.qr_code_scanner,
+        label: 'Scan Unit AC',
+        onPressed: () => _claimSlot(job, [job.id, ...job.siblingIds]),
+      );
+    }
+    if (job.status == JobStatus.assigned) {
+      // Server mewajibkan: unit ber-barcode, minimal satu foto SEBELUM pada temuan.
+      final noBarcode = job.unitId == null || job.unitBarcode.isEmpty;
+      final hasBefore = findings.any((f) => f.hasBefore);
+      final hint = job.unitAwaitingData
+          ? 'Data unit AC belum dilengkapi (QR dulu).'
+          : noBarcode
+              ? 'Unit pada job ini belum punya barcode. Hubungi admin.'
+              : !hasBefore
+                  ? 'Tambah temuan dan unggah foto SEBELUM dulu untuk memulai pekerjaan.'
+                  : null;
+      return _actionBar(
+        hint: hint,
+        icon: Icons.qr_code_scanner,
+        label: 'Mulai Pekerjaan',
+        onPressed: (hasBefore && !noBarcode && !job.unitAwaitingData) ? () => _start(job) : null,
+      );
+    }
+    if (job.status == JobStatus.sedangDikerjakan) {
+      final blocked = loaded == null ? null : submitBlockedReason(job, findings);
+      return _actionBar(
+        hint: blocked,
+        icon: Icons.check_circle_outline,
+        label: 'Ajukan Selesai',
+        onPressed: (loaded != null && blocked == null) ? () => _submitReview(job) : null,
+      );
+    }
+    return null;
   }
 
   Widget _primaryButton({
@@ -1141,18 +1173,8 @@ class _HeaderCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: AppColors.teal50,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                  child: const Icon(Icons.handyman_outlined,
-                      color: AppColors.teal700, size: 26),
-                ),
-                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1244,61 +1266,36 @@ class _JobSteps extends StatelessWidget {
     (JobStatus.selesai, 'Selesai'),
   ];
 
+  /// Empat segmen + satu baris teks ("Langkah 2 dari 4 · Dikerjakan"): tidak pernah pecah dua baris di layar sempit.
   @override
   Widget build(BuildContext context) {
     if (status == JobStatus.dibatalkan) return const SizedBox.shrink();
     final idx = status == JobStatus.menungguPenugasan
         ? -1
         : _steps.indexWhere((s) => s.$1 == status);
-    return Wrap(
+    // Selesai = semua segmen terisi; selain itu segmen aktif ikut terisi.
+    final filled = idx < 0 ? 0 : idx + 1;
+    final label = idx < 0 ? 'Menunggu penugasan' : 'Langkah ${idx + 1} dari ${_steps.length} · ${_steps[idx].$2}';
+    return Column(
       key: const Key('job-steps'),
-      spacing: 8,
-      runSpacing: 6,
-      crossAxisAlignment: WrapCrossAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final (i, step) in _steps.indexed)
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 20,
-                height: 20,
-                alignment: Alignment.center,
+        Row(children: [
+          for (var i = 0; i < _steps.length; i++) ...[
+            if (i > 0) const SizedBox(width: 4),
+            Expanded(
+              child: Container(
+                height: 4,
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: i < idx ? AppColors.teal700 : Colors.transparent,
-                  border: Border.all(
-                      color: i <= idx ? AppColors.teal700 : AppColors.slate300),
-                ),
-                child: Text(
-                  i < idx ? '✓' : '${i + 1}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: i == idx ? FontWeight.bold : FontWeight.normal,
-                    color: i < idx
-                        ? Colors.white
-                        : (i == idx ? AppColors.teal700 : AppColors.slate400),
-                  ),
+                  color: i < filled ? AppColors.teal700 : AppColors.slate200,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(width: 6),
-              Text(
-                step.$2,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: i == idx ? FontWeight.w600 : FontWeight.normal,
-                  color: i == idx ? AppColors.slate900 : AppColors.slate500,
-                ),
-              ),
-              if (i < _steps.length - 1)
-                Container(
-                  width: 14,
-                  height: 1,
-                  margin: const EdgeInsets.only(left: 8),
-                  color: AppColors.slate300,
-                ),
-            ],
-          ),
+            ),
+          ],
+        ]),
+        const SizedBox(height: 6),
+        Text(label, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.slate600)),
       ],
     );
   }
@@ -1369,61 +1366,33 @@ class _InfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maps = mapsUriFor(job);
+    // Baris tanpa isi (Ruangan, Barcode belum ada, Lokasi tanpa tautan) tidak ditampilkan: sebelumnya tabel 8 baris
+    // berisi "-" menghabiskan layar pertama.
+    final rows = <Widget>[
+      _row('Pelanggan', job.memberName.isEmpty ? '-' : job.memberName),
+      if (job.memberPhone.isNotEmpty) _row('No. HP', job.memberPhone),
+      if (job.memberAddress.isNotEmpty) _row('Alamat', job.memberAddress),
+      if (maps != null) _rowWidget('Lokasi', _MapsLink(key: const Key('open-maps'), uri: maps)),
+      if (showUnit && job.unitId != null) ...[
+        _row('Unit AC', job.unitTitle.isEmpty ? '-' : job.unitTitle),
+        if (job.unitParts.isNotEmpty) _row('Unit dalam paket', job.unitParts),
+        if (job.unitRoom.isNotEmpty) _row('Ruangan', job.unitRoom),
+        _row('Barcode', job.unitBarcode.isEmpty ? 'Belum digenerate' : job.unitBarcode),
+      ],
+      // Titik lokasi kerja bila berbeda dari alamat pelanggan (sama dengan baris "Lokasi kerja" di web).
+      if (showUnit && job.hasWorkLocation) _rowWidget('Lokasi kerja', _WorkLocationValue(job: job)),
+      if (job.technicianName.isNotEmpty) _row('Teknisi', job.technicianName),
+      if (showUnit && job.startedAt != null) _row('Mulai', _formatDate(job.startedAt!)),
+      if (showUnit && job.completedAt != null) _row('Selesai', _formatDate(job.completedAt!)),
+    ];
     return Card(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Column(
           children: [
-            _row(Icons.person_outline, 'Pelanggan',
-                job.memberName.isEmpty ? '-' : job.memberName),
-            const Divider(height: 1),
-            _row(Icons.phone_outlined, 'No. HP',
-                job.memberPhone.isEmpty ? '-' : job.memberPhone),
-            const Divider(height: 1),
-            _row(Icons.location_on_outlined, 'Alamat',
-                job.memberAddress.isEmpty ? '-' : job.memberAddress),
-            const Divider(height: 1),
-            _rowWidget(
-              Icons.map_outlined,
-              'Lokasi',
-              maps == null
-                  ? const Text('-',
-                      style: TextStyle(color: AppColors.slate900, fontSize: 14, fontWeight: FontWeight.w600))
-                  : _MapsLink(key: const Key('open-maps'), uri: maps),
-            ),
-            if (showUnit && job.unitId != null) ...[
-              const Divider(height: 1),
-              _row(Icons.ac_unit, 'Unit AC',
-                  job.unitTitle.isEmpty ? '-' : job.unitTitle),
-              if (job.unitParts.isNotEmpty) ...[
-                const Divider(height: 1),
-                _row(Icons.inventory_2_outlined, 'Unit dalam paket', job.unitParts),
-              ],
-              const Divider(height: 1),
-              _row(Icons.meeting_room_outlined, 'Ruangan',
-                  job.unitRoom.isEmpty ? '-' : job.unitRoom),
-              const Divider(height: 1),
-              _row(Icons.qr_code, 'Barcode',
-                  job.unitBarcode.isEmpty ? 'Belum digenerate' : job.unitBarcode),
-            ],
-            // Titik lokasi kerja bila berbeda dari alamat pelanggan (sama dengan baris "Lokasi kerja" di web).
-            if (showUnit && job.hasWorkLocation) ...[
-              const Divider(height: 1),
-              _rowWidget(Icons.pin_drop_outlined, 'Lokasi kerja', _WorkLocationValue(job: job)),
-            ],
-            if (job.technicianName.isNotEmpty) ...[
-              const Divider(height: 1),
-              _row(Icons.badge_outlined, 'Teknisi', job.technicianName),
-            ],
-            if (showUnit && job.startedAt != null) ...[
-              const Divider(height: 1),
-              _row(Icons.play_circle_outline, 'Mulai',
-                  _formatDate(job.startedAt!)),
-            ],
-            if (showUnit && job.completedAt != null) ...[
-              const Divider(height: 1),
-              _row(Icons.check_circle_outline, 'Selesai',
-                  _formatDate(job.completedAt!)),
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0) const Divider(height: 1),
+              rows[i],
             ],
           ],
         ),
@@ -1431,8 +1400,7 @@ class _InfoCard extends StatelessWidget {
     );
   }
 
-  Widget _row(IconData icon, String label, String value) => _rowWidget(
-        icon,
+  Widget _row(String label, String value) => _rowWidget(
         label,
         Text(
           value,
@@ -1445,17 +1413,14 @@ class _InfoCard extends StatelessWidget {
         ),
       );
 
-  Widget _rowWidget(IconData icon, String label, Widget value) {
+  Widget _rowWidget(String label, Widget value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 13),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: AppColors.slate400),
-          const SizedBox(width: 14),
-          Text(label,
-              style: const TextStyle(color: AppColors.slate500, fontSize: 14)),
-          const Spacer(),
+          Text(label, style: const TextStyle(color: AppColors.slate600, fontSize: 14)),
+          const SizedBox(width: 16),
           Flexible(child: Align(alignment: Alignment.centerRight, child: value)),
         ],
       ),
