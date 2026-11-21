@@ -9,6 +9,18 @@ import '../theme/app_theme.dart';
 
 typedef Destination = ({IconData icon, String label, String route});
 
+/// Label ringkas untuk bottom bar (satu baris, 5 tab muat di layar sempit). Sidebar dan sheet "Lainnya" tetap
+/// memakai nama lengkap yang sama dengan web.
+String barLabel(String label) => switch (label) {
+      'Kasir (POS)' => 'Kasir',
+      'Riwayat Transaksi' => 'Riwayat',
+      'Terima Servis Baru' => 'Servis Baru',
+      'Antrian Servis' => 'Antrian',
+      'Keluar Gudang (Scan)' => 'Keluar',
+      'Pengingat WA' => 'Pengingat',
+      _ => label,
+    };
+
 /// Daftar destinasi navigasi menurut role.
 /// Admin melihat POS + riwayat + seluruh modul master + member + scan; kasir
 /// melihat Dashboard + Transaksi + Riwayat; teknisi mendapat Scan.
@@ -34,9 +46,9 @@ List<Destination> destinationsForRole(UserRole? role) {
     route: '/scan',
   );
   const order = (
-    icon: Icons.assignment_outlined,
-    label: 'Order Servis',
-    route: '/orders',
+    icon: Icons.person_add_alt_1_outlined,
+    label: 'Terima Servis Baru',
+    route: '/orders/new',
   );
   const job = (
     icon: Icons.handyman_outlined,
@@ -178,7 +190,7 @@ List<MenuSection> menuSectionsFor(UserRole? role) {
     ]),
     group('Servis AC', Icons.handyman_outlined, [
       d('/jobs'),
-      d('/orders'),
+      d('/orders/new'),
       d('/pengajuan'),
       d('/scan'),
     ]),
@@ -305,15 +317,25 @@ class _MobileNav extends StatelessWidget {
   /// Jumlah destinasi utama sebelum digantikan tab "Lainnya".
   static const _maxPrimary = 4;
 
+  /// Ukuran teks sistem yang besar membuat label 5 tab pecah dua baris/mepet; bar dikunci maksimum 1.0x
+  /// (isi halaman tetap mengikuti pengaturan pengguna).
   @override
   Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    return MediaQuery(
+      data: mq.copyWith(textScaler: mq.textScaler.clamp(maxScaleFactor: 1.0)),
+      child: _bar(context),
+    );
+  }
+
+  Widget _bar(BuildContext context) {
     // Cukup muat dalam satu baris (≤ 5 total) → NavigationBar biasa.
     if (destinations.length <= _maxPrimary + 1) {
       return NavigationBar(
         selectedIndex: selectedIndex,
         destinations: [
           for (final d in destinations)
-            NavigationDestination(icon: Icon(d.icon), label: d.label),
+            NavigationDestination(icon: Icon(d.icon), label: barLabel(d.label)),
         ],
         onDestinationSelected: onSelected,
       );
@@ -326,7 +348,7 @@ class _MobileNav extends StatelessWidget {
       selectedIndex: inOverflow ? _maxPrimary : selectedIndex,
       destinations: [
         for (final d in primary)
-          NavigationDestination(icon: Icon(d.icon), label: d.label),
+          NavigationDestination(icon: Icon(d.icon), label: barLabel(d.label)),
         NavigationDestination(
           // Saat menu di dalam "Lainnya" sedang aktif, tampilkan ikonnya
           // agar tetap terlihat destinasi mana yang terpilih.

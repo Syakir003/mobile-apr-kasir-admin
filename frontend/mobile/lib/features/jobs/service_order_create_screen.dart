@@ -14,6 +14,7 @@ import 'job_providers.dart';
 import 'technician_multi_picker.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/unit_type_mode.dart';
 
 /// Jenis pekerjaan Terima Servis (sama dengan web; pemasangan berasal dari POS, tidak ditawarkan di sini).
 enum IntakeJobType {
@@ -293,12 +294,12 @@ class _ServiceOrderCreateScreenState
         locations: [for (final l in _locations) l.toLocation()],
         unitLocation: _unitLocation,
       ));
-      ref.invalidate(ordersProvider);
       ref.invalidate(jobsForCurrentUserProvider);
       messenger.showSnackBar(
         const SnackBar(content: Text('Order service dibuat.')),
       );
-      router.pop();
+      // Dibuka dari Pengingat -> kembali ke sana; dari menu -> ke Antrian Servis tempat job barunya muncul.
+      router.canPop() ? router.pop() : router.go('/jobs');
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
@@ -562,14 +563,13 @@ class _ServiceOrderCreateScreenState
                 icon: const Icon(Icons.delete_outline),
               ),
             ]),
-            SwitchListTile(
+            UnitTypeMode(
               key: Key('order-unit-qr-$i'),
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('QR dulu (tipe AC diisi teknisi)'),
-              value: u.qrDulu,
-              onChanged: _busy ? null : (v) => setState(() => u.qrDulu = v),
+              qrDulu: u.qrDulu,
+              enabled: !_busy,
+              onChanged: (v) => setState(() => u.qrDulu = v),
             ),
+            const SizedBox(height: 10),
             if (!u.qrDulu) ...[
               Row(children: [
                 Expanded(child: TextField(controller: u.brand, decoration: const InputDecoration(labelText: 'Merek', isDense: true))),

@@ -12,9 +12,18 @@ void main() {
     expect(label(UserRole.admin, '/products'), 'Produk AC');
     expect(label(UserRole.admin, '/packages'), 'Paket Instalasi');
     expect(label(UserRole.admin, '/pengajuan'), 'Permintaan Material');
+    // Web tidak punya daftar order: menunya langsung form Terima Servis.
+    expect(label(UserRole.admin, '/orders/new'), 'Terima Servis Baru');
     expect(label(UserRole.teknisi, '/jobs'), 'Job Saya');
     expect(label(UserRole.teknisi, '/scan'), 'Scan Unit');
     expect(label(UserRole.gudang, '/keluar-gudang'), 'Keluar Gudang (Scan)');
+  });
+
+  test('barLabel: bottom bar memakai label ringkas satu baris, nama lain tak berubah', () {
+    expect(barLabel('Kasir (POS)'), 'Kasir');
+    expect(barLabel('Riwayat Transaksi'), 'Riwayat');
+    expect(barLabel('Terima Servis Baru'), 'Servis Baru');
+    expect(barLabel('Dashboard'), 'Dashboard');
   });
 
   group('menuSectionsFor', () {
@@ -55,7 +64,7 @@ void main() {
         '/services',
         '/packages',
         '/members',
-        '/orders',
+        '/orders/new',
         '/jobs',
         '/pengajuan',
         '/koreksi-unit',
@@ -85,7 +94,7 @@ void main() {
       final dests = destinationsForRole(UserRole.kasir);
       expect(dests.length, 6);
       expect(dests.map((d) => d.route),
-          ['/', '/pos', '/transactions', '/orders', '/pengingat', '/profile']);
+          ['/', '/pos', '/transactions', '/orders/new', '/pengingat', '/profile']);
     });
 
     test('teknisi tidak melihat Pengingat (data pelanggan tertutup)', () {

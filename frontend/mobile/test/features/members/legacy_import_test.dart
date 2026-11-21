@@ -134,7 +134,7 @@ void main() {
     await t.enterText(find.byKey(const Key('legacy-address')), 'Jl. A');
     await t.tap(find.byKey(const Key('legacy-add-unit')));
     await t.pumpAndSettle();
-    await t.tap(find.byKey(const Key('legacy-unit-qr-0')));
+    await t.tap(find.descendant(of: find.byKey(const Key('legacy-unit-qr-0')), matching: find.text('QR dulu')));
     await t.pumpAndSettle();
     await t.ensureVisible(find.byKey(const Key('legacy-submit')));
     await t.tap(find.byKey(const Key('legacy-submit')));

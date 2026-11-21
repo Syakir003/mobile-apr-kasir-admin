@@ -50,7 +50,6 @@ final updateServiceOrderCallerProvider =
   return (orderId, body) async {
     await const ApiClient().patch('/service-orders/$orderId', body: body);
     ref.invalidate(jobsForCurrentUserProvider);
-    ref.invalidate(ordersProvider);
   };
 });
 

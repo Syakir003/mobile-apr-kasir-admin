@@ -10,6 +10,7 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/error_message.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
+import '../../core/widgets/unit_type_mode.dart';
 import '../../data/models/member.dart';
 import 'member_providers.dart';
 import 'member_selector.dart';
@@ -494,15 +495,13 @@ class _LegacyImportScreenState extends ConsumerState<LegacyImportScreen> {
             Expanded(child: Text('Unit #${i + 1}', style: const TextStyle(fontWeight: FontWeight.w600))),
             IconButton(tooltip: 'Hapus unit', onPressed: () => setState(() => _units.removeAt(i)), icon: const Icon(Icons.delete_outline)),
           ]),
-          SwitchListTile(
+          UnitTypeMode(
             key: Key('legacy-unit-qr-$i'),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            title: const Text('QR dulu (tipe AC diisi teknisi)'),
-            subtitle: const Text('Pengingat WA mati sampai datanya dilengkapi.'),
-            value: u.qrDulu,
+            qrDulu: u.qrDulu,
+            hint: 'Tipe AC diisi teknisi saat scan. Pengingat WA mati sampai datanya dilengkapi.',
             onChanged: (v) => setState(() => u.qrDulu = v),
           ),
+          const SizedBox(height: 10),
           TextField(
             decoration: const InputDecoration(labelText: 'Lokasi ruangan (opsional)', isDense: true),
             onChanged: (v) => u.room = v,

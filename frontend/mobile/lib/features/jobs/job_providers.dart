@@ -8,7 +8,6 @@ import '../../data/models/invoice.dart';
 import '../../data/models/job_distance.dart';
 import '../../data/models/job_finding.dart';
 import '../../data/models/material_request.dart';
-import '../../data/models/service_order.dart';
 import '../../data/models/technician_job.dart';
 import '../../data/repositories/ac_unit_repository.dart' show acUnitRowFromNest;
 import '../../data/repositories/job_repository.dart';
@@ -299,12 +298,6 @@ final markMaterialUsedCallerProvider =
     Provider<Future<void> Function(Map<String, dynamic> payload)>((ref) {
   return (payload) => callMarkMaterialUsed(payload, patch: _api.patch);
 });
-
-/// Daftar order service (admin/kasir).
-final ordersProvider =
-    FutureProvider.autoDispose<List<ServiceOrder>>(
-  (ref) => ref.watch(jobRepositoryProvider).fetchOrders(),
-);
 
 /// `POST /service-orders/intake` — Terima Servis (admin/kasir). Muatan dari `buildIntakePayload`
 /// (service_order_create_screen.dart): pelanggan lama/baru, unit lama/baru, jenis pekerjaan, keluhan, jadwal, teknisi.

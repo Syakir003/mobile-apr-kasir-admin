@@ -27,7 +27,6 @@ import '../../features/members/legacy_import_screen.dart';
 import '../../features/members/unit_corrections_screen.dart';
 import '../../features/members/unit_labels_screen.dart';
 import '../../features/jobs/service_order_create_screen.dart';
-import '../../features/jobs/service_order_list_screen.dart';
 import '../../features/reports/laporan_rinci_screen.dart';
 import '../../features/reports/laporan_screen.dart';
 import '../../features/keluar_gudang/keluar_gudang_screen.dart';
@@ -259,8 +258,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(path: '/riwayat', builder: (_, __) => const JobHistoryScreen()),
           GoRoute(
+            // Tidak ada daftar order (sama dengan web): daftar pekerjaannya ada di Antrian Servis (/jobs).
             path: '/orders',
-            builder: (_, __) => const ServiceOrderListScreen(),
+            redirect: (_, state) => state.uri.path == '/orders' ? '/orders/new' : null,
             routes: [
               GoRoute(
                 path: 'new',
