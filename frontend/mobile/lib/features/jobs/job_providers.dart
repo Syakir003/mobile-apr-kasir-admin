@@ -139,6 +139,20 @@ Future<AddUnitResult> addUnitToJob(String jobId, AddUnitInput input) async {
   );
 }
 
+/// Hasil `POST /technician-jobs/:id/claim-unit`. [jobId] = slot yang terisi (bisa beda dari id di URL).
+typedef ClaimUnitResult = ({String jobId, bool needsData, int remainingSlots});
+
+/// `POST /technician-jobs/:id/claim-unit` — scan barcode unit pelanggan order ini untuk MENGISI slot kosong milik
+/// teknisi (order "Jumlah unit, teknisi yang scan"). Scan ini sudah dihitung sebagai scan Mulai Job.
+Future<ClaimUnitResult> claimUnit(String jobId, String barcode) async {
+  final r = await _api.post('/technician-jobs/$jobId/claim-unit', body: {'barcode': barcode}) as Map;
+  return (
+    jobId: (r['jobId'] as String?) ?? jobId,
+    needsData: r['needsData'] == true,
+    remainingSlots: (r['remainingSlots'] as num?)?.toInt() ?? 0,
+  );
+}
+
 /// `GET /technician-jobs/:id/unit-labels?units=<unitId>` — data unit untuk cetak label QR oleh teknisi
 /// (server hanya memberi unit yang job-nya milik teknisi itu). Null bila unit tak ditemukan.
 Future<AcUnit?> fetchUnitForLabel(String jobId, String unitId) async {

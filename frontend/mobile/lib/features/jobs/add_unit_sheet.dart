@@ -40,7 +40,14 @@ class _AddUnitSheetState extends State<AddUnitSheet> {
 
   Future<void> _scan() async {
     final code = await widget.onScan();
-    if (code != null && mounted) setState(() => _barcode = code);
+    if (code != null && mounted) {
+      setState(() => _barcode = code);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_complaint.text.trim().isEmpty
+            ? 'Scan berhasil. Isi pekerjaan/keluhan dulu, lalu tekan Tambahkan Unit.'
+            : 'Scan berhasil. Tekan Tambahkan Unit untuk memasukkannya ke job.'),
+      ));
+    }
   }
 
   void _submit() => Navigator.of(context).pop<AddUnitInput>((

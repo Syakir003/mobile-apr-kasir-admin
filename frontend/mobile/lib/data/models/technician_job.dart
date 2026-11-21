@@ -102,6 +102,7 @@ class TechnicianJob {
     this.findingsSentAt,
     this.priced = true,
     this.hasBeforePhoto,
+    this.startScanWaived = false,
     this.startedAt,
     this.completedAt,
     this.createdAt,
@@ -154,6 +155,9 @@ class TechnicianJob {
 
   /// Hanya terisi dari `GET /technician-jobs/queue`: sudah ada foto sebelum di salah satu temuan?
   final bool? hasBeforePhoto;
+
+  /// Hanya dari `GET /technician-jobs/:id`: unit sudah discan lewat klaim slot, jadi Mulai Job tanpa scan ulang.
+  final bool startScanWaived;
   final DateTime? startedAt;
   final DateTime? completedAt;
   final DateTime? createdAt;
@@ -219,6 +223,13 @@ class TechnicianJob {
       status != JobStatus.menungguPenugasan &&
       status != JobStatus.assigned;
 
+  /// Slot "teknisi yang scan": job tanpa unit (kecuali pemasangan, yang memang bisa tanpa unit) menunggu scan di lokasi.
+  bool get isSlot => unitId == null && type != 'pemasangan';
+
+  /// Sama dengan `scanDone` di web: sudah dimulai, atau Ditugaskan dengan unit terisi dan scan-nya sudah diakui
+  /// ([startScanWaived]). Job yang dialihkan kembali ke Ditugaskan tetap belum discan (jangan pakai startedAt).
+  bool get scanDone => scanned || (status == JobStatus.assigned && unitId != null && startScanWaived);
+
   bool get hasWorkLocation => workAddress.trim().isNotEmpty || workMapsUrl.trim().isNotEmpty;
 
   String get typeLabel => jobTypeLabel(type);
@@ -249,6 +260,7 @@ class TechnicianJob {
       findingsSentAt: _toDate(data['findings_sent_at']),
       priced: (data['priced'] as bool?) ?? true,
       hasBeforePhoto: data['has_before_photo'] as bool?,
+      startScanWaived: data['start_scan_waived'] == true,
       startedAt: _toDate(data['started_at']),
       completedAt: _toDate(data['completed_at']),
       createdAt: _toDate(data['created_at']),

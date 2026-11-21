@@ -52,6 +52,42 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   bool _notesInit = false;
   bool _keteranganInit = false;
 
+  /// Popup pengingat scan: sekali per kunjungan halaman, tanpa "jangan tampilkan lagi".
+  bool _reminderShown = false;
+
+  /// Teknisi membuka job yang unitnya belum discan: ingatkan scan (dan foto sebelum). [hasBefore] mengembalikan null
+  /// bila temuan unit itu belum termuat; popup menunggu sampai semuanya termuat supaya versinya benar.
+  void _maybeRemind(List<TechnicianJob> jobs, bool? Function(TechnicianJob) hasBefore, {required bool multi}) {
+    if (_reminderShown) return;
+    final unscanned = [
+      for (final j in jobs)
+        if (j.status == JobStatus.assigned && !j.scanDone) j
+    ];
+    if (unscanned.isEmpty) return;
+    if (unscanned.any((j) => !j.isSlot && hasBefore(j) == null)) return;
+    _reminderShown = true;
+    final text = scanReminderText(
+      unscanned: unscanned.length,
+      slots: unscanned.where((j) => j.isSlot).length,
+      withoutPhoto: unscanned.where((j) => !j.isSlot && hasBefore(j) == false).length,
+      multi: multi,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          key: const Key('scan-reminder'),
+          title: Text(text.title),
+          content: Text(text.body),
+          actions: [
+            FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Mengerti')),
+          ],
+        ),
+      );
+    });
+  }
+
   @override
   void dispose() {
     _notes.dispose();
@@ -59,7 +95,8 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     super.dispose();
   }
 
-  Future<void> _run(Future<void> Function() action, String okMessage) async {
+  /// Jalankan aksi lalu segarkan; true bila berhasil (dipakai sheet "scan dulu" untuk menutup dirinya).
+  Future<bool> _run(Future<void> Function() action, String okMessage) async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -67,12 +104,77 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       // Tanpa realtime: segarkan detail & daftar setelah perubahan.
       ref.invalidate(jobProvider(widget.jobId));
       ref.invalidate(jobsForCurrentUserProvider);
-      if (!mounted) return;
+      if (!mounted) return true;
       messenger.showSnackBar(SnackBar(content: Text(okMessage)));
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      messenger.showSnackBar(SnackBar(
+        content: Text(errorMessage(e)),
+        backgroundColor: AppColors.danger,
+      ));
+      return false;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Mulai Job. Unit yang scan-nya sudah diakui (klaim slot) dimulai tanpa scan ulang.
+  /// [fromSendFindings] = dipanggil dari sheet Kirim Temuan, jadi pesannya menyuruh kirim temuan.
+  Future<bool> _start(TechnicianJob job, {bool fromSendFindings = false}) async {
+    final caller = ref.read(updateJobStatusCallerProvider);
+    var scanned = '';
+    if (!job.startScanWaived) {
+      final code = await _scanBarcode(
+        job.unitBarcode,
+        unitLabel: job.unitTitle.isEmpty ? 'unit pada job ini' : job.unitTitle,
+      );
+      if (code == null) return false;
+      scanned = code;
+    }
+    final ok = await _run(
+      () => caller({'jobId': job.id, 'action': 'start', 'scannedBarcode': scanned}),
+      fromSendFindings ? 'Scan berhasil, job dimulai. Silakan kirim temuan.' : 'Job dimulai.',
+    );
+    if (ok) ref.invalidate(jobFindingsProvider(job.id));
+    return ok;
+  }
+
+  /// Slot "teknisi yang scan": scan barcode unit pelanggan order ini; server mengisi slot kosong pertama milik teknisi.
+  /// [orderJobIds] = semua job order (dimuat ulang setelah slot terisi; slot yang terisi bisa beda dari [host]).
+  Future<void> _claimSlot(TechnicianJob host, List<String> orderJobIds) async {
+    final code = await _scanBarcode('', unitLabel: 'AC yang dikerjakan', acceptAny: true);
+    if (code == null) return;
+    await _claimCode(host, code, orderJobIds);
+  }
+
+  Future<void> _claimCode(TechnicianJob host, String code, List<String> orderJobIds) async {
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final r = await claimUnit(host.id, code);
+      for (final id in {...orderJobIds, r.jobId}) {
+        ref.invalidate(jobProvider(id));
+        ref.invalidate(jobFindingsProvider(id));
+      }
+      ref.invalidate(jobsForCurrentUserProvider);
+      ref.invalidate(jobQueueProvider);
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+        content: Text(r.remainingSlots > 0
+            ? 'Scan berhasil. Unit masuk ke pekerjaan. Sisa ${r.remainingSlots} slot yang belum discan.'
+            : 'Scan berhasil. Unit masuk ke pekerjaan. Semua slot sudah terisi.'),
+      ));
+      if (r.needsData) {
+        messenger.showSnackBar(const SnackBar(
+          content: Text(
+              'Data unit ini belum lengkap. Scan QR-nya di Scan Unit dan isi merk + PK sebelum unit bisa dimulai.'),
+        ));
+      }
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text(errorMessage(e)),
+        content: Text('Scan gagal. ${errorMessage(e)}'),
         backgroundColor: AppColors.danger,
       ));
     } finally {
@@ -80,18 +182,53 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     }
   }
 
-  Future<void> _start(TechnicianJob job) async {
+  /// Mulai satu unit yang scan-nya sudah diakui (hasil klaim slot), tanpa scan ulang.
+  Future<void> _startWithoutScan(TechnicianJob job) async {
     final caller = ref.read(updateJobStatusCallerProvider);
-    final scanned = await _scanBarcode(
-      job.unitBarcode,
-      unitLabel: job.unitTitle.isEmpty ? 'unit pada job ini' : job.unitTitle,
+    final ok = await _run(
+      () => caller({'jobId': job.id, 'action': 'start', 'scannedBarcode': ''}),
+      'Unit dimulai.',
     );
-    if (scanned == null) return;
+    if (ok) {
+      ref.invalidate(jobProvider(job.id));
+      ref.invalidate(jobFindingsProvider(job.id));
+    }
+  }
+
+  /// Servis banyak AC dengan slot kosong: kode yang BUKAN unit order ini mengisi slot; kode unit order ini yang
+  /// belum dimulai diproses seperti scan biasa (foto sebelum wajib ada).
+  Future<void> _scanWithSlots(
+    TechnicianJob host,
+    List<TechnicianJob> startable,
+    List<TechnicianJob> active,
+    List<String> orderJobIds,
+    List<({String label, String? hint})> pending,
+  ) async {
+    final code = await _scanBarcode('',
+        unitLabel: 'AC yang dikerjakan', acceptAny: true, pending: pending);
+    if (code == null) return;
+    final known = [for (final j in active) if (j.unitBarcode.isNotEmpty) j.unitBarcode.trim()];
+    if (!known.contains(code.trim())) {
+      await _claimCode(host, code, orderJobIds);
+      return;
+    }
+    final match = startable.where((j) => j.unitBarcode.trim() == code.trim());
+    if (!mounted) return;
+    if (match.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Scan gagal. Unit ini sudah discan/dimulai.'),
+        backgroundColor: AppColors.danger,
+      ));
+      return;
+    }
+    final caller = ref.read(updateJobStatusCallerProvider);
+    final job = match.first;
     await _run(
-      () => caller(
-          {'jobId': job.id, 'action': 'start', 'scannedBarcode': scanned}),
-      'Barcode cocok — pekerjaan dimulai.',
+      () => caller({'jobId': job.id, 'action': 'start', 'scannedBarcode': code}),
+      'Unit dimulai: ${job.unitTitle}.',
     );
+    ref.invalidate(jobProvider(job.id));
+    ref.invalidate(jobFindingsProvider(job.id));
   }
 
   /// Servis banyak AC: scan barcode salah satu unit yang belum discan = unit itu dimulai.
@@ -107,7 +244,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     final caller = ref.read(updateJobStatusCallerProvider);
     await _run(
       () => caller({'jobId': match.id, 'action': 'start', 'scannedBarcode': scanned}),
-      'Unit dimulai: ${match.unitTitle}.',
+      'Scan berhasil, unit dimulai: ${match.unitTitle}.',
     );
     ref.invalidate(jobProvider(match.id));
     ref.invalidate(jobFindingsProvider(match.id));
@@ -366,6 +503,9 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           }
           if (job.siblingIds.isNotEmpty) return _multiUnitBody(job, role);
           final findings = ref.watch(jobFindingsProvider(job.id)).value;
+          if (role == UserRole.teknisi) {
+            _maybeRemind([job], (j) => findings?.any((f) => f.hasBefore), multi: false);
+          }
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -402,26 +542,35 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
                   text: 'Dikembalikan admin: ${job.reviewNote}',
                 ),
               ],
-              if ((job.status == JobStatus.assigned ||
-                      job.status == JobStatus.sedangDikerjakan) &&
-                  role == UserRole.teknisi) ...[
+              if (job.isSlot) ...[
+                // Slot "teknisi yang scan": detail unit, temuan, dan foto muncul setelah unitnya discan.
                 const SizedBox(height: 12),
-                _DiagnosisField(
-                  controller: _notes,
-                  busy: _busy,
-                  onSave: () => _saveNotes(job),
+                _SlotCard(cancelled: job.status == JobStatus.dibatalkan),
+              ] else ...[
+                if ((job.status == JobStatus.assigned ||
+                        job.status == JobStatus.sedangDikerjakan) &&
+                    role == UserRole.teknisi) ...[
+                  const SizedBox(height: 12),
+                  _DiagnosisField(
+                    controller: _notes,
+                    busy: _busy,
+                    onSave: () => _saveNotes(job),
+                  ),
+                ] else if (job.notes != null && job.notes!.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _NotesCard(notes: job.notes!),
+                ],
+                const SizedBox(height: 12),
+                _FindingsSection(
+                  job: job,
+                  canUpload: role == UserRole.teknisi &&
+                      (job.status == JobStatus.assigned ||
+                          job.status == JobStatus.sedangDikerjakan),
+                  onStart: role == UserRole.teknisi
+                      ? (j) => _start(j, fromSendFindings: true)
+                      : null,
                 ),
-              ] else if (job.notes != null && job.notes!.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                _NotesCard(notes: job.notes!),
               ],
-              const SizedBox(height: 12),
-              _FindingsSection(
-                job: job,
-                canUpload: role == UserRole.teknisi &&
-                    (job.status == JobStatus.assigned ||
-                        job.status == JobStatus.sedangDikerjakan),
-              ),
               const SizedBox(height: 12),
               JobRequestsSection(job: job),
               // Harga Jasa & Tagihan: admin/kasir, di bawah Pengajuan Tambahan (sama dengan web); job komplain tanpa tagihan.
@@ -481,8 +630,23 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             j.status == JobStatus.assigned &&
             j.unitBarcode.isNotEmpty &&
             !j.unitAwaitingData &&
+            !j.startScanWaived &&
             hasBefore(j))
         .toList();
+    // Unit hasil klaim slot: scan-nya sudah diakui, jadi dimulai tanpa scan ulang begitu foto sebelum ada.
+    final startWithoutScan = notStarted
+        .where((j) =>
+            j.status == JobStatus.assigned &&
+            !j.isSlot &&
+            j.startScanWaived &&
+            !j.unitAwaitingData &&
+            hasBefore(j))
+        .toList();
+    final slotCount =
+        notStarted.where((j) => j.status == JobStatus.assigned && j.isSlot).length;
+    if (isTeknisi && allLoaded) {
+      _maybeRemind(active, (j) => findingsOf[j.id]?.any((f) => f.hasBefore), multi: true);
+    }
     final requestsOf = {
       for (final j in all) j.id: ref.watch(jobRequestsProvider(j.id)).value,
     };
@@ -502,7 +666,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         working.isNotEmpty &&
         notStarted.isEmpty &&
         working.every((j) => blockerOf(j) == null);
-    final scannedCount = active.where((j) => j.scanned).length;
+    final scannedCount = active.where((j) => j.scanDone).length;
     final holders = all.where(
         (j) => j.status == JobStatus.assigned || j.status == JobStatus.sedangDikerjakan);
     final holder = holders.isEmpty ? first : holders.first;
@@ -516,15 +680,27 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
         '${j.unitTitle.isEmpty ? 'Unit AC' : j.unitTitle}${j.unitRoom.isEmpty ? '' : ' (${j.unitRoom})'}';
     String whyNotStartable(TechnicianJob j) => j.status != JobStatus.assigned
         ? 'belum ditugaskan'
-        : j.unitAwaitingData
-            ? 'data unit belum dilengkapi (QR dulu)'
-            : j.unitBarcode.isEmpty
-                ? 'belum punya barcode'
-                : 'foto sebelum belum ada';
+        : j.isSlot
+            ? 'unit menunggu discan'
+            : j.unitAwaitingData
+                ? 'data unit belum dilengkapi (QR dulu)'
+                : j.unitBarcode.isEmpty
+                    ? 'belum punya barcode'
+                    : 'foto sebelum belum ada';
     // Status satu baris di header tiap unit (menggantikan daftar centang terpisah).
     (String, bool) stateOf(TechnicianJob j) => switch (j.status) {
+          JobStatus.assigned when j.scanDone => (
+              startWithoutScan.contains(j)
+                  ? 'Sudah discan · siap dimulai'
+                  : 'Sudah discan · ${whyNotStartable(j)}',
+              !startWithoutScan.contains(j)
+            ),
           JobStatus.menungguPenugasan || JobStatus.assigned => (
-              startable.contains(j) ? 'Belum discan' : 'Belum discan · ${whyNotStartable(j)}',
+              j.isSlot
+                  ? 'Unit menunggu discan'
+                  : startable.contains(j)
+                      ? 'Belum discan'
+                      : 'Belum discan · ${whyNotStartable(j)}',
               true
             ),
           JobStatus.sedangDikerjakan => (blockerOf(j) ?? 'Siap diajukan', blockerOf(j) != null),
@@ -579,6 +755,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             onPrintLabel: isTeknisi && all[i].unitAwaitingData && all[i].unitId != null
                 ? () => _printUnitLabel(all[i].id, all[i].unitId!)
                 : null,
+            onStart: isTeknisi ? (j) => _start(j, fromSendFindings: true) : null,
           ),
           const SizedBox(height: 12),
         ],
@@ -600,7 +777,16 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           if (notStarted.any((j) => j.unitAwaitingData)) ...[
             _awaitingDataPanel(),
             const SizedBox(height: 10),
-          ] else if (startable.isEmpty) ...[
+          ] else if (slotCount > 0) ...[
+            NoticePanel(
+              tone: NoticeTone.warning,
+              icon: Icons.qr_code_scanner,
+              text:
+                  'Scan barcode AC di lokasi untuk memasukkannya ke pekerjaan ($slotCount slot belum terisi). '
+                  'Ajukan Selesai baru bisa setelah semua slot terisi atau dibatalkan.',
+            ),
+            const SizedBox(height: 10),
+          ] else if (startable.isEmpty && startWithoutScan.isEmpty) ...[
             const NoticePanel(
               tone: NoticeTone.warning,
               icon: Icons.lock_outline,
@@ -608,16 +794,42 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             ),
             const SizedBox(height: 10),
           ],
-          _primaryButton(
-            icon: Icons.qr_code_scanner,
-            label: 'Mulai Pekerjaan ($scannedCount/${active.length} unit discan)',
-            onPressed: startable.isEmpty
-                ? null
-                : () => _startUnit(startable, [
-                      for (final j in notStarted)
-                        (label: unitName(j), hint: startable.contains(j) ? null : whyNotStartable(j)),
-                    ]),
-          ),
+          if (slotCount > 0 || notStarted.any((j) => !j.isSlot && !j.startScanWaived))
+            _primaryButton(
+              icon: Icons.qr_code_scanner,
+              label: slotCount > 0
+                  ? 'Scan unit & Mulai Job ($scannedCount/${active.length} unit discan)'
+                  : 'Mulai Pekerjaan ($scannedCount/${active.length} unit discan)',
+              onPressed: slotCount > 0
+                  ? () => _scanWithSlots(holder, startable, active, ids, [
+                        for (final j in notStarted)
+                          (
+                            label: unitName(j),
+                            hint: startable.contains(j) || startWithoutScan.contains(j)
+                                ? null
+                                : whyNotStartable(j)
+                          ),
+                      ])
+                  : startable.isEmpty
+                      ? null
+                      : () => _startUnit(startable, [
+                            for (final j in notStarted)
+                              (
+                                label: unitName(j),
+                                hint: startable.contains(j) ? null : whyNotStartable(j)
+                              ),
+                          ]),
+            ),
+          for (final j in startWithoutScan)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: OutlinedButton.icon(
+                key: ValueKey('start-no-scan-${j.id}'),
+                onPressed: _busy ? null : () => _startWithoutScan(j),
+                icon: const Icon(Icons.play_arrow),
+                label: Text('Mulai ${unitName(j)} (tanpa scan ulang)'),
+              ),
+            ),
           if (addUnitHost != null) _addUnitButton(addUnitHost),
         ] else if (isTeknisi && working.isNotEmpty) ...[
           if (!canSubmitAll)
@@ -724,7 +936,14 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
 
     // Teknisi: mulai / selesaikan job miliknya.
     if (isTeknisi) {
-      if (job.status == JobStatus.assigned) {
+      if (job.status == JobStatus.assigned && job.isSlot) {
+        // Slot: scan barcode AC di lokasi memasukkan unitnya ke pekerjaan ini (bukan Mulai Job).
+        widgets.add(_primaryButton(
+          icon: Icons.qr_code_scanner,
+          label: 'Scan Unit AC',
+          onPressed: () => _claimSlot(job, [job.id, ...job.siblingIds]),
+        ));
+      } else if (job.status == JobStatus.assigned) {
         // Server mewajibkan: unit ber-barcode, minimal satu foto SEBELUM pada temuan.
         final noBarcode = job.unitId == null || job.unitBarcode.isEmpty;
         if (job.unitAwaitingData) {
@@ -1567,11 +1786,14 @@ class _ScanSheetState extends State<_ScanSheet> {
       Navigator.of(context).pop(raw.trim());
     } else {
       setState(() {}); // pertahankan pesan mismatch
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Barcode tidak sesuai unit pada job ini')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_mismatch)));
     }
   }
+
+  /// Teks gagal sama dengan web: banyak unit = "bukan unit pada pekerjaan ini".
+  String get _mismatch => widget.accepted != null
+      ? 'Scan gagal. Barcode ini bukan unit pada pekerjaan ini.'
+      : 'Scan gagal. Barcode tidak sesuai unit pada job ini.';
 
   @override
   Widget build(BuildContext context) {
@@ -1668,9 +1890,7 @@ class _ScanSheetState extends State<_ScanSheet> {
     if (_matches(value)) {
       Navigator.of(context).pop(value.trim());
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Barcode tidak sesuai unit pada job ini')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_mismatch)));
     }
   }
 }
@@ -1723,10 +1943,14 @@ class _ManualEntryState extends State<_ManualEntry> {
 /// Kartu temuan: tiap temuan punya foto Sebelum dan Sesudah. Teknisi pemilik
 /// job bisa menambah temuan + foto selama job aktif; peran lain hanya melihat.
 class _FindingsSection extends ConsumerStatefulWidget {
-  const _FindingsSection({required this.job, required this.canUpload});
+  const _FindingsSection({required this.job, required this.canUpload, this.onStart});
 
   final TechnicianJob job;
   final bool canUpload;
+
+  /// Mulai Job (scan lalu mulai) untuk sheet "Scan unit & Mulai Job dulu" yang dibuka Kirim Temuan saat unit belum
+  /// discan. Null = tanpa pengecekan scan (peran selain teknisi tidak punya tombol kirim).
+  final Future<bool> Function(TechnicianJob job)? onStart;
 
   @override
   ConsumerState<_FindingsSection> createState() => _FindingsSectionState();
@@ -1796,6 +2020,35 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
     c.dispose();
     if (text == null) return;
     await _guard(() => updateFindingNote(widget.job.id, finding.id, text), 'Deskripsi disimpan.');
+  }
+
+  /// Kirim Temuan: unit belum discan = jangan kirim, buka sheet scan + Mulai Job. Teknisi menekan Kirim Temuan lagi
+  /// setelah job dimulai (tidak terkirim otomatis).
+  Future<void> _sendFindings(List<JobFinding> findings) async {
+    final job = widget.job;
+    final start = widget.onStart;
+    if (start != null && job.status == JobStatus.assigned && !job.scanDone) {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+        ),
+        builder: (sheetContext) => _NeedScanSheet(
+          unitName: job.unitTitle,
+          onStart: () async {
+            final ok = await start(job);
+            if (ok && sheetContext.mounted) Navigator.of(sheetContext).pop();
+          },
+        ),
+      );
+      return;
+    }
+    await _guard(
+      () => sendFindings(job.id),
+      job.findingsSentAt == null ? 'Temuan terkirim ke kasir dan admin.' : 'Temuan dikirim ulang.',
+    );
   }
 
   Future<void> _addPhoto(JobFinding finding, PhotoKind kind) async {
@@ -1901,6 +2154,8 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
                         canUpload: widget.canUpload,
                         busy: _busy,
                         showAuthors: widget.job.handovers.isNotEmpty,
+                        // Foto sesudah baru boleh setelah Mulai Job (server menolak 400 sebelum itu).
+                        afterLocked: widget.job.status != JobStatus.sedangDikerjakan,
                         onAdd: (kind) => _addPhoto(f, kind),
                         onEditNote: () => _editNote(f),
                         onDeletePhoto: (p) => _guard(
@@ -1914,16 +2169,132 @@ class _FindingsSectionState extends ConsumerState<_FindingsSection> {
                         job: widget.job,
                         findings: findings,
                         busy: _busy,
-                        onSend: () => _guard(
-                          () => sendFindings(widget.job.id),
-                          widget.job.findingsSentAt == null
-                              ? 'Temuan terkirim ke kasir dan admin.'
-                              : 'Temuan dikirim ulang.',
-                        ),
+                        onSend: () => _sendFindings(findings),
                       ),
                   ],
                 );
               },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Teks popup pengingat saat teknisi membuka job yang unitnya belum discan (sama dengan `ScanUnitReminderDialog`
+/// di web). [unscanned] = unit Ditugaskan yang belum discan, [slots] = di antaranya slot kosong, [withoutPhoto] =
+/// unit berlabel yang belum punya foto sebelum. [multi] = halaman banyak AC.
+({String title, String body}) scanReminderText({
+  required int unscanned,
+  required int slots,
+  required int withoutPhoto,
+  required bool multi,
+}) {
+  if (withoutPhoto > 0) {
+    return (
+      title: 'Kirim foto sebelum pengerjaan dulu',
+      body: '${multi ? '$withoutPhoto unit AC belum punya foto sebelum. ' : ''}'
+          'Silakan kirim foto sebelum pengerjaan terlebih dahulu, lalu scan unit sebelum Mulai Job. '
+          'Scroll ke bawah untuk menemukan tombol Mulai Job.'
+          '${slots > 0 ? ' Unit yang belum diketahui discan dulu lewat tombol aksi di bagian bawah.' : ''}',
+    );
+  }
+  final what = unscanned > 1 ? '$unscanned unit AC pada pekerjaan ini belum discan.' : 'Unit AC pada pekerjaan ini belum discan.';
+  final how = slots > 0
+      ? 'Scan barcode AC di lokasi lewat tombol aksi di bagian bawah, dan unitnya otomatis masuk ke pekerjaan ini.'
+      : 'Scan barcode unit lewat tombol aksi di bagian bawah untuk memulai pekerjaan.';
+  return (
+    title: 'Silakan scan unitnya terlebih dahulu',
+    body: '$what $how Foto sebelum boleh diunggah lebih dulu, tetapi foto sesudah baru bisa diunggah setelah Mulai Job.',
+  );
+}
+
+/// Pengganti detail unit/temuan/foto untuk slot yang belum discan.
+class _SlotCard extends StatelessWidget {
+  const _SlotCard({required this.cancelled});
+  final bool cancelled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      key: const Key('slot-card'),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              cancelled
+                  ? 'Slot unit ini dibatalkan sebelum discan.'
+                  : 'Tipe menunggu discan, silakan scan dulu untuk memasukkan ke pekerjaan.',
+              style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.slate900),
+            ),
+            if (!cancelled) ...[
+              const SizedBox(height: 4),
+              const Text(
+                'Detail unit, temuan, dan foto sebelum/sesudah muncul setelah unitnya discan.',
+                style: TextStyle(fontSize: 13, color: AppColors.slate500),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Sheet yang dibuka Kirim Temuan saat unit belum discan: scan barcode lalu Mulai Job dalam satu aksi
+/// ([onStart] menutup sheet bila berhasil). Temuan tidak terkirim otomatis.
+class _NeedScanSheet extends StatefulWidget {
+  const _NeedScanSheet({required this.unitName, required this.onStart});
+  final String unitName;
+  final Future<void> Function() onStart;
+
+  @override
+  State<_NeedScanSheet> createState() => _NeedScanSheetState();
+}
+
+class _NeedScanSheetState extends State<_NeedScanSheet> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final subject = widget.unitName.isEmpty ? 'Temuan' : 'Temuan untuk ${widget.unitName}';
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Scan unit & Mulai Job dulu',
+                style: TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.slate900)),
+            const SizedBox(height: 6),
+            Text(
+              '$subject baru bisa dikirim setelah unit discan dan job dimulai. Scan barcode unit lalu '
+              'Mulai Job, setelah itu tekan Kirim Temuan lagi.',
+              style: const TextStyle(color: AppColors.slate600),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              key: const Key('need-scan-start'),
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      setState(() => _busy = true);
+                      await widget.onStart();
+                      if (mounted) setState(() => _busy = false);
+                    },
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('Scan & Mulai Job'),
+            ),
+            const SizedBox(height: 6),
+            TextButton(
+              key: const Key('need-scan-later'),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Nanti saja'),
             ),
           ],
         ),
@@ -2178,11 +2549,15 @@ class _FindingTile extends StatelessWidget {
     required this.onEditNote,
     required this.onDeletePhoto,
     this.showAuthors = false,
+    this.afterLocked = false,
   });
 
   final JobFinding finding;
   final bool canUpload;
   final bool busy;
+
+  /// Foto sesudah dikunci sampai Mulai Job: tombol tambah diganti petunjuk (foto yang ada tetap tampil).
+  final bool afterLocked;
   final ValueChanged<PhotoKind> onAdd;
   final VoidCallback onEditNote;
   final ValueChanged<JobFindingPhoto> onDeletePhoto;
@@ -2253,6 +2628,9 @@ class _FindingTile extends StatelessWidget {
               kind: kind,
               photos: finding.photos.where((p) => p.kind == kind).toList(),
               canUpload: canUpload,
+              uploadLockedHint: canUpload && kind == PhotoKind.sesudah && afterLocked
+                  ? 'Bisa diunggah setelah Mulai Job (scan unit dulu).'
+                  : null,
               busy: busy,
               onAdd: () => onAdd(kind),
               onDelete: onDeletePhoto,
@@ -2274,11 +2652,15 @@ class _PhotoGroup extends StatelessWidget {
     required this.busy,
     required this.onAdd,
     required this.onDelete,
+    this.uploadLockedHint,
   });
 
   final PhotoKind kind;
   final List<JobFindingPhoto> photos;
   final bool canUpload;
+
+  /// Non-null = unggah dikunci (tombol tambah diganti petunjuk ini); hapus foto tidak terpengaruh.
+  final String? uploadLockedHint;
   final bool busy;
   final VoidCallback onAdd;
   final ValueChanged<JobFindingPhoto> onDelete;
@@ -2294,19 +2676,24 @@ class _PhotoGroup extends StatelessWidget {
                 fontSize: 13,
                 fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
-        SizedBox(
-          height: 88,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              for (final p in photos)
-                _Thumb(photo: p, onDelete: canUpload && !busy ? () => onDelete(p) : null),
-              if (canUpload) _AddTile(busy: busy, onTap: onAdd),
-              if (photos.isEmpty && !canUpload)
-                const _EmptyThumb(),
-            ],
+        if (uploadLockedHint != null && photos.isEmpty)
+          Text(uploadLockedHint!,
+              key: ValueKey('after-locked-${kind.name}'),
+              style: const TextStyle(color: AppColors.slate500, fontSize: 13))
+        else
+          SizedBox(
+            height: 88,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final p in photos)
+                  _Thumb(photo: p, onDelete: canUpload && !busy ? () => onDelete(p) : null),
+                if (canUpload && uploadLockedHint == null) _AddTile(busy: busy, onTap: onAdd),
+                if (photos.isEmpty && !canUpload)
+                  const _EmptyThumb(),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
@@ -2524,9 +2911,13 @@ class _UnitSection extends StatelessWidget {
     required this.busy,
     required this.onSaveNotes,
     this.onPrintLabel,
+    this.onStart,
   });
 
   final TechnicianJob job;
+
+  /// Mulai Job unit ini untuk sheet "scan dulu" milik Kirim Temuan (null = tanpa pengecekan scan).
+  final Future<bool> Function(TechnicianJob job)? onStart;
 
   /// Non-null = tampilkan tombol Cetak Label QR (unit "QR dulu" milik teknisi yang login).
   final VoidCallback? onPrintLabel;
@@ -2541,7 +2932,7 @@ class _UnitSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title =
-        '${index + 1}. ${job.unitTitle.isEmpty ? 'Unit AC (tipe belum diisi)' : job.unitTitle}'
+        '${index + 1}. ${job.unitTitle.isEmpty ? (job.isSlot ? 'Unit menunggu discan' : 'Unit AC (tipe belum diisi)') : job.unitTitle}'
         '${job.unitRoom.isEmpty ? '' : ' · ${job.unitRoom}'}';
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -2598,17 +2989,21 @@ class _UnitSection extends StatelessWidget {
                   label: const Text('Cetak Label QR'),
                 ),
               ),
-            if (canEdit)
-              _UnitNotesField(
-                key: ValueKey('notes-${job.id}'),
-                initial: job.notes ?? '',
-                busy: busy,
-                onSave: onSaveNotes,
-              )
-            else if ((job.notes ?? '').isNotEmpty)
-              _NotesCard(notes: job.notes!),
-            const SizedBox(height: 10),
-            _FindingsSection(job: job, canUpload: canEdit),
+            if (job.isSlot)
+              _SlotCard(cancelled: job.status == JobStatus.dibatalkan)
+            else ...[
+              if (canEdit)
+                _UnitNotesField(
+                  key: ValueKey('notes-${job.id}'),
+                  initial: job.notes ?? '',
+                  busy: busy,
+                  onSave: onSaveNotes,
+                )
+              else if ((job.notes ?? '').isNotEmpty)
+                _NotesCard(notes: job.notes!),
+              const SizedBox(height: 10),
+              _FindingsSection(job: job, canUpload: canEdit, onStart: onStart),
+            ],
           ],
         ),
       ),

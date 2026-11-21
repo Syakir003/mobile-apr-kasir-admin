@@ -102,6 +102,8 @@ Map<String, dynamic> technicianJobRowFromNest(Map<String, dynamic> j) {
     'work_address': j['workAddress'],
     'work_maps_url': j['workMapsUrl'],
     'has_before_photo': j['hasBeforePhoto'],
+    // Hanya di GET /technician-jobs/:id: scan pengisi slot sudah dihitung sebagai scan Mulai Job.
+    'start_scan_waived': j['startScanWaived'],
     'complaint_of_job_id': j['complaintOfJobId'],
     if (j['complaintOf'] is Map) 'complaint_of': j['complaintOf'],
     // Hanya GET /technician-jobs/:id yang membawa `order`; di daftar dibiarkan true.

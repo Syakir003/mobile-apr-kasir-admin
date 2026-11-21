@@ -60,6 +60,10 @@ void main() {
     tall(tester);
     await tester.pumpWidget(_app(teknisi, technicianNote: 'Cuci 2 unit, cash 75 ribu'));
     await tester.pumpAndSettle();
+    // Unit belum discan + belum ada foto sebelum: popup pengingat muncul, tutup dulu.
+    expect(find.text('Kirim foto sebelum pengerjaan dulu'), findsOneWidget);
+    await tester.tap(find.text('Mengerti'));
+    await tester.pumpAndSettle();
 
     await toKeterangan(tester);
 
@@ -89,6 +93,8 @@ void main() {
   testWidgets('teknisi tanpa Keterangan: kartu tetap tampil (kosong) supaya bisa diisi', (tester) async {
     tall(tester);
     await tester.pumpWidget(_app(teknisi));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mengerti'));
     await tester.pumpAndSettle();
     await toKeterangan(tester);
 
