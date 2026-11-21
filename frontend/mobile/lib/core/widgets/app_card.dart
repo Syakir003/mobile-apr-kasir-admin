@@ -3,14 +3,11 @@ import 'package:flutter/material.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_theme.dart';
 
-/// Permukaan kartu standar: putih, radius 20px, dan soft teal drop shadow —
-/// sesuai bagian "Surface & Elevation" pada style guide.
+/// Permukaan kartu standar: putih, radius 16, border 1px, tanpa bayangan.
 ///
-/// Kartu tanpa [onTap] hanya digambar. Kartu yang bisa ditekan mengangkat
-/// bayangannya saat kursor melintas dan mengecil sedikit saat ditekan; tanpa
-/// itu kartu sebesar ini nyaris tidak memberi tanda bahwa ia bisa diklik,
-/// karena riak Material tenggelam di area 260×168.
-class AppCard extends StatefulWidget {
+/// Kartu tanpa [onTap] hanya digambar. Kartu yang bisa ditekan mengecil sedikit
+/// saat ditekan ([AppPressable]) supaya terasa bisa diklik.
+class AppCard extends StatelessWidget {
   const AppCard({
     super.key,
     required this.child,
@@ -27,48 +24,28 @@ class AppCard extends StatefulWidget {
   final VoidCallback? onTap;
 
   @override
-  State<AppCard> createState() => _AppCardState();
-}
-
-class _AppCardState extends State<AppCard> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(AppRadius.xl);
-    final padding = widget.padding ??
+    final radius = BorderRadius.circular(AppRadius.lg);
+    final pad = padding ??
         EdgeInsets.all(
           MediaQuery.sizeOf(context).width >= AppSpacing.wideBreakpoint
               ? AppSpacing.card
               : 18,
         );
 
-    final decorated = AnimatedContainer(
-      duration: AppDurations.base,
-      curve: AppCurves.standard,
-      padding: padding,
+    // Datar seperti Card tema: border 1px, tanpa bayangan.
+    final decorated = Container(
+      padding: pad,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: radius,
-        border: Border.all(
-          color: _hovered ? AppColors.hairline : AppColors.cardHairline,
-        ),
-        boxShadow: _hovered ? AppShadows.metricHover : AppShadows.metric,
+        border: Border.all(color: AppColors.hairline),
       ),
-      child: widget.child,
+      child: child,
     );
 
-    if (widget.onTap == null) return decorated;
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AppPressable(
-        onTap: widget.onTap,
-        borderRadius: radius,
-        child: decorated,
-      ),
-    );
+    if (onTap == null) return decorated;
+    return AppPressable(onTap: onTap, borderRadius: radius, child: decorated);
   }
 }
 

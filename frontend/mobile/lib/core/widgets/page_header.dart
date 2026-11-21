@@ -27,7 +27,13 @@ class PageHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(title, style: Theme.of(context).textTheme.displaySmall),
+        // Layar sempit: judul 28 (bukan 40) supaya tidak menghabiskan sepertiga layar pertama.
+        Text(
+          title,
+          style: MediaQuery.sizeOf(context).width < 520
+              ? Theme.of(context).textTheme.displaySmall?.copyWith(fontSize: 28, height: 1.2)
+              : Theme.of(context).textTheme.displaySmall,
+        ),
         if (subtitle != null) ...[
           const SizedBox(height: 4),
           Row(
@@ -77,12 +83,7 @@ class PageHeader extends StatelessWidget {
   }
 }
 
-/// Tombol aksi sekunder pada header halaman (mis. "Ekspor Laporan").
-///
-/// Frame dashboard menggambarnya dengan radius 8, tapi style guide — yang
-/// menyebut dirinya "single source of truth for component styles" — memakai
-/// pill untuk semua tombol. Pill yang dipakai supaya tidak ada dua bentuk
-/// tombol sekunder dalam satu aplikasi.
+/// Tombol aksi sekunder pada header halaman (mis. "Ekspor Laporan"). Memakai gaya tombol sekunder tema.
 class PageHeaderAction extends StatelessWidget {
   const PageHeaderAction({
     super.key,
@@ -101,21 +102,6 @@ class PageHeaderAction extends StatelessWidget {
       onPressed: onPressed,
       icon: Icon(icon, size: 16),
       label: Text(label),
-      style: OutlinedButton.styleFrom(
-        backgroundColor: AppColors.pageActionSurface,
-        foregroundColor: AppColors.navAccent,
-        side: const BorderSide(color: AppColors.searchBorder),
-        padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 11),
-        textStyle: const TextStyle(
-          fontFamily: AppFonts.display,
-          fontSize: 15,
-          height: 20 / 15,
-          fontWeight: FontWeight.w500,
-        ),
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(AppRadius.pill)),
-        ),
-      ),
     );
   }
 }

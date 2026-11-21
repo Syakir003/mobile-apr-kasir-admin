@@ -42,41 +42,36 @@ void main() {
       expect(AppTextStyles.monoCode.fontFamily, 'JetBrainsMono');
     });
 
-    test('kartu memakai radius 20px dan soft teal drop shadow', () {
+    test('kartu datar: radius 16, border 1px, tanpa bayangan', () {
       final theme = AppTheme.light();
       final shape = theme.cardTheme.shape! as RoundedRectangleBorder;
 
-      expect(shape.borderRadius, BorderRadius.circular(20));
-      expect(theme.cardTheme.shadowColor, const Color(0x26006B5F));
-      expect(AppShadows.card.single.offset, const Offset(0, 4));
-      expect(AppShadows.card.single.blurRadius, 10);
+      expect(shape.borderRadius, BorderRadius.circular(16));
+      expect(shape.side.color, const Color(0xFFD4E6E4));
+      expect(shape.side.width, 1);
+      expect(theme.cardTheme.elevation, 0);
     });
 
-    test('tombol utama & sekunder berbentuk pill sesuai style guide', () {
+    test('tombol berradius 12 (bukan pil); sekunder putih bergaris abu; kolom isian putih bergaris abu', () {
       final theme = AppTheme.light();
       const states = <WidgetState>{};
 
+      RoundedRectangleBorder shapeOf(ButtonStyle s) => s.shape!.resolve(states)! as RoundedRectangleBorder;
+
       final filled = theme.filledButtonTheme.style!;
       expect(filled.backgroundColor?.resolve(states), const Color(0xFF0B6B62));
-      expect(
-        filled.shape?.resolve(states),
-        isA<RoundedRectangleBorder>().having(
-          (s) => s.borderRadius,
-          'borderRadius',
-          BorderRadius.circular(999),
-        ),
-      );
+      expect(shapeOf(filled).borderRadius, BorderRadius.circular(12));
 
       final outlined = theme.outlinedButtonTheme.style!;
-      expect(
-        outlined.backgroundColor?.resolve(states),
-        const Color(0xFFEAF6F4), // Mist
-      );
+      expect(outlined.backgroundColor?.resolve(states), Colors.white);
       expect(outlined.foregroundColor?.resolve(states), const Color(0xFF0B6B62));
-      expect(
-        outlined.side?.resolve(states)?.color,
-        const Color(0x330B6B62), // rgba(11,107,98,0.2)
-      );
+      expect(outlined.side?.resolve(states)?.color, const Color(0xFFBCD2CF));
+      expect(shapeOf(outlined).borderRadius, BorderRadius.circular(12));
+
+      // Kolom isian tidak lagi sewarna tombol sekunder/chip (teal pucat).
+      final input = theme.inputDecorationTheme;
+      expect(input.fillColor, Colors.white);
+      expect((input.enabledBorder! as OutlineInputBorder).borderSide.color, const Color(0xFFBCD2CF));
     });
 
     test('badge status: latar 10% + teks/titik warna penuh', () {

@@ -116,7 +116,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('Job Teknisi'), findsOneWidget);
+    expect(find.text('Antrian Servis'), findsOneWidget);
     expect(find.text('Andi'), findsOneWidget);
   });
 
@@ -145,6 +145,10 @@ void main() {
   });
 
   testWidgets('Terdekat dari Toko: urut dekat ke jauh, badge km, dan yang gagal di bawah', (tester) async {
+    // Layar tinggi: kartu yang lebih tinggi (pelanggan dan unit di baris terpisah) tetap terbangun semua.
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final asked = <List<String>>[];
     await tester.pumpWidget(ProviderScope(
       overrides: [
@@ -219,7 +223,8 @@ void main() {
     ];
     await tester.pumpWidget(_wrap(user: admin, jobs: jobs));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Budi · LG Dualcool'), findsOneWidget);
+    expect(find.text('Budi'), findsOneWidget);
+    expect(find.text('LG Dualcool'), findsOneWidget);
     expect(find.text('Jl. Mawar 5, Mojosari, Kabupaten Mojokerto'), findsOneWidget);
     expect(find.text('Catatan: Bawa tangga'), findsOneWidget);
     expect(find.text('Andi'), findsOneWidget);

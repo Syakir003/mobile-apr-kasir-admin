@@ -148,7 +148,7 @@ class _JobListScreenState extends ConsumerState<JobListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isTeknisi ? 'Job Saya' : 'Job Teknisi'),
+        title: Text(isTeknisi ? 'Job Saya' : 'Antrian Servis'),
         actions: [
           const NotificationBell(),
           if (!isTeknisi)
@@ -587,16 +587,17 @@ class JobQueueCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Text.rich(
-                      TextSpan(children: [
-                        TextSpan(text: customer, style: const TextStyle(fontWeight: FontWeight.w600)),
-                        const TextSpan(text: ' · ', style: TextStyle(color: AppColors.slate400)),
-                        TextSpan(text: many ? '${group.length} unit AC' : unitName),
-                      ]),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 15, height: 1.3, color: AppColors.slate900),
-                    ),
+                    // Pelanggan di baris sendiri, unit di bawahnya: sebelumnya keduanya dijejal satu baris sampai unitnya
+                    // terpotong ("Daik…").
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(
+                        customer,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 15, height: 1.3, fontWeight: FontWeight.w600, color: AppColors.slate900),
+                      ),
+                      Text(many ? '${group.length} unit AC' : unitName, style: muted.copyWith(fontSize: 13)),
+                    ]),
                   ),
                   const SizedBox(width: 10),
                   Flexible(child: StatusBadge(label: status.label, color: jobStatusColor(status), constrained: true)),
@@ -666,7 +667,7 @@ class _QueueChip extends StatelessWidget {
         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(AppRadius.sm)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           if (icon != null) ...[Icon(icon, size: 13, color: fg), const SizedBox(width: 4)],
-          Flexible(child: Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg))),
+          Flexible(child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: fg))),
         ]),
       );
 }

@@ -234,14 +234,11 @@ class _Metrics extends ConsumerWidget {
     return GridView(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      // Desain menaruh 4 kartu sejajar pada canvas 940px → ±220px per kartu.
-      // `mainAxisExtent` dipakai (bukan rasio) karena tinggi kartu tidak
-      // bergantung lebar kolom. Desain menyebut minimal 140px, tapi isinya
-      // (label 2 baris + angka 32/40 + sub-teks + padding 24) butuh 168px;
-      // memaksa 140px membuat kartu overflow.
+      // `mainAxisExtent` (bukan rasio): tinggi kartu tidak bergantung lebar kolom. 136 cukup untuk label (hingga 2
+      // baris), angka 28/34, dan keterangan 2 baris pada kartu datar berpadding 16.
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 260,
-        mainAxisExtent: 168,
+        mainAxisExtent: 136,
         mainAxisSpacing: AppSpacing.grid,
         crossAxisSpacing: AppSpacing.grid,
       ),

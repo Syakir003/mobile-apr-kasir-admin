@@ -383,8 +383,9 @@ extension AppBadgeToneColors on AppBadgeTone {
 
 /// Varian tombol yang tidak punya slot tema sendiri di Material.
 abstract final class AppButtonStyles {
+  // Satu radius untuk tombol dan kolom isian (12): tombol tidak lagi pil, jadi tidak tertukar dengan chip/badge.
   static const _shape = RoundedRectangleBorder(
-    borderRadius: BorderRadius.all(Radius.circular(AppRadius.pill)),
+    borderRadius: BorderRadius.all(Radius.circular(AppRadius.md)),
   );
 
   static const _label = TextStyle(
@@ -499,28 +500,30 @@ abstract final class AppTheme {
         iconTheme: IconThemeData(color: AppColors.navBrand),
       ),
 
-      // Radius 20px + soft teal drop shadow, tanpa border.
+      // Kartu datar: border 1px, tanpa bayangan. Bayangan teal dan radius 20 membuat tiap kartu terlihat
+      // "melayang" dan menumpuk saat kartu bersarang.
       cardTheme: CardThemeData(
         color: Colors.white,
         surfaceTintColor: Colors.transparent,
-        shadowColor: AppColors.shadowSoft,
-        elevation: 3,
+        elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.xl),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          side: const BorderSide(color: AppColors.hairline),
         ),
       ),
 
       // Kolom isian (31:1040): latar teal muda, radius 8, padding 17×13,
       // placeholder Inter 16. Label TIDAK memakai floating label Material —
       // desain menaruhnya di atas kolom, lihat `AppFormField`.
+      // Kolom isian: putih bergaris abu 1px. Tidak lagi teal pucat supaya beda dari tombol sekunder dan chip.
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.inputSurface,
+        fillColor: Colors.white,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 17, vertical: 13),
-        border: border(AppColors.hairline),
-        enabledBorder: border(AppColors.hairline),
+        border: border(AppColors.slate300),
+        enabledBorder: border(AppColors.slate300),
         focusedBorder: border(AppColors.tealDeep, 1.5),
         errorBorder: border(AppColors.coral),
         focusedErrorBorder: border(AppColors.coral, 1.5),
@@ -535,7 +538,7 @@ abstract final class AppTheme {
           fontFamily: AppFonts.body,
           fontSize: 16,
           height: 24 / 16,
-          color: AppColors.inputPlaceholder,
+          color: AppColors.textMuted,
         ),
         helperStyle: const TextStyle(
           fontFamily: AppFonts.body,
@@ -593,13 +596,13 @@ abstract final class AppTheme {
         ),
       ),
 
-      // Secondary Action: latar mist, border teal 20%, teks teal deep.
+      // Secondary Action: latar putih, border abu 1px, teks teal deep (bukan lagi teal pucat seperti kolom isian).
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          backgroundColor: AppColors.mist,
+          backgroundColor: Colors.white,
           foregroundColor: AppColors.tealDeep,
           disabledForegroundColor: AppColors.disabledLabel,
-          side: const BorderSide(color: AppColors.tealDeepOutline),
+          side: const BorderSide(color: AppColors.slate300),
           padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 13),
           textStyle: AppButtonStyles._label,
           shape: AppButtonStyles._shape,
@@ -608,6 +611,18 @@ abstract final class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: AppColors.tealDeep,
+          textStyle: AppButtonStyles._label,
+        ),
+      ),
+
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: SegmentedButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: AppColors.textBody,
+          selectedBackgroundColor: AppColors.mist,
+          selectedForegroundColor: AppColors.tealDeep,
+          side: const BorderSide(color: AppColors.slate300),
+          shape: AppButtonStyles._shape,
           textStyle: AppButtonStyles._label,
         ),
       ),
