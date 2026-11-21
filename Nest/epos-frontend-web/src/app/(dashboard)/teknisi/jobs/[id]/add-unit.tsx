@@ -162,7 +162,19 @@ export function AddUnitButton({ jobId, jobType }: { jobId: string; jobType: stri
                   Scan QR/barcode yang tertempel di AC. Unit harus milik pelanggan yang sama dan tidak sedang punya job
                   lain.
                 </p>
-                <BarcodeScanner onDetect={(c) => setCode(c)} manualPlaceholder="Barcode unit" />
+                <BarcodeScanner
+                  onDetect={(c) => {
+                    setCode(c);
+                    // Kecocokan unit (milik pelanggan ini, tanpa job lain) diperiksa backend saat Tambahkan Unit;
+                    // kalau ditolak, alasannya muncul sebagai notifikasi gagal.
+                    toast.success(
+                      complaintOk
+                        ? 'Scan berhasil. Tekan Tambahkan Unit untuk memasukkannya ke job.'
+                        : 'Scan berhasil. Isi pekerjaan/keluhan dulu, lalu tekan Tambahkan Unit.',
+                    );
+                  }}
+                  manualPlaceholder="Barcode unit"
+                />
                 {code && (
                   <p className="text-xs text-muted-foreground">
                     Kode terbaca: <span className="font-medium text-foreground">{code}</span>

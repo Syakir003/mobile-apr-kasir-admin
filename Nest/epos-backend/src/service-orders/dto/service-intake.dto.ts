@@ -119,6 +119,13 @@ export class ServiceIntakeDto {
   units?: IntakeUnitDto[];
 
   /**
+   * Slot unit yang BELUM diketahui (mis. pabrik punya 20 AC tapi minta cuci 10 unit, tanpa tahu unit yang mana): jumlah
+   * job kosong yang dibuat. Teknisi yang memindai barcode unit di lokasi, dan unit itu mengisi satu slot. Boleh
+   * dipakai sendiri (tanpa units[]) atau bersama units[]; total unit + slot maksimal 20 (dicek di service).
+   */
+  @IsOptional() @IsInt() @Min(1) @Max(20) scanUnitCount?: number;
+
+  /**
    * Titik lokasi kerja bila berbeda dari alamat pelanggan (satu pelanggan bisa punya AC di beberapa tempat). Tiap unit
    * memilih titiknya lewat `units[].locationIndex`; tanpa pilihan: titik tunggal dipakai semua unit, kalau titiknya
    * banyak unit ikut alamat pelanggan. Disimpan per job (technician_jobs.work_address / work_maps_url).

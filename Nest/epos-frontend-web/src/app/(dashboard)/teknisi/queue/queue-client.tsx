@@ -134,8 +134,11 @@ const MAX_PRINT_UNITS = 100;
 
 const STATUS_ORDER = ['menunggu_penugasan', 'assigned', 'sedang_dikerjakan', 'menunggu_review', 'selesai', 'dibatalkan'];
 const ASSIGNABLE_STATUSES = ['menunggu_penugasan', 'assigned'];
+// Job tanpa unit = slot "unit belum diketahui" (Terima Servis dengan jumlah unit yang discan teknisi): unitnya baru terisi
+// saat teknisi memindai barcode di lokasi.
+export const SLOT_TEXT = 'Unit menunggu discan';
 export const unitName = (j: TechnicianJob) =>
-  j.unit ? [j.unit.brand, j.unit.model].filter(Boolean).join(' ') || 'Unit AC' : `Order ${j.type}`;
+  j.unit ? [j.unit.brand, j.unit.model].filter(Boolean).join(' ') || 'Unit AC' : SLOT_TEXT;
 // Unit tanpa tipe (merk/model kosong, mis. unit "QR dulu"): baris info AC memberi tahu, bukan dikosongkan.
 export const NO_TYPE_TEXT = '(Unit AC belum ada Tipe)';
 const hasBrandModel = (j: TechnicianJob) => !!j.unit && [j.unit.brand, j.unit.model].some(Boolean);
@@ -893,8 +896,13 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
               : '';
             // Informasi AC: daftar unit (servis banyak AC) atau Indoor/Outdoor (satu unit); unit tanpa tipe diberi tulisan
             // pengisi supaya baris ini tidak kosong dan hanya memuat lokasi.
+            // Slot yang belum discan dirangkum ("7 unit menunggu discan") supaya tidak diulang per slot; slot dibatalkan disembunyikan.
+            const openSlots = row.jobs.filter((j) => !j.unit && j.status !== 'dibatalkan').length;
             const unitsText = many
-              ? row.jobs.map(unitTypeText).join(' • ')
+              ? [
+                  ...row.jobs.filter((j) => !!j.unit).map(unitTypeText),
+                  ...(openSlots > 0 ? [`${openSlots} ${SLOT_TEXT.toLowerCase()}`] : []),
+                ].join(' • ')
               : job.unit
                 ? unitPartsText(job.unit) || (hasBrandModel(job) ? '' : NO_TYPE_TEXT)
                 : '';

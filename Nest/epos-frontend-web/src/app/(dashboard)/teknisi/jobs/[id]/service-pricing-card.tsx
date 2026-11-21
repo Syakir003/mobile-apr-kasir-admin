@@ -34,6 +34,8 @@ export function SendFindingsBar({
   withoutBeforePhoto,
   findingsSentAt,
   priced,
+  needsScan = false,
+  onNeedScan,
 }: {
   jobId: string;
   findingCount: number;
@@ -41,6 +43,9 @@ export function SendFindingsBar({
   withoutBeforePhoto: number;
   findingsSentAt: string | null;
   priced: boolean;
+  /** Unit belum discan: tombol tetap aktif, tetapi penekanannya memanggil `onNeedScan` (popup scan & Mulai Job), bukan mengirim. */
+  needsScan?: boolean;
+  onNeedScan?: () => void;
 }) {
   const queryClient = useQueryClient();
   const send = useMutation({
@@ -68,7 +73,7 @@ export function SendFindingsBar({
           size="sm"
           className="disabled:opacity-40"
           disabled={findingCount === 0 || withoutBeforePhoto > 0 || send.isPending}
-          onClick={() => send.mutate()}
+          onClick={() => (needsScan && onNeedScan ? onNeedScan() : send.mutate())}
         >
           <Send className="size-4" />
           {send.isPending ? 'Mengirim...' : findingsSentAt ? 'Kirim Ulang Temuan' : 'Kirim Temuan'}

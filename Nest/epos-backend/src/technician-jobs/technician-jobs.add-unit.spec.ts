@@ -493,3 +493,23 @@ describe('TechnicianJobsService.unitLabels — data label untuk cetak oleh tekni
     );
   });
 });
+
+// Order "jumlah unit, teknisi yang scan": job yang dipegang teknisi bisa berupa slot (unitId null). Teknisi tetap boleh
+// menambah unit sendiri (berlabel atau "QR dulu"), terlepas dari slot yang masih kosong.
+describe('TechnicianJobsService.addUnit — dari job slot (unit belum diketahui)', () => {
+  it('unit berlabel: job baru di order yang sama, slot tidak disentuh', async () => {
+    const { svc, tx, createForOrder } = setup({ job: { unitId: null } });
+    const r = await svc.addUnit('j1', { barcode: 'ACUNIT-20261001-0002', complaint: 'Cuci AC' }, 't1', 'teknisi');
+    expect(createForOrder).toHaveBeenCalledWith(tx, expect.objectContaining({ orderId: 'o1', unitId: 'u2' }));
+    expect(tx.serviceOrderUnit.create).toHaveBeenCalledWith({ data: { orderId: 'o1', unitId: 'u2', status: 'terjadwal' } });
+    expect(r).toMatchObject({ ok: true, jobId: 'j2', needsLabel: false });
+  });
+
+  it('AC tanpa label ("QR dulu"): unit baru dibuat dan label perlu dicetak', async () => {
+    const { svc, tx, createForOrder, acUnits } = setup({ job: { unitId: null } });
+    const r = await svc.addUnit('j1', { newUnit: true, roomLocation: 'Gudang', complaint: 'Cuci AC' }, 't1', 'teknisi');
+    expect(acUnits.createLegacy).toHaveBeenCalledWith(tx, 'm1', { mode: 'qr_dulu', roomLocation: 'Gudang' });
+    expect(createForOrder).toHaveBeenCalledWith(tx, expect.objectContaining({ unitId: 'u9' }));
+    expect(r).toMatchObject({ ok: true, needsLabel: true, needsData: true });
+  });
+});

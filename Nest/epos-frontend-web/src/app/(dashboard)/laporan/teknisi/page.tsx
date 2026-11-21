@@ -6,7 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { wibDateKey } from '@/lib/wib-date';
 
 // Performa teknisi dihitung di browser dari GET /technician-jobs (semua job,
 // admin-only; field startedAt/completedAt/scheduledDate sudah ikut di
@@ -23,7 +24,13 @@ interface Job {
   technician: { id: string; displayName: string } | null;
 }
 
-const PERIODS = { '7': '7 hari terakhir', '30': '30 hari terakhir', '90': '90 hari terakhir', all: 'Semua waktu' };
+// Pintasan rentang tanggal; null = semua waktu.
+const PERIODS: { label: string; days: number | null }[] = [
+  { label: '7 hari', days: 7 },
+  { label: '30 hari', days: 30 },
+  { label: '90 hari', days: 90 },
+  { label: 'Semua waktu', days: null },
+];
 const RUNNING = ['assigned', 'sedang_dikerjakan', 'menunggu_review'];
 
 function durasi(menit: number | null) {
@@ -35,16 +42,28 @@ function durasi(menit: number | null) {
 const sameOrBeforeDay = (a: Date, b: Date) =>
   new Date(a).setHours(0, 0, 0, 0) <= new Date(b).setHours(0, 0, 0, 0);
 
+// Kunci tanggal 'YYYY-MM-DD' (WIB) untuk "n hari terakhir"; '' = tanpa batas.
+const daysAgoKey = (n: number) => wibDateKey(new Date(Date.now() - n * 86_400_000));
+
 export default function PerformaTeknisiPage() {
-  const [period, setPeriod] = React.useState<keyof typeof PERIODS>('30');
+  // Rentang tanggal dibuat job (WIB, kedua ujung termasuk). Bawaan: 30 hari terakhir.
+  const [from, setFrom] = React.useState(() => daysAgoKey(30));
+  const [to, setTo] = React.useState('');
   const jobsQuery = useQuery({
     queryKey: ['technician-jobs', 'all'],
     queryFn: () => apiClient.get<Job[]>('/technician-jobs'),
   });
+  const rangeInvalid = from !== '' && to !== '' && from > to;
+  const setPreset = (days: number | null) => {
+    setFrom(days === null ? '' : daysAgoKey(days));
+    setTo('');
+  };
 
   const { rows, belumDitugaskan } = React.useMemo(() => {
-    const since = period === 'all' ? 0 : Date.now() - Number(period) * 86_400_000;
-    const jobs = (jobsQuery.data ?? []).filter((j) => new Date(j.createdAt).getTime() >= since);
+    const jobs = (jobsQuery.data ?? []).filter((j) => {
+      const day = wibDateKey(j.createdAt);
+      return (!from || day >= from) && (!to || day <= to);
+    });
     const by = new Map<string, { nama: string; jobs: Job[] }>();
     for (const j of jobs) {
       if (!j.technician) continue;
@@ -73,7 +92,7 @@ export default function PerformaTeknisiPage() {
     });
     rows.sort((a, b) => b.selesai - a.selesai);
     return { rows, belumDitugaskan: jobs.filter((j) => !j.technician && j.status !== 'dibatalkan').length };
-  }, [jobsQuery.data, period]);
+  }, [jobsQuery.data, from, to]);
 
   return (
     <div className="grid gap-4">
@@ -84,19 +103,46 @@ export default function PerformaTeknisiPage() {
             Jumlah job, kecepatan pengerjaan, dan ketepatan jadwal per teknisi.
           </p>
         </div>
-        <Select value={period} onValueChange={(v) => setPeriod(v as keyof typeof PERIODS)}>
-          <SelectTrigger size="sm" className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(PERIODS).map(([v, label]) => (
-              <SelectItem key={v} value={v}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {PERIODS.map((p) => (
+            <Button
+              key={p.label}
+              type="button"
+              size="sm"
+              variant="outline"
+              className="whitespace-nowrap"
+              onClick={() => setPreset(p.days)}
+            >
+              {p.label}
+            </Button>
+          ))}
+          <label className="flex h-8 items-center gap-1.5 rounded-lg border bg-background px-2.5 focus-within:ring-2 focus-within:ring-ring/40">
+            <span className="shrink-0 text-xs text-muted-foreground">Dari:</span>
+            <input
+              type="date"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => setFrom(e.target.value)}
+              aria-label="Dari tanggal"
+              className="h-7 w-32 bg-transparent text-xs outline-none"
+            />
+          </label>
+          <label className="flex h-8 items-center gap-1.5 rounded-lg border bg-background px-2.5 focus-within:ring-2 focus-within:ring-ring/40">
+            <span className="shrink-0 text-xs text-muted-foreground">Sampai:</span>
+            <input
+              type="date"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => setTo(e.target.value)}
+              aria-label="Sampai tanggal"
+              className="h-7 w-32 bg-transparent text-xs outline-none"
+            />
+          </label>
+        </div>
       </div>
+      {rangeInvalid && (
+        <p className="text-sm text-destructive">Tanggal &quot;Dari&quot; tidak boleh lebih besar dari &quot;Sampai&quot;.</p>
+      )}
 
       <Card className="gap-0 overflow-hidden py-0 shadow-none">
         <CardContent className="overflow-x-auto p-0">
@@ -148,7 +194,8 @@ export default function PerformaTeknisiPage() {
         </p>
       )}
       <p className="text-xs text-muted-foreground">
-        Periode dihitung dari tanggal job dibuat. "Tepat jadwal" = job selesai pada atau sebelum
+        Rentang tanggal dihitung dari tanggal job dibuat (WIB); kosongkan kedua tanggal untuk semua
+        waktu. &quot;Tepat jadwal&quot; = job selesai pada atau sebelum
         tanggal jadwalnya (hanya job yang punya jadwal).
       </p>
     </div>

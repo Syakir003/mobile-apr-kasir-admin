@@ -9,6 +9,7 @@ import {
   InvoiceStatus,
   Prisma,
   ProblemCategory,
+  TechnicianJob,
   TechnicianJobStatus,
 } from '@prisma/client';
 import { unlink } from 'fs/promises';
@@ -35,6 +36,7 @@ import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { assertNoActiveJob } from './active-job.util';
 import { AddUnitDto } from './dto/add-unit.dto';
+import { ClaimUnitDto } from './dto/claim-unit.dto';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { INTAKE_JOB_TYPES } from '../service-orders/dto/service-intake.dto';
 
@@ -51,6 +53,9 @@ type Role = 'admin' | 'kasir' | 'teknisi' | 'gudang';
  * Tidak memengaruhi siklus servis (nextServiceDate tetap diisi) maupun pengingat berkala H-3/H+7.
  */
 export const KIRIM_WA_SELESAI_SERVIS = false;
+
+/** Jejak di audit log bahwa unit slot diisi lewat scan teknisi (penanda "scan Mulai Job sudah dilakukan"). */
+const CLAIM_UNIT_ACTION = 'job.claim_unit';
 
 /**
  * Siklus 5 (revisi) — checklist temuan servis + review admin. Vokabuler
@@ -90,6 +95,36 @@ export class TechnicianJobsService {
     if (role !== 'admin' && !(await isJobAssignee(db, job.id, actorId))) {
       throw new ForbiddenException('Job ini bukan milik Anda');
     }
+  }
+
+  /**
+   * Slot "unit belum diketahui" (job tanpa unit; diisi teknisi lewat scan, lihat claimUnit): temuan, foto, dan Mulai Job
+   * baru boleh setelah unitnya discan.
+   */
+  private assertUnitScanned(job: { unitId: string | null }) {
+    if (job.unitId === null) {
+      throw new BadRequestException('Unit belum discan. Scan barcode unit dulu untuk memasukkannya ke pekerjaan ini.');
+    }
+  }
+
+  /**
+   * Scan barcode yang dipakai MENGISI slot (claimUnit) sudah dihitung sebagai scan "Mulai Job", jadi teknisi tidak perlu
+   * memindai unit yang sama dua kali (scan, foto sebelum, Mulai). Berlaku selama job belum pernah dimulai dan tidak
+   * dialihkan ke teknisi lain sesudah scan itu (teknisi pengganti wajib scan sendiri di unitnya).
+   */
+  private async claimScanCounts(
+    db: Prisma.TransactionClient | PrismaService,
+    job: { id: string; startedAt: Date | null },
+  ): Promise<boolean> {
+    if (job.startedAt) return false;
+    const claim = await db.auditLog.findFirst({
+      where: { action: CLAIM_UNIT_ACTION, target: job.id },
+      orderBy: { at: 'desc' },
+      select: { at: true },
+    });
+    if (!claim) return false;
+    const handoverAfter = await db.jobHandover.count({ where: { jobId: job.id, createdAt: { gt: claim.at } } });
+    return handoverAfter === 0;
   }
 
   /** Bentuk respons: `assignees` mentah diganti `technicianIds` + `technicians` (technicianId lama tetap ada). */
@@ -475,10 +510,14 @@ export class TechnicianJobsService {
           });
     // `unit.labeled`: QR unit sudah pernah dilabeli (ada riwayat sebelum job ini) — kartu QR di halaman job menampilkannya.
     const shaped = this.withAssignees(job);
-    if (!job.unit) return { ...shaped, siblings };
+    if (!job.unit) return { ...shaped, siblings, startScanWaived: false };
+    // `startScanWaived`: scan pengisi slot sudah dihitung sebagai scan Mulai Job (web tidak meminta scan ulang).
+    const startScanWaived =
+      job.status === TechnicianJobStatus.assigned && (await this.claimScanCounts(this.prisma, job));
     return {
       ...shaped,
       siblings,
+      startScanWaived,
       unit: { ...job.unit, labeled: await isUnitLabeled(this.prisma, job.unit, job.createdAt) },
     };
   }
@@ -499,7 +538,8 @@ export class TechnicianJobsService {
     params: {
       orderId: string;
       memberId: string;
-      unitId: string;
+      // null = slot "unit belum diketahui" (teknisi yang scan; lihat claimUnit). Job pemasangan/komplain selalu berunit.
+      unitId: string | null;
       technicianId?: string | null;
       // Beberapa teknisi setara (menang atas technicianId). Pemanggil WAJIB sudah memvalidasi (assertValidTechnicians).
       technicianIds?: string[];
@@ -687,6 +727,89 @@ export class TechnicianJobsService {
         jobType,
         customerName: job.member?.name ?? null,
         technicianName: job.technician?.displayName ?? null,
+      };
+    });
+  }
+
+  /**
+   * Teknisi memindai barcode unit untuk MENGISI satu slot "unit belum diketahui" (order dari Terima Servis dengan jumlah
+   * unit yang discan teknisi, mis. pabrik punya 20 AC tapi hanya 10 yang dicuci dan pelanggan tidak tahu yang mana).
+   * `jobId` = job mana pun di order itu; slot kosong pertama (urut dibuat) milik pemanggil yang diisi (admin: slot mana
+   * pun). Unit harus berlabel, milik PELANGGAN order ini (unit pelanggan lain ditolak), belum ada di order ini, dan
+   * tidak punya job aktif. Sesudahnya job punya unit seperti job lain: section detail unit, temuan awal (keluhan bersama),
+   * dan foto muncul. Scan ini juga dihitung sebagai scan Mulai Job (lihat claimScanCounts): urutannya scan, foto
+   * sebelum, Mulai. Unit "QR dulu" (menunggu_data) boleh discan, tetapi Mulai Job menunggu datanya dilengkapi.
+   */
+  async claimUnit(jobId: string, dto: ClaimUnitDto, actorId: string, role: Role) {
+    const barcode = dto.barcode?.trim();
+    if (!barcode) throw new BadRequestException('Scan barcode unit dulu');
+    return this.prisma.$transaction(async (tx) => {
+      const found = await tx.technicianJob.findUnique({ where: { id: jobId }, select: { orderId: true } });
+      if (!found) throw new NotFoundException('Job tidak ditemukan');
+      // Kunci semua job order ini (urut id): dua teknisi yang scan bersamaan tidak boleh mengisi slot yang sama.
+      await tx.$executeRaw`SELECT id FROM technician_jobs WHERE order_id = ${found.orderId} ORDER BY id FOR UPDATE`;
+      const job = await tx.technicianJob.findUnique({
+        where: { id: jobId },
+        include: { member: { select: { name: true } } },
+      });
+      if (!job) throw new NotFoundException('Job tidak ditemukan');
+      await this.assertOwnerOrAdmin(job, actorId, role, tx);
+
+      const emptySlots = await tx.technicianJob.findMany({
+        where: {
+          orderId: job.orderId,
+          unitId: null,
+          status: { in: [TechnicianJobStatus.assigned, TechnicianJobStatus.menunggu_penugasan] },
+        },
+        include: { assignees: { select: { technicianId: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
+      const mine =
+        role === 'admin' ? emptySlots : emptySlots.filter((j) => j.assignees.some((a) => a.technicianId === actorId));
+      const slot = mine[0];
+      if (!slot) {
+        throw new BadRequestException('Tidak ada slot unit yang kosong di order ini. Semua unit sudah terisi.');
+      }
+      if (!slot.memberId) throw new BadRequestException('Job ini tidak punya pelanggan, unit tidak bisa diisi');
+
+      const unit = await tx.memberAcUnit.findUnique({ where: { barcodeValue: barcode } });
+      if (!unit) throw new NotFoundException('Unit tidak ditemukan / QR tidak valid');
+      if (unit.memberId !== slot.memberId) {
+        throw new BadRequestException(
+          'Unit ini terdaftar atas nama pelanggan lain, bukan pelanggan order ini. Pastikan AC yang dipindai benar, atau konfirmasi ke admin.',
+        );
+      }
+      const alreadyHere = await tx.technicianJob.count({
+        where: { orderId: job.orderId, unitId: unit.id, status: { not: TechnicianJobStatus.dibatalkan } },
+      });
+      if (alreadyHere > 0) throw new BadRequestException('Unit ini sudah ada di job ini');
+      await assertNoActiveJob(tx, [unit.id]);
+
+      // Unit pernah ada di order ini (jobnya dibatalkan) dipakai ulang barisnya, bukan dobel.
+      const orderUnit = await tx.serviceOrderUnit.findFirst({ where: { orderId: job.orderId, unitId: unit.id } });
+      if (orderUnit) {
+        await tx.serviceOrderUnit.update({ where: { id: orderUnit.id }, data: { status: 'terjadwal' } });
+      } else {
+        await tx.serviceOrderUnit.create({ data: { orderId: job.orderId, unitId: unit.id, status: 'terjadwal' } });
+      }
+      await tx.technicianJob.update({ where: { id: slot.id }, data: { unitId: unit.id, updatedAt: new Date() } });
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: CLAIM_UNIT_ACTION,
+          target: slot.id,
+          detail: { orderId: job.orderId, unitId: unit.id, barcodeValue: unit.barcodeValue, scannedFromJobId: jobId },
+        },
+      });
+      return {
+        ok: true,
+        jobId: slot.id,
+        orderId: job.orderId,
+        unitId: unit.id,
+        barcodeValue: unit.barcodeValue,
+        // Unit "QR dulu": merk/PK harus dilengkapi lewat Scan Unit sebelum unit bisa dimulai.
+        needsData: unit.status === 'menunggu_data',
+        remainingSlots: mine.length - 1,
       };
     });
   }
@@ -1037,7 +1160,7 @@ export class TechnicianJobsService {
    */
   async start(
     jobId: string,
-    scannedBarcode: string,
+    scannedBarcode: string | undefined,
     actorId: string,
     role: Role,
   ) {
@@ -1055,6 +1178,9 @@ export class TechnicianJobsService {
         'Job harus berstatus Ditugaskan untuk dimulai',
       );
     }
+    if (!job.unit) {
+      throw new BadRequestException('Unit belum discan. Scan barcode unit dulu untuk memasukkannya ke pekerjaan ini.');
+    }
     const beforePhotoCount = await this.prisma.jobFindingPhoto.count({
       where: { kind: 'sebelum', finding: { jobId } },
     });
@@ -1063,13 +1189,16 @@ export class TechnicianJobsService {
         'Unggah foto sebelum dulu (di salah satu temuan) sebelum memulai pekerjaan',
       );
     }
-    if (!scannedBarcode?.trim()) {
-      throw new BadRequestException(
-        'Scan barcode unit diperlukan sebelum memulai',
-      );
-    }
-    if (!job.unit || job.unit.barcodeValue !== scannedBarcode) {
-      throw new BadRequestException('Barcode tidak sesuai unit pada job ini');
+    // Unit yang masuk lewat scan pengisi slot tidak perlu dipindai lagi (scan itu sudah dihitung).
+    if (!(await this.claimScanCounts(this.prisma, job))) {
+      if (!scannedBarcode?.trim()) {
+        throw new BadRequestException(
+          'Scan barcode unit diperlukan sebelum memulai',
+        );
+      }
+      if (job.unit.barcodeValue !== scannedBarcode) {
+        throw new BadRequestException('Barcode tidak sesuai unit pada job ini');
+      }
     }
     if (job.unit.status === 'menunggu_data') {
       throw new BadRequestException(
@@ -1132,6 +1261,7 @@ export class TechnicianJobsService {
         'Temuan hanya bisa ditambahkan saat job aktif',
       );
     }
+    this.assertUnitScanned(job);
 
     return this.prisma.$transaction(async (tx) => {
       const category = await this.findOrCreateCategory(tx, dto);
@@ -1159,6 +1289,7 @@ export class TechnicianJobsService {
     ) {
       throw new BadRequestException('Deskripsi temuan hanya bisa diubah saat job aktif');
     }
+    this.assertUnitScanned(job);
     const finding = await this.prisma.jobFinding.findUnique({ where: { id: findingId } });
     if (!finding || finding.jobId !== jobId) {
       throw new NotFoundException('Temuan tidak ditemukan pada job ini');
@@ -1194,6 +1325,15 @@ export class TechnicianJobsService {
     ) {
       throw new BadRequestException(
         'Foto hanya bisa ditambahkan saat job aktif',
+      );
+    }
+    this.assertUnitScanned(job);
+    // Foto SESUDAH baru boleh setelah Mulai Job (scan barcode unit). Foto sebelum sengaja tidak digate: Mulai Job
+    // sendiri mewajibkan foto sebelum lebih dulu (lihat start()). Job yang dialihkan ke teknisi lain kembali ke
+    // 'assigned', jadi teknisi pengganti wajib scan ulang dulu sebelum menambah foto sesudah (foto lama tetap).
+    if (kind === 'sesudah' && job.status !== TechnicianJobStatus.sedang_dikerjakan) {
+      throw new BadRequestException(
+        'Foto sesudah baru bisa diunggah setelah Mulai Job. Scan barcode unit dulu, lalu mulai pekerjaannya.',
       );
     }
     const finding = await this.prisma.jobFinding.findUnique({
@@ -1301,6 +1441,7 @@ export class TechnicianJobsService {
       ) {
         throw new BadRequestException('Temuan hanya bisa dikirim selama job aktif');
       }
+      this.assertUnitScanned(job);
       // Job komplain tidak ditagih: tidak ada harga jasa yang perlu ditetapkan dari temuannya.
       if (job.complaintOfJobId) {
         throw new BadRequestException('Job komplain tidak ditagih, jadi temuannya tidak perlu dikirim untuk penetapan harga');
@@ -1481,6 +1622,12 @@ export class TechnicianJobsService {
         include: { unit: { select: { brand: true, model: true, roomLocation: true, barcodeValue: true } } },
         orderBy: { createdAt: 'asc' },
       });
+      const emptySlots = jobs.filter((j) => j.unitId === null && j.status !== TechnicianJobStatus.selesai);
+      if (emptySlots.length > 0) {
+        throw new BadRequestException(
+          `Masih ada ${emptySlots.length} slot unit yang belum discan. Scan unitnya, atau batalkan slot yang tidak dipakai, sebelum diajukan selesai.`,
+        );
+      }
       const notStarted = jobs.filter(
         (j) => j.status === TechnicianJobStatus.menunggu_penugasan || j.status === TechnicianJobStatus.assigned,
       );
@@ -1705,6 +1852,12 @@ export class TechnicianJobsService {
       },
       orderBy: { createdAt: 'asc' },
     });
+    const emptySlots = jobs.filter((j) => j.unitId === null && j.status !== TechnicianJobStatus.selesai);
+    if (emptySlots.length > 0) {
+      throw new BadRequestException(
+        `Masih ada ${emptySlots.length} slot unit yang belum discan teknisi. Batalkan slot yang tidak dipakai dulu.`,
+      );
+    }
     const waiting = jobs.filter((j) => j.status === TechnicianJobStatus.menunggu_review);
     const inProgress = jobs.filter(
       (j) => j.status !== TechnicianJobStatus.menunggu_review && j.status !== TechnicianJobStatus.selesai,
@@ -1824,10 +1977,17 @@ export class TechnicianJobsService {
    * disetujui" — dan otomatis gak lolos guard markUsed() yang mensyaratkan
    * status 'approved').
    */
-  async cancel(jobId: string, actorId: string, role: Role, opts: { moveRequestsToSibling?: boolean } = {}) {
+  async cancel(
+    jobId: string,
+    actorId: string,
+    role: Role,
+    opts: { moveRequestsToSibling?: boolean; allInOrder?: boolean } = {},
+  ) {
     if (role !== 'admin') {
       throw new ForbiddenException('Hanya Admin yang boleh membatalkan job');
     }
+    // Servis banyak AC: satu tombol membatalkan SEMUA unit order yang belum selesai (tanpa membatalkan satu per satu).
+    if (opts.allInOrder) return this.cancelOrder(jobId, actorId);
     const job = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
     });
@@ -1838,7 +1998,61 @@ export class TechnicianJobsService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) => this.cancelJobInTx(tx, job, actorId, opts));
+  }
+
+  /**
+   * Batalkan SEMUA job order ini yang belum selesai/dibatalkan (unit biasa maupun slot yang belum discan) dalam satu
+   * transaksi: atomik, satu audit. Unit yang sudah selesai dibiarkan. Efek per job sama dengan membatalkan satu unit
+   * (pengajuan sparepart ditolak/dibalik, tagihan job dihitung ulang, unit dikembalikan dari maintenance), kecuali tidak
+   * ada pemindahan harga/pengajuan ke unit lain karena semua unit aktif ikut dibatalkan.
+   */
+  private async cancelOrder(jobId: string, actorId: string) {
+    const base = await this.prisma.technicianJob.findUnique({ where: { id: jobId }, select: { orderId: true } });
+    if (!base) throw new NotFoundException('Job tidak ditemukan');
+    const { cancelledJobIds, technicianIds } = await this.prisma.$transaction(async (tx) => {
+      // Kunci semua job order ini (urut id) supaya tidak berbarengan dengan Ajukan Selesai/Setujui/scan slot.
+      await tx.$executeRaw`SELECT id FROM technician_jobs WHERE order_id = ${base.orderId} ORDER BY id FOR UPDATE`;
+      const jobs = await tx.technicianJob.findMany({
+        where: {
+          orderId: base.orderId,
+          status: { notIn: [TechnicianJobStatus.selesai, TechnicianJobStatus.dibatalkan] },
+        },
+        include: { assignees: { select: { technicianId: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (jobs.length === 0) {
+        throw new BadRequestException('Tidak ada unit yang bisa dibatalkan (semua sudah selesai atau dibatalkan)');
+      }
+      for (const j of jobs) {
+        await this.cancelJobInTx(tx, j, actorId, { skipSuccessor: true });
+      }
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'job.cancel_order',
+          target: base.orderId,
+          detail: { orderId: base.orderId, jobIds: jobs.map((j) => j.id), count: jobs.length },
+        },
+      });
+      return {
+        cancelledJobIds: jobs.map((j) => j.id),
+        technicianIds: [...new Set(jobs.flatMap((j) => j.assignees.map((a) => a.technicianId)))],
+      };
+    });
+    const updated = await this.prisma.technicianJob.findUniqueOrThrow({ where: { id: jobId } });
+    return { ...updated, cancelledJobIds, cancelledCount: cancelledJobIds.length, technicianIds };
+  }
+
+  /** Isi pembatalan SATU job (dipakai pembatalan satu unit dan pembatalan seluruh order). */
+  private async cancelJobInTx(
+    tx: Prisma.TransactionClient,
+    job: TechnicianJob,
+    actorId: string,
+    opts: { moveRequestsToSibling?: boolean; skipSuccessor?: boolean },
+  ) {
+    const jobId = job.id;
+    {
       const now = new Date();
       const updated = await tx.technicianJob.update({
         where: { id: jobId },
@@ -1862,7 +2076,7 @@ export class TechnicianJobsService {
       // belum dibatalkan). Kalau unit yang dibatalkan pemegangnya, baris jasa + transport DIPINDAH ke unit aktif
       // berikutnya (selalu, tanpa menunggu flag) supaya tagihan tidak ikut hilang.
       let successor: { id: string; billingDerived: boolean } | null = null;
-      if (job.type !== 'pemasangan') {
+      if (job.type !== 'pemasangan' && !opts.skipSuccessor) {
         const holdsPricing = job.transportLevel > 0 || (await tx.jobServiceLine.count({ where: { jobId } })) > 0;
         if (opts.moveRequestsToSibling || holdsPricing) {
           successor = await tx.technicianJob.findFirst({
@@ -1973,6 +2187,6 @@ export class TechnicianJobsService {
       if (successor?.billingDerived) await this.jobBilling.rebuild(tx, successor.id, actorId);
 
       return updated;
-    });
+    }
   }
 }

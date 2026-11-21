@@ -24,6 +24,7 @@ import { TechnicianJobsService } from './technician-jobs.service';
 import { AssignJobDto } from './dto/assign-job.dto';
 import { normalizeTechnicianIds } from './job-assignees';
 import { AddUnitDto } from './dto/add-unit.dto';
+import { ClaimUnitDto } from './dto/claim-unit.dto';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { StartJobDto } from './dto/start-job.dto';
 import { UpdateNotesDto } from './dto/update-notes.dto';
@@ -237,6 +238,20 @@ export class TechnicianJobsController {
         target: id,
       })
       .catch(() => undefined);
+    return result;
+  }
+
+  // Teknisi memindai barcode unit untuk mengisi slot "unit belum diketahui" (order Terima Servis dengan jumlah unit yang
+  // discan teknisi). Scan ini sekaligus dihitung sebagai scan Mulai Job.
+  @Roles('admin', 'teknisi')
+  @Post(':id/claim-unit')
+  async claimUnit(
+    @Param('id') id: string,
+    @Body() dto: ClaimUnitDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const result = await this.jobs.claimUnit(id, dto, user.sub, user.role);
+    this.realtime.emitToAdmin('job.unit_added', { jobId: id, newJobId: result.jobId });
     return result;
   }
 
@@ -533,11 +548,27 @@ export class TechnicianJobsController {
   ) {
     const result = await this.jobs.cancel(id, user.sub, user.role, {
       moveRequestsToSibling: dto?.moveRequestsToSibling,
+      allInOrder: dto?.allInOrder,
     });
     this.realtime.emitToAdmin('job.status_changed', {
       jobId: id,
       status: result.status,
     });
+    // Batal satu order (banyak unit): semua teknisi order itu dikabari sekali, bukan per unit.
+    if (dto?.allInOrder) {
+      const bulk = result as typeof result & { technicianIds: string[]; cancelledCount: number };
+      for (const technicianId of bulk.technicianIds) {
+        void this.notifications
+          .notify(technicianId, {
+            title: 'Job Dibatalkan',
+            body: `Admin membatalkan order servis ini (${bulk.cancelledCount} unit) yang ditugaskan ke kamu.`,
+            type: 'job_cancelled',
+            target: id,
+          })
+          .catch(() => undefined);
+      }
+      return result;
+    }
     // Kabari teknisi supaya tidak berangkat ke job yang sudah dibatalkan.
     if (result.technicianId) {
       void this.notifications

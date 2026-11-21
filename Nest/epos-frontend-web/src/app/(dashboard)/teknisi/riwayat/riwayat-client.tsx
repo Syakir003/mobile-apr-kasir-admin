@@ -79,7 +79,7 @@ export function RiwayatClient({ role }: { role: Role }) {
                       <p className="truncate font-medium">
                         {job.unit
                           ? [job.unit.brand, job.unit.model].filter(Boolean).join(' ') || 'Unit AC'
-                          : `Order ${job.type}`}
+                          : 'Unit menunggu discan'}
                       </p>
                       <p className="truncate text-sm text-muted-foreground">
                         {job.type} • {job.member?.name || '-'}

@@ -1,5 +1,6 @@
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 
 export class StartJobDto {
-  @IsString() @IsNotEmpty() scannedBarcode: string;
+  // Wajib kecuali unit job ini masuk lewat scan pengisi slot (scan itu sudah dihitung; lihat claimScanCounts).
+  @IsOptional() @IsString() scannedBarcode?: string;
 }
