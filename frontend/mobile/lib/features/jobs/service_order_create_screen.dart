@@ -50,6 +50,9 @@ class IntakeLocation {
 
 const maxIntakeLocations = 10;
 
+/// Batas unit per order (unit terpilih + unit baru + slot yang discan teknisi), sama dengan backend.
+const maxOrderUnits = 20;
+
 /// Muatan `POST /service-orders/intake` (sama dengan form web): pelanggan lama (memberId) atau baru (nama + HP),
 /// unit lama dan/atau baru, jenis pekerjaan, keluhan (wajib), jadwal (wajib, YYYY-MM-DD), teknisi.
 Map<String, dynamic> buildIntakePayload({
@@ -67,6 +70,7 @@ Map<String, dynamic> buildIntakePayload({
   List<IntakeNewUnit> newUnits = const [],
   List<IntakeLocation> locations = const [],
   Map<String, int> unitLocation = const {},
+  int scanUnitCount = 0,
 }) {
   String two(int n) => n.toString().padLeft(2, '0');
   String? opt(String v) => v.trim().isEmpty ? null : v.trim();
@@ -83,6 +87,8 @@ Map<String, dynamic> buildIntakePayload({
     'complaint': complaint.trim(),
     'scheduledDate': '${scheduled.year}-${two(scheduled.month)}-${two(scheduled.day)}',
     if (technicianIds.isNotEmpty) 'technicianIds': technicianIds,
+    // Slot "teknisi yang scan": jumlah job kosong; unitnya diisi teknisi saat scan barcode di lokasi.
+    if (scanUnitCount > 0) 'scanUnitCount': scanUnitCount,
     if (sendLocations)
       'locations': [
         for (final l in locations)
@@ -169,6 +175,9 @@ class _ServiceOrderCreateScreenState
   final _phone = TextEditingController();
   final _address = TextEditingController();
   final _unitIds = <String>{};
+
+  /// Slot "teknisi yang scan" (unit belum diketahui; maks. [maxOrderUnits] total bersama unit terpilih).
+  int _scanSlots = 0;
   final _newUnits = <_NewUnitEditor>[];
   final _locations = <_LocationEditor>[_LocationEditor()];
   final _unitLocation = <String, int>{};
@@ -232,11 +241,14 @@ class _ServiceOrderCreateScreenState
 
   bool get _customerOk =>
       _newCustomer ? _name.text.trim().isNotEmpty && _phone.text.trim().isNotEmpty : _memberId != null;
-  int get _unitCount => (_newCustomer ? 0 : _unitIds.length) + _newUnits.length;
+  int get _pickedUnits => (_newCustomer ? 0 : _unitIds.length) + _newUnits.length;
+  int get _unitCount => _pickedUnits + (_newCustomer ? 0 : _scanSlots);
+  int get _maxSlots => (maxOrderUnits - _pickedUnits).clamp(0, maxOrderUnits);
   bool get _canSubmit =>
       !_busy &&
       _customerOk &&
       _unitCount > 0 &&
+      _unitCount <= maxOrderUnits &&
       _complaint.text.trim().isNotEmpty &&
       _scheduled != null &&
       _newUnits.every((u) => u.pkValid);
@@ -293,6 +305,7 @@ class _ServiceOrderCreateScreenState
         newUnits: [for (final u in _newUnits) u.toUnit()],
         locations: [for (final l in _locations) l.toLocation()],
         unitLocation: _unitLocation,
+        scanUnitCount: _newCustomer ? 0 : _scanSlots,
       ));
       ref.invalidate(jobsForCurrentUserProvider);
       messenger.showSnackBar(
@@ -345,6 +358,7 @@ class _ServiceOrderCreateScreenState
                     if (m.id != _memberId) {
                       _unitIds.clear();
                       _unitLocation.clear();
+                      _scanSlots = 0;
                     }
                     _memberId = m.id;
                   }),
@@ -410,6 +424,7 @@ class _ServiceOrderCreateScreenState
                     onLocation: (id, i) => setState(() => _unitLocation[id] = i),
                   ),
                 const SizedBox(height: 8),
+                if (_memberId != null) _scanSlotCard(),
               ],
               for (var i = 0; i < _newUnits.length; i++) _newUnitCard(i),
               OutlinedButton.icon(
@@ -581,6 +596,64 @@ class _ServiceOrderCreateScreenState
       _locations[i].address.text = address;
       _locations[i].maps.text = member?.mapsUrl ?? '';
     });
+  }
+
+  /// "Jumlah unit, teknisi yang scan" (sama dengan web): jumlah AC sudah pasti tetapi unit mana saja belum diketahui;
+  /// teknisi memindai barcode tiap AC di lokasi. Hanya untuk member terpilih yang punya unit berlabel.
+  Widget _scanSlotCard() {
+    final hasUnits = ref.watch(memberUnitsProvider(_memberId!)).value?.isNotEmpty ?? false;
+    if (!hasUnits) return const SizedBox.shrink();
+    final max = _maxSlots;
+    return Container(
+      key: const Key('order-scan-slots'),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.slate300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Jumlah unit, teknisi yang scan', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          const Text(
+            'Pakai ini kalau jumlah AC yang dikerjakan sudah pasti tetapi unit mana saja belum diketahui (mis. pabrik '
+            'punya 20 AC, minta cuci 10). Teknisi memindai barcode tiap AC di lokasi, dan unit itu otomatis masuk ke job. '
+            'Hanya unit berlabel milik pelanggan ini yang bisa discan; AC tanpa label tetap lewat "Tambah unit AC baru" '
+            'mode QR dulu. Boleh dikombinasikan dengan unit yang dicentang di atas.',
+            style: TextStyle(fontSize: 12.5, color: AppColors.slate500),
+          ),
+          const SizedBox(height: 8),
+          Row(children: [
+            IconButton.outlined(
+              key: const Key('order-scan-slots-minus'),
+              tooltip: 'Kurangi jumlah unit',
+              onPressed: _busy || _scanSlots <= 0 ? null : () => setState(() => _scanSlots--),
+              icon: const Icon(Icons.remove),
+            ),
+            SizedBox(
+              width: 56,
+              child: Text('$_scanSlots',
+                  key: const Key('order-scan-slots-count'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            ),
+            IconButton.outlined(
+              key: const Key('order-scan-slots-plus'),
+              tooltip: 'Tambah jumlah unit',
+              onPressed: _busy || _scanSlots >= max ? null : () => setState(() => _scanSlots++),
+              icon: const Icon(Icons.add),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text('unit yang discan teknisi (maks. $max)',
+                  style: const TextStyle(fontSize: 12.5, color: AppColors.slate500)),
+            ),
+          ]),
+        ],
+      ),
+    );
   }
 
   Widget _newUnitCard(int i) {

@@ -33,6 +33,32 @@ void main() {
     expect(p.containsKey('workDescription'), isFalse);
   });
 
+  test('slot teknisi yang scan: scanUnitCount dikirim hanya bila > 0, bisa tanpa unit terpilih', () {
+    final tanpa = buildIntakePayload(
+      memberId: 'm1',
+      memberName: 'Pabrik',
+      jobType: IntakeJobType.cuci,
+      complaint: 'Cuci rutin',
+      scheduled: tgl,
+    );
+    expect(tanpa.containsKey('scanUnitCount'), isFalse);
+
+    final p = buildIntakePayload(
+      memberId: 'm1',
+      memberName: 'Pabrik',
+      jobType: IntakeJobType.cuci,
+      complaint: 'Cuci rutin',
+      scheduled: tgl,
+      existingUnitIds: const ['u1'],
+      scanUnitCount: 10,
+    );
+    expect(p['scanUnitCount'], 10);
+    expect(p['units'], [
+      {'existingUnitId': 'u1'},
+    ]);
+    expect(maxOrderUnits, 20);
+  });
+
   test('pelanggan baru + unit baru; QR dulu hanya mengirim ruangan', () {
     final p = buildIntakePayload(
       name: ' Sari ',
