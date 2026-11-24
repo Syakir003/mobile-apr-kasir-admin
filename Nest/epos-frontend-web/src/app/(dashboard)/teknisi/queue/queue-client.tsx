@@ -133,6 +133,17 @@ const rowUnitIds = (row: QueueRow) => [...new Set(row.jobs.flatMap((j) => (j.uni
 const MAX_PRINT_UNITS = 100;
 
 const STATUS_ORDER = ['menunggu_penugasan', 'assigned', 'sedang_dikerjakan', 'menunggu_review', 'selesai', 'dibatalkan'];
+// Status satu baris antrean. Servis banyak AC: tahap paling awal di antara unitnya, KECUALI bila sudah ada unit yang
+// sedang dikerjakan. Teknisi tidak memindai semua unit dulu baru bekerja (Mulai Job per unit, unit lain menyusul), jadi
+// satu unit saja yang sudah jalan membuat seluruh baris "Sedang dikerjakan", bukan menunggu semua unit discan.
+export function rowStatusOf(row: QueueRow): string {
+  const statuses = row.jobs.map((j) => j.status);
+  const earliest = [...statuses].sort((a, b) => STATUS_ORDER.indexOf(a) - STATUS_ORDER.indexOf(b))[0];
+  const working = 'sedang_dikerjakan';
+  return statuses.includes(working) && STATUS_ORDER.indexOf(earliest) < STATUS_ORDER.indexOf(working)
+    ? working
+    : earliest;
+}
 const ASSIGNABLE_STATUSES = ['menunggu_penugasan', 'assigned'];
 // Job tanpa unit = slot "unit belum diketahui" (Terima Servis dengan jumlah unit yang discan teknisi): unitnya baru terisi
 // saat teknisi memindai barcode di lokasi.
@@ -880,10 +891,8 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           {rows.map((row) => {
             const job = row.jobs[0];
             const many = row.jobs.length > 1;
-            // Satu baris = satu order servis banyak AC: status = tahap paling awal di antara unitnya.
-            const rowStatus = row.jobs
-              .map((j) => j.status)
-              .sort((a, b) => STATUS_ORDER.indexOf(a) - STATUS_ORDER.indexOf(b))[0];
+            // Satu baris = satu order servis banyak AC (aturan statusnya: lihat rowStatusOf).
+            const rowStatus = rowStatusOf(row);
             const assignTarget = row.jobs.find((j) => ASSIGNABLE_STATUSES.includes(j.status));
             // Perlu harga: temuan sudah dikirim ATAU sudah diajukan selesai (teknisi tidak perlu menunggu harga).
             const needsPrice = row.jobs.some(
