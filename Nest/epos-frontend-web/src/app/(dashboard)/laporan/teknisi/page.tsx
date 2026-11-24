@@ -2,8 +2,10 @@
 
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -41,6 +43,32 @@ interface Job {
   fieldComplete?: boolean;
 }
 
+interface Row {
+  id: string;
+  nama: string;
+  totalJob: number;
+  selesai: number;
+  review: number;
+  berjalan: number;
+  unitAc: number;
+  // Unit tuntas (pembilang Penyelesaian). Bukan kolom sendiri, tapi dipakai sebagai urutan bawaan.
+  tuntas: number;
+  persen: number | null;
+}
+
+type SortKey = Exclude<keyof Row, 'id'>;
+
+// Urutan kolom = urutan tampil. `numeric` = rata kanan dan urutan pertama dari terbesar.
+const COLUMNS: { key: SortKey; label: string; numeric: boolean }[] = [
+  { key: 'nama', label: 'Teknisi', numeric: false },
+  { key: 'totalJob', label: 'Total Job', numeric: true },
+  { key: 'selesai', label: 'Selesai', numeric: true },
+  { key: 'review', label: 'Menunggu Review', numeric: true },
+  { key: 'berjalan', label: 'Sedang Berjalan', numeric: true },
+  { key: 'unitAc', label: 'Unit AC', numeric: true },
+  { key: 'persen', label: 'Penyelesaian', numeric: true },
+];
+
 // Pintasan rentang tanggal; null = semua waktu (sampai hari ini). 0 = hari ini saja.
 const PERIODS: { label: string; days: number | null }[] = [
   { label: 'Hari ini', days: 0 },
@@ -74,6 +102,9 @@ export default function PerformaTeknisiPage() {
   // jadwalnya di depan belum jatuh tempo, jadi tidak ikut dihitung sebagai belum tuntas.
   const [from, setFrom] = React.useState(() => daysAgoKey(30));
   const [to, setTo] = React.useState(() => daysAgoKey(0));
+  // Bawaan: paling banyak unit tuntas dulu (belum ada panah di kolom mana pun sampai judul kolom diklik).
+  const [sortKey, setSortKey] = React.useState<SortKey>('tuntas');
+  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('desc');
   const jobsQuery = useQuery({
     queryKey: ['technician-jobs', 'all'],
     queryFn: () => apiClient.get<Job[]>('/technician-jobs'),
@@ -83,6 +114,15 @@ export default function PerformaTeknisiPage() {
   const setPreset = (days: number | null) => {
     setFrom(days === null ? '' : daysAgoKey(days));
     setTo(daysAgoKey(0));
+  };
+  // Klik kolom yang sama membalik arah; kolom baru mulai dari terbesar (nama: A ke Z).
+  const onSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'nama' ? 'asc' : 'desc');
+    }
   };
 
   const { rows, belumDitugaskan } = React.useMemo(() => {
@@ -98,7 +138,7 @@ export default function PerformaTeknisiPage() {
         by.set(t.id, e);
       }
     }
-    const rows = [...by.entries()].map(([id, { nama, jobs }]) => {
+    const rows: Row[] = [...by.entries()].map(([id, { nama, jobs }]) => {
       // Unit yang dibatalkan tidak dihitung. Order = kelompok unit teknisi INI di satu order, statusnya mengikuti
       // aturan Antrian Servis (satu unit sudah jalan = Sedang Berjalan).
       const units = jobs.filter((j) => j.status !== 'dibatalkan');
@@ -119,10 +159,22 @@ export default function PerformaTeknisiPage() {
         persen: units.length ? Math.round((tuntas / units.length) * 100) : null,
       };
     });
-    rows.sort((a, b) => b.tuntas - a.tuntas || a.nama.localeCompare(b.nama, 'id'));
     const unassigned = jobs.filter((j) => jobTechnicians(j).length === 0 && j.status !== 'dibatalkan');
     return { rows, belumDitugaskan: groupByOrder(unassigned).length };
   }, [jobsQuery.data, from, to]);
+
+  const sortedRows = React.useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const byName = (a: Row, b: Row) => a.nama.localeCompare(b.nama, 'id');
+    return [...rows].sort((a, b) => {
+      if (sortKey === 'nama') return dir * byName(a, b);
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      // Tanpa persentase ("-") selalu di paling bawah, apa pun arahnya.
+      if (av === null || bv === null) return av === bv ? byName(a, b) : av === null ? 1 : -1;
+      return dir * (av - bv) || byName(a, b);
+    });
+  }, [rows, sortKey, sortDir]);
 
   return (
     <div className="grid gap-4">
@@ -130,7 +182,7 @@ export default function PerformaTeknisiPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Performa Teknisi</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Jumlah job, unit AC, dan persentase penyelesaian per teknisi.
+            Jumlah job, unit AC, dan persentase penyelesaian per teknisi. Klik judul kolom untuk mengurutkan.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -179,31 +231,47 @@ export default function PerformaTeknisiPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Teknisi</TableHead>
-                <TableHead className="text-right">Total Job</TableHead>
-                <TableHead className="text-right">Selesai</TableHead>
-                <TableHead className="text-right">Menunggu Review</TableHead>
-                <TableHead className="text-right">Sedang Berjalan</TableHead>
-                <TableHead className="text-right">Unit AC</TableHead>
-                <TableHead className="text-right">Penyelesaian</TableHead>
+                {COLUMNS.map((c) => {
+                  const active = c.key === sortKey;
+                  const Icon = !active ? ArrowUpDown : sortDir === 'asc' ? ArrowUp : ArrowDown;
+                  return (
+                    <TableHead
+                      key={c.key}
+                      className={c.numeric ? 'text-right' : undefined}
+                      aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onSort(c.key)}
+                        className={cn(
+                          'inline-flex items-center gap-1 whitespace-nowrap rounded-sm hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+                          active ? 'text-foreground' : 'text-muted-foreground',
+                        )}
+                      >
+                        {c.label}
+                        <Icon className={cn('size-3.5 shrink-0', !active && 'opacity-40')} aria-hidden />
+                      </button>
+                    </TableHead>
+                  );
+                })}
               </TableRow>
             </TableHeader>
             <TableBody>
               {jobsQuery.isLoading && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  <TableCell colSpan={COLUMNS.length} className="text-center text-muted-foreground">
                     Memuat...
                   </TableCell>
                 </TableRow>
               )}
-              {!jobsQuery.isLoading && rows.length === 0 && (
+              {!jobsQuery.isLoading && sortedRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  <TableCell colSpan={COLUMNS.length} className="text-center text-muted-foreground">
                     Belum ada job pada periode ini.
                   </TableCell>
                 </TableRow>
               )}
-              {rows.map((r) => (
+              {sortedRows.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell className="font-medium">{r.nama}</TableCell>
                   <TableCell className="text-right">{r.totalJob}</TableCell>
@@ -242,8 +310,8 @@ export default function PerformaTeknisiPage() {
         </p>
         <p>
           <b>Total Job</b> = jumlah order (satu kunjungan; order 10 unit tetap dihitung 1 job, pemasangan dari POS per
-          job). <b>Unit AC</b> = jumlah unit yang dikerjakan. Yang dibatalkan tidak dihitung. Job yang dipegang
-          beberapa teknisi dihitung untuk semuanya, jadi jumlah antar baris bisa melebihi jumlah sebenarnya.
+          job). Yang dibatalkan tidak dihitung. Job yang dipegang beberapa teknisi dihitung untuk semuanya, jadi jumlah
+          antar baris bisa melebihi jumlah sebenarnya.
         </p>
         <p>
           <b>Selesai</b> = order sudah disetujui admin. <b>Menunggu Review</b> = sudah diajukan teknisi, belum
@@ -251,9 +319,10 @@ export default function PerformaTeknisiPage() {
           jalan sudah cukup). Total Job = ketiganya.
         </p>
         <p>
-          <b>Penyelesaian</b> = unit tuntas dibagi Unit AC, dihitung per unit secara realtime. Satu unit tuntas bila
-          sudah diajukan/disetujui, atau sedang dikerjakan (sudah discan) dengan temuan dan foto sebelum + sesudah
-          lengkap di setiap temuan (sparepart tidak diperiksa), walau belum Ajukan Selesai.
+          <b>Unit AC</b> = jumlah unit yang dikerjakan. <b>Penyelesaian</b> = unit tuntas dibagi Unit AC, dihitung per
+          unit secara realtime. Satu unit tuntas bila sudah diajukan/disetujui, atau sedang dikerjakan (sudah discan)
+          dengan temuan dan foto sebelum + sesudah lengkap di setiap temuan (sparepart tidak diperiksa), walau belum
+          Ajukan Selesai. Urutan bawaan: paling banyak unit tuntas.
         </p>
       </div>
     </div>
