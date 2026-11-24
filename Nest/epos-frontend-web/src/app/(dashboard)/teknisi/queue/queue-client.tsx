@@ -182,9 +182,10 @@ export const ACTIVE_JOB_STATUSES = [
   'menunggu_review',
 ];
 
-export function statusBadgeVariant(status: string): 'secondary' | 'warning' | 'success' {
+export function statusBadgeVariant(status: string): 'secondary' | 'progress' | 'warning' | 'success' {
   if (status === 'selesai') return 'success';
-  if (status === 'sedang_dikerjakan' || status === 'menunggu_review') return 'warning';
+  if (status === 'sedang_dikerjakan') return 'progress'; // kuning
+  if (status === 'menunggu_review') return 'warning';
   return 'secondary';
 }
 

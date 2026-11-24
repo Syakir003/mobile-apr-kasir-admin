@@ -25,6 +25,10 @@ const badgeVariants = cva(
           'border-status-success/25 bg-status-success/12 text-green-800 dark:text-status-success',
         warning:
           'border-status-warning/30 bg-status-warning/15 text-status-warning-foreground dark:text-status-warning',
+        // Kuning betulan untuk status "Sedang dikerjakan". `warning` (amber) pada latar putih tampak peach/oranye dan
+        // dipakai di banyak tempat lain, jadi sengaja tidak digeser.
+        progress:
+          'border-transparent bg-yellow-300/35 text-yellow-900 dark:bg-yellow-400/15 dark:text-yellow-300',
       },
     },
     defaultVariants: {
