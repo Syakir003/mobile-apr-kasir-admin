@@ -35,6 +35,7 @@ import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { assertNoActiveJob } from './active-job.util';
+import { isFieldComplete } from './job-field-complete';
 import { deleteUnitsTx } from '../ac-units/ac-unit-delete.util';
 import { assertUnitAtLocation, mainLocationName } from '../common/member-location.util';
 import { AddUnitDto } from './dto/add-unit.dto';
@@ -432,7 +433,32 @@ export class TechnicianJobsService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return jobs.map((j) => this.withAssignees(j));
+    // Progres realtime Performa Teknisi: unit yang sedang dikerjakan dan sudah lengkap di lapangan (lihat
+    // isFieldComplete) dihitung tuntas sebelum Ajukan Selesai. Hanya job sedang_dikerjakan yang perlu dicek (jumlahnya
+    // kecil), jadi tidak menambah beban berarti ke daftar ini; selain itu field-nya false.
+    const complete = await this.fieldCompleteJobIds(
+      jobs
+        .filter((j) => j.status === TechnicianJobStatus.sedang_dikerjakan)
+        .map((j) => j.id),
+    );
+    return jobs.map((j) => ({
+      ...this.withAssignees(j),
+      fieldComplete: complete.has(j.id),
+    }));
+  }
+
+  /** Id job (dari `jobIds`) yang temuan + foto sebelum/sesudahnya sudah lengkap. */
+  private async fieldCompleteJobIds(jobIds: string[]): Promise<Set<string>> {
+    if (jobIds.length === 0) return new Set();
+    const findings = await this.prisma.jobFinding.findMany({
+      where: { jobId: { in: jobIds } },
+      select: { jobId: true, photos: { select: { kind: true } } },
+    });
+    const byJob = new Map<string, { photos: { kind: string }[] }[]>();
+    for (const f of findings) {
+      byJob.set(f.jobId, [...(byJob.get(f.jobId) ?? []), f]);
+    }
+    return new Set(jobIds.filter((id) => isFieldComplete(byJob.get(id) ?? [])));
   }
 
   /**

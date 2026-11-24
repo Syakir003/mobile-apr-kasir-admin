@@ -100,16 +100,19 @@ export interface TechnicianJob {
   complaintOfJobId?: string | null;
 }
 
-export interface QueueRow {
+// Satu baris = satu order (beberapa job, satu per unit). Generik supaya Performa Teknisi memakai aturan pengelompokan
+// dan status yang SAMA dengan antrean ini, dengan tipe job-nya sendiri.
+export interface OrderRow<J> {
   key: string;
-  jobs: TechnicianJob[];
+  jobs: J[];
 }
+export type QueueRow = OrderRow<TechnicianJob>;
 
 // Servis banyak AC (satu order, satu job per unit) tampil sebagai SATU baris; halaman jobnya memuat section tiap
 // unit. Pemasangan dari POS tetap per job (alurnya tidak diubah).
-export function groupByOrder(jobs: TechnicianJob[]): QueueRow[] {
-  const rows: QueueRow[] = [];
-  const byOrder = new Map<string, QueueRow>();
+export function groupByOrder<J extends { id: string; type: string; orderId?: string }>(jobs: J[]): OrderRow<J>[] {
+  const rows: OrderRow<J>[] = [];
+  const byOrder = new Map<string, OrderRow<J>>();
   for (const j of jobs) {
     if (j.orderId && j.type !== 'pemasangan') {
       const existing = byOrder.get(j.orderId);
@@ -117,7 +120,7 @@ export function groupByOrder(jobs: TechnicianJob[]): QueueRow[] {
         existing.jobs.push(j);
         continue;
       }
-      const row: QueueRow = { key: j.orderId, jobs: [j] };
+      const row: OrderRow<J> = { key: j.orderId, jobs: [j] };
       byOrder.set(j.orderId, row);
       rows.push(row);
       continue;
@@ -136,7 +139,7 @@ const STATUS_ORDER = ['menunggu_penugasan', 'assigned', 'sedang_dikerjakan', 'me
 // Status satu baris antrean. Servis banyak AC: tahap paling awal di antara unitnya, KECUALI bila sudah ada unit yang
 // sedang dikerjakan. Teknisi tidak memindai semua unit dulu baru bekerja (Mulai Job per unit, unit lain menyusul), jadi
 // satu unit saja yang sudah jalan membuat seluruh baris "Sedang dikerjakan", bukan menunggu semua unit discan.
-export function rowStatusOf(row: QueueRow): string {
+export function rowStatusOf(row: { jobs: { status: string }[] }): string {
   const statuses = row.jobs.map((j) => j.status);
   const earliest = [...statuses].sort((a, b) => STATUS_ORDER.indexOf(a) - STATUS_ORDER.indexOf(b))[0];
   const working = 'sedang_dikerjakan';
