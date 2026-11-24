@@ -171,3 +171,49 @@ Tes yang menjelaskan perilakunya: `technician-jobs.photo-gate.spec.ts`, `technic
    masih ada slot kosong.
 6. Setelah mobile selesai, naikkan versi dan rilis APK lewat `GET /app-version` (`Nest/setup-apk-hosting.sh`) seperti rilis
    sebelumnya.
+
+---
+
+## 7. Tambahan 2026-11-24: multi lokasi member (satu member, banyak kantor, satu nomor HP)
+
+Status: sudah dikerjakan di backend dan web (folder Skenario 1), **belum di-commit/di-push** saat catatan ini ditulis, dan
+migrasinya (`20261124000000_member_locations`) belum diterapkan ke database mana pun. Belum diuji di APK.
+
+**Konsepnya.** Member punya saklar `multiLocation` (bawaan mati; mati = perilaku lama, mobile tidak terpengaruh).
+Menyala = satu member bisa punya AC di beberapa tempat. **Lokasi 1 = alamat utama member** (`address` + `mapsUrl`, namanya
+`mainLocationName`, bawaan "Lokasi 1"); lokasi lain ada di `locations[]` (nama, alamat, link Maps). Unit AC punya
+`locationId` (null = Lokasi 1). Order servis punya `locationId` (lokasi pekerjaan, dipilih admin saat Terima Servis).
+
+**Perubahan kontrak API yang perlu diketahui mobile:**
+- `GET /members/:id`: tambahan field `multiLocation`, `mainLocationName`, `locations[]` (`id`, `name`, `address`, `mapsUrl`);
+  tiap unit di `acUnits[]` punya `locationId` dan `location` (`{id, name}` atau null = Lokasi 1).
+- `POST /service-orders/intake` (Terima Servis): untuk member multi lokasi **wajib** body `locationId` = `'utama'` (Lokasi 1)
+  atau id lokasi tambahan. Tanpa itu: 400 `Pilih lokasi dulu: member ini memakai multi lokasi`. Unit existing yang dipilih harus di
+  lokasi itu (400 `Unit ini terdaftar di lokasi "A", bukan lokasi pekerjaan ini ("B")...`); unit baru dan slot yang discan
+  teknisi otomatis ikut lokasi itu; `locations[]` (titik lokasi kerja manual) ditolak untuk member multi lokasi. Member baru
+  boleh menyalakan saklar lewat `customer.multiLocation` (+ `customer.mainLocationName`); otomatis Lokasi 1. Mengirim
+  `locationId` untuk member biasa ditolak.
+  (Flutter TIDAK memakai endpoint intake ini: APK membuat order lewat `POST /service-orders`, lihat butir terakhir.)
+- Teknisi tidak memilih lokasi: **Tambah Unit** (`POST /technician-jobs/:id/add-unit`, berlabel atau "QR dulu") dan scan pengisi
+  slot (`claim-unit`) mengikuti lokasi pekerjaan order. Unit berlabel dari lokasi lain ditolak dengan pesan yang sama seperti
+  di atas (tampilkan pesan server apa adanya). Unit "QR dulu" yang dibuat teknisi otomatis di lokasi order.
+- `GET /technician-jobs/:id` mengembalikan `locationName` (nama lokasi pekerjaan; null bila member tidak multi lokasi),
+  untuk ditampilkan di detail job ("Lokasi Pekerjaan"). Alamat/Maps kerja tetap lewat `workAddress`/`workMapsUrl` job.
+- Pengingat WA: baris unit kini menyebut lokasi untuk member multi lokasi (`- Daikin 1PK (Kantor Lama - Ruang Rapat)`),
+  tanpa perubahan di mobile.
+- Label QR: `GET /unit-labels/data` dan `GET /technician-jobs/:id/unit-labels` menambah `locationName` (nama lokasi unit/order;
+  null bila member tidak multi lokasi); alamat label memakai alamat lokasi itu. Web mencetak baris "Lokasi: <nama>" di semua
+  stiker. Nama lokasi hanya tulisan di stiker, bukan isi QR (isi QR tetap kode unit); kalau unit dipindah lokasi, stikernya
+  perlu dicetak ulang. Jika APK mencetak label sendiri (`unit_label_pdf.dart`), baris lokasi itu bisa ditambahkan dari `locationName`.
+- Endpoint baru (web admin/kasir, mobile tidak wajib): `POST/PATCH/DELETE /members/:id/locations`,
+  `POST /members/:id/units/move-location`.
+- `POST /service-orders` (form "Buat Order" Flutter: pilih member + banyak unit): **sudah disesuaikan di backend, Flutter tidak
+  perlu diubah.** Untuk member multi lokasi, lokasi order DITURUNKAN dari unit yang dipilih: semua unit satu lokasi = order
+  dan alamat/Maps kerja job otomatis ikut lokasi itu; unit campur lokasi ditolak 400
+  `Unit yang dipilih berada di lokasi berbeda (A, B). Buat order terpisah untuk tiap lokasi.` (tampilkan pesan server apa
+  adanya). Member biasa tidak berubah.
+  Opsional di sisi mobile (peningkatan tampilan, bukan keharusan): di form "Buat Order" kelompokkan/saring daftar unit per
+  lokasi (`GET /members/:id` sudah memberi `locationId`/`location` tiap unit dan `locations[]`), supaya admin tidak
+  menemui penolakan "lokasi berbeda" setelah menekan tombol.
+- `POST /ac-units` (form unit Flutter) belum menerima lokasi: unit baru untuk member multi lokasi masuk Lokasi 1; admin
+  memindahkannya lewat web (Pindahkan ke lokasi).

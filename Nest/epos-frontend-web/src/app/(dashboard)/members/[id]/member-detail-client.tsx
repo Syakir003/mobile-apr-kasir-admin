@@ -24,6 +24,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardAction, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { EditMemberDialog } from './edit-member-dialog';
 import {
+  LocationsCard,
+  MoveUnitsBar,
+  MoveUnitsDialog,
+  unitLocationName,
+  type MemberLocationRow,
+} from './member-locations';
+import {
   Table,
   TableBody,
   TableCell,
@@ -59,6 +66,9 @@ interface MemberAcUnitRow {
   status: string;
   installationDate: string | null;
   lastServiceDate: string | null;
+  // Lokasi unit (member multi lokasi); null = Lokasi 1 (alamat utama).
+  locationId?: string | null;
+  location?: { id: string; name: string } | null;
 }
 interface MemberDetail {
   id: string;
@@ -72,6 +82,10 @@ interface MemberDetail {
   notes: string | null;
   active: boolean;
   waOptOut: boolean;
+  // Multi lokasi: Lokasi 1 = alamat utama (mainLocationName = namanya), lokasi lain di `locations`.
+  multiLocation: boolean;
+  mainLocationName: string | null;
+  locations: MemberLocationRow[];
   acUnits: MemberAcUnitRow[];
   invoices: MemberInvoice[];
 }
@@ -99,6 +113,10 @@ export function MemberDetailClient({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = React.useState(false);
+  // Unit AC yang dicentang untuk dipindah ke lokasi lain (hanya member multi lokasi).
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  // Lokasi baru yang baru dibuat dari dialog Ubah Member: menawarkan memindahkan unit ke lokasi itu (id lokasi tujuan).
+  const [moveOffer, setMoveOffer] = React.useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['members', memberId],
@@ -138,9 +156,30 @@ export function MemberDetailClient({
     return <p className="text-sm text-destructive">Gagal memuat data member.</p>;
   }
 
+  // Pilih beberapa unit untuk dipindah lokasi: hanya member multi lokasi, dan hanya yang boleh mengubah data member.
+  const showSelect = canEdit && data.multiLocation;
+  const allSelected = data.acUnits.length > 0 && data.acUnits.every((u) => selected.has(u.id));
+
   return (
     <div className="grid gap-6">
-      {canEdit && <EditMemberDialog open={editOpen} onOpenChange={setEditOpen} member={data} />}
+      {canEdit && (
+        <EditMemberDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          member={data}
+          onSaved={(createdIds) => {
+            if (createdIds.length > 0) setMoveOffer(createdIds[0]);
+          }}
+        />
+      )}
+      {canEdit && moveOffer && data.multiLocation && data.acUnits.length > 0 && (
+        <MoveUnitsDialog
+          member={data}
+          units={data.acUnits}
+          initialTarget={moveOffer}
+          onClose={() => setMoveOffer(null)}
+        />
+      )}
       <div>
         <Link
           href="/members"
@@ -216,6 +255,9 @@ export function MemberDetailClient({
               label="Member Sejak"
               value={data.memberSince ? formatDate(data.memberSince) : '-'}
             />
+            {data.multiLocation && (
+              <DetailRow label="Multi Lokasi" value={`Aktif (${1 + data.locations.length} lokasi)`} />
+            )}
             <DetailRow label="Jumlah Unit AC" value={String(data.acUnits.length)} />
             <DetailRow label="Jumlah Transaksi" value={String(data.invoices.length)} />
             {data.notes && <DetailRow label="Catatan" value={data.notes} />}
@@ -237,6 +279,7 @@ export function MemberDetailClient({
         </Card>
 
         <div className="grid gap-6">
+          {data.multiLocation && <LocationsCard member={data} canEdit={canEdit} />}
           <Card className="gap-0 overflow-hidden py-0 shadow-sm">
             <CardHeader className="border-b bg-muted/60 py-4">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -270,11 +313,25 @@ export function MemberDetailClient({
               {data.acUnits.length === 0 && (
                 <p className="text-sm text-muted-foreground">Belum ada unit AC tercatat.</p>
               )}
+              {showSelect && selected.size > 0 && (
+                <MoveUnitsBar member={data} selectedIds={[...selected]} onMoved={() => setSelected(new Set())} />
+              )}
               {data.acUnits.length > 0 && (
                 <div className="rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        {showSelect && (
+                          <TableHead className="w-8">
+                            <Checkbox
+                              aria-label="Pilih semua unit"
+                              checked={allSelected}
+                              onCheckedChange={(c) =>
+                                setSelected(c === true ? new Set(data.acUnits.map((u) => u.id)) : new Set())
+                              }
+                            />
+                          </TableHead>
+                        )}
                         <TableHead>Unit</TableHead>
                         <TableHead>Lokasi</TableHead>
                         <TableHead>Barcode</TableHead>
@@ -290,12 +347,28 @@ export function MemberDetailClient({
                           className="cursor-pointer"
                           onClick={() => router.push(`/ac-units/${u.id}`)}
                         >
+                          {showSelect && (
+                            <TableCell onClick={(e) => e.stopPropagation()}>
+                              <Checkbox
+                                aria-label="Pilih unit"
+                                checked={selected.has(u.id)}
+                                onCheckedChange={(c) =>
+                                  setSelected((prev) => {
+                                    const next = new Set(prev);
+                                    if (c === true) next.add(u.id);
+                                    else next.delete(u.id);
+                                    return next;
+                                  })
+                                }
+                              />
+                            </TableCell>
+                          )}
                           <TableCell className="font-medium">
                             {[u.brand, u.model].filter(Boolean).join(' ') || 'Unit AC'}
                             <UnitPartsList unit={u} compact emptyText="" />
                           </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {u.roomLocation || '-'}
+                            {[unitLocationName(data, u), u.roomLocation].filter(Boolean).join(' · ') || '-'}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
                             {u.barcodeValue}

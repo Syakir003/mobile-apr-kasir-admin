@@ -28,6 +28,8 @@ interface LabelUnit {
   member: { id: string; name: string; phone: string | null; address: string | null };
   // Titik lokasi kerja dari job unit ini yang sedang berjalan (null = ikut alamat member).
   workAddress?: string | null;
+  // Member multi lokasi: nama lokasi unit (tercetak di label); null untuk member biasa.
+  locationName?: string | null;
 }
 
 // Cetak QR unit AC dari beberapa job sekaligus (dipilih di daftar Job Teknisi), dengan pilihan kertas dan jumlah
@@ -59,6 +61,7 @@ export function QueueLabelsPrintClient({ ids }: { ids: string }) {
       model: u.model,
       pk: u.pk,
       roomLocation: u.roomLocation,
+      locationName: u.locationName,
       indoorName: u.indoorProduct?.name,
       outdoorName: u.outdoorProduct?.name,
     },

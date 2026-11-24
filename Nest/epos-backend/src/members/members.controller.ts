@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -10,6 +10,7 @@ import { CreateMemberDto } from './dto/create-member.dto';
 import { MemberListQueryDto } from './dto/member-list-query.dto';
 import { SetPriceTierDto } from './dto/set-price-tier.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
+import { CreateMemberLocationDto, MoveUnitsLocationDto, UpdateMemberLocationDto } from './dto/member-location.dto';
 
 /** Baru ditambah Siklus 6 — sebelumnya MembersService murni internal
  * (findOrCreate dipanggil dari POS/ServiceOrders), gak ada endpoint REST
@@ -56,6 +57,48 @@ export class MembersController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateMemberDto, @CurrentUser() user: CurrentUserPayload) {
     return this.members.update(id, dto, user.sub);
+  }
+
+  // ---- Multi lokasi (2026-11). Lokasi 1 = alamat utama member (diubah lewat PATCH :id); di sini lokasi TAMBAHAN.
+
+  /** Tambah lokasi tambahan (hanya untuk member yang multi lokasinya menyala). */
+  @Roles('admin', 'kasir')
+  @Post(':id/locations')
+  addLocation(@Param('id') id: string, @Body() dto: CreateMemberLocationDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.members.addLocation(id, dto, user.sub);
+  }
+
+  @Roles('admin', 'kasir')
+  @Patch(':id/locations/:locationId')
+  updateLocation(
+    @Param('id') id: string,
+    @Param('locationId') locationId: string,
+    @Body() dto: UpdateMemberLocationDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.members.updateLocation(id, locationId, dto, user.sub);
+  }
+
+  /** Hapus lokasi tambahan; ditolak selama masih dipakai unit atau order. */
+  @Roles('admin', 'kasir')
+  @Delete(':id/locations/:locationId')
+  removeLocation(
+    @Param('id') id: string,
+    @Param('locationId') locationId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.members.removeLocation(id, locationId, user.sub);
+  }
+
+  /** Pindahkan beberapa unit AC member ke satu lokasi sekaligus ('utama' = Lokasi 1). */
+  @Roles('admin', 'kasir')
+  @Post(':id/units/move-location')
+  moveUnitsToLocation(
+    @Param('id') id: string,
+    @Body() dto: MoveUnitsLocationDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.members.moveUnitsToLocation(id, dto, user.sub);
   }
 
   /** Ubah tipe pembeli (Ritel/Installer/Reseller) — admin saja, karena

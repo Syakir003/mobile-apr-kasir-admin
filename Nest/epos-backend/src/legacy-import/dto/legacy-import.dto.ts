@@ -11,6 +11,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -29,6 +30,10 @@ export class LegacyMemberDto {
   @IsOptional() @IsString() @IsIndonesianPhone() phone?: string;
   @IsOptional() @IsString() address?: string;
   @IsOptional() @IsIn(['rumah', 'perusahaan', 'toko']) customerType?: string;
+  // Member BARU yang memakai multi lokasi (AC di beberapa tempat): saklar dinyalakan saat member dibuat; alamat di atas =
+  // Lokasi 1 (nama boleh diberi lewat mainLocationName). Diabaikan untuk member yang sudah ada.
+  @IsOptional() @IsBoolean() multiLocation?: boolean;
+  @IsOptional() @IsString() @MaxLength(100) mainLocationName?: string;
 }
 
 export const LEGACY_UNIT_MODES = ['diketahui', 'qr_dulu'] as const;
@@ -46,6 +51,10 @@ export class LegacyUnitDto {
   @IsOptional() @IsString() roomLocation?: string;
   @IsOptional() @IsString() serialNumber?: string;
   @IsOptional() @IsDateString() installationDate?: string;
+
+  // Lokasi unit untuk member multi lokasi: 'utama' (Lokasi 1) atau id lokasi tambahan. WAJIB bila member memakai multi
+  // lokasi (kecuali member baru yang saklarnya dinyalakan di request ini: otomatis Lokasi 1).
+  @IsOptional() @IsString() @MaxLength(64) locationId?: string;
 
   // Pilih dari master produk (opsional) — boleh salah satu atau dua-duanya.
   @IsOptional() @IsString() indoorProductId?: string;

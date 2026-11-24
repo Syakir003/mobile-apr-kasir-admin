@@ -46,6 +46,11 @@ export class CreateMemberDto {
   @IsIn(PRICE_TIERS as unknown as string[])
   priceTier?: PriceTierName;
 
+  // Multi lokasi (2026-11): pelanggan dengan AC di beberapa tempat dalam satu member. Bawaan mati. Lokasi 1 = alamat
+  // utama member (bisa diberi nama, mis. "Kantor Lama"); lokasi lain ditambah lewat POST /members/:id/locations.
+  @IsOptional() @IsBoolean() multiLocation?: boolean;
+  @IsOptional() @IsString() @MaxLength(100) mainLocationName?: string;
+
   // Dikirim ulang (true) setelah admin/kasir confirm peringatan "nomor HP
   // ini udah kepake member lain" — pola sama kayak confirmOverride di
   // StockInDto (soft-warn + confirm, bukan blokir keras).

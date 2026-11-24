@@ -35,6 +35,7 @@ import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { assertNoActiveJob } from './active-job.util';
+import { assertUnitAtLocation, mainLocationName } from '../common/member-location.util';
 import { AddUnitDto } from './dto/add-unit.dto';
 import { ClaimUnitDto } from './dto/claim-unit.dto';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
@@ -453,6 +454,8 @@ export class TechnicianJobsService {
         order: {
           include: {
             invoice: { select: { id: true, number: true, status: true, grandTotal: true, totalPaid: true } },
+            // Lokasi pekerjaan order (member multi lokasi); null = Lokasi 1.
+            location: { select: { id: true, name: true } },
           },
         },
         photos: { orderBy: { createdAt: 'asc' } }, // model lama, cuma keisi utk job pra-migrasi
@@ -510,7 +513,11 @@ export class TechnicianJobsService {
           });
     // `unit.labeled`: QR unit sudah pernah dilabeli (ada riwayat sebelum job ini) — kartu QR di halaman job menampilkannya.
     const shaped = this.withAssignees(job);
-    if (!job.unit) return { ...shaped, siblings, startScanWaived: false };
+    // Nama lokasi pekerjaan untuk ditampilkan; null bila member tidak memakai multi lokasi.
+    const locationName = job.member?.multiLocation
+      ? (job.order.location?.name ?? mainLocationName(job.member))
+      : null;
+    if (!job.unit) return { ...shaped, siblings, startScanWaived: false, locationName };
     // `startScanWaived`: scan pengisi slot sudah dihitung sebagai scan Mulai Job (web tidak meminta scan ulang).
     const startScanWaived =
       job.status === TechnicianJobStatus.assigned && (await this.claimScanCounts(this.prisma, job));
@@ -518,6 +525,7 @@ export class TechnicianJobsService {
       ...shaped,
       siblings,
       startScanWaived,
+      locationName,
       unit: { ...job.unit, labeled: await isUnitLabeled(this.prisma, job.unit, job.createdAt) },
     };
   }
@@ -659,16 +667,22 @@ export class TechnicianJobsService {
       }
       const jobType =
         dto.jobType ?? ((INTAKE_JOB_TYPES as readonly string[]).includes(job.type) ? job.type : 'perbaikan');
+      // Member multi lokasi: unit tambahan HARUS di lokasi pekerjaan yang dipilih admin (unit baru ikut lokasi itu).
+      const target = await this.orderLocation(tx, job.orderId, job.memberId);
 
       let unit: { id: string; barcodeValue: string; status: string };
       if (barcode) {
-        const existing = await tx.memberAcUnit.findUnique({ where: { barcodeValue: barcode } });
+        const existing = await tx.memberAcUnit.findUnique({
+          where: { barcodeValue: barcode },
+          include: { location: { select: { name: true } } },
+        });
         if (!existing) throw new NotFoundException('Unit tidak ditemukan / QR tidak valid');
         if (existing.memberId !== job.memberId) {
           throw new BadRequestException(
             'Unit ini terdaftar atas nama pelanggan lain, bukan pelanggan job ini. Konfirmasi ke admin dulu sebelum lanjut.',
           );
         }
+        assertUnitAtLocation(existing, target.member, target);
         const alreadyHere = await tx.technicianJob.count({
           where: { orderId: job.orderId, unitId: existing.id, status: { not: TechnicianJobStatus.dibatalkan } },
         });
@@ -676,7 +690,11 @@ export class TechnicianJobsService {
         await assertNoActiveJob(tx, [existing.id]);
         unit = existing;
       } else {
-        unit = await this.acUnits.createLegacy(tx, job.memberId, { mode: 'qr_dulu', roomLocation: dto.roomLocation });
+        unit = await this.acUnits.createLegacy(tx, job.memberId, {
+          mode: 'qr_dulu',
+          roomLocation: dto.roomLocation,
+          locationId: target.locationId,
+        });
         await tx.member.update({ where: { id: job.memberId }, data: { totalAcUnits: { increment: 1 } } });
       }
 
@@ -732,6 +750,23 @@ export class TechnicianJobsService {
   }
 
   /**
+   * Lokasi pekerjaan order + saklar multi lokasi member-nya. `locationId` NULL = Lokasi 1 atau member tanpa multi lokasi
+   * (pada member tanpa multi lokasi tidak ada pemeriksaan lokasi sama sekali).
+   */
+  private async orderLocation(tx: Prisma.TransactionClient, orderId: string, memberId: string) {
+    const [order, member] = await Promise.all([
+      tx.serviceOrder.findUnique({ where: { id: orderId }, select: { locationId: true, location: { select: { name: true } } } }),
+      tx.member.findUnique({ where: { id: memberId }, select: { multiLocation: true, mainLocationName: true } }),
+    ]);
+    const m = member ?? { multiLocation: false, mainLocationName: null };
+    return {
+      member: m,
+      locationId: m.multiLocation ? (order?.locationId ?? null) : null,
+      name: m.multiLocation ? (order?.location?.name ?? mainLocationName(m)) : null,
+    };
+  }
+
+  /**
    * Teknisi memindai barcode unit untuk MENGISI satu slot "unit belum diketahui" (order dari Terima Servis dengan jumlah
    * unit yang discan teknisi, mis. pabrik punya 20 AC tapi hanya 10 yang dicuci dan pelanggan tidak tahu yang mana).
    * `jobId` = job mana pun di order itu; slot kosong pertama (urut dibuat) milik pemanggil yang diisi (admin: slot mana
@@ -772,13 +807,19 @@ export class TechnicianJobsService {
       }
       if (!slot.memberId) throw new BadRequestException('Job ini tidak punya pelanggan, unit tidak bisa diisi');
 
-      const unit = await tx.memberAcUnit.findUnique({ where: { barcodeValue: barcode } });
+      const unit = await tx.memberAcUnit.findUnique({
+        where: { barcodeValue: barcode },
+        include: { location: { select: { name: true } } },
+      });
       if (!unit) throw new NotFoundException('Unit tidak ditemukan / QR tidak valid');
       if (unit.memberId !== slot.memberId) {
         throw new BadRequestException(
           'Unit ini terdaftar atas nama pelanggan lain, bukan pelanggan order ini. Pastikan AC yang dipindai benar, atau konfirmasi ke admin.',
         );
       }
+      // Member multi lokasi: unit yang discan harus berada di lokasi pekerjaan order (dipilih admin).
+      const target = await this.orderLocation(tx, job.orderId, slot.memberId);
+      assertUnitAtLocation(unit, target.member, target);
       const alreadyHere = await tx.technicianJob.count({
         where: { orderId: job.orderId, unitId: unit.id, status: { not: TechnicianJobStatus.dibatalkan } },
       });
@@ -942,7 +983,13 @@ export class TechnicianJobsService {
   async unitLabels(jobId: string, actorId: string, role: Role, unitIds?: string[]) {
     const job = await this.prisma.technicianJob.findUnique({
       where: { id: jobId },
-      select: { id: true, orderId: true, member: { select: { id: true, name: true, address: true } } },
+      select: {
+        id: true,
+        orderId: true,
+        member: { select: { id: true, name: true, address: true, multiLocation: true, mainLocationName: true } },
+        // Lokasi pekerjaan order (member multi lokasi): namanya tercetak di tiap label.
+        order: { select: { location: { select: { name: true } } } },
+      },
     });
     if (!job) throw new NotFoundException('Job tidak ditemukan');
     await this.assertOwnerOrAdmin(job, actorId, role);
@@ -967,6 +1014,8 @@ export class TechnicianJobsService {
     return {
       id: job.orderId,
       member: job.member,
+      // Nama lokasi pekerjaan untuk label (semua unit order ada di lokasi itu); null bila member tidak multi lokasi.
+      locationName: job.member?.multiLocation ? (job.order.location?.name ?? mainLocationName(job.member)) : null,
       serviceOrderUnits: rows.map((r) => ({ id: r.id, unit: r.unit, workAddress: workAddress.get(r.unitId) ?? null })),
     };
   }

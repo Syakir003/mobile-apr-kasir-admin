@@ -153,6 +153,8 @@ interface JobDetail {
   siblings?: { id: string; createdAt: string }[];
   // Unit job ini masuk lewat scan yang mengisi slot: scan itu sudah dihitung sebagai scan Mulai Job (tanpa scan ulang).
   startScanWaived?: boolean;
+  // Nama lokasi pekerjaan order (member multi lokasi, mis. "Kantor Baru"); null bila member tidak memakai multi lokasi.
+  locationName?: string | null;
   // Riwayat alih tugas job ini (kosong = tidak pernah dialihkan).
   handovers?: HandoverRow[];
   // Job komplain (pengerjaan ulang atas keluhan pelanggan): menunjuk pekerjaan awal yang selesai. null = job biasa.
@@ -733,6 +735,7 @@ export function JobDetailClient({
                     value="-"
                     valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
                   />
+                {job.locationName && <DetailRow label="Lokasi Pekerjaan" value={job.locationName} />}
                 <DetailRow label="Jadwal" value={job.scheduledDate ? formatDate(job.scheduledDate) : '-'} />
                 <DetailRow label="Teknisi" value={technicianNames(job)} />
                 {/* Komplain pelanggan: sengaja di bagian bawah (bukan header) supaya order ini tidak disangka order komplain. */}
@@ -1421,6 +1424,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
             value="-"
             valueNode={<MapsLink mapsUrl={job.member?.mapsUrl} address={job.member?.address} />}
           />
+          {job.locationName && <DetailRow label="Lokasi Pekerjaan" value={job.locationName} />}
           <DetailRow
             label="Jadwal"
             value={

@@ -24,6 +24,8 @@ export interface LegacyUnitInput {
   lastServiceDate?: string;
   serviceIntervalDays?: number;
   reminderEnabled?: boolean;
+  /** Lokasi unit (member multi lokasi). null/kosong = Lokasi 1 (alamat utama). Sudah divalidasi pemanggil. */
+  locationId?: string | null;
 }
 import { CreateAcUnitDto } from './dto/create-ac-unit.dto';
 
@@ -90,7 +92,15 @@ export class AcUnitsService {
   async registerExisting(
     tx: Prisma.TransactionClient,
     memberId: string,
-    data: { brand?: string; model?: string; pk?: number; roomLocation?: string; serialNumber?: string },
+    data: {
+      brand?: string;
+      model?: string;
+      pk?: number;
+      roomLocation?: string;
+      serialNumber?: string;
+      /** Lokasi unit (member multi lokasi); null/kosong = Lokasi 1. Sudah divalidasi pemanggil. */
+      locationId?: string | null;
+    },
   ) {
     const now = new Date();
     const seq = await this.counters.nextSeq(tx, `acunit_${this.counters.dateKey(now)}`);
@@ -104,6 +114,7 @@ export class AcUnitsService {
         pk: data.pk == null ? null : new Prisma.Decimal(data.pk),
         roomLocation: data.roomLocation ?? null,
         serialNumber: data.serialNumber ?? null,
+        locationId: data.locationId ?? null,
         barcodeValue,
         status: 'aktif',
       },
@@ -132,6 +143,7 @@ export class AcUnitsService {
         data: {
           memberId,
           roomLocation: u.roomLocation?.trim() || null,
+          locationId: u.locationId ?? null,
           barcodeValue,
           status: 'menunggu_data',
           reminderEnabled: false,
@@ -173,6 +185,7 @@ export class AcUnitsService {
         model,
         pk: pkValue == null ? null : new Prisma.Decimal(pkValue as any),
         roomLocation: u.roomLocation?.trim() || null,
+        locationId: u.locationId ?? null,
         serialNumber: u.serialNumber?.trim() || null,
         installationDate: u.installationDate ? new Date(u.installationDate) : null,
         lastServiceDate: lastService,

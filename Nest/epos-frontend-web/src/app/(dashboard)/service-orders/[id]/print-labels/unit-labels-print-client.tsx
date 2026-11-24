@@ -25,7 +25,18 @@ interface ServiceOrderDetail {
   id: string;
   // Member pembeli/pemilik unit — nama + alamatnya tercetak di tiap label, biar label yang sudah dicetak/tercecer bisa
   // langsung ketahuan punya siapa tanpa perlu scan dulu.
-  member: { id: string; name: string; address?: string | null } | null;
+  member: {
+    id: string;
+    name: string;
+    address?: string | null;
+    // Multi lokasi: nama Lokasi 1 (alamat utama) bila lokasi order = Lokasi 1.
+    multiLocation?: boolean;
+    mainLocationName?: string | null;
+  } | null;
+  // Nama lokasi pekerjaan (member multi lokasi). Teknisi: dikirim langsung oleh GET /technician-jobs/:id/unit-labels.
+  // Admin/kasir: dihitung dari `location` order (null = Lokasi 1) + data member.
+  locationName?: string | null;
+  location?: { id: string; name: string } | null;
   // Teknisi (GET /technician-jobs/:id/unit-labels): alamat kerja per unit sudah disertakan di tiap baris.
   serviceOrderUnits: { id: string; unit: AcUnit; workAddress?: string | null }[];
   // Admin/kasir (GET /service-orders/:id): job per unit, memuat titik lokasi kerjanya (null = ikut alamat member).
@@ -59,6 +70,10 @@ export function UnitLabelsPrintClient({
 
   const rows = data.serviceOrderUnits.filter((su) => !onlyUnitIds || onlyUnitIds.includes(su.unit.id));
   const units = rows.map((su) => su.unit);
+  // Label member multi lokasi memuat nama lokasinya ("Lokasi: Kantor Lama"); member biasa tidak.
+  const locationName =
+    data.locationName ??
+    (data.member?.multiLocation ? (data.location?.name ?? (data.member.mainLocationName?.trim() || 'Lokasi 1')) : null);
   // Alamat di label = titik lokasi kerja unit itu (satu member bisa punya AC di beberapa tempat); kosong = alamat member.
   const addressOf = (su: (typeof rows)[number]) =>
     su.workAddress ??
@@ -110,6 +125,7 @@ export function UnitLabelsPrintClient({
               model: su.unit.model,
               pk: su.unit.pk,
               roomLocation: su.unit.roomLocation,
+              locationName,
               indoorName: su.unit.indoorProduct?.name,
               outdoorName: su.unit.outdoorProduct?.name,
             }}
