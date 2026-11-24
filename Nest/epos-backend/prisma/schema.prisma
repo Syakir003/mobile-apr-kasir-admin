@@ -434,6 +434,14 @@ model Member {
   // dengan harga dari tabel tier_prices. BEDA dari customerType (label saja).
   priceTier     PriceTier @default(retail) @map("price_tier")
 
+  // Multi lokasi (2026-11): satu pelanggan dengan AC di beberapa tempat (mis. kantor lama & kantor baru) tetap satu member
+  // dan satu nomor HP. OFF (bawaan) = perilaku lama (satu alamat). ON = tiap AC punya lokasi. Lokasi 1 adalah alamat
+  // utama member (address + maps_url) dan tidak punya baris di member_locations: unit dengan location_id NULL berada di
+  // Lokasi 1. mainLocationName = nama Lokasi 1 (bawaan "Lokasi 1"). Lokasi tambahan ada di tabel member_locations.
+  multiLocation    Boolean @default(false) @map("multi_location")
+  mainLocationName String? @map("main_location_name")
+  locations        MemberLocation[]
+
   acUnits       MemberAcUnit[]
   transactions  Transaction[]
   invoices      Invoice[]
@@ -490,11 +498,35 @@ model MemberAcUnit {
   outdoorProductId String?  @map("outdoor_product_id")
   outdoorProduct   Product? @relation("AcUnitOutdoorProduct", fields: [outdoorProductId], references: [id])
 
+  // Lokasi unit pada member multi lokasi (lihat Member.multiLocation). NULL = Lokasi 1 (alamat utama member).
+  locationId String?         @map("location_id")
+  location   MemberLocation? @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
   serviceOrderUnits ServiceOrderUnit[]
   technicianJobs    TechnicianJob[]
   corrections       AcUnitCorrection[]
 
+  @@index([locationId])
   @@map("member_ac_units")
+}
+
+// Lokasi TAMBAHAN milik member multi lokasi (Lokasi 2, 3, ... — mis. "Kantor Baru"). Lokasi 1 = alamat utama member, bukan
+// baris di sini. Alamat + link Maps menjadi lokasi kerja job (technician_jobs.work_address / work_maps_url) dan alamat di
+// label QR unit pada lokasi ini. Lokasi yang masih dipakai unit atau order tidak bisa dihapus.
+model MemberLocation {
+  id        String   @id @default(uuid())
+  memberId  String   @map("member_id")
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  name      String
+  address   String?
+  mapsUrl   String?  @map("maps_url")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  acUnits       MemberAcUnit[]
+  serviceOrders ServiceOrder[]
+
+  @@index([memberId])
+  @@map("member_locations")
 }
 
 // Usulan koreksi data unit AC dari teknisi (unit status 'aktif'). Admin
@@ -760,9 +792,15 @@ model ServiceOrder {
   // paling bawah halaman job sebelum Ajukan Selesai. BEDA dari technician_jobs.notes = Diagnosa / Catatan Pengerjaan per unit.
   technicianNote String? @map("technician_note")
 
+  // Lokasi pekerjaan order untuk member multi lokasi (dipilih admin saat Terima Servis). NULL = Lokasi 1 (alamat utama)
+  // atau member tanpa multi lokasi. Semua unit order ini berada di lokasi ini; unit yang di-scan teknisi harus cocok.
+  locationId String?         @map("location_id")
+  location   MemberLocation? @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
   units TechnicianJob[]
   serviceOrderUnits ServiceOrderUnit[]
 
+  @@index([locationId])
   @@map("service_orders")
 }
 

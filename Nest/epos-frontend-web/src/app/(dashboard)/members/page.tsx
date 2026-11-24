@@ -14,6 +14,7 @@ import { formatDate } from '@/lib/format';
 import { MAPS_INPUT_PLACEHOLDER } from '@/lib/maps-input';
 import { checkAddress, fixAddress, isMapsLink } from '@/lib/address-check';
 import { AddressHint } from '@/components/address-hint';
+import { MultiLocationFields } from '@/components/multi-location-fields';
 import { phoneError } from '@/lib/phone';
 import { TIER_LABEL, TIER_OPTIONS, type PriceTier } from '@/lib/price-tier';
 import { Badge } from '@/components/ui/badge';
@@ -97,6 +98,9 @@ const createMemberSchema = z.object({
   customerType: z.enum(['rumah', 'perusahaan', 'toko', '']).optional(),
   // Tipe pembeli (2026-10-13) — menentukan harga & hak beli di POS.
   priceTier: z.enum(['retail', 'installer', 'reseller']),
+  // Multi lokasi: AC di beberapa tempat dalam satu member (alamat di atas = Lokasi 1).
+  multiLocation: z.boolean(),
+  mainLocationName: z.string().optional(),
 }).superRefine((v, ctx) => {
   // Alamat (bila diisi) wajib menyebut kabupaten/kota, kecuali Link Maps sudah diisi: lihat lib/address-check.
   const c = checkAddress(v.address, { hasMapsLink: isMapsLink(v.mapsUrl) });
@@ -110,6 +114,8 @@ const emptyCreateValues: CreateMemberValues = {
   mapsUrl: '',
   customerType: '',
   priceTier: 'retail',
+  multiLocation: false,
+  mainLocationName: '',
 };
 
 export default function MembersPage() {
@@ -146,6 +152,8 @@ export default function MembersPage() {
 
   // Link Maps yang sedang diketik: bila berupa link, aturan "alamat wajib memuat kabupaten/kota" tidak berlaku.
   const createMapsUrl = useWatch({ control: createForm.control, name: 'mapsUrl' });
+  const createMulti = useWatch({ control: createForm.control, name: 'multiLocation' });
+  const createMainName = useWatch({ control: createForm.control, name: 'mainLocationName' });
 
   function openCreate() {
     createForm.reset(emptyCreateValues);
@@ -162,6 +170,9 @@ export default function MembersPage() {
         mapsUrl: values.mapsUrl?.trim() || undefined,
         customerType: values.customerType || undefined,
         priceTier: values.priceTier,
+        ...(values.multiLocation
+          ? { multiLocation: true, mainLocationName: values.mainLocationName?.trim() || undefined }
+          : {}),
         confirmOverride: values.confirmOverride,
       }),
     onSuccess: (result) => {
@@ -403,6 +414,13 @@ export default function MembersPage() {
                     <FormMessage />
                   </FormItem>
                 )}
+              />
+              <MultiLocationFields
+                idPrefix="create-member"
+                enabled={createMulti}
+                onEnabledChange={(v) => createForm.setValue('multiLocation', v)}
+                mainName={createMainName ?? ''}
+                onMainNameChange={(v) => createForm.setValue('mainLocationName', v)}
               />
               <DialogFooter>
                 <Button type="submit" disabled={createMutation.isPending}>

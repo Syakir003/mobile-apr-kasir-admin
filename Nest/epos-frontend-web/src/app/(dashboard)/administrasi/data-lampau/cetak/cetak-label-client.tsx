@@ -17,6 +17,9 @@ interface LabelUnit {
   model: string | null;
   pk: number | null;
   roomLocation: string | null;
+  // Member multi lokasi: nama lokasi unit + alamat lokasinya (job aktif, atau alamat lokasi unit). null = member biasa.
+  locationName?: string | null;
+  workAddress?: string | null;
   indoorProduct?: { name: string } | null;
   outdoorProduct?: { name: string } | null;
   member: { id: string; name: string; phone: string | null; address: string | null };
@@ -70,11 +73,13 @@ export function CetakLabelClient({ ids }: { ids: string }) {
               model: u.model,
               pk: u.pk,
               roomLocation: u.roomLocation,
+              locationName: u.locationName,
               indoorName: u.indoorProduct?.name,
               outdoorName: u.outdoorProduct?.name,
             }}
             memberName={u.member.name}
-            memberAddress={u.member.address || '-'}
+            // Member multi lokasi: alamat lokasi unit itu (bukan selalu alamat utama); member biasa tetap alamat member.
+            memberAddress={(u.locationName ? u.workAddress : null) || u.member.address || '-'}
           />
         ))}
       </div>

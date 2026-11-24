@@ -9,6 +9,8 @@ import { UpdateAcUnitDto } from './dto/update-ac-unit.dto';
 import { CompleteAcUnitDataDto } from './dto/complete-ac-unit-data.dto';
 import { addDays } from '../reminders/service-schedule.util';
 import { resolveAcUnitPairFields, PairableProduct } from './ac-unit-pair.util';
+import { deleteUnitsTx } from './ac-unit-delete.util';
+import { DeleteAcUnitsDto } from './dto/delete-ac-units.dto';
 
 /** Input satu unit dari Input Data Lampau (sudah divalidasi DTO). */
 export interface LegacyUnitInput {
@@ -24,6 +26,8 @@ export interface LegacyUnitInput {
   lastServiceDate?: string;
   serviceIntervalDays?: number;
   reminderEnabled?: boolean;
+  /** Lokasi unit (member multi lokasi). null/kosong = Lokasi 1 (alamat utama). Sudah divalidasi pemanggil. */
+  locationId?: string | null;
 }
 import { CreateAcUnitDto } from './dto/create-ac-unit.dto';
 
@@ -90,7 +94,15 @@ export class AcUnitsService {
   async registerExisting(
     tx: Prisma.TransactionClient,
     memberId: string,
-    data: { brand?: string; model?: string; pk?: number; roomLocation?: string; serialNumber?: string },
+    data: {
+      brand?: string;
+      model?: string;
+      pk?: number;
+      roomLocation?: string;
+      serialNumber?: string;
+      /** Lokasi unit (member multi lokasi); null/kosong = Lokasi 1. Sudah divalidasi pemanggil. */
+      locationId?: string | null;
+    },
   ) {
     const now = new Date();
     const seq = await this.counters.nextSeq(tx, `acunit_${this.counters.dateKey(now)}`);
@@ -104,6 +116,7 @@ export class AcUnitsService {
         pk: data.pk == null ? null : new Prisma.Decimal(data.pk),
         roomLocation: data.roomLocation ?? null,
         serialNumber: data.serialNumber ?? null,
+        locationId: data.locationId ?? null,
         barcodeValue,
         status: 'aktif',
       },
@@ -132,6 +145,7 @@ export class AcUnitsService {
         data: {
           memberId,
           roomLocation: u.roomLocation?.trim() || null,
+          locationId: u.locationId ?? null,
           barcodeValue,
           status: 'menunggu_data',
           reminderEnabled: false,
@@ -173,6 +187,7 @@ export class AcUnitsService {
         model,
         pk: pkValue == null ? null : new Prisma.Decimal(pkValue as any),
         roomLocation: u.roomLocation?.trim() || null,
+        locationId: u.locationId ?? null,
         serialNumber: u.serialNumber?.trim() || null,
         installationDate: u.installationDate ? new Date(u.installationDate) : null,
         lastServiceDate: lastService,
@@ -324,6 +339,65 @@ export class AcUnitsService {
     });
 
     return unit;
+  }
+
+  /**
+   * Hapus unit AC (admin): data unit yang tidak jadi dipakai (mis. "QR dulu" yang tidak pernah terisi). Hanya unit TANPA
+   * job aktif dan TANPA riwayat servis selesai yang dihapus, supaya riwayat dan garansi tidak hilang. Yang lain dilewati
+   * beserta alasannya (satu unit bermasalah tidak menggagalkan sisanya). Job dibatalkan yang pernah menunjuk unit tetap
+   * ada tanpa unit; usulan koreksi dan baris unit di order ikut dibersihkan; hitungan unit member dikurangi.
+   */
+  async deleteMany(dto: DeleteAcUnitsDto, actorId: string) {
+    const ids = [...new Set(dto.unitIds)];
+    return this.prisma.$transaction(async (tx) => {
+      // Kunci baris unit (urut id) supaya tidak berbarengan dengan pembuatan job/penghapusan lain pada unit yang sama.
+      await tx.$executeRaw`SELECT id FROM member_ac_units WHERE id IN (${Prisma.join(ids)}) ORDER BY id FOR UPDATE`;
+      const units = await tx.memberAcUnit.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, memberId: true, barcodeValue: true, brand: true, model: true },
+      });
+      const found = new Map(units.map((u) => [u.id, u]));
+      const jobs = await tx.technicianJob.findMany({
+        where: { unitId: { in: ids } },
+        select: { unitId: true, status: true },
+      });
+      const active = new Map<string, number>();
+      const finished = new Map<string, number>();
+      for (const j of jobs) {
+        if (!j.unitId) continue;
+        if (j.status === TechnicianJobStatus.selesai) finished.set(j.unitId, (finished.get(j.unitId) ?? 0) + 1);
+        else if (j.status !== TechnicianJobStatus.dibatalkan) active.set(j.unitId, (active.get(j.unitId) ?? 0) + 1);
+      }
+
+      const labelOf = (u: { brand: string | null; model: string | null }) =>
+        [u.brand, u.model].filter(Boolean).join(' ') || 'Unit AC';
+      const deletable: typeof units = [];
+      const skipped: { id: string; barcodeValue: string | null; label: string; reason: string }[] = [];
+      for (const id of ids) {
+        const u = found.get(id);
+        if (!u) {
+          skipped.push({ id, barcodeValue: null, label: 'Unit AC', reason: 'Unit tidak ditemukan (mungkin sudah dihapus)' });
+        } else if ((active.get(id) ?? 0) > 0) {
+          skipped.push({
+            id,
+            barcodeValue: u.barcodeValue,
+            label: labelOf(u),
+            reason: 'Masih punya job servis yang belum selesai/dibatalkan. Selesaikan atau batalkan job itu dulu.',
+          });
+        } else if ((finished.get(id) ?? 0) > 0) {
+          skipped.push({
+            id,
+            barcodeValue: u.barcodeValue,
+            label: labelOf(u),
+            reason: `Sudah punya riwayat servis (${finished.get(id)} job selesai), jadi tidak dihapus supaya riwayat dan garansinya tetap utuh.`,
+          });
+        } else {
+          deletable.push(u);
+        }
+      }
+      await deleteUnitsTx(tx, deletable, actorId, 'hapus_manual');
+      return { ok: true, deleted: deletable.length, deletedIds: deletable.map((u) => u.id), skipped };
+    });
   }
 
   async update(id: string, dto: UpdateAcUnitDto, actorId: string) {

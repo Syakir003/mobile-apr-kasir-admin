@@ -19,4 +19,8 @@ export class UpdateMemberDto {
   @IsOptional() @IsIn(['rumah', 'perusahaan', 'toko']) customerType?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsBoolean() active?: boolean;
+  // Multi lokasi (2026-11). Dimatikan ditolak selama masih ada unit di lokasi selain Lokasi 1 (cek di service).
+  @IsOptional() @IsBoolean() multiLocation?: boolean;
+  // Nama Lokasi 1 (alamat utama). Kosong = kembali ke nama bawaan "Lokasi 1".
+  @IsOptional() @IsString() @MaxLength(100) mainLocationName?: string | null;
 }

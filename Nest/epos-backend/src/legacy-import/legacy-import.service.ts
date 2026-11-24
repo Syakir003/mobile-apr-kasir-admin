@@ -4,6 +4,7 @@ import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { LegacyImportDto } from './dto/legacy-import.dto';
+import { resolveLocationChoice } from '../common/member-location.util';
 
 /**
  * "Input Data Lampau" (admin) — migrasi customer lama sekaligus unit AC-nya
@@ -65,9 +66,20 @@ export class LegacyImportService {
         );
       }
 
+      // Member BARU yang memakai multi lokasi: saklar dinyalakan di sini (member lama diatur lewat halaman member).
+      const enableMultiLocation = memberIsNew && !!m.multiLocation;
+      if (enableMultiLocation) {
+        member = await tx.member.update({
+          where: { id: member.id },
+          data: { multiLocation: true, mainLocationName: m.mainLocationName?.trim() || null },
+        });
+      }
+
       const units: Awaited<ReturnType<AcUnitsService['createLegacy']>>[] = [];
       for (const u of dto.units) {
-        units.push(await this.acUnits.createLegacy(tx, member.id, u));
+        // Member multi lokasi: tiap unit WAJIB memilih lokasinya (member baru yang baru diaktifkan: otomatis Lokasi 1).
+        const loc = await resolveLocationChoice(tx, member, u.locationId, { fallbackToMain: enableMultiLocation });
+        units.push(await this.acUnits.createLegacy(tx, member.id, { ...u, locationId: loc.locationId }));
       }
       if (units.length) {
         await tx.member.update({
@@ -105,6 +117,7 @@ export class LegacyImportService {
           brand: u.brand,
           model: u.model,
           roomLocation: u.roomLocation,
+          locationId: u.locationId,
         })),
         invoice: invoice ? { id: invoice.id, number: invoice.number } : null,
       };

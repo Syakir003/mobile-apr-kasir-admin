@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -13,6 +14,14 @@ import { AddressHint } from '@/components/address-hint';
 import { PHONE_ERROR_MESSAGE, isValidIndonesianPhone } from '@/lib/phone';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { MultiLocationFields } from '@/components/multi-location-fields';
+import {
+  LocationDraftsEditor,
+  applyLocationDrafts,
+  draftsFromLocations,
+  validateLocationDrafts,
+  type MemberLocationRow,
+} from './member-locations';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -35,6 +44,10 @@ export interface EditableMember {
   customerType: string | null;
   notes: string | null;
   active: boolean;
+  multiLocation?: boolean;
+  mainLocationName?: string | null;
+  // Lokasi tambahan member multi lokasi (Lokasi 1 = alamat utama): bisa ditambah/diubah/dihapus langsung di dialog ini.
+  locations?: MemberLocationRow[];
 }
 
 // Sama dengan form Tambah Member: nama wajib. Link Maps boleh link atau ketikan biasa (backend menormalkannya jadi link);
@@ -47,6 +60,9 @@ const editMemberSchema = z.object({
   customerType: z.enum(['rumah', 'perusahaan', 'toko', '']).optional(),
   notes: z.string().optional(),
   active: z.boolean(),
+  // Multi lokasi: dimatikan ditolak backend selama masih ada unit di lokasi selain Lokasi 1.
+  multiLocation: z.boolean(),
+  mainLocationName: z.string().optional(),
 });
 type EditMemberValues = z.infer<typeof editMemberSchema>;
 
@@ -59,10 +75,13 @@ export function EditMemberDialog({
   open,
   onOpenChange,
   member,
+  onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   member: EditableMember;
+  /** Dipanggil sesudah tersimpan (data sudah dimuat ulang) dengan id lokasi yang baru dibuat, untuk menawarkan pindah unit. */
+  onSaved?: (createdLocationIds: string[]) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -74,14 +93,28 @@ export function EditMemberDialog({
             lokasi kerja yang berbeda diisi di form Terima Servis.
           </DialogDescription>
         </DialogHeader>
-        <EditMemberForm member={member} onDone={() => onOpenChange(false)} />
+        <EditMemberForm
+          member={member}
+          onDone={(createdIds) => {
+            onOpenChange(false);
+            onSaved?.(createdIds);
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
 }
 
-function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: () => void }) {
+function EditMemberForm({
+  member,
+  onDone,
+}: {
+  member: EditableMember;
+  onDone: (createdLocationIds: string[]) => void;
+}) {
   const queryClient = useQueryClient();
+  // Lokasi tambahan yang sedang diedit (belum tersimpan sampai Simpan).
+  const [locationDrafts, setLocationDrafts] = React.useState(() => draftsFromLocations(member.locations ?? []));
   const originalPhone = (member.phone ?? '').trim();
   const originalAddress = (member.address ?? '').trim();
   const schema = editMemberSchema.superRefine((v, ctx) => {
@@ -106,14 +139,18 @@ function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: ()
       customerType: (member.customerType as EditMemberValues['customerType']) ?? '',
       notes: member.notes ?? '',
       active: member.active,
+      multiLocation: member.multiLocation ?? false,
+      mainLocationName: member.mainLocationName ?? '',
     },
   });
 
   const mapsUrlValue = useWatch({ control: form.control, name: 'mapsUrl' });
+  const multiLocationValue = useWatch({ control: form.control, name: 'multiLocation' });
+  const mainLocationNameValue = useWatch({ control: form.control, name: 'mainLocationName' });
 
   const saveMutation = useMutation({
-    mutationFn: (v: EditMemberValues) =>
-      apiClient.patch(`/members/${member.id}`, {
+    mutationFn: async (v: EditMemberValues) => {
+      await apiClient.patch(`/members/${member.id}`, {
         name: v.name.trim(),
         // Nomor dikirim hanya bila diubah (kosong = hapus nomor).
         ...((v.phone ?? '').trim() !== originalPhone ? { phone: (v.phone ?? '').trim() } : {}),
@@ -124,13 +161,30 @@ function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: ()
         ...(v.customerType ? { customerType: v.customerType } : {}),
         notes: (v.notes ?? '').trim(),
         active: v.active,
-      }),
-    onSuccess: () => {
-      toast.success('Data member diperbarui.');
-      // Seluruh awalan 'members' (detail + daftar) dan pencarian member di form lain.
-      queryClient.invalidateQueries({ queryKey: ['members'] });
-      queryClient.invalidateQueries({ queryKey: ['members-pick'] });
-      onDone();
+        multiLocation: v.multiLocation,
+        // Nama Lokasi 1 dikirim hanya bila multi lokasi menyala (kosong = kembali ke "Lokasi 1").
+        ...(v.multiLocation ? { mainLocationName: (v.mainLocationName ?? '').trim() } : {}),
+      });
+      // Lokasi tambahan diterapkan SESUDAH data member tersimpan (saklar multi lokasi harus sudah menyala di server).
+      return v.multiLocation
+        ? applyLocationDrafts(member.id, member.locations ?? [], locationDrafts)
+        : { errors: [] as string[], createdIds: [] as string[] };
+    },
+    onSuccess: async (res) => {
+      // Seluruh awalan 'members' (detail + daftar) dan pencarian member di form lain; ditunggu supaya data baru sudah
+      // dimuat saat dialog tawaran pindah unit dibuka.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['members'] }),
+        queryClient.invalidateQueries({ queryKey: ['members-pick'] }),
+      ]);
+      if (res.errors.length > 0) {
+        toast.error(
+          `Data member tersimpan, tetapi ada lokasi yang gagal: ${res.errors.join('; ')}. Buka Ubah Member lagi untuk melengkapinya.`,
+        );
+      } else {
+        toast.success('Data member diperbarui.');
+      }
+      onDone(res.createdIds);
     },
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : 'Gagal menyimpan data member.');
@@ -139,7 +193,20 @@ function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: ()
 
   return (
     <Form {...form}>
-      <form className="grid gap-4" onSubmit={form.handleSubmit((v) => saveMutation.mutate(v))}>
+      <form
+        className="grid gap-4"
+        onSubmit={form.handleSubmit((v) => {
+          // Lokasi tambahan diperiksa dulu (nama, alamat/link, tidak kembar) supaya tidak setengah tersimpan.
+          const problem = v.multiLocation
+            ? validateLocationDrafts(locationDrafts, (v.mainLocationName ?? '').trim() || null)
+            : null;
+          if (problem) {
+            toast.error(problem);
+            return;
+          }
+          saveMutation.mutate(v);
+        })}
+      >
         <FormField
           control={form.control}
           name="name"
@@ -250,6 +317,14 @@ function EditMemberForm({ member, onDone }: { member: EditableMember; onDone: ()
             </FormItem>
           )}
         />
+        <MultiLocationFields
+          idPrefix="edit-member"
+          enabled={multiLocationValue}
+          onEnabledChange={(v) => form.setValue('multiLocation', v, { shouldDirty: true })}
+          mainName={mainLocationNameValue ?? ''}
+          onMainNameChange={(v) => form.setValue('mainLocationName', v, { shouldDirty: true })}
+        />
+        {multiLocationValue && <LocationDraftsEditor drafts={locationDrafts} onChange={setLocationDrafts} />}
         <DialogFooter>
           <Button type="submit" disabled={saveMutation.isPending}>
             {saveMutation.isPending ? 'Menyimpan...' : 'Simpan'}

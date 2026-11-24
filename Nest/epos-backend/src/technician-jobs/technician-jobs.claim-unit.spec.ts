@@ -23,6 +23,9 @@ function claimSetup(
     alreadyHere?: number;
     busy?: unknown[];
     orderUnit?: { id: string } | null;
+    /** Member multi lokasi + lokasi pekerjaan order (bawaan: member biasa tanpa multi lokasi). */
+    memberLoc?: { multiLocation: boolean; mainLocationName: string | null };
+    orderLoc?: { locationId: string | null; name: string | null };
   } = {},
 ) {
   const job = { id: 'j1', orderId: 'o1', memberId: 'm1', status: 'assigned', unitId: null };
@@ -47,6 +50,13 @@ function claimSetup(
       update: jest.fn(async () => ({})),
     },
     memberAcUnit: { findUnique: jest.fn(async () => unit) },
+    member: { findUnique: jest.fn(async () => opts.memberLoc ?? { multiLocation: false, mainLocationName: null }) },
+    serviceOrder: {
+      findUnique: jest.fn(async () => ({
+        locationId: opts.orderLoc?.locationId ?? null,
+        location: opts.orderLoc?.name ? { name: opts.orderLoc.name } : null,
+      })),
+    },
     serviceOrderUnit: {
       findFirst: jest.fn(async () => opts.orderUnit ?? null),
       create: jest.fn(async () => ({})),
@@ -269,7 +279,7 @@ describe('TechnicianJobsService.cancel — allInOrder (batalkan seluruh order de
       $transaction: jest.fn(async (fn: any) => fn(tx)),
     };
     const svc = makeSvc(prisma);
-    const inTx = jest.spyOn(svc as any, 'cancelJobInTx').mockResolvedValue({});
+    const inTx = jest.spyOn(svc as any, 'cancelJobInTx').mockResolvedValue({ deletedUnitCount: 0 });
     return { svc, tx, inTx };
   }
 
@@ -301,5 +311,52 @@ describe('TechnicianJobsService.cancel — allInOrder (batalkan seluruh order de
   it('hanya admin', async () => {
     const { svc } = cancelSetup([{ id: 'j1', assignees: [] }]);
     await expect(svc.cancel('j1', 't1', 'teknisi', { allInOrder: true })).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe('claimUnit — member multi lokasi', () => {
+  const multi = { multiLocation: true, mainLocationName: 'Kantor Lama' };
+
+  it('unit di lokasi pekerjaan order diterima', async () => {
+    const { svc, tx } = claimSetup({
+      memberLoc: multi,
+      orderLoc: { locationId: 'L2', name: 'Kantor Baru' },
+      unit: { locationId: 'L2', location: { name: 'Kantor Baru' } },
+    });
+    await svc.claimUnit('j1', { barcode: 'ACUNIT-20261001-0007' }, 't1', 'teknisi');
+    expect(tx.technicianJob.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 's1' }, data: expect.objectContaining({ unitId: 'u7' }) }),
+    );
+  });
+
+  it('unit di lokasi LAIN ditolak (pesan menyebut kedua lokasi), slot tidak berubah', async () => {
+    const { svc, tx } = claimSetup({
+      memberLoc: multi,
+      orderLoc: { locationId: 'L2', name: 'Kantor Baru' },
+      unit: { locationId: null, location: null },
+    });
+    await expect(svc.claimUnit('j1', { barcode: 'ACUNIT-20261001-0007' }, 't1', 'teknisi')).rejects.toThrow(
+      /terdaftar di lokasi "Kantor Lama", bukan lokasi pekerjaan ini \("Kantor Baru"\)/,
+    );
+    expect(tx.technicianJob.update).not.toHaveBeenCalled();
+    expect(tx.serviceOrderUnit.create).not.toHaveBeenCalled();
+  });
+
+  it('order di Lokasi 1: unit milik Kantor Baru ditolak', async () => {
+    const { svc, tx } = claimSetup({
+      memberLoc: multi,
+      orderLoc: { locationId: null, name: null },
+      unit: { locationId: 'L2', location: { name: 'Kantor Baru' } },
+    });
+    await expect(svc.claimUnit('j1', { barcode: 'ACUNIT-20261001-0007' }, 't1', 'teknisi')).rejects.toThrow(
+      /terdaftar di lokasi "Kantor Baru", bukan lokasi pekerjaan ini \("Kantor Lama"\)/,
+    );
+    expect(tx.technicianJob.update).not.toHaveBeenCalled();
+  });
+
+  it('member tanpa multi lokasi: tidak ada pemeriksaan lokasi', async () => {
+    const { svc, tx } = claimSetup({ unit: { locationId: 'L9' } });
+    await svc.claimUnit('j1', { barcode: 'ACUNIT-20261001-0007' }, 't1', 'teknisi');
+    expect(tx.technicianJob.update).toHaveBeenCalled();
   });
 });

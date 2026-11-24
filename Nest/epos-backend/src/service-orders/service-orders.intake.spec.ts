@@ -61,7 +61,11 @@ describe('ServiceOrdersService.intake — unit baru mode "QR dulu"', () => {
       { customer, complaint: 'AC bocor', newUnit: { qrDulu: true, roomLocation: 'Kamar Utama' } },
       'a1',
     );
-    expect(acUnits.createLegacy).toHaveBeenCalledWith(tx, 'm1', { mode: 'qr_dulu', roomLocation: 'Kamar Utama' });
+    expect(acUnits.createLegacy).toHaveBeenCalledWith(tx, 'm1', {
+      mode: 'qr_dulu',
+      roomLocation: 'Kamar Utama',
+      locationId: null,
+    });
     expect(acUnits.registerExisting).not.toHaveBeenCalled();
     expect(res).toMatchObject({ unitId: 'u-qr', unitLabeled: false, jobId: 'j1' });
     // totalAcUnits tetap bertambah satu, sama seperti unit baru biasa.

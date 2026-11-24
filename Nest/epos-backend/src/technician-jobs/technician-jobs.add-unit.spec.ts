@@ -26,6 +26,9 @@ function setup(
     busyUnits?: unknown[];
     orderUnit?: { id: string } | null;
     invoiceId?: string | null;
+    /** Member multi lokasi + lokasi pekerjaan order (bawaan: member biasa tanpa multi lokasi). */
+    memberLoc?: { multiLocation: boolean; mainLocationName: string | null };
+    orderLoc?: { locationId: string | null; name: string | null };
   } = {},
 ) {
   const job = {
@@ -61,7 +64,10 @@ function setup(
         opts.unit === null ? null : labeledUnit,
       ),
     },
-    member: { update: jest.fn(async () => ({})) },
+    member: {
+      update: jest.fn(async () => ({})),
+      findUnique: jest.fn(async () => opts.memberLoc ?? { multiLocation: false, mainLocationName: null }),
+    },
     serviceOrderUnit: {
       findFirst: jest.fn(async () => opts.orderUnit ?? null),
       create: jest.fn(async () => ({})),
@@ -70,6 +76,8 @@ function setup(
     serviceOrder: {
       findUnique: jest.fn(async () => ({
         invoiceId: opts.invoiceId === undefined ? null : opts.invoiceId,
+        locationId: opts.orderLoc?.locationId ?? null,
+        location: opts.orderLoc?.name ? { name: opts.orderLoc.name } : null,
       })),
     },
     auditLog: { create: jest.fn(async () => ({})) },
@@ -115,6 +123,7 @@ describe('TechnicianJobsService.addUnit — unit sudah berlabel (scan barcode)',
     );
     expect(tx.memberAcUnit.findUnique).toHaveBeenCalledWith({
       where: { barcodeValue: 'ACUNIT-20261001-0002' },
+      include: { location: { select: { name: true } } },
     });
     expect(tx.serviceOrderUnit.create).toHaveBeenCalledWith({
       data: { orderId: 'o1', unitId: 'u2', status: 'terjadwal' },
@@ -286,6 +295,7 @@ describe('TechnicianJobsService.addUnit — AC tanpa label (QR baru)', () => {
     expect(acUnits.createLegacy).toHaveBeenCalledWith(tx, 'm1', {
       mode: 'qr_dulu',
       roomLocation: 'Kamar Anak',
+      locationId: null,
     });
     expect(tx.member.update).toHaveBeenCalledWith({
       where: { id: 'm1' },
@@ -465,10 +475,31 @@ describe('TechnicianJobsService.unitLabels — data label untuk cetak oleh tekni
     expect(r).toEqual({
       id: 'o1',
       member: { id: 'm1', name: 'Bu Sari' },
+      locationName: null, // member biasa: tanpa nama lokasi di label
       serviceOrderUnits: [
         { id: 'ou1', unit: { id: 'u9', barcodeValue: 'ACUNIT-20261104-0009' }, workAddress: null },
       ],
     });
+  });
+
+  it('member multi lokasi: nama lokasi pekerjaan order ikut dikirim untuk label (Lokasi 1 memakai nama utamanya)', async () => {
+    const baru = labelsSetup({
+      member: { id: 'm1', name: 'Bapak Ali', multiLocation: true, mainLocationName: 'Kantor Lama' },
+      order: { location: { name: 'Kantor Baru' } },
+    });
+    expect((await baru.svc.unitLabels('j1', 't1', 'teknisi')).locationName).toBe('Kantor Baru');
+
+    const utama = labelsSetup({
+      member: { id: 'm1', name: 'Bapak Ali', multiLocation: true, mainLocationName: 'Kantor Lama' },
+      order: { location: null },
+    });
+    expect((await utama.svc.unitLabels('j1', 't1', 'teknisi')).locationName).toBe('Kantor Lama');
+
+    const tanpaNama = labelsSetup({
+      member: { id: 'm1', name: 'Bapak Ali', multiLocation: true, mainLocationName: null },
+      order: { location: null },
+    });
+    expect((await tanpaNama.svc.unitLabels('j1', 't1', 'teknisi')).locationName).toBe('Lokasi 1');
   });
 
   it('admin melihat semua unit order (tanpa saringan pemilik); teknisi lain ditolak', async () => {
@@ -508,8 +539,48 @@ describe('TechnicianJobsService.addUnit — dari job slot (unit belum diketahui)
   it('AC tanpa label ("QR dulu"): unit baru dibuat dan label perlu dicetak', async () => {
     const { svc, tx, createForOrder, acUnits } = setup({ job: { unitId: null } });
     const r = await svc.addUnit('j1', { newUnit: true, roomLocation: 'Gudang', complaint: 'Cuci AC' }, 't1', 'teknisi');
-    expect(acUnits.createLegacy).toHaveBeenCalledWith(tx, 'm1', { mode: 'qr_dulu', roomLocation: 'Gudang' });
+    expect(acUnits.createLegacy).toHaveBeenCalledWith(tx, 'm1', { mode: 'qr_dulu', roomLocation: 'Gudang', locationId: null });
     expect(createForOrder).toHaveBeenCalledWith(tx, expect.objectContaining({ unitId: 'u9' }));
     expect(r).toMatchObject({ ok: true, needsLabel: true, needsData: true });
+  });
+});
+
+describe('TechnicianJobsService.addUnit — member multi lokasi (ikut lokasi pekerjaan order)', () => {
+  const multi = { multiLocation: true, mainLocationName: 'Kantor Lama' };
+  const orderBaru = { locationId: 'L2', name: 'Kantor Baru' };
+
+  it('unit berlabel di lokasi pekerjaan: diterima', async () => {
+    const { svc, createForOrder } = setup({
+      memberLoc: multi,
+      orderLoc: orderBaru,
+      unit: { locationId: 'L2', location: { name: 'Kantor Baru' } },
+    });
+    await svc.addUnit('j1', { barcode: 'ACUNIT-20261001-0002', complaint: 'Cuci AC' }, 't1', 'teknisi');
+    expect(createForOrder).toHaveBeenCalled();
+  });
+
+  it('unit berlabel di lokasi LAIN: ditolak, tidak ada job baru', async () => {
+    const { svc, createForOrder, tx } = setup({
+      memberLoc: multi,
+      orderLoc: orderBaru,
+      unit: { locationId: null, location: null },
+    });
+    await expect(
+      svc.addUnit('j1', { barcode: 'ACUNIT-20261001-0002', complaint: 'Cuci AC' }, 't1', 'teknisi'),
+    ).rejects.toThrow(/terdaftar di lokasi "Kantor Lama", bukan lokasi pekerjaan ini \("Kantor Baru"\)/);
+    expect(createForOrder).not.toHaveBeenCalled();
+    expect(tx.serviceOrderUnit.create).not.toHaveBeenCalled();
+  });
+
+  it('AC tanpa label ("QR dulu"): unit baru otomatis ikut lokasi pekerjaan, teknisi tidak memilih', async () => {
+    const { svc, tx, acUnits } = setup({ memberLoc: multi, orderLoc: orderBaru });
+    await svc.addUnit('j1', { newUnit: true, roomLocation: 'Lobi', complaint: 'Cuci AC' }, 't1', 'teknisi');
+    expect(acUnits.createLegacy).toHaveBeenCalledWith(tx, 'm1', { mode: 'qr_dulu', roomLocation: 'Lobi', locationId: 'L2' });
+  });
+
+  it('order di Lokasi 1: unit baru locationId null (Lokasi 1)', async () => {
+    const { svc, tx, acUnits } = setup({ memberLoc: multi, orderLoc: { locationId: null, name: null } });
+    await svc.addUnit('j1', { newUnit: true, complaint: 'Cuci AC' }, 't1', 'teknisi');
+    expect(acUnits.createLegacy).toHaveBeenCalledWith(tx, 'm1', expect.objectContaining({ locationId: null }));
   });
 });
