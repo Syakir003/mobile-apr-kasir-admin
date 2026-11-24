@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { UnitPartsList, type UnitPartProduct } from '@/components/ac-unit-parts';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronRight, Pencil, Printer } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Pencil, Printer, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { apiClient, ApiError } from '@/lib/api-client';
@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardAction, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { DeleteUnitsDialog } from '@/components/delete-units-dialog';
 import { EditMemberDialog } from './edit-member-dialog';
 import {
   LocationsCard,
@@ -104,17 +105,22 @@ export function MemberDetailClient({
   memberId,
   canEditTier,
   canEdit,
+  canDelete = false,
 }: {
   memberId: string;
   canEditTier: boolean;
   // Ubah data member (nama, HP, alamat, link Maps, dst.): admin & kasir, sama dengan PATCH /members/:id.
   canEdit: boolean;
+  // Hapus unit AC member yang tidak jadi dipakai: admin saja (POST /ac-units/delete).
+  canDelete?: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = React.useState(false);
   // Unit AC yang dicentang untuk dipindah ke lokasi lain (hanya member multi lokasi).
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  // Hapus unit yang dicentang (admin): dialog konfirmasi + hasil.
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
   // Lokasi baru yang baru dibuat dari dialog Ubah Member: menawarkan memindahkan unit ke lokasi itu (id lokasi tujuan).
   const [moveOffer, setMoveOffer] = React.useState<string | null>(null);
 
@@ -157,7 +163,8 @@ export function MemberDetailClient({
   }
 
   // Pilih beberapa unit untuk dipindah lokasi: hanya member multi lokasi, dan hanya yang boleh mengubah data member.
-  const showSelect = canEdit && data.multiLocation;
+  // Admin selalu bisa mencentang unit (untuk Hapus); kasir hanya untuk Pindahkan pada member multi lokasi.
+  const showSelect = canDelete || (canEdit && data.multiLocation);
   const allSelected = data.acUnits.length > 0 && data.acUnits.every((u) => selected.has(u.id));
 
   return (
@@ -170,6 +177,13 @@ export function MemberDetailClient({
           onSaved={(createdIds) => {
             if (createdIds.length > 0) setMoveOffer(createdIds[0]);
           }}
+        />
+      )}
+      {canDelete && deleteOpen && selected.size > 0 && (
+        <DeleteUnitsDialog
+          unitIds={[...selected]}
+          onClose={() => setDeleteOpen(false)}
+          onDone={() => setSelected(new Set())}
         />
       )}
       {canEdit && moveOffer && data.multiLocation && data.acUnits.length > 0 && (
@@ -314,7 +328,28 @@ export function MemberDetailClient({
                 <p className="text-sm text-muted-foreground">Belum ada unit AC tercatat.</p>
               )}
               {showSelect && selected.size > 0 && (
-                <MoveUnitsBar member={data} selectedIds={[...selected]} onMoved={() => setSelected(new Set())} />
+                <div className="mb-3 grid gap-2">
+                  {canEdit && data.multiLocation && (
+                    <MoveUnitsBar member={data} selectedIds={[...selected]} onMoved={() => setSelected(new Set())} />
+                  )}
+                  {canDelete && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-sm">
+                      <span className="font-medium">{selected.size} unit dipilih</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setDeleteOpen(true)}
+                      >
+                        <Trash2 className="size-4" />
+                        Hapus unit
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        Unit dengan job aktif atau riwayat servis selesai tidak dihapus.
+                      </span>
+                    </div>
+                  )}
+                </div>
               )}
               {data.acUnits.length > 0 && (
                 <div className="rounded-md border">

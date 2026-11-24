@@ -170,18 +170,27 @@ interface UserRow {
   active: boolean;
 }
 
+// Pembatalan: server menghapus otomatis unit "QR dulu" yang baru dibuat untuk job itu dan belum terisi/discan
+// (`deletedUnitCount` di hasilnya). Konfirmasi memberi tahu lebih dulu; pesan sukses menyebut jumlahnya.
+const AUTO_DELETE_CONFIRM_NOTE =
+  ' Unit "QR dulu" yang dibuat untuk job ini, belum discan, dan datanya belum terisi akan ikut dihapus (QR-nya tidak berlaku lagi).';
+const deletedUnitsNote = (r: unknown) => {
+  const n = (r as { deletedUnitCount?: number } | null)?.deletedUnitCount ?? 0;
+  return n > 0 ? ` ${n} unit AC yang datanya belum terisi ikut dihapus.` : '';
+};
+
 // Hook kecil buat aksi PATCH status job (start/submit-for-review/
 // approve-complete/send-back/cancel) — semuanya sama polanya (PATCH ke
 // :id/<path>, toast, invalidate query job ini + kedua daftar job), cuma
 // beda path/body/pesan. Didefinisikan di level modul (bukan di dalam
 // JobDetailClient) biar jelas ini hook biasa, dipanggil tanpa syarat di
 // urutan yang sama tiap render (rules of hooks).
-function useJobAction<TBody = void>(jobId: string, path: string, successMsg: string | (() => string)) {
+function useJobAction<TBody = void>(jobId: string, path: string, successMsg: string | ((data: unknown) => string)) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body?: TBody) => apiClient.patch(`/technician-jobs/${jobId}${path}`, body ?? {}),
-    onSuccess: () => {
-      toast.success(typeof successMsg === 'function' ? successMsg() : successMsg);
+    onSuccess: (data) => {
+      toast.success(typeof successMsg === 'function' ? successMsg(data) : successMsg);
       // Seluruh awalan 'technician-jobs' (job ini, daftar, antrian, dan job saudara di halaman banyak AC — pembatalan
       // satu unit bisa memindahkan pengajuan sparepart ke unit lain).
       queryClient.invalidateQueries({ queryKey: ['technician-jobs'] });
@@ -203,11 +212,16 @@ interface EmbeddedProps {
 }
 
 // Seperti useJobAction, tapi untuk aksi SELURUH order servis banyak AC (body allInOrder); onDone menyegarkan semua section.
-function useOrderAction<TBody extends object>(jobId: string, path: string, successMsg: string, onDone: () => void) {
+function useOrderAction<TBody extends object>(
+  jobId: string,
+  path: string,
+  successMsg: string | ((data: unknown) => string),
+  onDone: () => void,
+) {
   return useMutation({
     mutationFn: (body: TBody) => apiClient.patch(`/technician-jobs/${jobId}/${path}`, body),
-    onSuccess: () => {
-      toast.success(successMsg);
+    onSuccess: (data) => {
+      toast.success(typeof successMsg === 'function' ? successMsg(data) : successMsg);
       onDone();
     },
     onError: (err) => {
@@ -309,7 +323,11 @@ export function JobDetailClient({
   );
   // Servis banyak AC: pengajuan sparepart dipakai bersama seluruh unit; kalau unit pemegangnya dibatalkan, backend
   // memindahkannya ke unit aktif berikutnya (flag ini), bukan ikut membatalkannya.
-  const cancelMutation = useJobAction<{ moveRequestsToSibling?: boolean }>(jobId, '/cancel', 'Job dibatalkan.');
+  const cancelMutation = useJobAction<{ moveRequestsToSibling?: boolean }>(
+    jobId,
+    '/cancel',
+    (r) => `Job dibatalkan.${deletedUnitsNote(r)}`,
+  );
 
   if (jobQuery.isLoading) {
     return <p className="text-sm text-muted-foreground">Memuat job...</p>;
@@ -552,7 +570,7 @@ export function JobDetailClient({
       <CardContent className="grid gap-1.5 py-6 text-center text-sm">
         <p className="font-medium">
           {job.status === 'dibatalkan'
-            ? 'Slot unit ini dibatalkan sebelum discan.'
+            ? 'Unit ini dibatalkan sebelum terdata (slot kosong, atau unit "QR dulu" yang belum terisi dan sudah dihapus).'
             : 'Tipe menunggu discan, silakan scan dulu untuk memasukkan ke pekerjaan.'}
         </p>
         {job.status !== 'dibatalkan' && (
@@ -815,7 +833,8 @@ export function JobDetailClient({
                 className="text-destructive hover:text-destructive"
                 disabled={cancelMutation.isPending}
                 onClick={() => {
-                  if (confirm(isSlotJob ? 'Batalkan slot unit ini (belum discan)?' : 'Batalkan unit AC ini dari job?')) {
+                  const note = !isSlotJob && job.unit?.status === 'menunggu_data' ? AUTO_DELETE_CONFIRM_NOTE : '';
+                  if (confirm((isSlotJob ? 'Batalkan slot unit ini (belum discan)?' : 'Batalkan unit AC ini dari job?') + note)) {
                     cancelMutation.mutate({ moveRequestsToSibling: true });
                   }
                 }}
@@ -950,7 +969,8 @@ export function JobDetailClient({
                 className="text-destructive hover:text-destructive"
                 disabled={cancelMutation.isPending}
                 onClick={() => {
-                  if (confirm(embedded ? 'Batalkan unit AC ini dari job?' : 'Batalkan job ini?')) {
+                  const note = job.unit?.status === 'menunggu_data' ? AUTO_DELETE_CONFIRM_NOTE : '';
+                  if (confirm((embedded ? 'Batalkan unit AC ini dari job?' : 'Batalkan job ini?') + note)) {
                     cancelMutation.mutate(embedded ? { moveRequestsToSibling: true } : undefined);
                   }
                 }}
@@ -1211,7 +1231,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
   const cancelAllMutation = useOrderAction<{ allInOrder: true }>(
     job.id,
     'cancel',
-    'Seluruh unit yang belum selesai di order ini dibatalkan.',
+    (r) => `Seluruh unit yang belum selesai di order ini dibatalkan.${deletedUnitsNote(r)}`,
     refreshAll,
   );
   const claimMutation = useClaimUnit(job.id);
@@ -1715,7 +1735,8 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                     onClick={() => {
                       if (
                         confirm(
-                          `Batalkan SEMUA unit yang belum selesai di order ini (${cancellableCount} unit)? Unit yang sudah selesai tidak ikut dibatalkan.`,
+                          `Batalkan SEMUA unit yang belum selesai di order ini (${cancellableCount} unit)? Unit yang sudah selesai tidak ikut dibatalkan.` +
+                            (activeJobs.some((j) => j.unit?.status === 'menunggu_data') ? AUTO_DELETE_CONFIRM_NOTE : ''),
                         )
                       ) {
                         cancelAllMutation.mutate({ allInOrder: true });

@@ -10,6 +10,7 @@ import { CompleteAcUnitDataDto } from './dto/complete-ac-unit-data.dto';
 import { SubmitCorrectionDto } from './dto/submit-correction.dto';
 import { AcUnitCorrectionsService } from './ac-unit-corrections.service';
 import { CreateAcUnitDto } from './dto/create-ac-unit.dto';
+import { DeleteAcUnitsDto } from './dto/delete-ac-units.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('ac-units')
@@ -46,6 +47,16 @@ export class AcUnitsController {
   @Post()
   create(@Body() dto: CreateAcUnitDto, @CurrentUser() user: CurrentUserPayload) {
     return this.acUnits.create(dto, user.sub);
+  }
+
+  /**
+   * Hapus unit AC (admin): data unit yang tidak jadi dipakai. Unit dengan job aktif atau riwayat servis selesai dilewati
+   * beserta alasannya; hasilnya `{ deleted, skipped[] }`.
+   */
+  @Roles('admin')
+  @Post('delete')
+  deleteMany(@Body() dto: DeleteAcUnitsDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.acUnits.deleteMany(dto, user.sub);
   }
 
   @Roles('admin')

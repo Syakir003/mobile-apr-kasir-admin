@@ -279,7 +279,7 @@ describe('TechnicianJobsService.cancel — allInOrder (batalkan seluruh order de
       $transaction: jest.fn(async (fn: any) => fn(tx)),
     };
     const svc = makeSvc(prisma);
-    const inTx = jest.spyOn(svc as any, 'cancelJobInTx').mockResolvedValue({});
+    const inTx = jest.spyOn(svc as any, 'cancelJobInTx').mockResolvedValue({ deletedUnitCount: 0 });
     return { svc, tx, inTx };
   }
 

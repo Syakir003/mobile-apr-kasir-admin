@@ -137,8 +137,13 @@ const ASSIGNABLE_STATUSES = ['menunggu_penugasan', 'assigned'];
 // Job tanpa unit = slot "unit belum diketahui" (Terima Servis dengan jumlah unit yang discan teknisi): unitnya baru terisi
 // saat teknisi memindai barcode di lokasi.
 export const SLOT_TEXT = 'Unit menunggu discan';
+// Job dibatalkan tanpa unit: slot yang tidak dipakai, atau unit "QR dulu" yang belum terisi dan ikut terhapus saat dibatalkan.
 export const unitName = (j: TechnicianJob) =>
-  j.unit ? [j.unit.brand, j.unit.model].filter(Boolean).join(' ') || 'Unit AC' : SLOT_TEXT;
+  j.unit
+    ? [j.unit.brand, j.unit.model].filter(Boolean).join(' ') || 'Unit AC'
+    : j.status === 'dibatalkan'
+      ? 'Unit dihapus (belum terdata)'
+      : SLOT_TEXT;
 // Unit tanpa tipe (merk/model kosong, mis. unit "QR dulu"): baris info AC memberi tahu, bukan dikosongkan.
 export const NO_TYPE_TEXT = '(Unit AC belum ada Tipe)';
 const hasBrandModel = (j: TechnicianJob) => !!j.unit && [j.unit.brand, j.unit.model].some(Boolean);

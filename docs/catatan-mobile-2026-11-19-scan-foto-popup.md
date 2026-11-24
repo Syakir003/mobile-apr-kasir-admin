@@ -217,3 +217,20 @@ Menyala = satu member bisa punya AC di beberapa tempat. **Lokasi 1 = alamat utam
   menemui penolakan "lokasi berbeda" setelah menekan tombol.
 - `POST /ac-units` (form unit Flutter) belum menerima lokasi: unit baru untuk member multi lokasi masuk Lokasi 1; admin
   memindahkannya lewat web (Pindahkan ke lokasi).
+
+---
+
+## 8. Tambahan 2026-11-24: hapus unit AC (data "sampah" yang belum terdata)
+
+Status: dikerjakan di backend dan web (Skenario 1), **belum di-commit/di-push**. Tidak ada perubahan skema.
+
+- **Hapus otomatis saat job dibatalkan** (`PATCH /technician-jobs/:id/cancel`, termasuk `allInOrder`): unit ikut terhapus
+  HANYA bila status `menunggu_data` (tipe belum terisi, "QR dulu"), QR belum pernah discan (`labelAttachedAt` kosong), dibuat
+  bersamaan dengan job itu (Terima Servis / Tambah Unit, bukan unit lama dari Input Data Lampau), dan job itu satu-satunya job
+  unitnya. Respons pembatalan menambah `deletedUnitCount` (0 atau 1; untuk `allInOrder` jumlahnya). Job yang dibatalkan tetap
+  ada dengan `unit: null` (Flutter sudah null-safe untuk `unit`). Tidak ada yang wajib diubah di mobile; bila APK punya
+  konfirmasi pembatalan, boleh ditambah kalimat "unit QR dulu yang belum terisi ikut dihapus" dan menampilkan `deletedUnitCount`.
+- **Hapus manual (admin)**: `POST /ac-units/delete` body `{ unitIds: [...] }` (maks 200). Unit tanpa job aktif dan tanpa
+  riwayat servis selesai dihapus; yang lain dilewati. Respons `{ ok, deleted, deletedIds, skipped: [{ id, barcodeValue, label,
+  reason }] }`. Baris unit di order dan usulan koreksi ikut dibersihkan, `members.total_ac_units` dikurangi, audit `ac_unit.delete`.
+  Di web: halaman member (centang unit, Hapus unit) dan tab Label QR di Input Data Lampau. Mobile tidak wajib punya fitur ini.

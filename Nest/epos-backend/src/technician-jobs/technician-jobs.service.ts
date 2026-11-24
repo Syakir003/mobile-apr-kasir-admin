@@ -35,6 +35,7 @@ import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import { isUnitLabeled } from '../ac-units/unit-label-status.util';
 import { AcUnitsService } from '../ac-units/ac-units.service';
 import { assertNoActiveJob } from './active-job.util';
+import { deleteUnitsTx } from '../ac-units/ac-unit-delete.util';
 import { assertUnitAtLocation, mainLocationName } from '../common/member-location.util';
 import { AddUnitDto } from './dto/add-unit.dto';
 import { ClaimUnitDto } from './dto/claim-unit.dto';
@@ -57,6 +58,9 @@ export const KIRIM_WA_SELESAI_SERVIS = false;
 
 /** Jejak di audit log bahwa unit slot diisi lewat scan teknisi (penanda "scan Mulai Job sudah dilakukan"). */
 const CLAIM_UNIT_ACTION = 'job.claim_unit';
+
+/** Unit dianggap "dibuat bersamaan dengan job" bila selisih waktu buatnya tidak lebih dari ini (satu transaksi = selisih ~0). */
+const UNIT_CREATED_WITH_JOB_MS = 10 * 60 * 1000;
 
 /**
  * Siklus 5 (revisi) — checklist temuan servis + review admin. Vokabuler
@@ -2059,7 +2063,7 @@ export class TechnicianJobsService {
   private async cancelOrder(jobId: string, actorId: string) {
     const base = await this.prisma.technicianJob.findUnique({ where: { id: jobId }, select: { orderId: true } });
     if (!base) throw new NotFoundException('Job tidak ditemukan');
-    const { cancelledJobIds, technicianIds } = await this.prisma.$transaction(async (tx) => {
+    const { cancelledJobIds, technicianIds, deletedUnitCount } = await this.prisma.$transaction(async (tx) => {
       // Kunci semua job order ini (urut id) supaya tidak berbarengan dengan Ajukan Selesai/Setujui/scan slot.
       await tx.$executeRaw`SELECT id FROM technician_jobs WHERE order_id = ${base.orderId} ORDER BY id FOR UPDATE`;
       const jobs = await tx.technicianJob.findMany({
@@ -2073,24 +2077,33 @@ export class TechnicianJobsService {
       if (jobs.length === 0) {
         throw new BadRequestException('Tidak ada unit yang bisa dibatalkan (semua sudah selesai atau dibatalkan)');
       }
+      // Unit "QR dulu" yang baru dibuat untuk job-job ini dan belum terisi ikut dihapus (lihat deleteUnfilledUnitTx).
+      let deletedUnitCount = 0;
       for (const j of jobs) {
-        await this.cancelJobInTx(tx, j, actorId, { skipSuccessor: true });
+        const r = await this.cancelJobInTx(tx, j, actorId, { skipSuccessor: true });
+        deletedUnitCount += r.deletedUnitCount;
       }
       await tx.auditLog.create({
         data: {
           actorUid: actorId,
           action: 'job.cancel_order',
           target: base.orderId,
-          detail: { orderId: base.orderId, jobIds: jobs.map((j) => j.id), count: jobs.length },
+          detail: {
+            orderId: base.orderId,
+            jobIds: jobs.map((j) => j.id),
+            count: jobs.length,
+            ...(deletedUnitCount > 0 ? { deletedUnits: deletedUnitCount } : {}),
+          },
         },
       });
       return {
         cancelledJobIds: jobs.map((j) => j.id),
         technicianIds: [...new Set(jobs.flatMap((j) => j.assignees.map((a) => a.technicianId)))],
+        deletedUnitCount,
       };
     });
     const updated = await this.prisma.technicianJob.findUniqueOrThrow({ where: { id: jobId } });
-    return { ...updated, cancelledJobIds, cancelledCount: cancelledJobIds.length, technicianIds };
+    return { ...updated, cancelledJobIds, cancelledCount: cancelledJobIds.length, technicianIds, deletedUnitCount };
   }
 
   /** Isi pembatalan SATU job (dipakai pembatalan satu unit dan pembatalan seluruh order). */
@@ -2235,7 +2248,36 @@ export class TechnicianJobsService {
       // masuk begitu harga unit itu ditetapkan — pengajuan satu job wajib dihargai semua unitnya sebelum selesai).
       if (successor?.billingDerived) await this.jobBilling.rebuild(tx, successor.id, actorId);
 
-      return updated;
+      // Unit "QR dulu" yang baru dibuat untuk job ini dan belum terisi/discan ikut dihapus supaya tidak menumpuk jadi
+      // sampah (job yang dibatalkan tetap ada, tanpa unit).
+      const deletedUnitCount = (await this.deleteUnfilledUnitTx(tx, job, actorId)) ? 1 : 0;
+      return { ...updated, deletedUnitCount };
     }
+  }
+
+  /**
+   * Hapus otomatis unit milik job yang baru dibatalkan, HANYA bila semuanya terpenuhi:
+   *  - status 'menunggu_data' (tipe AC belum terisi, "QR dulu");
+   *  - QR belum pernah discan (labelAttachedAt kosong), jadi stikernya belum dipakai di lapangan;
+   *  - dibuat bersamaan dengan job ini (Terima Servis / Tambah Unit), bukan unit lama dari Input Data Lampau yang labelnya
+   *    mungkin sudah tertempel di AC pelanggan;
+   *  - job ini satu-satunya job unit itu dan unit tidak ada di order lain.
+   * Unit yang tidak memenuhi syarat dibiarkan (admin bisa menghapusnya lewat fitur Hapus Unit).
+   */
+  private async deleteUnfilledUnitTx(tx: Prisma.TransactionClient, job: TechnicianJob, actorId: string): Promise<boolean> {
+    if (!job.unitId) return false;
+    const unit = await tx.memberAcUnit.findUnique({
+      where: { id: job.unitId },
+      select: { id: true, memberId: true, barcodeValue: true, brand: true, model: true, status: true, labelAttachedAt: true, createdAt: true },
+    });
+    if (!unit || unit.status !== 'menunggu_data' || unit.labelAttachedAt) return false;
+    if (Math.abs(unit.createdAt.getTime() - job.createdAt.getTime()) > UNIT_CREATED_WITH_JOB_MS) return false;
+    const [otherJobs, otherOrders] = await Promise.all([
+      tx.technicianJob.count({ where: { unitId: unit.id, id: { not: job.id } } }),
+      tx.serviceOrderUnit.count({ where: { unitId: unit.id, orderId: { not: job.orderId } } }),
+    ]);
+    if (otherJobs > 0 || otherOrders > 0) return false;
+    await deleteUnitsTx(tx, [unit], actorId, 'job_dibatalkan', { jobId: job.id, orderId: job.orderId });
+    return true;
   }
 }
