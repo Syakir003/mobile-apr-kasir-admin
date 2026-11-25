@@ -77,8 +77,9 @@ export function JobReportSheet({
       {/* ---- header ---- */}
       <div style={{ display: 'flex', gap: '10pt', alignItems: 'flex-start' }}>
         <div style={{ flex: 5, minWidth: 0, border: LINE, padding: '8pt', display: 'flex', alignItems: 'center', gap: '6pt' }}>
+          {/* width/height = ukuran asli /logo-apr.png (263x136): ruang logo sudah dipesan sebelum gambar termuat. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logoSrc} alt="APR" style={{ height: '32pt', width: 'auto' }} />
+          <img src={logoSrc} alt="APR" width={263} height={136} style={{ height: '32pt', width: 'auto' }} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: '11pt', fontWeight: 700, lineHeight: 1.17 }}>CV. AYUB PODO RUKUN</div>
             <div style={{ fontSize: '7pt', fontWeight: 700, lineHeight: 1.17 }}>Penjualan • Service • Spare Part • Rental AC</div>

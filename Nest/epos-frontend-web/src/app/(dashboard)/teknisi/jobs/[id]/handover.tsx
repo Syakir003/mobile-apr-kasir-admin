@@ -10,6 +10,7 @@ import { formatDateTime } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TechnicianMultiPicker } from '@/components/technician-multi-picker';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 
 /** Satu baris riwayat alih tugas (GET /technician-jobs/:id -> handovers). */
@@ -51,6 +52,7 @@ export function ReassignPanel({
   const queryClient = useQueryClient();
   const [selected, setSelected] = React.useState<string[]>(currentTechnicianIds);
   const [reason, setReason] = React.useState('');
+  const reasonId = React.useId();
   const isHandover = currentTechnicianIds.length > 0;
   const unchanged =
     selected.length === currentTechnicianIds.length && selected.every((id) => currentTechnicianIds.includes(id));
@@ -87,10 +89,11 @@ export function ReassignPanel({
 
   return (
     <div className="grid gap-2 rounded-md border p-3">
-      <label className="text-sm font-medium">
+      {/* Judul panel (bukan label satu kolom isian), jadi <p>; daftar teknisi punya kontrol sendiri. */}
+      <p className="text-sm font-medium">
         {isHandover ? 'Ubah / Alihkan Teknisi' : 'Tugaskan Teknisi'}
         {allInOrder ? ' (semua unit yang belum selesai)' : ''}
-      </label>
+      </p>
       <TechnicianMultiPicker
         technicians={technicians}
         value={selected}
@@ -99,13 +102,19 @@ export function ReassignPanel({
         disabled={mutation.isPending}
       />
       {isHandover && (
-        <Textarea
-          rows={2}
-          maxLength={500}
-          placeholder="Alasan (opsional), mis. teknisi berhalangan / dilanjutkan besok"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
+        <div className="grid gap-1.5">
+          <Label htmlFor={reasonId} className="text-sm">
+            Alasan (opsional)
+          </Label>
+          <Textarea
+            id={reasonId}
+            rows={2}
+            maxLength={500}
+            placeholder="Mis. teknisi berhalangan, dilanjutkan besok"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </div>
       )}
       {isHandover && (
         <p className="text-xs text-muted-foreground">
@@ -141,7 +150,7 @@ export function HandoverHistoryCard({ items }: { items: HandoverRow[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Riwayat Alih Tugas</CardTitle>
+        <CardTitle role="heading" aria-level={2} className="text-base">Riwayat Alih Tugas</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3 text-sm">
         {items.map((h) => (

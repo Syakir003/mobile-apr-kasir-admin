@@ -100,7 +100,9 @@
   --secondary: #eaf6f4; /* AppColors.mist */
   --secondary-foreground: #0b6b62;
   --muted: #edf2f1; /* AppColors.slate100 */
-  --muted-foreground: #6f7977; /* AppColors.textMuted */
+  /* AppColors.textMuted (#6f7977) digelapkan: di atas latar halaman, muted, dan secondary kontrasnya hanya
+     3,97 sampai 4,49:1 (di bawah AA 4,5:1). #606b69 lulus di semua latar tersebut (minimal 4,88:1). */
+  --muted-foreground: #606b69;
   --accent: #eaf6f4; /* AppColors.mist */
   --accent-foreground: #0b6b62;
   --destructive: #dc2626; /* AppColors.coral */
@@ -316,6 +318,22 @@
   [data-slot="table-container"]:not([data-keep-table]) tbody td > div.flex {
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+}
+
+/* Area sentuh minimal 44px untuk kontrol yang tampilannya sengaja kecil (mis. tombol hapus di pojok foto): lapisan
+   transparan di tengah elemen, tidak mengubah ukuran tampil. Elemennya harus sudah `relative`/`absolute`. */
+@utility touch-hit {
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    min-width: 44px;
+    min-height: 44px;
+    transform: translate(-50%, -50%);
   }
 }
 

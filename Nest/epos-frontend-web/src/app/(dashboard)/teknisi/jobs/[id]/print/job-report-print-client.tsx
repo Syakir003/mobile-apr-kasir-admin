@@ -8,6 +8,7 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import type { Role } from '@/lib/session';
 import { Button } from '@/components/ui/button';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 import { JobReportSheet, type JobReportInfo, type JobReportRow } from './job-report-sheet';
 
 interface JobReportData {
@@ -82,7 +83,7 @@ function buildReport(job: JobReportData): { rows: JobReportRow[]; info: JobRepor
   const refValue = job.completedAt ?? job.startedAt ?? job.createdAt;
 
   const unitTitle = [job.unit?.brand, job.unit?.model].filter(Boolean).join(' ').trim();
-  const unitDesc = [unitTitle, job.unit?.roomLocation].filter(Boolean).join(' — ');
+  const unitDesc = [unitTitle, job.unit?.roomLocation].filter(Boolean).join(', ');
   const utama = [reportTypeLabel(job.type), unitDesc].filter(Boolean).join(' - ');
 
   // Sparepart yang disetujui, dengan jumlah yang diajukan (sama dengan laporan di app mobile).
@@ -120,7 +121,7 @@ function buildOrderReport(all: JobReportData[]): { rows: JobReportRow[]; info: J
 
   const unitRows: JobReportRow[] = jobs.map((j) => {
     const unitTitle = [j.unit?.brand, j.unit?.model].filter(Boolean).join(' ').trim();
-    const unitDesc = [unitTitle, j.unit?.roomLocation].filter(Boolean).join(' — ');
+    const unitDesc = [unitTitle, j.unit?.roomLocation].filter(Boolean).join(', ');
     return { qty: '1 unit', text: [reportTypeLabel(j.type), unitDesc].filter(Boolean).join(' - ') || '-' };
   });
   const materials: JobReportRow[] = jobs
@@ -159,7 +160,7 @@ function buildOrderReport(all: JobReportData[]): { rows: JobReportRow[]; info: J
 // kosong di lapangan). Admin: hanya setelah job selesai. Cetak lewat dialog browser (bisa "Simpan sebagai PDF").
 // Servis banyak AC: satu laporan untuk seluruh job (semua unit), dari job mana pun di order itu.
 export function JobReportPrintClient({ jobId, role }: { jobId: string; role: Role }) {
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['technician-jobs', jobId],
     queryFn: () => apiClient.get<JobReportData>(`/technician-jobs/${jobId}`),
   });
@@ -182,10 +183,27 @@ export function JobReportPrintClient({ jobId, role }: { jobId: string; role: Rol
   );
 
   if (isLoading || siblingResults.some((r) => r.isLoading)) {
-    return <p className="p-6 text-sm text-muted-foreground">Memuat laporan pekerjaan...</p>;
+    return (
+      <div className="p-6">
+        <LoadingBlock label="Memuat laporan pekerjaan" rows={4} />
+      </div>
+    );
   }
   if (isError || !data || siblingResults.some((r) => r.isError || !r.data)) {
-    return <p className="p-6 text-sm text-destructive">Gagal memuat laporan pekerjaan.</p>;
+    return (
+      <div className="p-6">
+        <ErrorBlock
+          title="Laporan pekerjaan gagal dimuat"
+          detail="Periksa koneksi internet, lalu coba lagi."
+          onRetry={() => {
+            void refetch();
+            siblingResults.forEach((r) => void r.refetch());
+          }}
+          backHref={`/teknisi/jobs/${jobId}`}
+          backLabel="Kembali ke job"
+        />
+      </div>
+    );
   }
 
   const orderJobs = [data, ...siblingResults.map((r) => r.data as JobReportData)].sort(

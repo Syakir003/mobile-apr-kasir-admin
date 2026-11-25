@@ -5,7 +5,21 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Camera, CheckCircle2, ChevronDown, MapPin, Minus, Plus, Printer, ScanLine, Trash2, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowLeft,
+  Camera,
+  CheckCircle2,
+  ChevronDown,
+  Loader2,
+  MapPin,
+  Minus,
+  Plus,
+  Printer,
+  ScanLine,
+  Trash2,
+  X,
+} from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate, formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
@@ -15,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { statusBadgeVariant } from '../../queue/queue-client';
 import { BarcodeScanner } from '@/components/barcode-scanner';
 import { BarcodeQr } from '@/components/barcode-qr';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 import { SendFindingsBar, ServicePricingCard } from './service-pricing-card';
 import { AddUnitButton } from './add-unit';
 import { EditOrderButton } from './edit-order-dialog';
@@ -26,6 +41,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -330,10 +346,24 @@ export function JobDetailClient({
   );
 
   if (jobQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Memuat job...</p>;
+    return <LoadingBlock label="Memuat job" rows={5} />;
   }
   if (jobQuery.isError || !jobQuery.data) {
-    return <p className="text-sm text-destructive">Gagal memuat job. Mungkin sudah dihapus.</p>;
+    // 404 = job benar-benar tidak ada (coba lagi tidak membantu); selain itu biasanya koneksi atau gangguan sementara.
+    const notFound = jobQuery.error instanceof ApiError && jobQuery.error.status === 404;
+    return (
+      <ErrorBlock
+        title={notFound ? 'Job tidak ditemukan' : 'Job gagal dimuat'}
+        detail={
+          notFound
+            ? 'Job ini mungkin sudah dihapus. Buka Antrian Servis untuk melihat daftar terbaru.'
+            : 'Periksa koneksi internet, lalu coba lagi.'
+        }
+        onRetry={notFound ? undefined : () => void jobQuery.refetch()}
+        backHref="/teknisi/queue"
+        backLabel="Ke Antrian Servis"
+      />
+    );
   }
   const job = jobQuery.data;
   // Servis banyak AC: satu halaman memuat section tiap unit (job-job di satu order). Section itu sendiri
@@ -411,7 +441,7 @@ export function JobDetailClient({
     <>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Detail Unit</CardTitle>
+              <CardTitle role="heading" aria-level={2} className="text-base">Detail Unit</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-2 text-sm">
               {job.unit && hasUnitParts(job.unit) && (
@@ -527,11 +557,15 @@ export function JobDetailClient({
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Temuan &amp; Foto Sebelum/Sesudah</CardTitle>
+              <CardTitle role="heading" aria-level={2} className="text-base">Temuan &amp; Foto Sebelum/Sesudah</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4">
               {job.findings.length === 0 && (
-                <p className="text-sm text-muted-foreground">Belum ada temuan dicatat.</p>
+                <p className="text-sm text-muted-foreground">
+                  {canEditFindings
+                    ? 'Belum ada temuan. Tambahkan temuan di bawah, lalu unggah foto sebelum dan sesudahnya.'
+                    : 'Belum ada temuan yang dicatat teknisi.'}
+                </p>
               )}
               {job.findings.map((finding) => (
                 <FindingCard
@@ -654,6 +688,7 @@ export function JobDetailClient({
 
   const content = (
     <div className="grid gap-6">
+      <JumpToActions targetId="aksi-job" enabled={!embedded && hasAside} />
       {/* Teknisi membuka job yang unitnya belum discan: pengingat sekali per kunjungan (halaman banyak AC: di MultiUnitJobView). */}
       {!embedded && isTeknisi && (
         <StartJobDialog
@@ -722,7 +757,7 @@ export function JobDetailClient({
           {!embedded && (
             <Card className={cn(isAdmin && job.status === 'menunggu_review' && 'order-last')}>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-base">Detail Order</CardTitle>
+                <CardTitle role="heading" aria-level={2} className="text-base">Detail Order</CardTitle>
                 <div className="flex items-center gap-1">
                   {/* Koreksi data order yang salah input (jadwal, jenis, note, lokasi kerja): khusus admin. */}
                   {isAdmin && job.order && (
@@ -797,11 +832,15 @@ export function JobDetailClient({
           {!embedded && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Pengajuan Sparepart Tambahan</CardTitle>
+                <CardTitle role="heading" aria-level={2} className="text-base">Pengajuan Sparepart Tambahan</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3">
                 {job.materialRequests.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Belum ada pengajuan.</p>
+                  <p className="text-sm text-muted-foreground">
+                    {canEditFindings
+                      ? 'Belum ada pengajuan sparepart. Ajukan di bawah bila pekerjaan ini butuh sparepart tambahan.'
+                      : 'Belum ada pengajuan sparepart tambahan.'}
+                  </p>
                 )}
                 {job.materialRequests.length > 0 && (
                   <MaterialRequestsList
@@ -844,9 +883,9 @@ export function JobDetailClient({
             </div>
           )
         ) : hasAside ? (
-        <Card className="h-fit xl:sticky xl:top-6">
+        <Card id="aksi-job" tabIndex={-1} className="h-fit scroll-mt-4 xl:sticky xl:top-6">
           <CardHeader>
-            <CardTitle className="text-base">Aksi</CardTitle>
+            <CardTitle role="heading" aria-level={2} className="text-base">Aksi</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4">
             {/* Servis banyak AC: penugasan teknisi untuk seluruh unit ada sekali di atas halaman (MultiUnitJobView). */}
@@ -863,7 +902,7 @@ export function JobDetailClient({
 
             {!embedded && isTeknisi && job.status === 'assigned' && isSlotJob && (
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Scan unit untuk memasukkan ke pekerjaan</label>
+                <p className="text-sm font-medium">Scan unit untuk memasukkan ke pekerjaan</p>
                 <p className="text-xs text-muted-foreground">
                   Scan barcode AC yang akan dikerjakan. Unit harus milik pelanggan order ini. Setelah masuk, unggah foto
                   Sebelum lalu Mulai Job (tanpa scan ulang).
@@ -880,7 +919,7 @@ export function JobDetailClient({
 
             {!embedded && isTeknisi && job.status === 'assigned' && !isSlotJob && (
               <div className="grid gap-2">
-                <label className="text-sm font-medium">{waived ? 'Mulai Job' : 'Mulai Job (scan barcode unit)'}</label>
+                <p className="text-sm font-medium">{waived ? 'Mulai Job' : 'Mulai Job (scan barcode unit)'}</p>
                 {startControls}
                 {/* Customer sering minta tambah AC begitu teknisi tiba, sebelum job dimulai: tidak perlu mulai dulu. */}
                 {job.type !== 'pemasangan' && <AddUnitButton jobId={job.id} jobType={job.type} />}
@@ -945,8 +984,11 @@ export function JobDetailClient({
                   {approveMutation.isPending ? 'Memproses...' : 'Setujui Selesai'}
                 </Button>
                 <div className="grid gap-1.5">
-                  <label className="text-sm font-medium">Kembalikan ke Teknisi</label>
+                  <Label htmlFor="kembalikan-catatan" className="text-sm">
+                    Kembalikan ke Teknisi
+                  </Label>
                   <Textarea
+                    id="kembalikan-catatan"
                     rows={2}
                     placeholder="Catatan - apa yang kurang?"
                     value={sendBackNote}
@@ -1361,6 +1403,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
   const unscannedJobs = allLoaded ? notStarted.filter((j) => j.status === 'assigned' && !scanDone(j)) : [];
   return (
     <div className="grid gap-6">
+      <JumpToActions targetId="aksi-job" enabled={hasAside} />
       {isTeknisi && (
         <StartJobDialog
           open={startForJobId !== null}
@@ -1416,7 +1459,7 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
         <div className="grid min-w-0 gap-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Detail Order</CardTitle>
+          <CardTitle role="heading" aria-level={2} className="text-base">Detail Order</CardTitle>
           <div className="flex items-center gap-1">
             {/* Koreksi data order yang salah input (jadwal, jenis, note, lokasi kerja per unit): khusus admin. */}
             {isAdmin && job.order && (
@@ -1506,13 +1549,19 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
               pertama; daftar di sini menggabungkan pengajuan semua unit. */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Pengajuan Sparepart Tambahan</CardTitle>
+              <CardTitle role="heading" aria-level={2} className="text-base">Pengajuan Sparepart Tambahan</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3">
               <p className="text-xs text-muted-foreground">
                 Satu pengajuan untuk seluruh job (semua unit AC), tidak dipisah per AC.
               </p>
-              {allRequests.length === 0 && <p className="text-sm text-muted-foreground">Belum ada pengajuan.</p>}
+              {allRequests.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  {isTeknisi && requestJob
+                    ? 'Belum ada pengajuan sparepart. Ajukan di bawah bila order ini butuh sparepart tambahan.'
+                    : 'Belum ada pengajuan sparepart tambahan.'}
+                </p>
+              )}
               {allRequests.length > 0 && (
                 <MaterialRequestsList jobId={job.id} requests={allRequests} canMarkUsed={isAdmin || isTeknisi} />
               )}
@@ -1524,12 +1573,12 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
           {isTeknisi && <KeteranganCard keterangan={keterangan} editable={keteranganEditable} />}
         </div>
         {/* Panel aksi di samping seperti halaman satu unit (menempel di desktop; di layar sempit tampil di bawah). */}
-        <div className={cn('xl:sticky xl:top-6', !hasAside && 'hidden')}>
+        <div id="aksi-job" tabIndex={-1} className={cn('scroll-mt-4 xl:sticky xl:top-6', !hasAside && 'hidden')}>
         {/* Satu job = satu pengajuan: Ajukan Selesai / Setujui / Kembalikan berlaku untuk SEMUA unit sekaligus. */}
         {hasAside && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Aksi Job (semua unit)</CardTitle>
+              <CardTitle role="heading" aria-level={2} className="text-base">Aksi Job (semua unit)</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4">
               {/* Alihkan tugas: untuk seluruh unit order (sama dengan penempatan di halaman satu unit). */}
@@ -1706,8 +1755,11 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
                     {approveAllMutation.isPending ? 'Memproses...' : `Setujui Selesai (${waitingReview.length} unit)`}
                   </Button>
                   <div className="grid gap-1.5">
-                    <label className="text-sm font-medium">Kembalikan ke Teknisi (semua unit)</label>
+                    <Label htmlFor="kembalikan-catatan-semua" className="text-sm">
+                      Kembalikan ke Teknisi (semua unit)
+                    </Label>
                     <Textarea
+                      id="kembalikan-catatan-semua"
                       rows={2}
                       placeholder="Catatan - apa yang kurang? (sebut unitnya)"
                       value={sendBackNote}
@@ -1756,6 +1808,42 @@ function MultiUnitJobView({ job, role }: { job: JobDetail; role: Role }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Tombol melayang "Ke Aksi" untuk layar di bawah xl. Di layar lebar kartu Aksi menempel di kanan, tetapi di HP kartu itu
+ * jatuh di dasar halaman (setelah semua unit, temuan, dan foto), padahal Mulai Job dan Ajukan Selesai ada di sana.
+ * Tombol ini loncat ke kartunya dan hilang sendiri saat kartu sudah terlihat. Melayang di atas isi supaya tetap
+ * terjangkau, jadi bayangannya penanda lapisan (bukan dekorasi).
+ */
+function JumpToActions({ targetId, enabled }: { targetId: string; enabled: boolean }) {
+  const [targetVisible, setTargetVisible] = React.useState(false);
+  React.useEffect(() => {
+    if (!enabled) return;
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    const observer = new IntersectionObserver(([entry]) => setTargetVisible(entry.isIntersecting));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [enabled, targetId]);
+  if (!enabled || targetVisible) return null;
+  return (
+    <Button
+      type="button"
+      className="fixed right-4 bottom-4 z-30 shadow-lg print:hidden xl:hidden"
+      onClick={() => {
+        const el = document.getElementById(targetId);
+        if (!el) return;
+        const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+        // Fokus ikut pindah supaya pengguna keyboard / pembaca layar lanjut dari kartu Aksi.
+        el.focus({ preventScroll: true });
+      }}
+    >
+      <ArrowDown className="size-4" aria-hidden="true" />
+      Ke Aksi
+    </Button>
   );
 }
 
@@ -1947,7 +2035,7 @@ function NotesEditor({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Diagnosa / Catatan Pengerjaan</CardTitle>
+        <CardTitle role="heading" aria-level={2} className="text-base">Diagnosa / Catatan Pengerjaan</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-2">
         <Textarea
@@ -2018,7 +2106,7 @@ function KeteranganCard({ keterangan, editable }: { keterangan: Keterangan; edit
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">{editable ? 'Keterangan' : 'Keterangan Teknisi'}</CardTitle>
+        <CardTitle role="heading" aria-level={2} className="text-base">{editable ? 'Keterangan' : 'Keterangan Teknisi'}</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-2">
         {editable ? (
@@ -2089,7 +2177,7 @@ function ComplaintHistoryCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Komplain atas pekerjaan ini</CardTitle>
+        <CardTitle role="heading" aria-level={2} className="text-base">Komplain atas pekerjaan ini</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-2 text-sm">
         {[...groups.values()].map((g) => {
@@ -2196,6 +2284,7 @@ function FindingNote({ jobId, finding, canEdit }: { jobId: string; finding: JobF
     return (
       <div className="mt-1.5 grid gap-1.5">
         <Textarea
+          aria-label="Deskripsi temuan"
           rows={3}
           autoFocus
           maxLength={1000}
@@ -2233,7 +2322,7 @@ function FindingNote({ jobId, finding, canEdit }: { jobId: string; finding: JobF
             setText(finding.note ?? '');
             setEditing(true);
           }}
-          className="mt-1 text-xs text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-1 inline-flex items-center text-xs text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11"
         >
           {finding.note ? 'Ubah deskripsi' : '+ Tambah deskripsi'}
         </button>
@@ -2294,9 +2383,10 @@ function FindingPhotoGroup({
                 onClick={() => {
                   if (confirm('Hapus foto ini? Tidak bisa dikembalikan.')) deletePhoto.mutate(p.id);
                 }}
-                className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-destructive text-white shadow focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                // Tampilan tetap 20px (menempel di pojok foto), area sentuhnya 44px (touch-hit).
+                className="touch-hit absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-destructive text-white shadow focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               >
-                <X className="size-3" />
+                <X className="size-3" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -2330,12 +2420,15 @@ function FindingPhotoUploadButton({
   const queryClient = useQueryClient();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = React.useState(false);
+  // Foto ke-berapa yang sedang diunggah (0-based) dari total pilihan, untuk keterangan progres.
+  const [progress, setProgress] = React.useState<{ index: number; total: number } | null>(null);
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     setUploading(true);
     let failed = 0;
-    for (const file of Array.from(files)) {
+    for (const [index, file] of Array.from(files).entries()) {
+      setProgress({ index, total: files.length });
       try {
         const formData = new FormData();
         formData.append('photo', file);
@@ -2348,6 +2441,7 @@ function FindingPhotoUploadButton({
     }
     queryClient.invalidateQueries({ queryKey: ['technician-jobs', jobId] });
     setUploading(false);
+    setProgress(null);
     if (inputRef.current) inputRef.current.value = '';
     if (failed === 0 && files.length > 0) toast.success('Foto diunggah.');
   }
@@ -2367,11 +2461,22 @@ function FindingPhotoUploadButton({
         variant="outline"
         size="sm"
         className="h-14 w-14 shrink-0 flex-col gap-0.5 text-xs"
+        aria-label={uploading ? `Mengunggah foto ${kind}` : `Tambah foto ${kind}`}
+        aria-busy={uploading}
         disabled={uploading}
         onClick={() => inputRef.current?.click()}
       >
-        {uploading ? '...' : '+ Foto'}
+        {uploading ? (
+          <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        ) : (
+          '+ Foto'
+        )}
       </Button>
+      {progress && (
+        <span role="status" className="text-xs text-muted-foreground">
+          Mengunggah foto {progress.index + 1} dari {progress.total}...
+        </span>
+      )}
     </>
   );
 }
@@ -2401,6 +2506,12 @@ function AddFindingForm({ jobId }: { jobId: string }) {
   // Daftar saran bisa ditutup manual (tombol X) kalau menutupi isian di bawahnya;
   // muncul lagi begitu teks diubah.
   const [listClosed, setListClosed] = React.useState(false);
+  // Opsi saran yang disorot dengan tombol panah (-1 = tidak ada); Enter memilihnya.
+  const [activeIndex, setActiveIndex] = React.useState(-1);
+  const uid = React.useId();
+  const inputId = `${uid}-temuan`;
+  const noteId = `${uid}-deskripsi`;
+  const listId = `${uid}-saran`;
 
   React.useEffect(() => {
     const t = setTimeout(() => setDraftDebounced(draft.trim()), 300);
@@ -2431,6 +2542,7 @@ function AddFindingForm({ jobId }: { jobId: string }) {
 
   function onDraftChange(value: string) {
     setListClosed(false);
+    setActiveIndex(-1);
     if (!value.includes(',')) {
       setDraft(value);
       return;
@@ -2500,10 +2612,26 @@ function AddFindingForm({ jobId }: { jobId: string }) {
   }
 
   const count = pending.length + (draft.trim() ? 1 : 0);
+  const options = categoryQuery.data ?? [];
+  const listOpen = !!draft.trim() && !listClosed;
+  const activeOption = listOpen && activeIndex >= 0 ? options[activeIndex] : undefined;
+
+  function chooseOption(c: CategorySearchResult) {
+    addPending([{ id: c.id, name: c.name }]);
+    setDraft('');
+    setActiveIndex(-1);
+  }
+
+  // Opsi yang disorot panah ikut tergulung ke dalam daftar.
+  React.useEffect(() => {
+    if (activeIndex >= 0) document.getElementById(`${listId}-opt-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, listId]);
 
   return (
     <div className="grid gap-2 rounded-md border border-dashed p-3">
-      <label className="text-sm font-medium">Tambah Temuan</label>
+      <Label htmlFor={inputId} className="text-sm">
+        Tambah Temuan
+      </Label>
       {pending.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {pending.map((p) => (
@@ -2516,9 +2644,9 @@ function AddFindingForm({ jobId }: { jobId: string }) {
                 type="button"
                 aria-label={`Hapus ${p.name}`}
                 onClick={() => setPending((prev) => prev.filter((x) => x.name !== p.name))}
-                className="flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="touch-hit relative flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <X className="size-3.5" />
+                <X className="size-3.5" aria-hidden="true" />
               </button>
             </span>
           ))}
@@ -2526,6 +2654,13 @@ function AddFindingForm({ jobId }: { jobId: string }) {
       )}
       <div className="relative">
         <Input
+          id={inputId}
+          role="combobox"
+          aria-expanded={listOpen}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={activeOption ? `${listId}-opt-${activeIndex}` : undefined}
+          autoComplete="off"
           placeholder={
             pending.length > 0
               ? 'Temuan berikutnya...'
@@ -2534,58 +2669,86 @@ function AddFindingForm({ jobId }: { jobId: string }) {
           value={draft}
           onChange={(e) => onDraftChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'ArrowDown' && listOpen && options.length > 0) {
               e.preventDefault();
-              commitDraft();
+              setActiveIndex((i) => (i + 1) % options.length);
+            } else if (e.key === 'ArrowUp' && listOpen && options.length > 0) {
+              e.preventDefault();
+              setActiveIndex((i) => (i <= 0 ? options.length - 1 : i - 1));
+            } else if (e.key === 'Escape' && listOpen) {
+              e.preventDefault();
+              setListClosed(true);
+              setActiveIndex(-1);
+            } else if (e.key === 'Enter') {
+              e.preventDefault();
+              if (activeOption) chooseOption(activeOption);
+              else commitDraft();
             } else if (e.key === 'Backspace' && !draft && pending.length > 0) {
               setPending((prev) => prev.slice(0, -1));
             }
           }}
         />
-        {draft.trim() && !listClosed && (
+        {listOpen && (
           <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-popover shadow-md">
             <button
               type="button"
               aria-label="Tutup daftar saran"
-              onClick={() => setListClosed(true)}
-              className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => {
+                setListClosed(true);
+                setActiveIndex(-1);
+              }}
+              className="touch-hit absolute top-1.5 right-1.5 z-10 flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <X className="size-4" />
+              <X className="size-4" aria-hidden="true" />
             </button>
             {categoryQuery.isLoading && (
-              <p className="p-2 text-sm text-muted-foreground">Mencari...</p>
+              <p role="status" className="p-2 text-sm text-muted-foreground">Mencari...</p>
             )}
             {categoryQuery.data?.length === 0 && (
-              <p className="p-2 pr-9 text-sm text-muted-foreground">
+              <p role="status" className="p-2 pr-9 text-sm text-muted-foreground">
                 Gak ketemu - tekan Enter atau koma buat bikin kategori baru &ldquo;{draft.trim()}
                 &rdquo;.
               </p>
             )}
-            {categoryQuery.data?.map((c) => (
-              <button
-                type="button"
-                key={c.id}
-                onClick={() => {
-                  addPending([{ id: c.id, name: c.name }]);
-                  setDraft('');
-                }}
-                className="block w-full px-3 py-2 pr-9 text-left text-sm hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              >
-                {c.name}
-              </button>
-            ))}
+            <ul id={listId} role="listbox" aria-label="Saran kategori temuan">
+              {options.map((c, i) => (
+                <li
+                  key={c.id}
+                  id={`${listId}-opt-${i}`}
+                  role="option"
+                  aria-selected={i === activeIndex}
+                  // mouseDown (bukan click) supaya fokus tetap di kolom ketik dan daftar tidak tertutup lebih dulu.
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    chooseOption(c);
+                  }}
+                  className={cn(
+                    'flex min-h-11 cursor-pointer items-center px-3 py-2 pr-9 text-sm hover:bg-accent',
+                    i === activeIndex && 'bg-accent',
+                  )}
+                >
+                  {c.name}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>
       <p className="text-xs text-muted-foreground">
         Lebih dari satu temuan? Pisahkan dengan koma atau Enter - tiap temuan punya foto sendiri.
       </p>
-      <Textarea
-        rows={2}
-        placeholder="Deskripsi (opsional, berlaku untuk semua temuan di atas; bisa diubah per temuan setelahnya)"
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-      />
+      <div className="grid gap-1.5">
+        <Label htmlFor={noteId} className="text-sm">
+          Deskripsi (opsional)
+        </Label>
+        <Textarea
+          id={noteId}
+          rows={2}
+          placeholder="Berlaku untuk semua temuan di atas; bisa diubah per temuan setelahnya"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </div>
       <Button
         type="button"
         size="sm"
@@ -2869,6 +3032,7 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
     { sparepart: null, search: '', qty: '1' },
   ]);
   const [note, setNote] = React.useState('');
+  const noteId = React.useId();
   const [openRow, setOpenRow] = React.useState<number | null>(null);
 
   const submitMutation = useMutation({
@@ -2914,7 +3078,7 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
 
   return (
     <div className="grid gap-2 rounded-md border border-dashed p-3">
-      <label className="text-sm font-medium">Ajukan Sparepart Tambahan</label>
+      <p className="text-sm font-medium">Ajukan Sparepart Tambahan</p>
       {rows.map((row, i) => {
         const q = row.search.trim().toLowerCase();
         const suggestions = row.sparepart
@@ -2925,6 +3089,7 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
           <div className="flex flex-wrap items-start gap-2">
             <div className="relative w-full sm:w-auto sm:flex-1">
               <Input
+                aria-label={`Sparepart item ${i + 1}`}
                 placeholder="Pilih / cari sparepart..."
                 value={row.sparepart ? row.sparepart.name : row.search}
                 onChange={(e) => updateRow(i, { sparepart: null, search: e.target.value })}
@@ -2962,17 +3127,18 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
                 variant="ghost"
                 size="icon"
                 className="size-9 rounded-r-none"
+                aria-label={`Kurangi jumlah item ${i + 1}`}
                 disabled={Number(row.qty) <= 1}
                 onClick={() => updateRow(i, { qty: String(Math.max(1, Number(row.qty) - 1)) })}
               >
-                <Minus className="size-4" />
+                <Minus className="size-4" aria-hidden="true" />
               </Button>
               <Input
                 type="number"
                 inputMode="decimal"
                 min="0.01"
                 step="any"
-                aria-label="Jumlah"
+                aria-label={`Jumlah item ${i + 1}`}
                 className="h-9 w-14 [appearance:textfield] rounded-none border-0 px-1 text-center shadow-none focus-visible:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 value={row.qty}
                 onChange={(e) => updateRow(i, { qty: e.target.value })}
@@ -2982,9 +3148,10 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
                 variant="ghost"
                 size="icon"
                 className="size-9 rounded-l-none"
+                aria-label={`Tambah jumlah item ${i + 1}`}
                 onClick={() => updateRow(i, { qty: String((Number(row.qty) || 0) + 1) })}
               >
-                <Plus className="size-4" />
+                <Plus className="size-4" aria-hidden="true" />
               </Button>
             </div>
             <Button
@@ -2992,10 +3159,11 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
               variant="ghost"
               size="icon"
               className="shrink-0"
+              aria-label={`Hapus item ${i + 1}`}
               disabled={rows.length <= 1}
               onClick={() => removeRow(i)}
             >
-              <Trash2 className="size-4" />
+              <Trash2 className="size-4" aria-hidden="true" />
             </Button>
           </div>
           {row.sparepart &&
@@ -3024,12 +3192,12 @@ function AddMaterialRequestForm({ jobId }: { jobId: string }) {
       <Button type="button" variant="ghost" size="sm" className="justify-self-start" onClick={addRow}>
         + Tambah Item
       </Button>
-      <Textarea
-        rows={2}
-        placeholder="Catatan (opsional)"
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-      />
+      <div className="grid gap-1.5">
+        <Label htmlFor={noteId} className="text-sm">
+          Catatan (opsional)
+        </Label>
+        <Textarea id={noteId} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
       <Button
         type="button"
         size="sm"
