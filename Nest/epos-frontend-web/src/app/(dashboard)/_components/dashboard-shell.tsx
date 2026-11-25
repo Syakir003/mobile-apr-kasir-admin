@@ -74,6 +74,8 @@ function NavLinks({
             <div key={item.label}>
               <button
                 type="button"
+                aria-expanded={open}
+                aria-controls={`${variant}-grup-${item.label.replace(/\W+/g, '-').toLowerCase()}`}
                 onClick={() => toggleGroup(item.label)}
                 className={cn(
                   'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors',
@@ -86,14 +88,16 @@ function NavLinks({
                       : 'text-muted-foreground hover:bg-secondary/60 hover:text-secondary-foreground',
                 )}
               >
-                <item.icon className="size-4 shrink-0" />
+                <item.icon className="size-4 shrink-0" aria-hidden="true" />
                 <span className="flex-1">{item.label}</span>
                 <ChevronDown
                   className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-180')}
+                  aria-hidden="true"
                 />
               </button>
               {open && (
                 <div
+                  id={`${variant}-grup-${item.label.replace(/\W+/g, '-').toLowerCase()}`}
                   className={cn(
                     'mt-0.5 mb-1 ml-5 grid gap-0.5 border-l pl-2',
                     variant === 'sidebar' ? 'border-white/10' : 'border-border',
@@ -106,18 +110,19 @@ function NavLinks({
                         key={child.href}
                         href={child.href}
                         onClick={onNavigate}
+                        aria-current={active ? 'page' : undefined}
                         className={cn(
                           'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
                           variant === 'sidebar'
                             ? active
-                              ? 'bg-white/12 text-white shadow-[inset_3px_0_0_0_#6df5e1]'
-                              : 'text-sidebar-foreground/80 hover:bg-white/8 hover:text-white'
+                              ? 'bg-white/12 text-white shadow-[inset_3px_0_0_0_var(--sidebar-marker)]'
+                              : 'text-sidebar-foreground hover:bg-white/8 hover:text-white'
                             : active
                               ? 'bg-secondary text-secondary-foreground'
                               : 'text-muted-foreground hover:bg-secondary/60 hover:text-secondary-foreground',
                         )}
                       >
-                        <child.icon className="size-3.5 shrink-0" />
+                        <child.icon className="size-3.5 shrink-0" aria-hidden="true" />
                         {child.label}
                       </Link>
                     );
@@ -134,18 +139,19 @@ function NavLinks({
             key={item.href}
             href={item.href}
             onClick={onNavigate}
+            aria-current={active ? 'page' : undefined}
             className={cn(
               'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
               variant === 'sidebar'
                 ? active
-                  ? 'bg-white/12 text-white shadow-[inset_3px_0_0_0_#6df5e1]'
+                  ? 'bg-white/12 text-white shadow-[inset_3px_0_0_0_var(--sidebar-marker)]'
                   : 'text-sidebar-foreground hover:bg-white/8 hover:text-white'
                 : active
                   ? 'bg-secondary text-secondary-foreground'
                   : 'text-muted-foreground hover:bg-secondary/60 hover:text-secondary-foreground',
             )}
           >
-            <item.icon className="size-4 shrink-0" />
+            <item.icon className="size-4 shrink-0" aria-hidden="true" />
             {item.label}
           </Link>
         );
@@ -163,7 +169,21 @@ export function DashboardShell({
 }) {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const menuButtonRef = React.useRef<HTMLButtonElement>(null);
   const navItems = NAV_BY_ROLE[user.role];
+
+  // Menu HP: Escape menutup dan fokus kembali ke tombol pemicunya (R-32).
+  React.useEffect(() => {
+    if (!mobileOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setMobileOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mobileOpen]);
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -244,17 +264,21 @@ export function DashboardShell({
           <div className="ml-auto flex items-center gap-1">
             <NotificationBell />
             <Button
+              ref={menuButtonRef}
               variant="ghost"
               size="icon"
               className="lg:hidden"
+              aria-label={mobileOpen ? 'Tutup menu' : 'Buka menu'}
+              aria-expanded={mobileOpen}
+              aria-controls="menu-mobile"
               onClick={() => setMobileOpen((v) => !v)}
             >
-              <Menu className="size-5" />
+              <Menu className="size-5" aria-hidden="true" />
             </Button>
           </div>
         </header>
         {mobileOpen && (
-          <div className="shrink-0 border-b bg-card p-4 lg:hidden print:hidden">
+          <div id="menu-mobile" className="shrink-0 border-b bg-card p-4 lg:hidden print:hidden">
             <NavLinks items={navItems} variant="mobile" onNavigate={() => setMobileOpen(false)} />
             <Button
               variant="ghost"

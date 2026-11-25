@@ -125,7 +125,11 @@
      di adaptive_scaffold.dart, yang itulah yang BENERAN muncul sebagai
      sidebar desktop di app Flutter-nya. */
   --sidebar: #0b6b62; /* AppColors.tealDeep — Container(color:) di _Sidebar */
-  --sidebar-foreground: rgba(153, 232, 221, 0.8); /* AppColors.navMuted — teks/ikon item nav non-aktif */
+  /* AppColors.navMuted (rgba(153,232,221,.8)) dibuat lebih terang dan buram penuh: di atas #0b6b62 kontrasnya hanya
+     3,52:1 (menu anak 2,82:1). #b7ece4 = 4,9:1 pada kondisi normal; saat hover/aktif teks beralih ke putih. */
+  --sidebar-foreground: #b7ece4;
+  /* Penanda menu aktif (stripe kiri). */
+  --sidebar-marker: #6df5e1;
   --sidebar-primary: #006b5f; /* AppColors.navAccent — teks/ikon item nav aktif & bg CTA "Transaksi Baru" */
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #e5f7f5; /* AppColors.mistDeep — bg pill item nav aktif (BUKAN mist/#eaf6f4 biasa) */
