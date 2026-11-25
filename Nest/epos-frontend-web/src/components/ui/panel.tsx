@@ -3,9 +3,15 @@ import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 
 /**
+ * Kelas pembungkus panel daftar/tabel (sama dengan Card): satu sumber, bukan ditulis ulang di tiap halaman.
+ * Pakai pada `<div className={panelClass}>` yang membungkus <PanelTitle> + tabel.
+ */
+export const panelClass = 'overflow-hidden rounded-xl border bg-card shadow-sm';
+
+/**
  * Pita judul untuk panel daftar/tabel: judul + jumlah data, latar abu-abu muda dengan garis di bawahnya.
- * Dipakai di dalam pembungkus `overflow-hidden rounded-xl border bg-card shadow-sm`, sama dengan
- * section di halaman detail (Card `panel`), supaya semua halaman punya bahasa visual yang sama.
+ * Dipakai di dalam pembungkus `panelClass`, sama dengan section di halaman detail (Card `panel`), supaya semua
+ * halaman punya bahasa visual yang sama.
  */
 export function PanelTitle({ title, count, actions }: { title: string; count?: number; actions?: ReactNode }) {
   return (
