@@ -439,11 +439,8 @@ export function JobDetailClient({
   // banyak AC (embedded) maupun di halaman satu unit, supaya struktur keduanya sama.
   const unitDetailCards = (
     <>
-          <Card>
-            <CardHeader>
-              <CardTitle role="heading" aria-level={2} className="text-base">Detail Unit</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2 text-sm">
+          <UnitBlock title="Detail Unit">
+            <div className="grid gap-2 text-sm">
               {job.unit && hasUnitParts(job.unit) && (
                 <DetailRow
                   label="Unit dalam paket"
@@ -492,10 +489,11 @@ export function JobDetailClient({
                 // Preview QR unit ini — biar bisa dicek/dilihat lagi tanpa harus
                 // buka halaman detail unit terpisah. Link cetak cuma admin/kasir
                 // (GET /service-orders/:id 403 untuk teknisi).
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border bg-white p-3 text-neutral-900">
+                // Tanpa kotak sendiri: section unit sudah menjadi kontainer (latarnya putih, jadi QR tetap punya latar terang).
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
                   <BarcodeQr value={job.unit.barcodeValue} size={72} className="shrink-0" />
-                  <div className="min-w-0 flex-1 basis-48 text-xs text-neutral-600">
-                    <p className="font-mono text-sm break-all text-neutral-900">{job.unit.barcodeValue}</p>
+                  <div className="min-w-0 flex-1 basis-48 text-xs text-muted-foreground">
+                    <p className="font-mono text-sm break-all text-foreground">{job.unit.barcodeValue}</p>
                     <p>QR label unit AC ini</p>
                     {(job.unit.labeled || (job.order && !isTeknisi)) && (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -543,8 +541,8 @@ export function JobDetailClient({
               {job.reviewNote && !returnedToTeknisi && (
                 <DetailRow label="Catatan Pengembalian" value={job.reviewNote} />
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </UnitBlock>
 
           {/* Seperti app mobile: teknisi melihat catatan pengembalian sebagai peringatan di atas isian kerja. */}
           {returnedToTeknisi && (
@@ -555,11 +553,7 @@ export function JobDetailClient({
 
           {notesEditable && <NotesEditor key={job.id} jobId={job.id} initialNotes={job.notes} />}
 
-          <Card>
-            <CardHeader>
-              <CardTitle role="heading" aria-level={2} className="text-base">Temuan &amp; Foto Sebelum/Sesudah</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4">
+          <UnitBlock title="Temuan & Foto Sebelum/Sesudah" className="gap-4">
               {job.findings.length === 0 && (
                 <p className="text-sm text-muted-foreground">
                   {canEditFindings
@@ -593,27 +587,24 @@ export function JobDetailClient({
                   onNeedScan={() => (embedded?.onNeedScan ? embedded.onNeedScan(job.id) : setStartDialogOpen(true))}
                 />
               )}
-            </CardContent>
-          </Card>
+          </UnitBlock>
     </>
   );
 
   // Slot "unit belum diketahui": belum ada detail unit, temuan, maupun foto sampai teknisi memindai unitnya.
   const unitCards = isSlotJob ? (
-    <Card>
-      <CardContent className="grid gap-1.5 py-6 text-center text-sm">
-        <p className="font-medium">
-          {job.status === 'dibatalkan'
-            ? 'Unit ini dibatalkan sebelum terdata (slot kosong, atau unit "QR dulu" yang belum terisi dan sudah dihapus).'
-            : 'Tipe menunggu discan, silakan scan dulu untuk memasukkan ke pekerjaan.'}
+    <div className="grid gap-1.5 py-4 text-center text-sm">
+      <p className="font-medium">
+        {job.status === 'dibatalkan'
+          ? 'Unit ini dibatalkan sebelum terdata (slot kosong, atau unit "QR dulu" yang belum terisi dan sudah dihapus).'
+          : 'Tipe menunggu discan, silakan scan dulu untuk memasukkan ke pekerjaan.'}
+      </p>
+      {job.status !== 'dibatalkan' && (
+        <p className="text-xs text-muted-foreground">
+          Detail unit, temuan, dan foto sebelum/sesudah muncul setelah unitnya discan.
         </p>
-        {job.status !== 'dibatalkan' && (
-          <p className="text-xs text-muted-foreground">
-            Detail unit, temuan, dan foto sebelum/sesudah muncul setelah unitnya discan.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      )}
+    </div>
   ) : (
     unitDetailCards
   );
@@ -750,8 +741,8 @@ export function JobDetailClient({
         <div
           className={cn(
             'grid min-w-0',
-            // Di dalam section unit: kartu datar (tanpa bayangan) supaya tidak bersusun kartu-di-kartu.
-            embedded ? 'gap-4 [&_[data-slot=card]]:bg-background [&_[data-slot=card]]:shadow-none' : 'gap-6',
+            // Di dalam section unit isinya blok datar (UnitBlock), bukan kartu: tidak ada kotak di dalam kotak.
+            embedded ? 'gap-4' : 'gap-6',
           )}
         >
           {!embedded && (
@@ -813,7 +804,7 @@ export function JobDetailClient({
             unitCards
           ) : (
             <UnitSection job={job} index={0} total={1} defaultOpen>
-              <div className="grid min-w-0 gap-4 [&_[data-slot=card]]:bg-background [&_[data-slot=card]]:shadow-none">{unitCards}</div>
+              <div className="grid min-w-0 gap-4">{unitCards}</div>
             </UnitSection>
           )}
 
@@ -1847,6 +1838,21 @@ function JumpToActions({ targetId, enabled }: { targetId: string; enabled: boole
   );
 }
 
+/**
+ * Blok berjudul di dalam section unit (Detail Unit, Temuan & Foto, Diagnosa). Section unit sudah menjadi kontainer
+ * (border, sudut bulat, header), jadi blok di dalamnya SENGAJA tanpa border, sudut bulat, atau latar sendiri: kotak di
+ * dalam kotak menghabiskan lebar layar HP dan membuat semua lapis tampak setara. Pemisahnya cukup judul dan garis tipis
+ * antar blok (blok pertama tanpa garis karena sudah tepat di bawah header section).
+ */
+function UnitBlock({ title, className, children }: { title: string; className?: string; children: React.ReactNode }) {
+  return (
+    <div className={cn('grid gap-3 border-t pt-4 first:border-t-0 first:pt-0', className)}>
+      <h2 className="text-base leading-none font-semibold tracking-tight">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
 /** Pembungkus satu unit di halaman servis banyak AC: header ringkas (unit, sudah/belum discan, status) + isi lipat. */
 function UnitSection({
   job,
@@ -2033,28 +2039,24 @@ function NotesEditor({
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle role="heading" aria-level={2} className="text-base">Diagnosa / Catatan Pengerjaan</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-2">
-        <Textarea
-          rows={3}
-          placeholder="Tuliskan hasil pengecekan atau tindakan..."
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-        <Button
-          type="button"
-          size="sm"
-          className="justify-self-start"
-          disabled={saveMutation.isPending}
-          onClick={() => saveMutation.mutate()}
-        >
-          {saveMutation.isPending ? 'Menyimpan...' : 'Simpan Catatan'}
-        </Button>
-      </CardContent>
-    </Card>
+    <UnitBlock title="Diagnosa / Catatan Pengerjaan">
+      <Textarea
+        aria-label="Diagnosa dan catatan pengerjaan"
+        rows={3}
+        placeholder="Tuliskan hasil pengecekan atau tindakan..."
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+      />
+      <Button
+        type="button"
+        size="sm"
+        className="justify-self-start"
+        disabled={saveMutation.isPending}
+        onClick={() => saveMutation.mutate()}
+      >
+        {saveMutation.isPending ? 'Menyimpan...' : 'Simpan Catatan'}
+      </Button>
+    </UnitBlock>
   );
 }
 
