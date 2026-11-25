@@ -8,6 +8,7 @@ import { apiClient, ApiError } from '@/lib/api-client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   Dialog,
   DialogContent,
@@ -82,14 +83,19 @@ export function TechnicianMultiPicker({
     if (jobs.length > 0) busy.set(row.technicianId, jobs);
   }
 
+  // Teknisi sibuk yang menunggu konfirmasi "tetap tugaskan" (dialog di bawah, bukan confirm() bawaan browser).
+  const [confirmBusy, setConfirmBusy] = React.useState<{ tech: TechnicianOption; jobs: BusyJob[] } | null>(null);
+
   function toggle(t: TechnicianOption, checked: boolean) {
     if (!checked) {
       onChange(value.filter((id) => id !== t.id));
       return;
     }
     const jobs = busy.get(t.id);
-    // window.confirm: sama dengan konfirmasi alih tugas di handover.tsx.
-    if (jobs && !window.confirm(busyWarningText(t.displayName, jobs))) return;
+    if (jobs) {
+      setConfirmBusy({ tech: t, jobs });
+      return;
+    }
     onChange([...value, t.id]);
   }
 
@@ -122,6 +128,14 @@ export function TechnicianMultiPicker({
       <p className="text-xs text-muted-foreground">
         {value.length}/{MAX_TECHNICIANS} teknisi dipilih. Semua teknisi yang dipilih sama-sama melihat dan mengerjakan job.
       </p>
+      <ConfirmDialog
+        open={!!confirmBusy}
+        onOpenChange={(o) => !o && setConfirmBusy(null)}
+        title="Teknisi sedang sibuk"
+        description={confirmBusy ? busyWarningText(confirmBusy.tech.displayName, confirmBusy.jobs) : ''}
+        confirmLabel="Tetap tugaskan"
+        onConfirm={() => confirmBusy && onChange([...value, confirmBusy.tech.id])}
+      />
     </div>
   );
 }

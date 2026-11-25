@@ -2,12 +2,11 @@
 
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Eye, Search } from 'lucide-react';
+import { Eye, Search } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
 import { formatDateTime, formatRupiah } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -32,7 +31,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PanelTitle } from '@/components/ui/panel';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
+import { PaginationButtons } from '@/components/pagination-buttons';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Padanan audit_log_screen.dart di app mobile — bedanya, mobile baca
 // LANGSUNG dari Supabase (RLS), sedangkan web narik lewat endpoint baru
@@ -257,15 +258,15 @@ export default function AuditLogPage() {
         </div>
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat log audit...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat log audit.</p>}
+      {isLoading && <LoadingBlock label="Memuat log audit" />}
+      {isError && <ErrorBlock title="Gagal memuat log audit" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {data && data.items.length === 0 && (
         <p className="text-sm text-muted-foreground">Tidak ada log yang cocok.</p>
       )}
 
       {data && data.items.length > 0 && (
         <>
-          <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <div className={panelClass}>
             <PanelTitle title="Log Audit" count={data.total} />
             <Table>
               <TableHeader>
@@ -285,7 +286,17 @@ export default function AuditLogPage() {
                     onClick={() => setDetailRow(row)}
                   >
                     <TableCell className="text-muted-foreground">
-                      {formatDateTime(row.at)}
+                      <button
+                        type="button"
+                        aria-haspopup="dialog"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDetailRow(row);
+                        }}
+                        className="text-left hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {formatDateTime(row.at)}
+                      </button>
                     </TableCell>
                     <TableCell>
                       <p className="font-medium">{row.actor.displayName}</p>
@@ -310,24 +321,12 @@ export default function AuditLogPage() {
             <p className="text-sm text-muted-foreground">
               Halaman {data.page} dari {data.totalPages} ({data.total} log)
             </p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                disabled={page >= data.totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
+            <PaginationButtons
+              canPrev={page > 1}
+              canNext={page < data.totalPages}
+              onPrev={() => setPage((p) => p - 1)}
+              onNext={() => setPage((p) => p + 1)}
+            />
           </div>
         </>
       )}

@@ -8,6 +8,7 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { UNIT_LABEL_SHEET_CLASS, UNIT_LABEL_SHEET_CSS, UnitLabelCard } from '@/components/unit-label-card';
 import { Button } from '@/components/ui/button';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 interface LabelUnit {
   id: string;
@@ -40,8 +41,8 @@ export function CetakLabelClient({ ids }: { ids: string }) {
   });
 
   if (!ids) return <p className="p-6 text-sm text-muted-foreground">Tidak ada unit yang dipilih.</p>;
-  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Memuat label...</p>;
-  if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat label.</p>;
+  if (isLoading) return <LoadingBlock label="Memuat label" className="p-6" />;
+  if (isError || !data) return <ErrorBlock title="Gagal memuat label" detail="Periksa koneksi internet, lalu muat ulang halaman." className="p-6" />;
 
   function handlePrint() {
     window.print();

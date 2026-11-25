@@ -15,10 +15,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 function F({ label, children }: { label: string; children: React.ReactNode }) {
+  // Label disambungkan ke kolom isiannya (htmlFor/id) bila `children` satu elemen (lihat Field di input-tab.tsx).
+  const id = React.useId();
+  const single = React.isValidElement<{ id?: string }>(children);
+  const controlId = single ? (children.props.id ?? id) : undefined;
   return (
     <div className="grid gap-1.5">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      {children}
+      <Label htmlFor={controlId} className="text-xs text-muted-foreground">
+        {label}
+      </Label>
+      {single ? React.cloneElement(children, { id: controlId }) : children}
     </div>
   );
 }

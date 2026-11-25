@@ -39,6 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 interface InvoiceItem {
   id: string;
@@ -157,9 +158,9 @@ export function MemberDetailClient({
     },
   });
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">Memuat member...</p>;
+  if (isLoading) return <LoadingBlock label="Memuat member" />;
   if (isError || !data) {
-    return <p className="text-sm text-destructive">Gagal memuat data member.</p>;
+    return <ErrorBlock title="Gagal memuat data member" detail="Periksa koneksi internet, lalu muat ulang halaman." />;
   }
 
   // Pilih beberapa unit untuk dipindah lokasi: hanya member multi lokasi, dan hanya yang boleh mengubah data member.
@@ -352,7 +353,7 @@ export function MemberDetailClient({
                 </div>
               )}
               {data.acUnits.length > 0 && (
-                <div className="rounded-md border">
+                <div className="-mx-5 -mb-5 border-t">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -399,7 +400,13 @@ export function MemberDetailClient({
                             </TableCell>
                           )}
                           <TableCell className="font-medium">
-                            {[u.brand, u.model].filter(Boolean).join(' ') || 'Unit AC'}
+                            <Link
+                              href={`/ac-units/${u.id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              {[u.brand, u.model].filter(Boolean).join(' ') || 'Unit AC'}
+                            </Link>
                             <UnitPartsList unit={u} compact emptyText="" />
                           </TableCell>
                           <TableCell className="text-muted-foreground">
@@ -443,9 +450,9 @@ export function MemberDetailClient({
                 <p className="text-sm text-muted-foreground">Belum ada transaksi.</p>
               )}
               {data.invoices.length > 0 && (
-                <div className="grid gap-3">
+                <div className="-mx-5 -mb-5 divide-y border-t">
                   {data.invoices.map((inv) => (
-                    <div key={inv.id} className="rounded-md border p-3 transition-colors hover:bg-muted/40">
+                    <div key={inv.id} className="px-5 py-3 transition-colors hover:bg-muted/40">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="text-sm font-medium">{inv.number}</p>

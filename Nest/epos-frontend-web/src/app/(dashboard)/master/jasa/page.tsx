@@ -44,7 +44,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PanelTitle } from '@/components/ui/panel';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Padanan model Service Prisma. `basePrice` Decimal -> string lewat JSON,
 // `durationMinutes` Int biasa -> number. Jasa gak punya kolom stok sama
@@ -179,8 +180,8 @@ export default function JasaPage() {
 
       <SearchBox value={view.search} onChange={view.setSearch} placeholder="Cari nama, kategori, atau deskripsi..." />
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat jasa...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat data jasa.</p>}
+      {isLoading && <LoadingBlock label="Memuat jasa" />}
+      {isError && <ErrorBlock title="Gagal memuat data jasa" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {!isLoading && !isError && (!data || data.length === 0) && (
         <p className="text-sm text-muted-foreground">
           Belum ada jasa. Klik &ldquo;Tambah Jasa&rdquo; untuk mulai.
@@ -191,7 +192,7 @@ export default function JasaPage() {
       )}
       {!isLoading && !isError && data && data.length > 0 && view.total > 0 && (
         <>
-        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className={panelClass}>
           <PanelTitle title="Daftar Jasa" count={view.total} />
           <Table>
             <TableHeader>

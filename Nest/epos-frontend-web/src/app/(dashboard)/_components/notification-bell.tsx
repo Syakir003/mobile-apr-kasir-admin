@@ -18,6 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { LoadingBlock } from '@/components/query-state';
 
 interface NotificationItem {
   id: string;
@@ -172,7 +173,7 @@ export function NotificationBell() {
         <DropdownMenuSeparator className="my-0" />
         <div className="max-h-96 overflow-y-auto">
           {listQuery.isLoading && (
-            <p className="px-3 py-6 text-center text-sm text-muted-foreground">Memuat...</p>
+            <LoadingBlock label="Memuat data" className="px-3 py-6" />
           )}
           {!listQuery.isLoading && items.length === 0 && (
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">

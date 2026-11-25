@@ -36,6 +36,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TechnicianAssignDialog, technicianNames } from '@/components/technician-multi-picker';
+import { panelClass } from '@/components/ui/panel';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Menu "Servis & Teknisi" dipakai admin DAN teknisi lewat rute yang sama
 // (nav-config.ts), tapi datanya beda: teknisi cuma lihat job miliknya
@@ -393,7 +395,7 @@ function DistanceBadge({
   /** Halaman untuk memperbaiki alamat (hanya admin/kasir); tampil untuk alamat yang perlu diperbaiki. */
   fixHref?: string;
 }) {
-  const base = 'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold';
+  const base = 'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold';
   if (d.state === 'ok') {
     const wilayah = d.precision === 'wilayah';
     return (
@@ -427,7 +429,7 @@ function DistanceBadge({
           : `Jarak tidak diketahui: ${REASON_LABEL[d.state === 'unknown' ? d.reason : 'not_found'].toLowerCase()}`}
       </span>
       {done && fixHref && (d.reason === 'incomplete' || d.reason === 'not_found') && (
-        <Link href={fixHref} className="text-[11px] font-semibold text-primary underline underline-offset-2">
+        <Link href={fixHref} className="text-xs font-semibold text-primary underline underline-offset-2">
           Perbaiki alamat
         </Link>
       )}
@@ -665,7 +667,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
 
       {/* Daftar job: satu panel (pita kontrol berlatar muted, baris dipisah garis tipis), warna dan gaya sama dengan
           tabel sebelumnya. Satu baris = satu job (servis banyak AC = satu baris untuk seluruh unit). */}
-      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className={panelClass}>
         <div className="grid gap-3 border-b bg-card px-4 py-4 sm:px-5">
           {/* Baris 1: judul + tab status (jumlah tampil di tab terpilih) dan pencarian, dipisah garis dari filter. */}
           <div className="flex flex-col gap-3 border-b pb-3 lg:flex-row lg:items-center lg:justify-between">
@@ -696,7 +698,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                       >
                         {STATUS_TAB_LABEL[tab]}
                         {selected && !jobsQuery.isLoading && !jobsQuery.isError && (
-                          <span className="rounded-full bg-primary-foreground/20 px-1.5 text-[11px] font-semibold leading-5 tabular-nums">
+                          <span className="rounded-full bg-primary-foreground/20 px-1.5 text-xs font-semibold leading-5 tabular-nums">
                             {rows.length}
                           </span>
                         )}
@@ -754,7 +756,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
             )}
             {!isTeknisi && <span aria-hidden className="hidden h-5 w-px bg-border sm:block" />}
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="shrink-0 text-xs font-medium text-muted-foreground">
                 Filter Hari:
               </span>
               {dayPills.map((pill) => (
@@ -797,7 +799,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
 
           {/* Baris 3: urutan. */}
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">
               Urutkan:
             </span>
             <Button
@@ -856,10 +858,10 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
           )}
         </div>
 
-        {jobsQuery.isLoading && <p className="px-5 py-6 text-sm text-muted-foreground">Memuat job...</p>}
+        {jobsQuery.isLoading && <LoadingBlock label="Memuat job" className="px-5 py-6" />}
         {jobsQuery.isError && (
           <div className="flex flex-wrap items-center gap-3 px-5 py-6">
-            <p className="text-sm text-destructive">Gagal memuat data job.</p>
+            <ErrorBlock title="Gagal memuat data job" detail="Periksa koneksi internet, lalu muat ulang halaman." />
             <Button variant="outline" size="sm" onClick={() => jobsQuery.refetch()}>
               Coba lagi
             </Button>
@@ -975,12 +977,12 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                             />
                           )}
                           <Badge variant={statusBadgeVariant(rowStatus)} className="gap-1.5">
-                            <span className="size-1.5 rounded-full bg-current" />
+                            <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
                             {statusLabel(rowStatus)}
                           </Badge>
                         </div>
                         {/* Waktu masuk: kanan atas kartu (>= sm); di layar sempit ikut baris chip di bawah. */}
-                        <span className="hidden items-center gap-1 text-[11px] text-muted-foreground sm:inline-flex">
+                        <span className="hidden items-center gap-1 text-xs text-muted-foreground sm:inline-flex">
                           <Clock className="size-3.5" />
                           Masuk {formatDateTime(job.createdAt)}
                         </span>
@@ -990,7 +992,7 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
                       <span
                         className={cn(
-                          'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold',
+                          'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold',
                           meta.className,
                         )}
                       >
@@ -1016,17 +1018,18 @@ export function TeknisiQueueClient({ role }: { role: Role }) {
                       {/* Nama pemegang job selalu tampil bila sudah ada teknisi (juga saat tombol "Ubah teknisi" ada);
                           job yang belum ditugaskan dan punya tombol "Tugaskan teknisi" tidak perlu tulisan tambahan. */}
                       {!isTeknisi && (hasTechnician || !showAssign) && (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-                          <UserRound className="size-3" />
+                        // Teks biasa (bukan chip berborder): baris sudah memuat chip jenis, jarak, dan harga.
+                        <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                          <UserRound className="size-3.5 text-primary" aria-hidden="true" />
                           {technicianNames(job)}
                         </span>
                       )}
                       {!isTeknisi && needsPrice && (
-                        <span className="rounded-md bg-status-warning/15 px-2 py-0.5 text-[11px] font-semibold text-status-warning-foreground dark:text-status-warning">
+                        <span className="rounded-md bg-status-warning/15 px-2 py-0.5 text-xs font-semibold text-status-warning-foreground dark:text-status-warning">
                           {many ? 'Tentukan harga jasa tiap unit' : 'Tentukan harga jasa'}
                         </span>
                       )}
-                      <span className="inline-flex items-center gap-1 text-[11px] sm:hidden">
+                      <span className="inline-flex items-center gap-1 text-xs sm:hidden">
                         <Clock className="size-3.5" />
                         Masuk {formatDateTime(job.createdAt)}
                       </span>

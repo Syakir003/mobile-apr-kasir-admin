@@ -23,6 +23,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { ResetScopeDialog } from '@/components/pengaturan/reset-scope-dialog';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Kartu "Umum" (Pajak Default, Format Nomor Invoice, Nama Printer Struk, Catatan Footer Invoice) DINONAKTIFKAN:
 // keempat key app_config itu memang tersimpan di database, tetapi belum dibaca kode mana pun (POS web mulai dari pajak
@@ -200,9 +201,9 @@ export default function PengaturanPage() {
         </p>
       </div>
 
-      {configQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat...</p>}
+      {configQuery.isLoading && <LoadingBlock label="Memuat data" />}
       {configQuery.isError && (
-        <p className="text-sm text-destructive">Gagal memuat pengaturan.</p>
+        <ErrorBlock title="Gagal memuat pengaturan" detail="Periksa koneksi internet, lalu muat ulang halaman." />
       )}
 
       {UMUM_AKTIF && configQuery.data && (
@@ -293,11 +294,11 @@ export default function PengaturanPage() {
             paham betul cakupan tiap tombol sebelum lanjut, gak ada fitur backup otomatis.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4">
+        <CardContent className="grid divide-y">
           {RESET_SCOPE_CONFIGS.map((config) => (
             <div
               key={config.scope}
-              className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="grid gap-1">
                 <p className="text-sm font-medium">{config.title}</p>

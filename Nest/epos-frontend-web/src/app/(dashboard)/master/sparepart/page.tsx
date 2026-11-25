@@ -65,7 +65,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PanelTitle } from '@/components/ui/panel';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
+import Link from 'next/link';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Padanan model Sparepart Prisma. `sellPrice`, `stock`, `minStock` semuanya
 // DECIMAL di Postgres -> Prisma Decimal -> string lewat JSON.
@@ -364,8 +366,8 @@ export default function SparepartPage() {
 
       <SearchBox value={view.search} onChange={view.setSearch} placeholder="Cari nama, SKU, kategori, atau satuan..." />
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat sparepart...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat data sparepart.</p>}
+      {isLoading && <LoadingBlock label="Memuat sparepart" />}
+      {isError && <ErrorBlock title="Gagal memuat data sparepart" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {!isLoading && !isError && (!data || data.length === 0) && (
         <p className="text-sm text-muted-foreground">
           Belum ada sparepart. Klik &ldquo;Tambah Sparepart&rdquo; untuk mulai.
@@ -376,7 +378,7 @@ export default function SparepartPage() {
       )}
       {!isLoading && !isError && data && data.length > 0 && view.total > 0 && (
         <>
-        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className={panelClass}>
           <PanelTitle title="Daftar Sparepart" count={view.total} />
           <Table>
             <TableHeader>
@@ -398,7 +400,13 @@ export default function SparepartPage() {
                 >
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
-                      {s.name}
+                      <Link
+                        href={`/master/sparepart/${s.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {s.name}
+                      </Link>
                       {s.trackingMode !== 'biasa' && (
                         <Badge variant="secondary" className="text-xs font-normal">
                           {s.trackingMode === 'gulungan'

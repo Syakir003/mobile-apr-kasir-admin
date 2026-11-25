@@ -8,6 +8,7 @@ import { apiClient } from '@/lib/api-client';
 import { formatRupiah, formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { SPAREPART_GROUP, groupLabel, groupStockRows, hideEmptyRows } from '@/lib/stock-group';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 interface StockReportRow {
   itemKind: 'product' | 'sparepart';
@@ -58,8 +59,8 @@ export function StokPrintClient({
     enabled: Boolean(from && to),
   });
 
-  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Memuat laporan...</p>;
-  if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat laporan stok.</p>;
+  if (isLoading) return <LoadingBlock label="Memuat laporan" className="p-6" />;
+  if (isError || !data) return <ErrorBlock title="Gagal memuat laporan stok" detail="Periksa koneksi internet, lalu muat ulang halaman." className="p-6" />;
 
   const showMoney = Boolean(data.ringkasan);
   const scoped = data.items.filter((r) => !brand || groupLabel(r) === brand);

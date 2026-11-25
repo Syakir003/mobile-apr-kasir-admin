@@ -164,7 +164,7 @@ export function KoreksiTab() {
             <DialogTitle>Tolak koreksi</DialogTitle>
             <DialogDescription>Alasan penolakan wajib diisi supaya teknisi tahu.</DialogDescription>
           </DialogHeader>
-          <Textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Alasan..." />
+          <Textarea aria-label="Alasan keputusan koreksi" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Alasan..." />
           <DialogFooter>
             <Button variant="outline" onClick={() => setRejecting(null)}>Batal</Button>
             <Button

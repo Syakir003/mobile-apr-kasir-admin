@@ -52,6 +52,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { panelClass } from '@/components/ui/panel';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Setiap checkout POS/servis otomatis bikin (atau reuse) row Member lewat
 // MembersService.findOrCreate — halaman ini nampilin daftar SEMUA member
@@ -215,7 +217,7 @@ export default function MembersPage() {
       </div>
 
       {/* Daftar member: satu panel (pita judul + pencarian, isi, pagination) seperti section di halaman detail. */}
-      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className={panelClass}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/60 px-5 py-3">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-semibold tracking-tight">Daftar Member</h2>
@@ -233,8 +235,8 @@ export default function MembersPage() {
           </div>
         </div>
 
-        {isLoading && <p className="px-5 py-6 text-sm text-muted-foreground">Memuat member...</p>}
-        {isError && <p className="px-5 py-6 text-sm text-destructive">Gagal memuat data member.</p>}
+        {isLoading && <LoadingBlock label="Memuat member" className="px-5 py-6" />}
+        {isError && <ErrorBlock title="Gagal memuat data member" detail="Periksa koneksi internet, lalu muat ulang halaman." className="px-5 py-6" />}
         {!isLoading && !isError && (!data || data.items.length === 0) && (
           <p className="px-5 py-6 text-sm text-muted-foreground">
             {debounced ? 'Tidak ada member yang cocok.' : 'Belum ada member.'}

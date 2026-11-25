@@ -25,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Halaman "Riwayat WA" (admin) — Siklus WA/Fonnte. Gabungan padanan
 // wa_history_screen.dart + wa_outbox_screen.dart mobile (di sini gak perlu
@@ -112,7 +113,7 @@ export default function RiwayatWaPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Input
+        <Input aria-label="Cari riwayat pesan"
           placeholder="Cari nomor HP / nama member..."
           value={q}
           onChange={(e) => {
@@ -164,10 +165,10 @@ export default function RiwayatWaPage() {
       <Card className="gap-0 overflow-hidden py-0">
         <CardContent className="p-0">
           {query.isLoading && (
-            <p className="p-4 text-sm text-muted-foreground">Memuat riwayat...</p>
+            <LoadingBlock label="Memuat riwayat" className="p-4" />
           )}
           {query.isError && (
-            <p className="p-4 text-sm text-destructive">Gagal memuat riwayat WA.</p>
+            <ErrorBlock title="Gagal memuat riwayat WA" detail="Periksa koneksi internet, lalu muat ulang halaman." className="p-4" />
           )}
           {query.data && query.data.items.length === 0 && (
             <p className="p-4 text-sm text-muted-foreground">Belum ada pesan WA.</p>

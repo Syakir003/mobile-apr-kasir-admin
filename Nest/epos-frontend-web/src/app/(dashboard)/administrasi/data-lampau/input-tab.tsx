@@ -96,10 +96,19 @@ function Field({
   hint?: string;
   className?: string;
 }) {
+  // Label disambungkan ke kolom isiannya (htmlFor/id), supaya mengeklik label memfokuskan kolom dan pembaca layar
+  // membaca namanya. Hanya bila `children` satu elemen (Input/Textarea/dst); selain itu label tampil saja seperti dulu.
+  const id = React.useId();
+  const control = React.isValidElement<{ id?: string }>(children)
+    ? React.cloneElement(children, { id: children.props.id ?? id })
+    : children;
+  const controlId = React.isValidElement<{ id?: string }>(children) ? (children.props.id ?? id) : undefined;
   return (
     <div className={cn('grid min-w-0 content-start gap-1.5', className)}>
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      {children}
+      <Label htmlFor={controlId} className="text-xs text-muted-foreground">
+        {label}
+      </Label>
+      {control}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
@@ -368,7 +377,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                     <p className="text-muted-foreground">{selected.phone || '-'}</p>
                     <p className="text-muted-foreground">{selected.address || 'Alamat belum tercatat'}</p>
                   </div>
-                  <Button type="button" variant="ghost" size="icon" onClick={() => setSelected(null)}>
+                  <Button aria-label="Batalkan pilihan member" type="button" variant="ghost" size="icon" onClick={() => setSelected(null)}>
                     <X className="size-4" />
                   </Button>
                 </div>
@@ -376,7 +385,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                 <>
                   <div className="relative max-w-sm">
                     <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-                    <Input
+                    <Input aria-label="Cari member"
                       className="pl-8"
                       placeholder="Cari nama / no. HP (min. 2 huruf)"
                       value={query}
@@ -457,7 +466,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                   ))}
                 </div>
                 {units.length > 1 && (
-                  <Button type="button" variant="ghost" size="icon" onClick={() => setUnits((r) => r.filter((x) => x.key !== u.key))}>
+                  <Button aria-label="Hapus unit ini" type="button" variant="ghost" size="icon" onClick={() => setUnits((r) => r.filter((x) => x.key !== u.key))}>
                     <Trash2 className="size-4" />
                   </Button>
                 )}
@@ -536,7 +545,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                       </>
                     )}
                     {/* -mx-3 + p-3: latar abu-abu keluar 12px, tapi input di dalamnya tetap lurus dengan baris lain. */}
-                    <div className="-mx-3 grid grid-cols-1 gap-3 rounded-md bg-muted/50 p-3 @md:col-span-2 @md:grid-cols-2 @xl:col-span-6 @xl:grid-cols-6">
+                    <div className="grid grid-cols-1 gap-3 border-t pt-3 @md:col-span-2 @md:grid-cols-2 @xl:col-span-6 @xl:grid-cols-6">
                       <Field label="Servis terakhir (opsional)" className="@xl:col-span-2">
                         <Input type="date" value={u.lastServiceDate} onChange={(e) => patchUnit(u.key, { lastServiceDate: e.target.value })} />
                       </Field>
@@ -595,7 +604,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                   <Field label="Item" className="col-span-3 @lg:col-span-1"><Input value={it.name} onChange={(e) => patchItem(it.key, { name: e.target.value })} /></Field>
                   <Field label="Qty"><Input inputMode="decimal" value={it.qty} onChange={(e) => patchItem(it.key, { qty: e.target.value })} /></Field>
                   <Field label="Harga satuan"><CurrencyInput value={it.unitPrice} onChange={(v: string) => patchItem(it.key, { unitPrice: v })} /></Field>
-                  <Button type="button" variant="ghost" size="icon" disabled={items.length === 1} onClick={() => setItems((r) => r.filter((x) => x.key !== it.key))}>
+                  <Button aria-label="Hapus item" type="button" variant="ghost" size="icon" disabled={items.length === 1} onClick={() => setItems((r) => r.filter((x) => x.key !== it.key))}>
                     <Trash2 className="size-4" />
                   </Button>
                 </div>

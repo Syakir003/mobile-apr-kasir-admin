@@ -37,6 +37,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Sinkron sama AC_UNIT_STATUSES di backend (update-ac-unit.dto.ts).
 const STATUS_OPTIONS = [
@@ -160,9 +161,9 @@ export function AcUnitDetailClient({ unitId, role }: { unitId: string; role: Rol
     },
   });
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">Memuat unit AC...</p>;
+  if (isLoading) return <LoadingBlock label="Memuat unit AC" />;
   if (isError || !data) {
-    return <p className="text-sm text-destructive">Gagal memuat data unit AC.</p>;
+    return <ErrorBlock title="Gagal memuat data unit AC" detail="Periksa koneksi internet, lalu muat ulang halaman." />;
   }
 
   return (

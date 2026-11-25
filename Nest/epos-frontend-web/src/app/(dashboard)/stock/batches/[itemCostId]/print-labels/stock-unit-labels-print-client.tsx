@@ -9,6 +9,7 @@ import { apiClient } from '@/lib/api-client';
 import { BarcodeQr } from '@/components/barcode-qr';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 interface StockUnitLabel {
   id: string;
@@ -36,8 +37,8 @@ export function StockUnitLabelsPrintClient({
     queryFn: () => apiClient.get<StockUnitLabel[]>(`/stock/batches/${itemCostId}/units`),
   });
 
-  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Memuat label unit...</p>;
-  if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat label unit.</p>;
+  if (isLoading) return <LoadingBlock label="Memuat label unit" className="p-6" />;
+  if (isError || !data) return <ErrorBlock title="Gagal memuat label unit" detail="Periksa koneksi internet, lalu muat ulang halaman." className="p-6" />;
 
   if (data.length === 0) {
     return (

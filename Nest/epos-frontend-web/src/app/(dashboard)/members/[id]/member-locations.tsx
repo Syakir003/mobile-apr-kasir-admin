@@ -9,6 +9,7 @@ import { apiClient, ApiError } from '@/lib/api-client';
 import { MAPS_INPUT_PLACEHOLDER, mapsInputDisplay } from '@/lib/maps-input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -59,6 +60,8 @@ export function unitLocationName(
 export function LocationsCard({ member, canEdit }: { member: LocationMember; canEdit: boolean }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = React.useState<MemberLocationRow | 'new' | null>(null);
+  // Lokasi yang menunggu konfirmasi hapus (dialog di bawah, bukan confirm() bawaan browser).
+  const [deleting, setDeleting] = React.useState<MemberLocationRow | null>(null);
 
   const remove = useMutation({
     mutationFn: (id: string) => apiClient.delete(`/members/${member.id}/locations/${id}`),
@@ -114,9 +117,7 @@ export function LocationsCard({ member, canEdit }: { member: LocationMember; can
                     title="Hapus lokasi"
                     disabled={remove.isPending}
                     className="text-destructive hover:text-destructive"
-                    onClick={() => {
-                      if (confirm(`Hapus lokasi "${loc.name}"?`)) remove.mutate(loc.id);
-                    }}
+                    onClick={() => setDeleting(loc)}
                   >
                     <Trash2 className="size-4" />
                   </Button>
@@ -138,6 +139,15 @@ export function LocationsCard({ member, canEdit }: { member: LocationMember; can
           onClose={() => setEditing(null)}
         />
       )}
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(o) => !o && setDeleting(null)}
+        title="Hapus lokasi?"
+        description={`Lokasi "${deleting?.name ?? ''}" akan dihapus. Lokasi yang masih dipakai unit AC atau order tidak bisa dihapus.`}
+        confirmLabel="Hapus"
+        destructive
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
+      />
     </Card>
   );
 }

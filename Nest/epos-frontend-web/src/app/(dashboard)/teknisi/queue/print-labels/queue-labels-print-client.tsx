@@ -13,6 +13,7 @@ import {
   useLabelSheetSettings,
   type SheetItem,
 } from '@/components/unit-label-sheet';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Bentuk data sama dengan cetak label Input Data Lampau (GET /unit-labels/data).
 interface LabelUnit {
@@ -49,8 +50,8 @@ export function QueueLabelsPrintClient({ ids }: { ids: string }) {
   });
 
   if (!ids) return <p className="p-6 text-sm text-muted-foreground">Tidak ada unit yang dipilih.</p>;
-  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Memuat label...</p>;
-  if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat label.</p>;
+  if (isLoading) return <LoadingBlock label="Memuat label" className="p-6" />;
+  if (isError || !data) return <ErrorBlock title="Gagal memuat label" detail="Periksa koneksi internet, lalu muat ulang halaman." className="p-6" />;
 
   const items: SheetItem[] = data.map((u) => ({
     key: u.id,

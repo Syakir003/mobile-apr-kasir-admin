@@ -22,6 +22,7 @@ import { statusBadgeVariant } from '../queue/queue-client';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Fondasinya niru dashboard_screen.dart di app mobile teknisi (2 MetricCard
 // + Akses Cepat, lihat komentar versi sebelumnya) — di sini dikembangin
@@ -154,9 +155,9 @@ export function TeknisiDashboardClient({ role }: { role: Role; displayName: stri
           <CardTitle className="text-base">Jadwal Hari Ini</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2">
-          {loading && <p className="text-sm text-muted-foreground">Memuat...</p>}
+          {loading && <LoadingBlock label="Memuat data" />}
           {!loading && queueQuery.isError && (
-            <p className="text-sm text-destructive">Gagal memuat job. Coba muat ulang halaman.</p>
+            <ErrorBlock title="Gagal memuat job" detail="Coba muat ulang halaman." />
           )}
           {!loading && !queueQuery.isError && todayJobs.length === 0 && (
             <p className="text-sm text-muted-foreground">Gak ada job berjadwal hari ini.</p>

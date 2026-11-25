@@ -52,8 +52,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PanelTitle } from '@/components/ui/panel';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Padanan hasil UsersService.findAll() — cuma field yang di-`select` di
 // backend (password/hash gak pernah keikut lewat API).
@@ -273,15 +274,15 @@ export default function PenggunaPage() {
         </TabsList>
       </Tabs>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat pengguna...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat data pengguna.</p>}
+      {isLoading && <LoadingBlock label="Memuat pengguna" />}
+      {isError && <ErrorBlock title="Gagal memuat data pengguna" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {!isLoading && !isError && filtered.length === 0 && (
         <p className="text-sm text-muted-foreground">
           Belum ada pengguna di kategori ini. Klik &ldquo;Tambah Pengguna&rdquo; untuk mulai.
         </p>
       )}
       {!isLoading && !isError && filtered.length > 0 && (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className={panelClass}>
           <PanelTitle title="Daftar Pengguna" count={filtered.length} />
           <Table>
             <TableHeader>
@@ -318,7 +319,7 @@ export default function PenggunaPage() {
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" aria-label={`Aksi untuk ${u.displayName}`}>
                           <MoreHorizontal className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>

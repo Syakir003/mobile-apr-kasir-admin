@@ -54,7 +54,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PanelTitle } from '@/components/ui/panel';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
 import {
   Select,
   SelectContent,
@@ -62,6 +62,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Padanan model Product Prisma (products.controller.ts / schema.prisma).
 // `pk`/`sellPrice` DECIMAL -> Prisma Decimal -> string lewat JSON. `stock`
@@ -323,7 +324,7 @@ function PairPicker({
   }
   return (
     <div className="relative">
-      <Input
+      <Input aria-label={placeholder}
         placeholder={placeholder}
         value={q}
         onChange={(e) => setQ(e.target.value)}
@@ -1148,7 +1149,7 @@ export default function ProdukPage() {
                   dropdown produk yang udah ada. */}
               {/* Sisi OUTDOOR (edit, belum berpasangan): pilih Indoor yang sudah ada. */}
               {editing && editingRoleEditable && roleDraft === 'outdoor' && (
-                <div className="grid gap-3 rounded-md border p-3">
+                <div className="grid gap-3 border-t pt-4">
                   <div>
                     <p className="text-sm font-medium">Pasangkan dengan Indoor</p>
                     <p className="text-xs text-muted-foreground">
@@ -1166,7 +1167,7 @@ export default function ProdukPage() {
               )}
               {((!editing && mode === 'split') ||
                 (editing && !editingIsPairTarget && !(editingRoleEditable && roleDraft === 'outdoor'))) && (
-                <div className="grid gap-3 rounded-md border p-3">
+                <div className="grid gap-3 border-t pt-4">
                   <div>
                     <p className="text-sm font-medium">Unit Outdoor Pasangan</p>
                     <p className="text-xs text-muted-foreground">
@@ -1178,7 +1179,7 @@ export default function ProdukPage() {
                     </p>
                   </div>
                   {outdoorLoading ? (
-                    <p className="text-sm text-muted-foreground">Memuat data Outdoor...</p>
+                    <LoadingBlock label="Memuat data Outdoor" />
                   ) : (
                     <div className="grid gap-2">
                       {/* Edit produk yang BELUM berpasangan: boleh pilih Outdoor
@@ -1249,7 +1250,7 @@ export default function ProdukPage() {
                   langsung jadi barang masuk pertama (QR per unit kebentuk).
                   Supplier sengaja gak ada di sini (cuma di Barang Masuk). */}
               {!editing && (
-                <div className="grid gap-3 rounded-md border p-3">
+                <div className="grid gap-3 border-t pt-4">
                   <div>
                     <p className="text-sm font-medium">Stok Awal (opsional)</p>
                     <p className="text-xs text-muted-foreground">
@@ -1439,10 +1440,10 @@ function ProductTable({
   }
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Memuat produk...</p>;
+    return <LoadingBlock label="Memuat produk" />;
   }
   if (isError) {
-    return <p className="text-sm text-destructive">Gagal memuat data produk.</p>;
+    return <ErrorBlock title="Gagal memuat data produk" detail="Periksa koneksi internet, lalu muat ulang halaman." />;
   }
   if (!products || products.length === 0) {
     return (
@@ -1462,7 +1463,7 @@ function ProductTable({
 
   return (
     <>
-    <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+    <div className={panelClass}>
       <PanelTitle title="Daftar Produk AC" count={topLevelProducts.length} />
       <Table>
         <TableHeader>
@@ -1496,7 +1497,16 @@ function ProductTable({
                       Status, dan aksi terdorong keluar layar. */}
                   <TableCell className="min-w-56 font-medium whitespace-normal">
                     <div className="grid gap-0.5">
-                      <span>{p.name}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRowClick(p);
+                        }}
+                        className="w-fit text-left hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {p.name}
+                      </button>
                       {p.pairedProduct && (
                         <button
                           type="button"

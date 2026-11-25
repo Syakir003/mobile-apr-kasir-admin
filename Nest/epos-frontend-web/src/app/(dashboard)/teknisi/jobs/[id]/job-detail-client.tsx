@@ -2113,7 +2113,7 @@ function KeteranganCard({ keterangan, editable }: { keterangan: Keterangan; edit
       <CardContent className="grid gap-2">
         {editable ? (
           <>
-            <Textarea
+            <Textarea aria-label="Keterangan untuk admin"
               rows={3}
               maxLength={1000}
               value={keterangan.value}
@@ -2978,7 +2978,7 @@ function MarkUsedDialog({
               )}
             </div>
           ))}
-          <Textarea
+          <Textarea aria-label="Catatan pemakaian sparepart"
             rows={2}
             placeholder="Catatan (opsional) - mis. sisa dibawa pulang"
             value={note}

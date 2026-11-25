@@ -8,6 +8,7 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { UNIT_LABEL_SHEET_CLASS, UNIT_LABEL_SHEET_CSS, UnitLabelCard } from '@/components/unit-label-card';
 import { Button } from '@/components/ui/button';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 interface AcUnit {
   id: string;
@@ -65,8 +66,8 @@ export function UnitLabelsPrintClient({
       ),
   });
 
-  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Memuat label unit...</p>;
-  if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat label unit.</p>;
+  if (isLoading) return <LoadingBlock label="Memuat label unit" className="p-6" />;
+  if (isError || !data) return <ErrorBlock title="Gagal memuat label unit" detail="Periksa koneksi internet, lalu muat ulang halaman." className="p-6" />;
 
   const rows = data.serviceOrderUnits.filter((su) => !onlyUnitIds || onlyUnitIds.includes(su.unit.id));
   const units = rows.map((su) => su.unit);

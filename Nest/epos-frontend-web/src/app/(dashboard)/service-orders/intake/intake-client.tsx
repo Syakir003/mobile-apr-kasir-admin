@@ -45,6 +45,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import { LoadingBlock } from '@/components/query-state';
 
 // Siklus 2 — Servis Masuk Mandiri: customer yang DULU beli AC doang (checkout
 // tanpa centang "Pasang unit" -> gak ada MemberAcUnit/barcode yang lahir)
@@ -731,7 +732,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
                 <div className="grid gap-2">
                   <p className="text-sm font-medium">Unit terdaftar milik {selectedMember.name}</p>
                   {memberDetailQuery.isLoading && (
-                    <p className="text-sm text-muted-foreground">Memuat unit AC member...</p>
+                    <LoadingBlock label="Memuat unit AC member" />
                   )}
                   {!memberDetailQuery.isLoading && memberUnits.length === 0 && (
                     <p className="text-sm text-muted-foreground">
@@ -893,7 +894,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
               {/* Jumlah unit sudah pasti tetapi unitnya belum diketahui (mis. pabrik punya 20 AC, minta cuci 10): teknisi
                   yang memindai barcode tiap AC di lokasi. Pelanggan harus dipilih dulu (unit yang discan harus miliknya). */}
               {selectedMember && memberUnits.length > 0 && (!isMulti || !!workLocationChoice) && (
-                <div className="grid gap-2 rounded-md border border-dashed p-3">
+                <div className="grid gap-2 border-t pt-4">
                   <p className="text-sm font-medium">Jumlah unit, teknisi yang scan</p>
                   <p className="text-xs text-muted-foreground">
                     Pakai ini kalau jumlah AC yang dikerjakan sudah pasti tetapi unit mana saja belum diketahui (mis.

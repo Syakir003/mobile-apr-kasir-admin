@@ -127,7 +127,7 @@ export function LabelTab() {
           }}
         >
           <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-          <Input className="w-full pl-8 md:w-64" placeholder="Cari member / alamat / ruangan / kode" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input aria-label="Cari unit untuk label" className="w-full pl-8 md:w-64" placeholder="Cari member / alamat / ruangan / kode" value={q} onChange={(e) => setQ(e.target.value)} />
         </form>
         <Select value={label} onValueChange={(v) => { setLabel(v); setPage(1); }}>
           <SelectTrigger className="w-full md:w-44"><SelectValue /></SelectTrigger>

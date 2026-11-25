@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertTriangle, ArrowLeft, CheckCircle2, ClipboardCheck, PackageSearch, ScanLine } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { LoadingBlock } from '@/components/query-state';
 
 interface PendingInvoice {
   invoiceId: string;
@@ -129,55 +130,62 @@ export function KasirScanClient() {
           </p>
         </div>
 
-        <Card panel>
-          <CardHeader>
-            <CardTitle className="text-base">Alurnya</CardTitle>
-            <CardDescription>
-              Unit yang sudah di-checkout kasir baru dijatah. Stok resmi berkurang setelah unitnya discan di sini.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-3">
-            <Step icon={<ClipboardCheck className="size-5" />} title="1. Kasir checkout">
-              Invoice terbit dan unit dijatah. Muncul di daftar di bawah.
-            </Step>
-            <Step icon={<PackageSearch className="size-5" />} title="2. Ambil unit dari rak">
-              Ambil unit sesuai produk di invoice. Boleh unit mana saja yang setipe.
-            </Step>
-            <Step icon={<ScanLine className="size-5" />} title="3. Scan QR di label">
-              Pilih invoice, scan QR di kardus unit. Unit ditandai keluar.
-            </Step>
-          </CardContent>
-        </Card>
+        <details className="text-sm">
+          <summary className="w-fit cursor-pointer rounded-sm text-primary underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+            Cara kerja Keluar Gudang
+          </summary>
+          <p className="mt-3 text-muted-foreground">
+            Unit yang sudah di-checkout kasir baru dijatah. Stok resmi berkurang setelah unitnya discan di sini.
+          </p>
+          <ol className="mt-3 grid gap-3 sm:grid-cols-3">
+            <li>
+              <p className="font-medium">1. Kasir checkout</p>
+              <p className="mt-0.5 text-muted-foreground">Invoice terbit dan unit dijatah. Muncul di daftar di bawah.</p>
+            </li>
+            <li>
+              <p className="font-medium">2. Ambil unit dari rak</p>
+              <p className="mt-0.5 text-muted-foreground">
+                Ambil unit sesuai produk di invoice. Boleh unit mana saja yang setipe.
+              </p>
+            </li>
+            <li>
+              <p className="font-medium">3. Scan QR di label</p>
+              <p className="mt-0.5 text-muted-foreground">Pilih invoice, scan QR di kardus unit. Unit ditandai keluar.</p>
+            </li>
+          </ol>
+        </details>
 
         <div>
           <h2 className="mb-3 text-base font-semibold">Menunggu dikeluarkan</h2>
-          {pendingQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat...</p>}
+          {pendingQuery.isLoading && <LoadingBlock label="Memuat data" />}
           {pendingQuery.data?.length === 0 && (
             <Card className="py-0">
               <CardContent className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-                <CheckCircle2 className="size-5 text-green-600" />
+                <CheckCircle2 className="size-5 text-status-success" />
                 Tidak ada unit yang menunggu. Semua invoice sudah selesai dikeluarkan.
               </CardContent>
             </Card>
           )}
           <div className="grid gap-2">
             {pendingQuery.data?.map((inv) => (
-              <Card
-                key={inv.invoiceId}
-                className="cursor-pointer py-0 transition-colors hover:bg-accent"
-                onClick={() => {
-                  setLastScan(null);
-                  setSelectedInvoiceId(inv.invoiceId);
-                }}
-              >
-                <CardContent className="flex items-center justify-between gap-3 py-3">
-                  <div>
-                    <p className="text-sm font-medium">{inv.invoiceNumber}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {inv.customerName ?? '-'} · {formatDate(inv.createdAt)}
-                    </p>
-                  </div>
-                  <Badge variant="secondary">{inv.pendingUnits} unit belum keluar</Badge>
+              <Card key={inv.invoiceId} className="py-0 transition-colors hover:bg-accent">
+                <CardContent className="px-0">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-3 rounded-xl px-5 py-3 text-left focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => {
+                      setLastScan(null);
+                      setSelectedInvoiceId(inv.invoiceId);
+                    }}
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{inv.invoiceNumber}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {inv.customerName ?? '-'} · {formatDate(inv.createdAt)}
+                      </p>
+                    </div>
+                    <Badge variant="secondary">{inv.pendingUnits} unit belum keluar</Badge>
+                  </button>
                 </CardContent>
               </Card>
             ))}
@@ -208,7 +216,7 @@ export function KasirScanClient() {
             </p>
             <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-green-600 transition-all"
+                className="h-full rounded-full bg-status-success transition-all"
                 style={{ width: `${totalUnits ? (doneUnits / totalUnits) * 100 : 0}%` }}
               />
             </div>
@@ -219,7 +227,7 @@ export function KasirScanClient() {
       {allDone ? (
         <Card>
           <CardContent className="flex items-center gap-2 py-6 text-sm">
-            <CheckCircle2 className="size-5 text-green-600" />
+            <CheckCircle2 className="size-5 text-status-success" />
             Semua unit di invoice ini sudah keluar dari gudang.
           </CardContent>
         </Card>
@@ -245,7 +253,7 @@ export function KasirScanClient() {
           role="status"
           className={`flex items-start gap-2 rounded-md border p-3 text-sm ${
             lastScan.ok
-              ? 'border-green-600/40 bg-green-600/10 text-green-800 dark:text-green-300'
+              ? 'border-status-success/40 bg-status-success/10 text-green-800 dark:text-status-success'
               : 'border-destructive/40 bg-destructive/10 text-destructive'
           }`}
         >
@@ -289,7 +297,7 @@ export function KasirScanClient() {
                 </Button>
               ) : (
                 <Badge variant="outline" className="gap-1">
-                  <CheckCircle2 className="size-3.5 text-green-600" />
+                  <CheckCircle2 className="size-3.5 text-status-success" />
                   Selesai
                 </Badge>
               )}
@@ -328,14 +336,3 @@ function roleSuffix(role?: 'indoor' | 'outdoor' | null): string {
   return role === 'indoor' ? ' (Indoor)' : role === 'outdoor' ? ' (Outdoor)' : '';
 }
 
-function Step({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
-  return (
-    <div className="flex gap-3">
-      <div className="mt-0.5 text-muted-foreground">{icon}</div>
-      <div>
-        <p className="text-sm font-medium">{title}</p>
-        <p className="mt-0.5 text-sm text-muted-foreground">{children}</p>
-      </div>
-    </div>
-  );
-}

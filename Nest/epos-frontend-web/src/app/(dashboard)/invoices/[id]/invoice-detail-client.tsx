@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Halaman detail 1 invoice — padanan invoice_detail_screen.dart di app
 // mobile. Fokus utamanya: nunjukin sisa tagihan & riwayat pembayaran, plus
@@ -214,9 +215,9 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
     payMutation.mutate(values);
   }
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">Memuat invoice...</p>;
+  if (isLoading) return <LoadingBlock label="Memuat invoice" />;
   if (isError || !data) {
-    return <p className="text-sm text-destructive">Gagal memuat data invoice.</p>;
+    return <ErrorBlock title="Gagal memuat data invoice" detail="Periksa koneksi internet, lalu muat ulang halaman." />;
   }
 
   return (
