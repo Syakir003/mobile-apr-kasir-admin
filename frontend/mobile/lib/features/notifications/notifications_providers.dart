@@ -50,7 +50,7 @@ final notificationsStreamProvider =
 
 /// Jumlah notifikasi belum terbaca (untuk badge lonceng).
 final unreadCountProvider = Provider.autoDispose<int>((ref) {
-  final list = ref.watch(notificationsStreamProvider).value ?? const [];
+  final list = ref.watch(notificationsStreamProvider).valueOrNull ?? const [];
   return list.where((n) => !n.read).length;
 });
 

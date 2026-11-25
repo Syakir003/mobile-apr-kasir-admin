@@ -64,7 +64,7 @@ class _JobListPrintScreenState extends ConsumerState<JobListPrintScreen> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       final selected = selectPrintRows(
-        ref.read(jobsForCurrentUserProvider).value ?? const [],
+        ref.read(jobsForCurrentUserProvider).valueOrNull ?? const [],
         from: _from,
         to: _to,
         status: _status,

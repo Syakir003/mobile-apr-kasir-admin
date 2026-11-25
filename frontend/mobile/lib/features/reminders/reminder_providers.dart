@@ -46,7 +46,7 @@ final waFailedProvider = FutureProvider.autoDispose<List<WaMessage>>(
 /// jaringan tambahan. RLS members untuk admin/kasir sama luasnya dengan RLS
 /// `wa_outbox`, jadi tidak ada baris antrean yang namanya tak terjangkau.
 final waMemberNamesProvider = Provider.autoDispose<Map<String, String>>((ref) {
-  final members = ref.watch(membersStreamProvider).value ?? const [];
+  final members = ref.watch(membersStreamProvider).valueOrNull ?? const [];
   return {for (final m in members) m.id: m.name};
 });
 

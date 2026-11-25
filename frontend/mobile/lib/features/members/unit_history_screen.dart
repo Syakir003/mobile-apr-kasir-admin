@@ -49,7 +49,7 @@ class _UnitHistoryScreenState extends ConsumerState<UnitHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final unit = ref.watch(acUnitProvider(widget.unitId)).value ??
+    final unit = ref.watch(acUnitProvider(widget.unitId)).valueOrNull ??
         widget.initial;
     final async = ref.watch(unitHistoryProvider(widget.unitId));
 

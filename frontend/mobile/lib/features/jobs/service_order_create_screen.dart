@@ -552,7 +552,7 @@ class _ServiceOrderCreateScreenState
               maps: l.maps,
               original: _newCustomer
                   ? null
-                  : (ref.read(membersStreamProvider).value ?? const <Member>[])
+                  : (ref.read(membersStreamProvider).valueOrNull ?? const <Member>[])
                       .where((m) => m.id == _memberId)
                       .firstOrNull
                       ?.address,
@@ -584,7 +584,7 @@ class _ServiceOrderCreateScreenState
   void _copyCustomerLocation(int i) {
     final member = _newCustomer
         ? null
-        : (ref.read(membersStreamProvider).value ?? const <Member>[]).where((m) => m.id == _memberId).firstOrNull;
+        : (ref.read(membersStreamProvider).valueOrNull ?? const <Member>[]).where((m) => m.id == _memberId).firstOrNull;
     final address = _newCustomer ? _address.text : (member?.address ?? '');
     if (address.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -601,7 +601,7 @@ class _ServiceOrderCreateScreenState
   /// "Jumlah unit, teknisi yang scan" (sama dengan web): jumlah AC sudah pasti tetapi unit mana saja belum diketahui;
   /// teknisi memindai barcode tiap AC di lokasi. Hanya untuk member terpilih yang punya unit berlabel.
   Widget _scanSlotCard() {
-    final hasUnits = ref.watch(memberUnitsProvider(_memberId!)).value?.isNotEmpty ?? false;
+    final hasUnits = ref.watch(memberUnitsProvider(_memberId!)).valueOrNull?.isNotEmpty ?? false;
     if (!hasUnits) return const SizedBox.shrink();
     final max = _maxSlots;
     return Container(

@@ -34,7 +34,7 @@ class UserAvatar extends ConsumerWidget {
     );
     final path = user.avatarPath;
     final url =
-        path == null ? null : ref.watch(signedPhotoUrlProvider(path)).value;
+        path == null ? null : ref.watch(signedPhotoUrlProvider(path)).valueOrNull;
     return Container(
       width: size,
       height: size,

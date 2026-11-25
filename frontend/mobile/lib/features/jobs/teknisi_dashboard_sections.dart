@@ -97,7 +97,7 @@ class _TeknisiDashboardState extends ConsumerState<TeknisiDashboard> {
   @override
   Widget build(BuildContext context) {
     final queue = ref.watch(jobQueueProvider);
-    final jobs = queue.value ?? const <TechnicianJob>[];
+    final jobs = queue.valueOrNull ?? const <TechnicianJob>[];
     final now = DateTime.now();
     final next = nextJob(jobs);
     final needsPhoto = jobs
@@ -205,7 +205,7 @@ class _Hero extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(currentUserProvider).value;
-    final done = ref.watch(jobHistoryProvider(1)).value?.total;
+    final done = ref.watch(jobHistoryProvider(1)).valueOrNull?.total;
     final today = jobs
         .where(
             (j) => j.scheduledDate != null && _sameDay(j.scheduledDate!, now))

@@ -28,7 +28,7 @@ class MemberDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final member =
-        _fromList(ref.watch(membersStreamProvider).value) ?? initial;
+        _fromList(ref.watch(membersStreamProvider).valueOrNull) ?? initial;
     final units = ref.watch(memberUnitsProvider(memberId));
 
     return Scaffold(

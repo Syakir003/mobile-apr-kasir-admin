@@ -51,7 +51,7 @@ class InvoiceDetailScreen extends ConsumerWidget {
           if (invoice == null) {
             return const Center(child: Text('Invoice tidak ditemukan.'));
           }
-          final payments = paymentsAsync.value ?? const <ManualPayment>[];
+          final payments = paymentsAsync.valueOrNull ?? const <ManualPayment>[];
           final canPay = invoice.status != InvoiceStatus.lunas &&
               invoice.status != InvoiceStatus.batal;
           return ListView(
@@ -199,7 +199,7 @@ Future<void> _shareReceipt(
 /// Cetak struk langsung ke printer thermal 58mm lewat Bluetooth.
 Future<void> _printThermal(BuildContext context, WidgetRef ref, Invoice invoice) async {
   final messenger = ScaffoldMessenger.of(context);
-  final address = ref.read(membersStreamProvider).value?.where((m) => m.id == invoice.memberId).firstOrNull?.address;
+  final address = ref.read(membersStreamProvider).valueOrNull?.where((m) => m.id == invoice.memberId).firstOrNull?.address;
   try {
     await printThermal(context, buildReceiptBytes(ReceiptEscPos.fromInvoice(invoice, address: address)));
     messenger.showSnackBar(const SnackBar(content: Text('Struk dikirim ke printer.')));

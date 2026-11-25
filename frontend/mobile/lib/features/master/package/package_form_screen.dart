@@ -114,7 +114,7 @@ class _PackageFormScreenState extends ConsumerState<PackageFormScreen> {
   @override
   Widget build(BuildContext context) {
     final sparepartsAsync = ref.watch(sparepartListProvider);
-    final spareparts = sparepartsAsync.value ?? const <Sparepart>[];
+    final spareparts = sparepartsAsync.valueOrNull ?? const <Sparepart>[];
     return AppFormScaffold(
       title: _isEdit ? 'Edit Paket' : 'Tambah Paket',
       formKey: _formKey,

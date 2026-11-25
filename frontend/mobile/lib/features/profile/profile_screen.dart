@@ -51,7 +51,7 @@ class ProfileScreen extends ConsumerWidget {
                     style: AppButtonStyles.destructive(),
                   ),
                 ),
-                if (ref.watch(appVersionLabelProvider).value case final v?) ...[
+                if (ref.watch(appVersionLabelProvider).valueOrNull case final v?) ...[
                   const SizedBox(height: 16),
                   Text(v,
                       key: const Key('app-version-label'),

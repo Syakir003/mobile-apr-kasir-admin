@@ -66,7 +66,7 @@ class _MemberFormScreenState extends ConsumerState<MemberFormScreen> {
     // Keunikan keras dijamin di sisi server oleh Function checkout Fase 4.
     final normalized = normalizePhone(v.trim());
     final members =
-        ref.read(membersStreamProvider).value ?? const <Member>[];
+        ref.read(membersStreamProvider).valueOrNull ?? const <Member>[];
     final duplicate = members.any(
       (m) => m.phone == normalized && m.id != (widget.initial?.id ?? ''),
     );

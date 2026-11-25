@@ -159,7 +159,7 @@ class _AppUpdateGateState extends ConsumerState<AppUpdateGate> {
 
   @override
   Widget build(BuildContext context) {
-    final update = ref.watch(appUpdateProvider).value;
+    final update = ref.watch(appUpdateProvider).valueOrNull;
     if (update == null) return widget.child;
     final info = update.info;
     final required = update.kind == UpdateKind.required;

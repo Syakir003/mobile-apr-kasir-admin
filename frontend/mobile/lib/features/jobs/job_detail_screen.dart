@@ -441,17 +441,17 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
   Widget build(BuildContext context) {
     final jobAsync = ref.watch(jobProvider(widget.jobId));
     final role = ref.watch(currentUserProvider).value?.role;
-    final unitId = jobAsync.value?.unitId;
+    final unitId = jobAsync.valueOrNull?.unitId;
     // Servis banyak AC: laporan satu untuk seluruh order, jadi ikutkan job & pengajuan semua unit.
-    final siblingIds = jobAsync.value?.siblingIds ?? const <String>[];
+    final siblingIds = jobAsync.valueOrNull?.siblingIds ?? const <String>[];
     final requests = [
       for (final id in [widget.jobId, ...siblingIds])
-        ...(ref.watch(jobRequestsProvider(id)).value ?? const <MaterialRequest>[]),
+        ...(ref.watch(jobRequestsProvider(id)).valueOrNull ?? const <MaterialRequest>[]),
     ];
     final orderJobs = [
       if (jobAsync.value != null) jobAsync.value!,
       for (final id in siblingIds)
-        if (ref.watch(jobProvider(id)).value case final j?) j,
+        if (ref.watch(jobProvider(id)).valueOrNull case final j?) j,
     ];
 
     // Bar aksi teknisi (Mulai/Ajukan) menempel di bawah layar. Diisi saat `body` dievaluasi, lalu dibaca oleh
@@ -509,7 +509,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
             bar = r.bar;
             return r.body;
           }
-          final findings = ref.watch(jobFindingsProvider(job.id)).value;
+          final findings = ref.watch(jobFindingsProvider(job.id)).valueOrNull;
           if (role == UserRole.teknisi) bar = _singleBar(job, findings);
           if (role == UserRole.teknisi) {
             _maybeRemind([job], (j) => findings?.any((f) => f.hasBefore), multi: false);
@@ -618,12 +618,12 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
     final ids = [first.id, ...first.siblingIds];
     final all = <TechnicianJob>[];
     for (final id in ids) {
-      final j = id == first.id ? first : ref.watch(jobProvider(id)).value;
+      final j = id == first.id ? first : ref.watch(jobProvider(id)).valueOrNull;
       if (j != null) all.add(j);
     }
     all.sort((a, b) => (a.createdAt ?? DateTime(0)).compareTo(b.createdAt ?? DateTime(0)));
     final findingsOf = {
-      for (final j in all) j.id: ref.watch(jobFindingsProvider(j.id)).value,
+      for (final j in all) j.id: ref.watch(jobFindingsProvider(j.id)).valueOrNull,
     };
     final isTeknisi = role == UserRole.teknisi;
     final allLoaded = all.length == ids.length;
@@ -657,7 +657,7 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
       _maybeRemind(active, (j) => findingsOf[j.id]?.any((f) => f.hasBefore), multi: true);
     }
     final requestsOf = {
-      for (final j in all) j.id: ref.watch(jobRequestsProvider(j.id)).value,
+      for (final j in all) j.id: ref.watch(jobRequestsProvider(j.id)).valueOrNull,
     };
     // Sama dengan gate submitForReview di server: temuan/foto lengkap, dan pengajuan sparepart tidak menggantung.
     String? blockerOf(TechnicianJob j) {
@@ -1098,7 +1098,7 @@ class _PaymentBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final info = ref.watch(jobPaymentInfoProvider(jobId)).value;
+    final info = ref.watch(jobPaymentInfoProvider(jobId)).valueOrNull;
     final warning = paymentWarningFor(info);
     if (warning == null) return const SizedBox.shrink();
 

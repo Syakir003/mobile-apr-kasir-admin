@@ -196,7 +196,7 @@ class _KeluarGudangDetailScreenState
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(invoiceFulfillmentProvider(widget.invoiceId));
-    final data = async.value;
+    final data = async.valueOrNull;
     return Scaffold(
       appBar: AppBar(title: Text(data?.invoiceNumber ?? 'Keluar Gudang')),
       body: async.when(

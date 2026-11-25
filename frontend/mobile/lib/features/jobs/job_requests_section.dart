@@ -856,7 +856,7 @@ class _ItemPickerSheetState extends ConsumerState<_ItemPickerSheet> {
     final q = _query.trim().toLowerCase();
 
     final lines = <_DraftLine>[];
-    for (final s in spareparts.value ?? const <RequestableSparepart>[]) {
+    for (final s in spareparts.valueOrNull ?? const <RequestableSparepart>[]) {
       lines.add(_DraftLine(
         kind: 'sparepart',
         refId: s.id,
