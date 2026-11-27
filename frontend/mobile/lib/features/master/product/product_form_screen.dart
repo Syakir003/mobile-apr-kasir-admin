@@ -10,6 +10,8 @@ import '../../stock/stock_providers.dart';
 import '../master_providers.dart';
 import '../../../core/utils/error_message.dart';
 import '../../../core/widgets/pk_check.dart';
+import '../../../core/router/app_router.dart' show currentUserProvider;
+import '../../../data/models/app_user.dart';
 
 class ProductFormScreen extends ConsumerStatefulWidget {
   const ProductFormScreen({super.key, this.initial});
@@ -39,6 +41,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   bool _busy = false;
 
   bool get _isEdit => widget.initial != null;
+
+  /// Gudang: harga jual saja; harga modal & status aktif urusan admin.
+  bool get _isGudang => ref.read(currentUserProvider).valueOrNull?.role == UserRole.gudang;
 
   @override
   void initState() {
@@ -100,7 +105,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     final initialQty = _isEdit ? 0 : int.tryParse(_stock.text.trim()) ?? 0;
     final buyPrice = parseRupiahInput(_buyPrice.text);
     // Ditanyakan sebelum apa pun tersimpan, supaya Batal benar-benar batal.
-    if (initialQty > 0 && buyPrice >= parseRupiahInput(_sellPrice.text)) {
+    if (!_isGudang && initialQty > 0 && buyPrice >= parseRupiahInput(_sellPrice.text)) {
       if (!await _confirmBelowCost() || !mounted) return;
     }
     setState(() => _busy = true);
@@ -130,7 +135,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     final stockIn = ref.read(stockInCallerProvider);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      var message = 'Produk tersimpan.';
+      var message = _isGudang && product.sellPrice == 0
+          ? 'Tersimpan, menunggu harga dari admin.'
+          : 'Produk tersimpan.';
       var failed = false;
       if (_isEdit) {
         await repo.update(widget.initial!.id, product);
@@ -140,7 +147,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         // pengguna di form, karena menekan Simpan lagi membuat produk kedua.
         try {
           // POST /products tidak menerima kolom ini, PATCH menerimanya.
-          if (warrantyText.isNotEmpty || descText.isNotEmpty || !_active) {
+          if (!_isGudang && (warrantyText.isNotEmpty || descText.isNotEmpty || !_active)) {
             await repo.update(id, product);
           }
           if (initialQty > 0) {
@@ -148,7 +155,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
               'kind': 'product',
               'refId': id,
               'qty': initialQty,
-              'buyPrice': buyPrice,
+              if (!_isGudang) 'buyPrice': buyPrice,
               'note': 'Stok awal',
               'confirmOverride': true,
             });
@@ -200,6 +207,8 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Ikut dibangun ulang saat peran selesai dimuat (lihat _isGudang).
+    ref.watch(currentUserProvider);
     return AppFormScaffold(
       title: _isEdit ? 'Edit Produk' : 'Tambah Produk',
       formKey: _formKey,
@@ -350,10 +359,11 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
             AppMoneyField(
               key: const Key('sellPrice'),
               label: 'Harga Jual',
-              required: true,
+              required: !_isGudang,
+              helper: _isGudang ? 'Boleh dikosongkan, admin yang mengisi' : null,
               controller: _sellPrice,
               enabled: !_busy,
-              validator: rupiahRequiredValidator,
+              validator: _isGudang ? null : rupiahRequiredValidator,
             ),
             const SizedBox(height: kFieldGap),
             if (_isEdit)
@@ -373,6 +383,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       validator: (v) => _intValidator(v, required: false),
                     ),
                   ),
+                  if (!_isGudang) ...[
                   const SizedBox(width: 16),
                   Expanded(
                     child: AppMoneyField(
@@ -387,9 +398,11 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                               : null,
                     ),
                   ),
+                  ],
                 ],
               ),
             const SizedBox(height: kFieldGap),
+            if (!_isGudang)
             AppSwitchTile(
               key: const Key('active'),
               title: 'Produk Aktif',

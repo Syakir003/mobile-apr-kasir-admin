@@ -427,11 +427,9 @@ void main() {
       }
     });
 
-    test('tidak boleh tambah/ubah master, POS, order, job, laporan, akun', () {
+    test('tidak boleh ubah master, POS, order, job, laporan, akun', () {
       for (final loc in [
-        '/products/new',
         '/products/p1/edit',
-        '/spareparts/new',
         '/spareparts/s1/edit',
         '/pos',
         '/transactions',

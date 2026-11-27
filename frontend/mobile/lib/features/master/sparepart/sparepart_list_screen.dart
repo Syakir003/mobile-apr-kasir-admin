@@ -17,6 +17,7 @@ class SparepartListScreen extends ConsumerWidget {
     final items = ref.watch(sparepartListProvider);
     // Gudang hanya melihat: ubah/tambah sparepart & harga jual admin-only (backend).
     final isAdmin = ref.watch(currentUserProvider).value?.role == UserRole.admin;
+    final isGudang = ref.watch(currentUserProvider).value?.role == UserRole.gudang;
     return MasterListScaffold<Sparepart>(
       title: 'Sparepart & Material',
       items: items,
@@ -26,7 +27,8 @@ class SparepartListScreen extends ConsumerWidget {
           : '${s.sku} • ${s.category} • stok ${s.stock} ${s.unit}',
       isActive: (s) => s.active,
       matches: (s, q) => s.name.toLowerCase().contains(q.toLowerCase()),
-      onAdd: isAdmin ? () => context.go('/spareparts/new') : null,
+      // Gudang boleh menambah; mengubah tetap admin.
+      onAdd: isAdmin || isGudang ? () => context.go('/spareparts/new') : null,
       onEdit: isAdmin
           ? (s) => context.go('/spareparts/${s.id}/edit', extra: s)
           : null,

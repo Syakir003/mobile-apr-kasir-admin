@@ -91,6 +91,14 @@ void main() {
     expect(items.last.batchTracked, isTrue);
   });
 
+  test('receiveItemsFrom: barang menunggu harga tetap bisa diterima, yang dinonaktifkan tidak', () {
+    final items = receiveItemsFrom(products: [], spareparts: [
+      {'id': 'baru', 'name': 'Baru', 'unit': 'kg', 'active': false, 'sellPrice': '0'},
+      {'id': 'mati', 'name': 'Mati', 'unit': 'kg', 'active': false, 'sellPrice': '5000'},
+    ]);
+    expect(items.map((i) => i.id), ['baru']);
+  });
+
   testWidgets('paket: isi Indoor & Outdoor, tidak ada kolom harga, lalu bisa cetak label', (tester) async {
     final sent = <Map<String, dynamic>>[];
     await _pump(tester, sent, response: {

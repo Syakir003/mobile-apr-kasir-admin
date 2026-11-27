@@ -17,6 +17,7 @@ class ProductListScreen extends ConsumerWidget {
     final items = ref.watch(productListProvider);
     // Gudang hanya melihat: ubah/tambah produk & harga jual admin-only (backend).
     final isAdmin = ref.watch(currentUserProvider).value?.role == UserRole.admin;
+    final isGudang = ref.watch(currentUserProvider).value?.role == UserRole.gudang;
     return MasterListScaffold<Product>(
       title: 'Produk AC',
       items: items,
@@ -26,7 +27,8 @@ class ProductListScreen extends ConsumerWidget {
           : '${p.brand} • ${p.category}',
       isActive: (p) => p.active,
       matches: (p, q) => p.name.toLowerCase().contains(q.toLowerCase()),
-      onAdd: isAdmin ? () => context.go('/products/new') : null,
+      // Gudang boleh menambah; mengubah tetap admin.
+      onAdd: isAdmin || isGudang ? () => context.go('/products/new') : null,
       onEdit: isAdmin
           ? (p) => context.go('/products/${p.id}/edit', extra: p)
           : null,

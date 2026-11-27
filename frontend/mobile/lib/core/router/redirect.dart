@@ -41,7 +41,7 @@ const _kasirAdminPrefixes = [
 /// Gudang (staf stok) hanya boleh melihat daftar Produk & Sparepart (tanpa
 /// tambah/ubah — admin-only di backend), Stok & mutasinya, notifikasi, profil.
 /// Daftar putih, bukan daftar tolak, supaya layar baru tidak otomatis terbuka.
-const _gudangExact = ['/', '/products', '/spareparts', '/notifications', '/profile'];
+const _gudangExact = ['/', '/products', '/products/new', '/spareparts', '/spareparts/new', '/notifications', '/profile'];
 const _gudangPrefixes = ['/stok', '/keluar-gudang'];
 
 /// Keluar Gudang (scan) — admin & gudang saja, sama seperti backend
