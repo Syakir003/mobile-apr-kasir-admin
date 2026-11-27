@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { ListStatus } from '../common/dto/list-status-query.dto';
 import { CreateSparepartDto } from './dto/create-sparepart.dto';
 import { UpdateSparepartDto } from './dto/update-sparepart.dto';
-import { resolveSparepartMode } from './sparepart-mode.util';
+import { hasPackSale, resolveSparepartMode } from './sparepart-mode.util';
 import { TierPricesService, splitTierPrices } from '../common/services/tier-prices.service';
 
 @Injectable()
@@ -40,10 +40,11 @@ export class SparepartsService {
     return clean;
   }
 
-  async create(dto: CreateSparepartDto) {
+  /** `pending` = didaftarkan gudang tanpa harga: tidak aktif (tidak dijual). */
+  async create(dto: CreateSparepartDto, actorId?: string, opts: { pending?: boolean } = {}) {
     // Mode utuh/eceran (2026-09-30) — batchTracked diturunin dari
     // trackingMode (gulungan/gabungan => true), field kemasan divalidasi.
-    const mode = resolveSparepartMode(dto);
+    const mode = resolveSparepartMode(dto, undefined, { allowNoPrice: opts.pending });
     if (mode.batchTracked && dto.stock > 0) {
       throw new BadRequestException(
         'Sparepart per-gulungan gak bisa punya stok awal saat dibuat — tambahkan gulungan pertama lewat menu Barang Masuk setelah sparepart ini dibuat.',
@@ -55,9 +56,19 @@ export class SparepartsService {
     const sku = await this.normalizeSku(dto.sku);
     return this.prisma.$transaction(async (tx) => {
       const sparepart = await tx.sparepart.create({
-        data: { ...rest, sku, ...mode, active: true },
+        data: { ...rest, sku, ...mode, active: !opts.pending },
       });
       await this.tierPrices.save(tx, 'sparepart', sparepart.id, tierPrices);
+      if (actorId) {
+        await tx.auditLog.create({
+          data: {
+            actorUid: actorId,
+            action: 'sparepart.create',
+            target: sparepart.id,
+            detail: { name: sparepart.name, sellPrice: dto.sellPrice, sellPricePack: mode.sellPricePack },
+          },
+        });
+      }
       return sparepart;
     });
   }
@@ -148,6 +159,15 @@ export class SparepartsService {
       throw new BadRequestException(
         `Gak bisa aktifkan pelacakan per-gulungan selagi masih ada stok flat (${existing.stock} ${existing.unit}) — nolkan dulu stoknya lewat opname, baru aktifkan pelacakan per-gulungan.`,
       );
+    }
+
+    if (dto.active === true && !existing.active) {
+      const price = Number(dto.sellPrice ?? existing.sellPrice);
+      const pack = mode?.trackingMode ?? existing.trackingMode;
+      const packPrice = Number(dto.sellPricePack ?? existing.sellPricePack ?? 0);
+      if (!(price > 0) || (hasPackSale(pack) && !(packPrice > 0))) {
+        throw new BadRequestException('Isi harga jual dulu sebelum mengaktifkan sparepart ini');
+      }
     }
 
     const { tierPrices, rest: columns } = splitTierPrices(dto);

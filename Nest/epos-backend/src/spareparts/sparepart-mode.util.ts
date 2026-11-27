@@ -48,6 +48,8 @@ export function resolveSparepartMode(
     packSize: number | null;
     sellPricePack: number | null;
   },
+  // true = barang "menunggu harga" dari gudang (belum aktif): harga utuh boleh kosong.
+  opts: { allowNoPrice?: boolean } = {},
 ): SparepartModeFields {
   let mode: string;
   if (input.trackingMode !== undefined) mode = input.trackingMode;
@@ -79,8 +81,12 @@ export function resolveSparepartMode(
   if (Math.round(packSize * 100) !== packSize * 100 && Math.abs(Math.round(packSize * 100) - packSize * 100) > 1e-6) {
     throw new BadRequestException('Isi per satuan besar maksimal 2 angka di belakang koma');
   }
-  if (sellPricePack === null || !(sellPricePack > 0)) {
+  const noPrice = sellPricePack === null || !(sellPricePack > 0);
+  if (noPrice && !opts.allowNoPrice) {
     throw new BadRequestException('Harga jual utuh wajib diisi (lebih dari 0) untuk mode ini');
   }
-  return { trackingMode: m, batchTracked: isBatchMode(m), packUnit, packSize, sellPricePack };
+  return {
+    trackingMode: m, batchTracked: isBatchMode(m), packUnit, packSize,
+    sellPricePack: noPrice ? null : sellPricePack,
+  };
 }

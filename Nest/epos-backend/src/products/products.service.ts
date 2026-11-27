@@ -22,7 +22,7 @@ export class ProductsService {
    * harian). Dibungkus $transaction biar counter & product.create()
    * atomic — kalau create gagal, nomor sku-nya ikut rollback, gak "bolong".
    */
-  create(dto: CreateProductDto) {
+  create(dto: CreateProductDto, actorId?: string, opts: { pending?: boolean } = {}) {
     return this.prisma.$transaction(async (tx) => {
       await this.assertPairedProductValid(dto.pairedProductId);
       const seq = await this.counters.nextSeq(tx, 'product_sku');
@@ -31,9 +31,19 @@ export class ProductsService {
       // SELALU berperan Indoor, apapun `acRole` yang kekirim.
       const acRole = dto.pairedProductId ? 'indoor' : (dto.acRole ?? null);
       const { tierPrices, rest } = splitTierPrices(dto);
-      const product = await tx.product.create({ data: { ...rest, acRole, sku, active: true } });
+      const product = await tx.product.create({ data: { ...rest, acRole, sku, active: !opts.pending } });
       await this.tierPrices.save(tx, 'product', product.id, tierPrices);
       if (dto.pairedProductId) await this.markAsOutdoor(tx, dto.pairedProductId);
+      if (actorId) {
+        await tx.auditLog.create({
+          data: {
+            actorUid: actorId,
+            action: 'product.create',
+            target: product.id,
+            detail: { name: product.name, sellPrice: dto.sellPrice },
+          },
+        });
+      }
       return product;
     });
   }
@@ -301,6 +311,13 @@ export class ProductsService {
     const existing = await this.prisma.product.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Produk tidak ditemukan');
     await this.assertPairedProductValid(dto.pairedProductId, id);
+    // Barang "menunggu harga" tidak boleh diaktifkan sebelum ada harganya.
+    if (
+      dto.active === true && !existing.active && existing.acRole !== 'outdoor' &&
+      !(Number(dto.sellPrice ?? existing.sellPrice) > 0)
+    ) {
+      throw new BadRequestException('Isi harga jual dulu sebelum mengaktifkan produk ini');
+    }
 
     // Paket AC Split (2026-09-30) — peran produk yang lagi berpasangan
     // dikunci sama pairing-nya (Indoor = yang punya pairedProductId,

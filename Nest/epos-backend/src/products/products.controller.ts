@@ -6,18 +6,38 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { ListStatusQueryDto } from '../common/dto/list-status-query.dto';
 import { ProductsService } from './products.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly products: ProductsService) {}
+  constructor(
+    private readonly products: ProductsService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
-  @Roles('admin')
+  // Gudang boleh menambah AC yang langsung bisa dijual: harga Ritel saja.
+  @Roles('admin', 'gudang')
   @Post()
-  create(@Body() dto: CreateProductDto) {
-    return this.products.create(dto);
+  async create(@Body() dto: CreateProductDto, @CurrentUser() user: CurrentUserPayload) {
+    if (user.role === 'admin') return this.products.create(dto, user.sub);
+
+    // Harga boleh kosong: disimpan "menunggu harga" (tidak aktif) sampai admin
+    // mengisi. Outdoor dari paket memang Rp0 (harga ada di Indoor-nya).
+    const pending = !(dto.sellPrice > 0) && dto.acRole !== 'outdoor';
+    const { priceInstaller, priceReseller, ...rest } = dto;
+    void [priceInstaller, priceReseller];
+    const created = await this.products.create(rest as CreateProductDto, user.sub, { pending });
+    void this.notifications.notifyRoles(['admin'], {
+      title: 'Produk Baru dari Gudang',
+      body: pending
+        ? `${created.name} menunggu harga jual — belum bisa dijual.`
+        : `${created.name} sudah bisa dijual. Periksa harga jualnya.`,
+      type: 'produk_baru',
+    });
+    return created;
   }
 
   @Get()

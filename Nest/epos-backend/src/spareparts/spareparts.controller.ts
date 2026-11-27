@@ -6,18 +6,42 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { ListStatusQueryDto } from '../common/dto/list-status-query.dto';
 import { SparepartsService } from './spareparts.service';
+import { hasPackSale } from './sparepart-mode.util';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateSparepartDto } from './dto/create-sparepart.dto';
 import { UpdateSparepartDto } from './dto/update-sparepart.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('spareparts')
 export class SparepartsController {
-  constructor(private readonly spareparts: SparepartsService) {}
+  constructor(
+    private readonly spareparts: SparepartsService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
-  @Roles('admin')
+  // Gudang boleh menambah barang yang langsung bisa dijual: hanya harga Ritel.
+  // Harga tipe pembeli lain tetap urusan admin, stok masuk lewat /stock/in
+  // (supaya ada mutasi & modalnya masuk daftar "belum diisi").
+  @Roles('admin', 'gudang')
   @Post()
-  create(@Body() dto: CreateSparepartDto) {
-    return this.spareparts.create(dto);
+  async create(@Body() dto: CreateSparepartDto, @CurrentUser() user: CurrentUserPayload) {
+    if (user.role === 'admin') return this.spareparts.create(dto, user.sub);
+
+    // Harga boleh kosong: disimpan "menunggu harga" (tidak aktif) sampai admin mengisi.
+    const pending =
+      !(dto.sellPrice > 0) ||
+      (hasPackSale(dto.trackingMode ?? 'biasa') && !((dto.sellPricePack ?? 0) > 0));
+    const { priceInstaller, priceReseller, pricePackInstaller, pricePackReseller, ...rest } = dto;
+    void [priceInstaller, priceReseller, pricePackInstaller, pricePackReseller];
+    const created = await this.spareparts.create({ ...rest, stock: 0 }, user.sub, { pending });
+    void this.notifications.notifyRoles(['admin'], {
+      title: 'Sparepart Baru dari Gudang',
+      body: pending
+        ? `${created.name} menunggu harga jual — belum bisa dijual.`
+        : `${created.name} sudah bisa dijual. Periksa harga jualnya.`,
+      type: 'sparepart_baru',
+    });
+    return created;
   }
 
   @Get()

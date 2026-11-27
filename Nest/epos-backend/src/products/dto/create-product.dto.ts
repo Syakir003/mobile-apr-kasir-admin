@@ -13,6 +13,8 @@ export class CreateProductDto {
   @IsOptional() @IsInt() btu?: number;
   @IsOptional() @IsInt() watt?: number;
   @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsString() warranty?: string;
+  @IsOptional() @IsString() description?: string;
   // Siklus harga-seragam (2026-09-22) — sellPrice BALIK jadi field di sini
   // (sempat dihapus di siklus batch-cost, pindah ke per-batch). Wajib diisi
   // saat produk dibuat — inilah satu-satunya harga jual produk ini,
