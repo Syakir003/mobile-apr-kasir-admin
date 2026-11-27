@@ -1,10 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { StockService } from './stock.service';
+import { StockCostService } from './stock-cost.service';
+import { CostListQueryDto, SetCostDto } from './dto/set-cost.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StockInDto } from './dto/stock-in.dto';
 import { AdjustStockDto } from './dto/adjust-stock.dto';
@@ -19,7 +21,25 @@ export class StockController {
   constructor(
     private readonly stockService: StockService,
     private readonly notifications: NotificationsService,
+    private readonly costs: StockCostService,
   ) {}
+
+  // Harga modal: admin saja (menimpa @Roles kelas) — gudang tidak boleh lihat.
+  @Roles('admin')
+  @Get('costs')
+  listCosts(@Query() query: CostListQueryDto) {
+    return this.costs.list(query);
+  }
+
+  @Roles('admin')
+  @Put('batches/:itemCostId/cost')
+  setCost(
+    @Param('itemCostId') itemCostId: string,
+    @Body() dto: SetCostDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.costs.setCost(itemCostId, dto, user.sub);
+  }
 
   @Post('in')
   async stockIn(@Body() dto: StockInDto, @CurrentUser() user: CurrentUserPayload) {

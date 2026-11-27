@@ -1,3 +1,4 @@
+import { StockCostService } from './stock-cost.service';
 import { Module } from '@nestjs/common';
 import { StockService } from './stock.service';
 import { StockController } from './stock.controller';
@@ -7,6 +8,6 @@ import { NotificationsModule } from '../notifications/notifications.module';
 @Module({
   imports: [NotificationsModule],
   controllers: [StockController],
-  providers: [StockService],
+  providers: [StockService, StockCostService],
 })
 export class StockModule {}
