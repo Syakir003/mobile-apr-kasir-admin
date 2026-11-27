@@ -58,9 +58,12 @@ export class StockInDto {
   @ArrayMinSize(1)
   rolls?: StockInRollDto[];
 
+  // Boleh dikosongkan (barang diterima tanpa nota) -> disimpan NULL, admin
+  // mengisi belakangan lewat StockCostService.
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  buyPrice: number;
+  buyPrice?: number;
 
   // Siklus harga-seragam (2026-09-22) — sellPrice DIHAPUS dari sini. Harga
   // jual produk sekarang SATU angka seragam di Product.sellPrice, diatur

@@ -64,6 +64,7 @@ export class StockService {
     if (dto.qty !== undefined && dto.qty <= 0 && !allowsZeroQty) {
       throw new BadRequestException('Qty harus lebih dari 0');
     }
+    const price = dto.buyPrice ?? null; // null = belum diisi, BUKAN nol
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         if (dto.kind === 'sparepart') {
@@ -99,7 +100,7 @@ export class StockService {
                   kind: 'sparepart',
                   refId: dto.refId,
                   supplierName: dto.supplierName,
-                  buyPrice: dto.buyPrice,
+                  buyPrice: price,
                   sellPrice: 0, // placeholder, gak dipakai — sparepart harga jual tetap dari Sparepart.sellPrice
                   stock: roll.length,
                 },
@@ -136,7 +137,7 @@ export class StockService {
                   name: sparepart.name,
                   rolls: dto.rolls.map((r) => r.length),
                   totalQty,
-                  buyPrice: dto.buyPrice,
+                  buyPrice: price,
                   batchIds,
                   movementIds,
                   note: dto.note ?? null,
@@ -158,6 +159,7 @@ export class StockService {
               name: sparepart.name,
               previousStock,
               newStock: previousStock + totalQty,
+              costPending: price === null,
             };
           }
 
@@ -203,14 +205,15 @@ export class StockService {
           const existingSparepartCost = await tx.itemCost.findFirst({
             where: { kind: 'sparepart', refId: dto.refId },
           });
-          if (existingSparepartCost) {
+          if (!existingSparepartCost) {
+            await tx.itemCost.create({
+              data: { kind: 'sparepart', refId: dto.refId, buyPrice: price, sellPrice: 0, stock: 0 },
+            });
+          } else if (price !== null) {
+            // Tanpa harga: baris tidak disentuh, harga lama & updatedAt tetap.
             await tx.itemCost.update({
               where: { id: existingSparepartCost.id },
-              data: { buyPrice: dto.buyPrice },
-            });
-          } else {
-            await tx.itemCost.create({
-              data: { kind: 'sparepart', refId: dto.refId, buyPrice: dto.buyPrice, sellPrice: 0, stock: 0 },
+              data: { buyPrice: price },
             });
           }
 
@@ -223,7 +226,7 @@ export class StockService {
                 kind: dto.kind,
                 name,
                 qty: dto.qty,
-                buyPrice: dto.buyPrice,
+                buyPrice: price,
                 previousStock,
                 note: dto.note ?? null,
               },
@@ -237,6 +240,8 @@ export class StockService {
             name,
             previousStock,
             newStock: previousStock + dto.qty,
+            costPending:
+              price === null && (!existingSparepartCost || existingSparepartCost.buyPrice === null),
           };
         }
 
@@ -267,17 +272,17 @@ export class StockService {
             );
           }
 
-          const { isBelowCost, effectivePrice } = checkBelowCost({
-            buyPrice: dto.buyPrice,
-            sellPrice: Number(indoorProduct.sellPrice),
-          });
+          const { isBelowCost, effectivePrice } =
+            price === null
+              ? { isBelowCost: false, effectivePrice: 0 }
+              : checkBelowCost({ buyPrice: price, sellPrice: Number(indoorProduct.sellPrice) });
           if (isBelowCost && !dto.confirmOverride) {
             throw new ConfirmationRequiredException([
               {
                 refId: dto.refId,
                 itemCostId: null,
                 name: indoorProduct.name,
-                buyPrice: dto.buyPrice,
+                buyPrice: price!,
                 sellPrice: Number(indoorProduct.sellPrice),
                 discount: 0,
                 effectivePrice,
@@ -292,7 +297,7 @@ export class StockService {
           let indoorBatchId: string | null = null;
           if (indoorQty > 0) {
             const indoorBatch = await tx.itemCost.create({
-              data: { kind: 'product', refId: dto.refId, supplierName: dto.supplierName, buyPrice: dto.buyPrice, sellPrice: 0, stock: 0, pairGroupId },
+              data: { kind: 'product', refId: dto.refId, supplierName: dto.supplierName, buyPrice: price, sellPrice: 0, stock: 0, pairGroupId },
             });
             indoorBatchId = indoorBatch.id;
             await this.generateStockUnits(tx, indoorBatch.id, dto.refId, indoorProduct.sku, indoorQty);
@@ -322,7 +327,7 @@ export class StockService {
               target: dto.refId,
               detail: {
                 kind: 'product', pairMode: 'lengkap', pairGroupId,
-                indoor: { refId: dto.refId, name: indoorProduct.name, qty: indoorQty, buyPrice: dto.buyPrice, batchId: indoorBatchId },
+                indoor: { refId: dto.refId, name: indoorProduct.name, qty: indoorQty, buyPrice: price, batchId: indoorBatchId },
                 outdoor: { refId: dto.outdoorRefId, name: outdoorProduct.name, qty: outdoorQty, buyPrice: 0, batchId: outdoorBatchId },
                 note: dto.note ?? null,
                 override: isBelowCost || undefined,
@@ -336,7 +341,8 @@ export class StockService {
             refId: dto.refId,
             name: indoorProduct.name,
             qty: indoorQty,
-            buyPrice: dto.buyPrice,
+            buyPrice: price,
+            costPending: price === null && indoorQty > 0,
             pairGroupId,
             outdoorBatchId,
             outdoorQty,
@@ -360,24 +366,24 @@ export class StockService {
         // GAK kena cek "harga jual di bawah modal".
         const isPackageOutdoor =
           (await tx.product.count({ where: { pairedProductId: product.id } })) > 0;
-        if (isPackageOutdoor && dto.buyPrice > 0) {
+        if (isPackageOutdoor && (price ?? 0) > 0) {
           throw new BadRequestException(
             `${product.name} adalah Outdoor dari paket — modal dicatat per paket lewat barang masuk paket di halaman Indoor-nya (Outdoor Rp0)`,
           );
         }
-        const { isBelowCost, effectivePrice } = isPackageOutdoor
-          ? { isBelowCost: false, effectivePrice: Number(product.sellPrice) }
-          : checkBelowCost({
-              buyPrice: dto.buyPrice,
-              sellPrice: Number(product.sellPrice),
-            });
+        // Outdoor paket selalu Rp0 (modalnya di Indoor), bukan "belum diisi".
+        const unitCost = isPackageOutdoor ? 0 : price;
+        const { isBelowCost, effectivePrice } =
+          isPackageOutdoor || unitCost === null
+            ? { isBelowCost: false, effectivePrice: Number(product.sellPrice) }
+            : checkBelowCost({ buyPrice: unitCost, sellPrice: Number(product.sellPrice) });
         if (isBelowCost && !dto.confirmOverride) {
           throw new ConfirmationRequiredException([
             {
               refId: dto.refId,
               itemCostId: null,
               name: product.name,
-              buyPrice: dto.buyPrice,
+              buyPrice: unitCost!,
               sellPrice: Number(product.sellPrice),
               discount: 0,
               effectivePrice,
@@ -390,7 +396,7 @@ export class StockService {
             kind: 'product',
             refId: dto.refId,
             supplierName: dto.supplierName,
-            buyPrice: dto.buyPrice,
+            buyPrice: unitCost,
             sellPrice: 0,
             stock: 0, // placeholder — StockUnit di bawah yang nyimpen jumlah beneran (Siklus QR per-unit)
           },
@@ -418,7 +424,7 @@ export class StockService {
               kind: 'product',
               name: product.name,
               qty: dto.qty,
-              buyPrice: dto.buyPrice,
+              buyPrice: unitCost,
               supplierName: dto.supplierName ?? null,
               batchId: batch.id,
               note: dto.note ?? null,
@@ -433,7 +439,8 @@ export class StockService {
           refId: dto.refId,
           name: product.name,
           qty: dto.qty,
-          buyPrice: dto.buyPrice,
+          buyPrice: unitCost,
+          costPending: unitCost === null,
         };
       });
       return { status: 'ok' as const, ...result };

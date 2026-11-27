@@ -26,3 +26,15 @@ describe('StockInDto.pairMode/outdoorRefId (Point 2)', () => {
     expect(errors).toHaveLength(0);
   });
 });
+
+describe('StockInDto.buyPrice opsional', () => {
+  it('menerima barang masuk tanpa buyPrice', async () => {
+    const dto = plainToInstance(StockInDto, { kind: 'product', refId: 'p1', qty: 1 });
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('tetap menolak buyPrice negatif', async () => {
+    const dto = plainToInstance(StockInDto, { kind: 'product', refId: 'p1', qty: 1, buyPrice: -1 });
+    expect((await validate(dto)).length).toBeGreaterThan(0);
+  });
+});

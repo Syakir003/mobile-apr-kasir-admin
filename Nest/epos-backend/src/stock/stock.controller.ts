@@ -22,8 +22,16 @@ export class StockController {
   ) {}
 
   @Post('in')
-  stockIn(@Body() dto: StockInDto, @CurrentUser() user: CurrentUserPayload) {
-    return this.stockService.stockIn(dto, user.sub);
+  async stockIn(@Body() dto: StockInDto, @CurrentUser() user: CurrentUserPayload) {
+    const result = await this.stockService.stockIn(dto, user.sub);
+    if (result.status === 'ok' && result.costPending && user.role !== 'admin') {
+      void this.notifications.notifyRoles(['admin'], {
+        title: 'Modal Belum Diisi',
+        body: `${result.name} sudah diterima tanpa harga modal.`,
+        type: 'modal_kosong',
+      });
+    }
+    return result;
   }
 
   @Post('opname')
