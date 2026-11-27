@@ -4,8 +4,13 @@ import { ReportsService } from './reports.service';
 
 const range: [Date, Date] = [new Date('2026-11-01'), new Date('2026-11-30')];
 
-function setup(firstQueryRows: unknown[], pending: { kind: string; refId: string }[]) {
+function setup(
+  firstQueryRows: unknown[],
+  pending: { kind: string; refId: string }[],
+  pairs: { pairedProductId: string }[] = [],
+) {
   const prisma: any = {
+    product: { findMany: jest.fn().mockResolvedValue(pairs) },
     $queryRaw: jest.fn().mockResolvedValue([]).mockResolvedValueOnce(firstQueryRows),
     itemCost: { findMany: jest.fn().mockResolvedValue(pending) },
     stockMovement: { findMany: jest.fn().mockResolvedValue([]) },
@@ -59,5 +64,24 @@ describe('Laba rugi — modal belum diisi', () => {
     );
     const { detailPerItem } = await svc.profitLoss(...range);
     expect(detailPerItem[0].modalBelumDiisi).toBe(false);
+  });
+});
+
+describe('Laba rugi — ringkasan & paket AC', () => {
+  it('ringkasan memberi tahu bila ada modal belum diisi', async () => {
+    const svc = setup([salesLine], [{ kind: 'sparepart', refId: 'sp1' }]);
+    expect((await svc.profitLoss(...range)).ringkasan.adaModalBelumDiisi).toBe(true);
+    const clean = setup([salesLine], []);
+    expect((await clean.profitLoss(...range)).ringkasan.adaModalBelumDiisi).toBe(false);
+  });
+
+  it('Outdoor ikut ditandai bila modal paket (di Indoor) belum diisi', async () => {
+    const svc = setup(
+      [{ ...salesLine, kind: 'product', ref_id: 'out' }],
+      [{ kind: 'product', refId: 'in' }],
+      [{ pairedProductId: 'out' }],
+    );
+    const { detailPerItem } = await svc.profitLoss(...range);
+    expect(detailPerItem[0].modalBelumDiisi).toBe(true);
   });
 });

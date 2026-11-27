@@ -164,12 +164,6 @@ export class PosService {
             });
           }
         });
-        for (const line of packageLines) {
-          if (!line.sparepartId) continue;
-          const cost = await tx.itemCost.findFirst({ where: { kind: 'sparepart', refId: line.sparepartId } });
-          line.buyPriceSnapshot = toCost(cost?.buyPrice);
-        }
-
         // Gabung SEMUA kebutuhan lock stok jadi satu peta, di-lock urut key
         // (cegah deadlock). Produk & sparepart sama-sama dikunci per refId
         // sekarang (produk gak lagi per-batch, lihat lineKey).
@@ -199,6 +193,19 @@ export class PosService {
           const d = demand.get(key)!;
           const result = await this.stockLocking.lockAndDeduct(tx, d.kind, d.refId, d.qty, d.saleKind);
           stockResults.set(key, result);
+        }
+
+        // Modal komponen paket dibaca SESUDAH kunci di atas: koreksi harga oleh
+        // admin (StockCostService) tidak bisa commit di antara baca & simpan.
+        for (const line of packageLines) {
+          if (!line.sparepartId) continue;
+          const locked = stockResults.get(`sparepart:${line.sparepartId}`)!;
+          if (locked.batchDeductions) {
+            line.buyPriceSnapshot = locked.buyPrice; // gulungan: dari yang diambil
+          } else {
+            const cost = await tx.itemCost.findFirst({ where: { kind: 'sparepart', refId: line.sparepartId } });
+            line.buyPriceSnapshot = toCost(cost?.buyPrice);
+          }
         }
 
         // Paket AC Split (2026-09-30) — baris produk yang dijual SATUAN

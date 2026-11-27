@@ -109,8 +109,15 @@ export class StockCostService {
         // supaya checkout yang sedang jalan selesai sebelum invoice dibaca.
         if (kind === 'sparepart') {
           await tx.$queryRawUnsafe(`SELECT id FROM spareparts WHERE id = $1 FOR UPDATE`, refId);
+          await tx.$queryRawUnsafe(`SELECT id FROM item_costs WHERE id = ANY($1) ORDER BY id FOR UPDATE`, ids);
+        } else {
+          // SEMUA batch produk ini: hitung ulang membaca harga batch lain, jadi
+          // dua admin yang menyimpan batch berbeda harus antre.
+          await tx.$queryRawUnsafe(
+            `SELECT id FROM item_costs WHERE kind = 'product' AND ref_id = $1 ORDER BY id FOR UPDATE`,
+            refId,
+          );
         }
-        await tx.$queryRawUnsafe(`SELECT id FROM item_costs WHERE id = ANY($1) ORDER BY id FOR UPDATE`, ids);
 
         const costs = await tx.itemCost.findMany({ where: { id: { in: ids } } });
         if (costs.length !== ids.length || costs.some((c) => c.kind !== kind || c.refId !== refId)) {
@@ -118,7 +125,8 @@ export class StockCostService {
         }
 
         const sparepart = kind === 'sparepart' ? await tx.sparepart.findUnique({ where: { id: refId } }) : null;
-        const item = sparepart ?? (await tx.product.findUnique({ where: { id: refId } }));
+        const product = sparepart ? null : await tx.product.findUnique({ where: { id: refId } });
+        const item = sparepart ?? product;
         if (!item) throw new NotFoundException('Barang tidak ditemukan');
         if (kind === 'product' && (await tx.product.count({ where: { pairedProductId: refId } })) > 0) {
           throw new BadRequestException(`${item.name} adalah Outdoor dari paket — modal dicatat di Indoor-nya`);
@@ -155,6 +163,14 @@ export class StockCostService {
           sparepart && !sparepart.batchTracked && sales.length === 0
             ? await this.repriceFlat(tx, refId, oldPrice, dto.buyPrice, priceSetAt, packSize)
             : await this.repriceByBatch(tx, kind, refId, sales.map((m) => m.transactionId as string), packSize);
+
+        if (product?.pairedProductId) {
+          const since = new Date(Math.min(...costs.map((c) => c.createdAt.getTime())));
+          const singles = await this.repricePackageRef(
+            tx, [refId, product.pairedProductId], oldPrice, dto.buyPrice, since,
+          );
+          invoices.push(...singles.filter((n) => !invoices.includes(n)));
+        }
 
         await tx.auditLog.create({
           data: {
@@ -234,6 +250,33 @@ export class StockCostService {
       if (current === next) continue;
       if (current !== null && current !== perSaleUnit(oldPrice, l.saleKind, packSize)) continue;
       await tx.invoiceItem.update({ where: { id: l.id }, data: { buyPriceSnapshot: next } });
+      if (!changed.includes(l.invoice.number)) changed.push(l.invoice.number);
+    }
+    return changed;
+  }
+
+  /** Unit AC yang dijual satuan: modalnya 0, tetapi `package_cost_ref` dipakai
+   * laporan untuk batas bawah laba — ikut diisi/dikoreksi. */
+  private async repricePackageRef(
+    tx: Prisma.TransactionClient,
+    refIds: string[],
+    oldPrice: number | null,
+    newPrice: number,
+    since: Date,
+  ) {
+    const lines = await tx.invoiceItem.findMany({
+      where: { kind: 'product', refId: { in: refIds }, costUnallocated: true, invoice: { createdAt: { gte: since } } },
+      include: { invoice: { select: { number: true } } },
+    });
+    const changed: string[] = [];
+    for (const l of lines) {
+      const current = toCost(l.packageCostRef);
+      // Acuan = modal TERTINGGI: ganti yang kosong/berharga lama; batch yang
+      // baru diisi juga boleh menaikkannya.
+      const replace =
+        current === null || current === oldPrice || (oldPrice === null && newPrice > current);
+      if (current === newPrice || !replace) continue;
+      await tx.invoiceItem.update({ where: { id: l.id }, data: { packageCostRef: newPrice } });
       if (!changed.includes(l.invoice.number)) changed.push(l.invoice.number);
     }
     return changed;

@@ -314,3 +314,43 @@ describe('Endpoint modal', () => {
     }
   });
 });
+
+describe('StockCostService.setCost — acuan modal jual satuan dari paket', () => {
+  const indoor = { id: 'ac', name: 'Indoor', sellPrice: 9000000, pairedProductId: 'out' };
+  const single = (invoiceId: string, refId: string, packageCostRef: number | null) =>
+    line(invoiceId, 0, { refId, costUnallocated: true, packageCostRef });
+  const refs = (data: Record<string, Row[]>) => data.invoiceItem.map((i) => i.packageCostRef);
+
+  it('mengisi modal paket memperbarui acuan Indoor & Outdoor satuan sejak batch masuk', async () => {
+    const { service, data } = fakeDb({
+      product: [indoor],
+      itemCost: [cost('c1', null, { createdAt: later(30) })],
+      invoice: [invoice('lama', 't0', { createdAt: later(10) }), invoice('a', 't1'), invoice('b', 't2')],
+      invoiceItem: [single('lama', 'out', null), single('a', 'ac', null), single('b', 'out', null)],
+    });
+    const result = await service.setCost('c1', { buyPrice: 5000000 }, 'admin');
+    expect(refs(data)).toEqual([null, 5000000, 5000000]);
+    expect(data.invoiceItem.map((i) => i.buyPriceSnapshot)).toEqual([0, 0, 0]);
+    expect(result).toMatchObject({ updatedInvoiceNumbers: ['A', 'B'] });
+  });
+
+  it('koreksi mengganti acuan yang berharga lama saja', async () => {
+    const { service, data } = fakeDb({
+      product: [indoor],
+      itemCost: [cost('c1', 50000000)],
+      invoice: [invoice('a', 't1'), invoice('b', 't2')],
+      invoiceItem: [single('a', 'ac', 50000000), single('b', 'out', 4800000)],
+    });
+    await service.setCost('c1', { buyPrice: 5000000 }, 'admin');
+    expect(refs(data)).toEqual([5000000, 4800000]);
+  });
+});
+
+describe('StockCostService.setCost — kunci produk', () => {
+  it('mengunci SEMUA batch produk itu, bukan hanya yang diubah', async () => {
+    const { service, calls } = fakeDb({ product: [ac], itemCost: [cost('c1', null)] });
+    await service.setCost('c1', { buyPrice: 100 }, 'admin');
+    expect(calls[0]).toContain('ref_id = $1');
+    expect(calls[0]).toContain('ORDER BY id FOR UPDATE');
+  });
+});

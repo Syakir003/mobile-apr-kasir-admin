@@ -52,6 +52,7 @@ interface ProfitLossReport {
     // Paket AC Split: penjualan satuan HPP-nya 0, jadi labaKotor optimis.
     // Batas bawah = tiap unit satuan nanggung modal paket penuh.
     barisJualSatuanTanpaModal?: number;
+    adaModalBelumDiisi?: boolean;
     modalPaketTakTeralokasiMaks?: number;
     labaKotorTerendah?: number;
   };
@@ -454,6 +455,15 @@ export default function LaporanPage() {
                 />
                 <SummaryCard label="Margin" value={`${profitLossQuery.data.ringkasan.marginPersen}%`} />
               </div>
+
+              {profitLossQuery.data.ringkasan.adaModalBelumDiisi && (
+                <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                  Ada modal belum diisi, jadi HPP, Laba Kotor, dan Margin di atas belum final.{' '}
+                  <a href="/stock/modal" className="font-medium underline">
+                    Isi modal
+                  </a>
+                </p>
+              )}
 
               {(profitLossQuery.data.ringkasan.barisJualSatuanTanpaModal ?? 0) > 0 && (
                 <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">

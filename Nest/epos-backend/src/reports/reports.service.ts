@@ -226,6 +226,11 @@ export class ReportsService {
         totalPendapatan: totalRevenue,
         totalHpp: totalCogs, // HPP cuma dari kind 'product'/'sparepart'; 'service' selalu HPP 0
         labaKotor: grossProfit,
+        adaModalBelumDiisi: lines.some(
+          (l) =>
+            l.kind !== 'service' &&
+            pending.has(`${l.kind === 'installation_package_item' ? 'sparepart' : l.kind}:${l.ref_id}`),
+        ),
         barisJualSatuanTanpaModal: barisSatuan,
         modalPaketTakTeralokasiMaks: modalPaketMaks,
         labaKotorTerendah: grossProfit - modalPaketMaks,
@@ -314,7 +319,17 @@ export class ReportsService {
       select: { kind: true, refId: true },
       distinct: ['kind', 'refId'],
     });
-    return new Set(rows.map((r) => `${r.kind}:${r.refId}`));
+    const keys = new Set(rows.map((r) => `${r.kind}:${r.refId}`));
+    // Modal paket AC nempel di Indoor, jadi Outdoor-nya ikut belum final.
+    const indoorIds = rows.filter((r) => r.kind === 'product').map((r) => r.refId);
+    if (indoorIds.length) {
+      const pairs = await this.prisma.product.findMany({
+        where: { id: { in: indoorIds }, pairedProductId: { not: null } },
+        select: { pairedProductId: true },
+      });
+      for (const p of pairs) keys.add(`product:${p.pairedProductId}`);
+    }
+    return keys;
   }
 
   async stockMovements(
