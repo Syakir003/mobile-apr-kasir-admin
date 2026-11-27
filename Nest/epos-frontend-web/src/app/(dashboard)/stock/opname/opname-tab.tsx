@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { LoadingBlock } from '@/components/query-state';
 
 interface Sparepart {
   id: string;
@@ -163,10 +164,10 @@ function SparepartOpname() {
         <CardContent>
           <div className="relative mb-3">
             <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Cari nama atau kategori..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input aria-label="Cari sparepart" placeholder="Cari nama atau kategori..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           {sparepartsQuery.isLoading ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Memuat...</p>
+            <LoadingBlock label="Memuat data" className="py-6" />
           ) : filtered.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Tidak ada sparepart.</p>
           ) : (
@@ -217,7 +218,7 @@ function SparepartOpname() {
                 <div className="grid gap-2">
                   <p className="text-sm font-medium">Pilih gulungan yang dihitung</p>
                   {batchesQuery.isLoading ? (
-                    <p className="text-sm text-muted-foreground">Memuat gulungan...</p>
+                    <LoadingBlock label="Memuat gulungan" />
                   ) : (batchesQuery.data ?? []).length === 0 ? (
                     <p className="text-sm text-muted-foreground">Tidak ada gulungan yang masih ada stoknya.</p>
                   ) : (

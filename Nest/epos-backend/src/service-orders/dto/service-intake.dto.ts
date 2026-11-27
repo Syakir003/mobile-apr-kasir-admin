@@ -35,6 +35,11 @@ export class IntakeCustomerDto {
   // by-phone di MembersService.findOrCreate(). Sama pola persis kayak
   // CheckoutCustomerDto.memberId di pos/dto/checkout.dto.ts.
   @IsOptional() @IsString() memberId?: string;
+  // Pelanggan BARU yang memakai multi lokasi (AC di beberapa tempat): menyalakan saklar saat member dibuat. Diabaikan
+  // untuk member lama (ubah lewat halaman member). Lokasi 1 = alamat yang diisi di sini; nama boleh diberi lewat
+  // mainLocationName.
+  @IsOptional() @IsBoolean() multiLocation?: boolean;
+  @IsOptional() @IsString() @MaxLength(100) mainLocationName?: string;
 }
 
 /** Data unit AC yang BELUM PERNAH tercatat di sistem. Semua optional — kasir
@@ -136,6 +141,14 @@ export class ServiceIntakeDto {
   @ValidateNested({ each: true })
   @Type(() => IntakeLocationDto)
   locations?: IntakeLocationDto[];
+
+  /**
+   * Lokasi pekerjaan untuk member multi lokasi: 'utama' (Lokasi 1 = alamat utama) atau id lokasi tambahan. WAJIB bila
+   * member memakai multi lokasi (kecuali pelanggan baru yang saklarnya dinyalakan di request ini: otomatis Lokasi 1).
+   * Unit yang dipilih harus berada di lokasi ini; unit baru dan slot yang discan teknisi ikut lokasi ini. Titik lokasi
+   * kerja manual (`locations`) tidak dipakai untuk member multi lokasi.
+   */
+  @IsOptional() @IsString() @MaxLength(64) locationId?: string;
 
   @IsOptional() @IsString() technicianId?: string;
   // Beberapa teknisi setara (maks 5); menang atas technicianId bila dua-duanya ada.

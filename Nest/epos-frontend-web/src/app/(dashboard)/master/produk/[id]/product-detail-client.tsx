@@ -52,6 +52,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Halaman detail produk — GABUNGAN "lihat batch" + "barang masuk" jadi
 // satu halaman penuh (bukan dialog popup lagi), per keputusan 2026-09-15:
@@ -313,10 +314,10 @@ export function ProductDetailClient({ productId, isAdmin }: { productId: string;
   }
 
   if (productQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Memuat produk...</p>;
+    return <LoadingBlock label="Memuat produk" />;
   }
   if (productQuery.isError || !product) {
-    return <p className="text-sm text-destructive">Gagal memuat data produk.</p>;
+    return <ErrorBlock title="Gagal memuat data produk" detail="Periksa koneksi internet, lalu muat ulang halaman." />;
   }
 
   const outdoor = outdoorQuery.data;
@@ -429,7 +430,7 @@ export function ProductDetailClient({ productId, isAdmin }: { productId: string;
             {view === 'unit' ? (
               <UnitStockList productId={productId} showRole={isPackage || !!packageIndoor} />
             ) : batchesQuery.isLoading ? (
-              <p className="text-sm text-muted-foreground">Memuat batch...</p>
+              <LoadingBlock label="Memuat batch" />
             ) : batchGroups.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Belum ada batch aktif - produk ini belum punya stok. Isi form di kanan buat mulai.
@@ -747,9 +748,9 @@ function UnitStockList({ productId, showRole }: { productId: string; showRole: b
       </div>
 
       {unitsQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground">Memuat unit...</p>
+        <LoadingBlock label="Memuat unit" />
       ) : unitsQuery.isError ? (
-        <p className="text-sm text-destructive">Gagal memuat daftar unit.</p>
+        <ErrorBlock title="Gagal memuat daftar unit" detail="Periksa koneksi internet, lalu muat ulang halaman." />
       ) : list.total === 0 ? (
         <p className="text-sm text-muted-foreground">
           {list.search ? 'Tidak ada unit yang cocok dengan pencarian.' : 'Belum ada unit dengan status ini.'}

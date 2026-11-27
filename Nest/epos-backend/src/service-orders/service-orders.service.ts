@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, TechnicianJobStatus } from '@prisma/client';
+import { Member, Prisma, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembersService } from '../members/members.service';
 import { AcUnitsService } from '../ac-units/ac-units.service';
@@ -7,6 +7,13 @@ import { TechnicianJobsService } from '../technician-jobs/technician-jobs.servic
 import { assertNoActiveJob } from '../technician-jobs/active-job.util';
 import { assertValidTechnicians, normalizeTechnicianIds } from '../technician-jobs/job-assignees';
 import { resolveWorkLocation } from './work-location.util';
+import {
+  assertUnitAtLocation,
+  jobWorkLocation,
+  mainLocationName,
+  resolveLocationChoice,
+  type ResolvedLocation,
+} from '../common/member-location.util';
 import { IntakeUnitDto, ServiceIntakeDto } from './dto/service-intake.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import { isUnitLabeled } from '../ac-units/unit-label-status.util';
@@ -30,6 +37,39 @@ export class ServiceOrdersService {
   ) {}
 
   /**
+   * Order manual (POST /service-orders, dipakai app mobile) tidak punya field lokasi. Untuk member multi lokasi, lokasi
+   * pekerjaan DITURUNKAN dari unit yang dipilih: semua unit harus berada di satu lokasi (campur ditolak: buat order
+   * terpisah per lokasi). Order lalu tercatat di lokasi itu dan alamat + link Maps lokasi itu jadi lokasi kerja job,
+   * sama seperti Terima Servis di web. Member tanpa multi lokasi: tanpa lokasi (perilaku lama).
+   */
+  private locationFromUnits(
+    member: { multiLocation: boolean; mainLocationName: string | null; address: string | null; mapsUrl: string | null },
+    units: {
+      locationId: string | null;
+      location: { name: string; address: string | null; mapsUrl: string | null } | null;
+    }[],
+  ): ResolvedLocation {
+    if (!member.multiLocation) return { locationId: null, name: null, address: null, mapsUrl: null };
+    const nameOf = (u: (typeof units)[number]) => u.location?.name ?? mainLocationName(member);
+    if (new Set(units.map((u) => u.locationId ?? null)).size > 1) {
+      const names = [...new Set(units.map(nameOf))];
+      throw new BadRequestException(
+        `Unit yang dipilih berada di lokasi berbeda (${names.join(', ')}). Buat order terpisah untuk tiap lokasi.`,
+      );
+    }
+    const first = units[0];
+    if (!first.locationId) {
+      return { locationId: null, name: mainLocationName(member), address: member.address, mapsUrl: member.mapsUrl };
+    }
+    return {
+      locationId: first.locationId,
+      name: first.location?.name ?? null,
+      address: first.location?.address ?? null,
+      mapsUrl: first.location?.mapsUrl ?? null,
+    };
+  }
+
+  /**
    * POST /service-orders — port RPC create_service_order (migrasi Supabase
    * 0013) untuk app mobile: 1 order, N unit milik member yang sama, 1 job per
    * unit (lewat createForOrder, sama kayak intake). unitIds duplikat dibuang.
@@ -40,11 +80,16 @@ export class ServiceOrdersService {
     const technicianIds = normalizeTechnicianIds(dto);
     await assertValidTechnicians(this.prisma, technicianIds);
     const unitIds = [...new Set(dto.unitIds)];
-    const units = await this.prisma.memberAcUnit.findMany({ where: { id: { in: unitIds } } });
+    const units = await this.prisma.memberAcUnit.findMany({
+      where: { id: { in: unitIds } },
+      include: { location: { select: { name: true, address: true, mapsUrl: true } } },
+    });
     if (units.length !== unitIds.length) throw new NotFoundException('Unit AC tidak ditemukan');
     if (units.some((u) => u.memberId !== member.id)) {
       throw new BadRequestException('Unit AC bukan milik member tersebut');
     }
+    // Member multi lokasi: lokasi order diturunkan dari unit yang dipilih (campur lokasi ditolak).
+    const location = this.locationFromUnits(member, units);
 
     const scheduledDate = dto.scheduledDate ? new Date(dto.scheduledDate) : undefined;
     return this.prisma.$transaction(async (tx) => {
@@ -57,6 +102,7 @@ export class ServiceOrdersService {
           note: dto.note?.trim() || null,
           scheduledDate,
           createdById: actorId,
+          locationId: location.locationId,
         },
       });
       const assignedJobs: { jobId: string; technicianId: string | null; technicianIds: string[] }[] = [];
@@ -70,6 +116,7 @@ export class ServiceOrdersService {
           type: dto.type,
           actorId,
           scheduledDate,
+          ...jobWorkLocation(location),
         });
         assignedJobs.push({ jobId: job.id, technicianId: job.technicianId, technicianIds });
       }
@@ -78,7 +125,13 @@ export class ServiceOrdersService {
           actorUid: actorId,
           action: 'order.create',
           target: order.id,
-          detail: { type: dto.type, jobs: unitIds.length, technicianId: technicianIds[0] ?? null, technicianIds },
+          detail: {
+            type: dto.type,
+            jobs: unitIds.length,
+            technicianId: technicianIds[0] ?? null,
+            technicianIds,
+            ...(member.multiLocation ? { locationId: location.locationId, locationName: location.name } : {}),
+          },
         },
       });
       return { ok: true, orderId: order.id, jobCount: unitIds.length, assignedJobs };
@@ -144,19 +197,41 @@ export class ServiceOrdersService {
       // member LAMA dari pencarian di form intake, pakai persis member itu
       // (skip findOrCreate by-phone) -> aman dari typo nomor HP yang bisa
       // bikin member duplikat gak sengaja.
-      const member = dto.customer.memberId
-        ? await tx.member.findUnique({ where: { id: dto.customer.memberId } })
-        : (
-            await this.members.findOrCreate(
-              tx,
-              dto.customer.name,
-              dto.customer.phone,
-              dto.customer.address,
-              'retail',
-              dto.customer.mapsUrl,
-            )
-          ).member;
+      let member: Member | null;
+      let memberIsNew = false;
+      if (dto.customer.memberId) {
+        member = await tx.member.findUnique({ where: { id: dto.customer.memberId } });
+      } else {
+        const found = await this.members.findOrCreate(
+          tx,
+          dto.customer.name,
+          dto.customer.phone,
+          dto.customer.address,
+          'retail',
+          dto.customer.mapsUrl,
+        );
+        member = found.member;
+        memberIsNew = found.isNew;
+      }
       if (!member) throw new NotFoundException('Member yang dipilih tidak ditemukan');
+      // Pelanggan BARU yang memakai multi lokasi: saklar dinyalakan di member yang baru dibuat ini (member lama diatur
+      // lewat halaman member). Lokasi 1 = alamat yang diisi di form.
+      const enableMultiLocation = memberIsNew && !!dto.customer.multiLocation;
+      if (enableMultiLocation) {
+        member = await tx.member.update({
+          where: { id: member.id },
+          data: { multiLocation: true, mainLocationName: dto.customer.mainLocationName?.trim() || null },
+        });
+      }
+      // Member multi lokasi: admin WAJIB memilih lokasi pekerjaan; semua unit order berada di lokasi itu, dan alamat +
+      // link Maps lokasi itu menjadi lokasi kerja job (menggantikan titik lokasi kerja manual).
+      const location = await resolveLocationChoice(tx, member, dto.locationId, { fallbackToMain: enableMultiLocation });
+      if (member.multiLocation && dto.locations?.length) {
+        throw new BadRequestException(
+          'Titik lokasi kerja manual tidak dipakai untuk member multi lokasi. Pilih lokasi pekerjaannya saja.',
+        );
+      }
+      const locationWork = jobWorkLocation(location);
       // Member lama (dipilih / ketemu via HP) belum tentu punya link lokasi: perbarui kalau kasir mengisinya.
       if (dto.customer.mapsUrl && member.mapsUrl !== dto.customer.mapsUrl) {
         await tx.member.update({ where: { id: member.id }, data: { mapsUrl: dto.customer.mapsUrl } });
@@ -169,21 +244,29 @@ export class ServiceOrdersService {
       let newUnitCount = 0;
       for (const e of entries) {
         if (e.existingUnitId) {
-          const existing = await tx.memberAcUnit.findUnique({ where: { id: e.existingUnitId } });
+          const existing = await tx.memberAcUnit.findUnique({
+            where: { id: e.existingUnitId },
+            include: { location: { select: { name: true } } },
+          });
           if (!existing) throw new NotFoundException('Unit AC tidak ditemukan');
           if (existing.memberId !== member.id) {
             throw new BadRequestException(
               'Unit ini terdaftar atas nama member lain — konfirmasi manual ke customer dulu sebelum lanjut',
             );
           }
+          assertUnitAtLocation(existing, member, location);
           units.push({ ...existing, labeled: await isUnitLabeled(tx, existing) });
         } else {
           const nu = e.newUnit!;
           // "QR dulu" = jalur yang sama dengan Input Data Lampau (status menunggu_data, pengingat OFF); teknisi
           // melengkapi lewat Scan Unit (POST /ac-units/:id/complete-data), admin dikabari lewat lonceng.
           const created = nu.qrDulu
-            ? await this.acUnits.createLegacy(tx, member.id, { mode: 'qr_dulu', roomLocation: nu.roomLocation })
-            : await this.acUnits.registerExisting(tx, member.id, nu);
+            ? await this.acUnits.createLegacy(tx, member.id, {
+                mode: 'qr_dulu',
+                roomLocation: nu.roomLocation,
+                locationId: location.locationId,
+              })
+            : await this.acUnits.registerExisting(tx, member.id, { ...nu, locationId: location.locationId });
           if (nu.qrDulu) qrDuluCount++;
           newUnitCount++;
           units.push({ ...created, labeled: false });
@@ -206,6 +289,7 @@ export class ServiceOrdersService {
           note: workDescription ?? complaint,
           scheduledDate,
           createdById: actorId,
+          locationId: location.locationId,
         },
       });
 
@@ -229,7 +313,7 @@ export class ServiceOrdersService {
             actorId,
             scheduledDate,
             complaint,
-            ...resolveWorkLocation(dto.locations, undefined),
+            ...(member.multiLocation ? locationWork : resolveWorkLocation(dto.locations, undefined)),
           }),
         );
       }
@@ -247,7 +331,7 @@ export class ServiceOrdersService {
             actorId,
             scheduledDate,
             complaint,
-            ...unitLocations[i],
+            ...(member.multiLocation ? locationWork : unitLocations[i]),
           }),
         );
       }
@@ -265,6 +349,7 @@ export class ServiceOrdersService {
             jobIds: [...jobs, ...slotJobs].map((j) => j.id),
             ...(slotCount > 0 ? { scanSlots: slotCount, slotJobIds: slotJobs.map((j) => j.id) } : {}),
             ...(qrDuluCount > 0 ? { qrDulu: true, qrDuluCount } : {}),
+            ...(member.multiLocation ? { locationId: location.locationId, locationName: location.name } : {}),
           },
         },
       });
@@ -319,6 +404,8 @@ export class ServiceOrdersService {
         createdBy: { select: { id: true, displayName: true } },
         serviceOrderUnits: { include: { unit: { include: UNIT_PRODUCTS_SELECT } } },
         units: { include: { technician: { select: { id: true, displayName: true } } } },
+        // Lokasi pekerjaan (member multi lokasi); null = Lokasi 1 / member tanpa multi lokasi.
+        location: { select: { id: true, name: true } },
       },
     });
     if (!order) throw new NotFoundException('Service order tidak ditemukan');

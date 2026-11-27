@@ -14,6 +14,7 @@ import { formatDate } from '@/lib/format';
 import { MAPS_INPUT_PLACEHOLDER } from '@/lib/maps-input';
 import { checkAddress, fixAddress, isMapsLink } from '@/lib/address-check';
 import { AddressHint } from '@/components/address-hint';
+import { MultiLocationFields } from '@/components/multi-location-fields';
 import { phoneError } from '@/lib/phone';
 import { TIER_LABEL, TIER_OPTIONS, type PriceTier } from '@/lib/price-tier';
 import { Badge } from '@/components/ui/badge';
@@ -51,6 +52,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { panelClass } from '@/components/ui/panel';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Setiap checkout POS/servis otomatis bikin (atau reuse) row Member lewat
 // MembersService.findOrCreate — halaman ini nampilin daftar SEMUA member
@@ -97,6 +100,9 @@ const createMemberSchema = z.object({
   customerType: z.enum(['rumah', 'perusahaan', 'toko', '']).optional(),
   // Tipe pembeli (2026-10-13) — menentukan harga & hak beli di POS.
   priceTier: z.enum(['retail', 'installer', 'reseller']),
+  // Multi lokasi: AC di beberapa tempat dalam satu member (alamat di atas = Lokasi 1).
+  multiLocation: z.boolean(),
+  mainLocationName: z.string().optional(),
 }).superRefine((v, ctx) => {
   // Alamat (bila diisi) wajib menyebut kabupaten/kota, kecuali Link Maps sudah diisi: lihat lib/address-check.
   const c = checkAddress(v.address, { hasMapsLink: isMapsLink(v.mapsUrl) });
@@ -110,6 +116,8 @@ const emptyCreateValues: CreateMemberValues = {
   mapsUrl: '',
   customerType: '',
   priceTier: 'retail',
+  multiLocation: false,
+  mainLocationName: '',
 };
 
 export default function MembersPage() {
@@ -146,6 +154,8 @@ export default function MembersPage() {
 
   // Link Maps yang sedang diketik: bila berupa link, aturan "alamat wajib memuat kabupaten/kota" tidak berlaku.
   const createMapsUrl = useWatch({ control: createForm.control, name: 'mapsUrl' });
+  const createMulti = useWatch({ control: createForm.control, name: 'multiLocation' });
+  const createMainName = useWatch({ control: createForm.control, name: 'mainLocationName' });
 
   function openCreate() {
     createForm.reset(emptyCreateValues);
@@ -162,6 +172,9 @@ export default function MembersPage() {
         mapsUrl: values.mapsUrl?.trim() || undefined,
         customerType: values.customerType || undefined,
         priceTier: values.priceTier,
+        ...(values.multiLocation
+          ? { multiLocation: true, mainLocationName: values.mainLocationName?.trim() || undefined }
+          : {}),
         confirmOverride: values.confirmOverride,
       }),
     onSuccess: (result) => {
@@ -204,7 +217,7 @@ export default function MembersPage() {
       </div>
 
       {/* Daftar member: satu panel (pita judul + pencarian, isi, pagination) seperti section di halaman detail. */}
-      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className={panelClass}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/60 px-5 py-3">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-semibold tracking-tight">Daftar Member</h2>
@@ -222,8 +235,8 @@ export default function MembersPage() {
           </div>
         </div>
 
-        {isLoading && <p className="px-5 py-6 text-sm text-muted-foreground">Memuat member...</p>}
-        {isError && <p className="px-5 py-6 text-sm text-destructive">Gagal memuat data member.</p>}
+        {isLoading && <LoadingBlock label="Memuat member" className="px-5 py-6" />}
+        {isError && <ErrorBlock title="Gagal memuat data member" detail="Periksa koneksi internet, lalu muat ulang halaman." className="px-5 py-6" />}
         {!isLoading && !isError && (!data || data.items.length === 0) && (
           <p className="px-5 py-6 text-sm text-muted-foreground">
             {debounced ? 'Tidak ada member yang cocok.' : 'Belum ada member.'}
@@ -403,6 +416,13 @@ export default function MembersPage() {
                     <FormMessage />
                   </FormItem>
                 )}
+              />
+              <MultiLocationFields
+                idPrefix="create-member"
+                enabled={createMulti}
+                onEnabledChange={(v) => createForm.setValue('multiLocation', v)}
+                mainName={createMainName ?? ''}
+                onMainNameChange={(v) => createForm.setValue('mainLocationName', v)}
               />
               <DialogFooter>
                 <Button type="submit" disabled={createMutation.isPending}>

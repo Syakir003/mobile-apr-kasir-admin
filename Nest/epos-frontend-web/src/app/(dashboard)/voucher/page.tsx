@@ -47,7 +47,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PanelTitle } from '@/components/ui/panel';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Padanan model `Voucher` Prisma (rework 2026-09 — bukan lagi
 // VoucherCampaign+VoucherClaim). Satu baris = satu voucher ad-hoc, TERIKAT
@@ -163,15 +164,15 @@ export default function VoucherPage() {
         </Button>
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat voucher...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat data voucher.</p>}
+      {isLoading && <LoadingBlock label="Memuat voucher" />}
+      {isError && <ErrorBlock title="Gagal memuat data voucher" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {!isLoading && !isError && (!data || data.length === 0) && (
         <p className="text-sm text-muted-foreground">
           Belum ada voucher. Klik &ldquo;Buat Voucher&rdquo; untuk mulai.
         </p>
       )}
       {!isLoading && !isError && data && data.length > 0 && (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className={panelClass}>
           <PanelTitle title="Daftar Voucher" count={data.length} />
           <Table>
             <TableHeader>
@@ -340,7 +341,7 @@ function CreateVoucherDialog({
           ) : (
             <div className="relative">
               <Search className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-              <Input
+              <Input aria-label="Cari pelanggan"
                 className="pl-8"
                 placeholder="Cari nama/nomor HP pelanggan..."
                 value={query}

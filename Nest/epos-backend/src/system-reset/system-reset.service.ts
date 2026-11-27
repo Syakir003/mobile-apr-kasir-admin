@@ -77,6 +77,9 @@ export class SystemResetService {
           // sebelum unit AC, kalau tidak seluruh reset gagal dengan error foreign key.
           await del(tx, 'acUnitCorrection', (t) => t.acUnitCorrection.deleteMany());
           await del(tx, 'memberAcUnit', (t) => t.memberAcUnit.deleteMany());
+          // Lokasi tambahan member (FK RESTRICT dari unit & order, ON DELETE CASCADE dari member): unit dan order sudah
+          // terhapus di atas, jadi aman dihapus sebelum member.
+          await del(tx, 'memberLocation', (t) => t.memberLocation.deleteMany());
           await del(tx, 'member', (t) => t.member.deleteMany());
           // Counter barcode unit AC — cuma aman direset kalau MemberAcUnit
           // ikut kehapus juga (di atas), biar gak ada barcode baru yang

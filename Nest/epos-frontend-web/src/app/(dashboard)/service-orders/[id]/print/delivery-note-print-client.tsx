@@ -8,6 +8,7 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Box, FormSheet, HLine, Txt, VLine } from '@/components/form-sheet';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 interface InvoiceItem {
   id: string;
@@ -64,8 +65,8 @@ export function DeliveryNotePrintClient({ serviceOrderId }: { serviceOrderId: st
     queryFn: () => apiClient.get<ServiceOrderDetail>(`/service-orders/${serviceOrderId}`),
   });
 
-  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Memuat surat jalan...</p>;
-  if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat surat jalan.</p>;
+  if (isLoading) return <LoadingBlock label="Memuat surat jalan" className="p-6" />;
+  if (isError || !data) return <ErrorBlock title="Gagal memuat surat jalan" detail="Periksa koneksi internet, lalu muat ulang halaman." className="p-6" />;
 
   if (!data.invoice) {
     return (

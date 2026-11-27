@@ -4,10 +4,11 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { CheckCheck, Printer, Search } from 'lucide-react';
+import { CheckCheck, Printer, Search, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatDate } from '@/lib/format';
+import { DeleteUnitsDialog } from '@/components/delete-units-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -59,6 +60,8 @@ export function LabelTab() {
   const [term, setTerm] = React.useState('');
   const [page, setPage] = React.useState(1);
   const [picked, setPicked] = React.useState<Set<string>>(new Set());
+  // Hapus unit yang dicentang (data yang tidak jadi dipakai, mis. "QR dulu" yang tidak pernah terisi).
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
 
   const { data, isFetching } = useQuery({
     queryKey: ['unit-labels', 'list', label, dataF, term, page],
@@ -124,7 +127,7 @@ export function LabelTab() {
           }}
         >
           <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-          <Input className="w-full pl-8 md:w-64" placeholder="Cari member / alamat / ruangan / kode" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input aria-label="Cari unit untuk label" className="w-full pl-8 md:w-64" placeholder="Cari member / alamat / ruangan / kode" value={q} onChange={(e) => setQ(e.target.value)} />
         </form>
         <Select value={label} onValueChange={(v) => { setLabel(v); setPage(1); }}>
           <SelectTrigger className="w-full md:w-44"><SelectValue /></SelectTrigger>
@@ -141,9 +144,26 @@ export function LabelTab() {
           <Button size="sm" variant="outline" disabled={picked.size === 0 || attach.isPending} onClick={() => attach.mutate([...picked])}>
             <CheckCheck className="size-4" /> Tandai sudah ditempel
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-destructive hover:text-destructive"
+            disabled={picked.size === 0 || picked.size > 200}
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2 className="size-4" /> Hapus ({picked.size})
+          </Button>
         </div>
       </div>
       {picked.size > 100 && <p className="text-sm text-destructive">Maksimal 100 label sekali cetak.</p>}
+      {picked.size > 200 && <p className="text-sm text-destructive">Maksimal 200 unit sekali hapus.</p>}
+      {deleteOpen && picked.size > 0 && (
+        <DeleteUnitsDialog
+          unitIds={[...picked]}
+          onClose={() => setDeleteOpen(false)}
+          onDone={() => setPicked(new Set())}
+        />
+      )}
 
       <Card className="gap-0 overflow-hidden py-0">
         <CardContent className="p-0">

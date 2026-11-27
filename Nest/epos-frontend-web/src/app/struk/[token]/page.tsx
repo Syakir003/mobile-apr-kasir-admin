@@ -22,12 +22,12 @@ export default async function StrukPage({ params }: { params: Promise<{ token: s
   const { work, ...data } = (await res.json()) as ReceiptData & { work: PublicWork | null };
 
   return (
-    <main className="min-h-screen bg-gray-100 px-4 py-6">
+    <main className="min-h-screen bg-background px-4 py-6">
       <div className="mx-auto flex w-full max-w-[18.2rem] flex-col gap-4">
         {/* Logo toko berwarna di atas nota (kertas nota sendiri tanpa logo hitam-putih supaya tidak dobel). */}
         <header className="flex justify-center pt-1 pb-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-apr-hd.png" alt="Ayub AC" className="h-auto w-32" />
+          <img src="/logo-apr-hd.png" alt="Ayub AC" width={1052} height={544} className="h-auto w-32" />
         </header>
 
         <ReceiptView data={data} zoom={1.6} showLogo={false} />

@@ -42,6 +42,7 @@ import {
   type ScheduleItem,
   type ScheduleResponse,
 } from '../../schedule-shared';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Jadwal servis semua set AC milik SATU pelanggan (dibuka dari daftar Monitoring Jadwal). Aksi per set AC
 // (kirim pengingat sekarang, atur siklus) ada di sini, bukan di daftar utama.
@@ -143,8 +144,8 @@ export function MemberScheduleClient({ memberId }: { memberId: string }) {
         )}
       </div>
 
-      {query.isLoading && <p className="text-sm text-muted-foreground">Memuat jadwal...</p>}
-      {query.isError && <p className="text-sm text-destructive">Gagal memuat jadwal servis pelanggan ini.</p>}
+      {query.isLoading && <LoadingBlock label="Memuat jadwal" />}
+      {query.isError && <ErrorBlock title="Gagal memuat jadwal servis pelanggan ini" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {query.data && items.length === 0 && (
         <p className="text-sm text-muted-foreground">
           Pelanggan ini belum punya AC yang dipantau (AC belum dipasang, atau pelanggan sudah nonaktif).{' '}

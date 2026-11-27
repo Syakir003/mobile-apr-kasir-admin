@@ -4,12 +4,11 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
 import { formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -27,8 +26,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PanelTitle } from '@/components/ui/panel';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
 import { PrintMenu } from '@/components/print-menu';
+import { PaginationButtons } from '@/components/pagination-buttons';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Semua transaksi POS (bukan cuma punya 1 member kayak /members/[id]) —
 // bisa dicari nomor/nama/HP, difilter status & rentang tanggal, dan
@@ -164,15 +165,15 @@ export default function InvoicesPage() {
         </div>
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat transaksi...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat riwayat transaksi.</p>}
+      {isLoading && <LoadingBlock label="Memuat transaksi" />}
+      {isError && <ErrorBlock title="Gagal memuat riwayat transaksi" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {data && data.items.length === 0 && (
         <p className="text-sm text-muted-foreground">Tidak ada transaksi yang cocok.</p>
       )}
 
       {data && data.items.length > 0 && (
         <>
-          <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <div className={panelClass}>
             <PanelTitle title="Riwayat Transaksi" count={data.total} />
             <Table>
               <TableHeader>
@@ -192,7 +193,15 @@ export default function InvoicesPage() {
                     className="cursor-pointer"
                     onClick={() => router.push(`/invoices/${inv.id}`)}
                   >
-                    <TableCell className="font-medium">{inv.number}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link
+                        href={`/invoices/${inv.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {inv.number}
+                      </Link>
+                    </TableCell>
                     <TableCell
                       className="text-muted-foreground"
                       onClick={(e) => inv.member && e.stopPropagation()}
@@ -230,24 +239,12 @@ export default function InvoicesPage() {
             <p className="text-sm text-muted-foreground">
               Halaman {data.page} dari {data.totalPages} ({data.total} transaksi)
             </p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                disabled={page >= data.totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
+            <PaginationButtons
+              canPrev={page > 1}
+              canNext={page < data.totalPages}
+              onPrev={() => setPage((p) => p - 1)}
+              onNext={() => setPage((p) => p + 1)}
+            />
           </div>
         </>
       )}

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { UnitPartsList, type UnitPartProduct } from '@/components/ac-unit-parts';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronRight, Pencil, Printer } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Pencil, Printer, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { apiClient, ApiError } from '@/lib/api-client';
@@ -22,7 +22,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardAction, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { DeleteUnitsDialog } from '@/components/delete-units-dialog';
 import { EditMemberDialog } from './edit-member-dialog';
+import {
+  LocationsCard,
+  MoveUnitsBar,
+  MoveUnitsDialog,
+  unitLocationName,
+  type MemberLocationRow,
+} from './member-locations';
 import {
   Table,
   TableBody,
@@ -31,6 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 interface InvoiceItem {
   id: string;
@@ -59,6 +68,9 @@ interface MemberAcUnitRow {
   status: string;
   installationDate: string | null;
   lastServiceDate: string | null;
+  // Lokasi unit (member multi lokasi); null = Lokasi 1 (alamat utama).
+  locationId?: string | null;
+  location?: { id: string; name: string } | null;
 }
 interface MemberDetail {
   id: string;
@@ -72,6 +84,10 @@ interface MemberDetail {
   notes: string | null;
   active: boolean;
   waOptOut: boolean;
+  // Multi lokasi: Lokasi 1 = alamat utama (mainLocationName = namanya), lokasi lain di `locations`.
+  multiLocation: boolean;
+  mainLocationName: string | null;
+  locations: MemberLocationRow[];
   acUnits: MemberAcUnitRow[];
   invoices: MemberInvoice[];
 }
@@ -90,15 +106,24 @@ export function MemberDetailClient({
   memberId,
   canEditTier,
   canEdit,
+  canDelete = false,
 }: {
   memberId: string;
   canEditTier: boolean;
   // Ubah data member (nama, HP, alamat, link Maps, dst.): admin & kasir, sama dengan PATCH /members/:id.
   canEdit: boolean;
+  // Hapus unit AC member yang tidak jadi dipakai: admin saja (POST /ac-units/delete).
+  canDelete?: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = React.useState(false);
+  // Unit AC yang dicentang untuk dipindah ke lokasi lain (hanya member multi lokasi).
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  // Hapus unit yang dicentang (admin): dialog konfirmasi + hasil.
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+  // Lokasi baru yang baru dibuat dari dialog Ubah Member: menawarkan memindahkan unit ke lokasi itu (id lokasi tujuan).
+  const [moveOffer, setMoveOffer] = React.useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['members', memberId],
@@ -133,14 +158,43 @@ export function MemberDetailClient({
     },
   });
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">Memuat member...</p>;
+  if (isLoading) return <LoadingBlock label="Memuat member" />;
   if (isError || !data) {
-    return <p className="text-sm text-destructive">Gagal memuat data member.</p>;
+    return <ErrorBlock title="Gagal memuat data member" detail="Periksa koneksi internet, lalu muat ulang halaman." />;
   }
+
+  // Pilih beberapa unit untuk dipindah lokasi: hanya member multi lokasi, dan hanya yang boleh mengubah data member.
+  // Admin selalu bisa mencentang unit (untuk Hapus); kasir hanya untuk Pindahkan pada member multi lokasi.
+  const showSelect = canDelete || (canEdit && data.multiLocation);
+  const allSelected = data.acUnits.length > 0 && data.acUnits.every((u) => selected.has(u.id));
 
   return (
     <div className="grid gap-6">
-      {canEdit && <EditMemberDialog open={editOpen} onOpenChange={setEditOpen} member={data} />}
+      {canEdit && (
+        <EditMemberDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          member={data}
+          onSaved={(createdIds) => {
+            if (createdIds.length > 0) setMoveOffer(createdIds[0]);
+          }}
+        />
+      )}
+      {canDelete && deleteOpen && selected.size > 0 && (
+        <DeleteUnitsDialog
+          unitIds={[...selected]}
+          onClose={() => setDeleteOpen(false)}
+          onDone={() => setSelected(new Set())}
+        />
+      )}
+      {canEdit && moveOffer && data.multiLocation && data.acUnits.length > 0 && (
+        <MoveUnitsDialog
+          member={data}
+          units={data.acUnits}
+          initialTarget={moveOffer}
+          onClose={() => setMoveOffer(null)}
+        />
+      )}
       <div>
         <Link
           href="/members"
@@ -216,6 +270,9 @@ export function MemberDetailClient({
               label="Member Sejak"
               value={data.memberSince ? formatDate(data.memberSince) : '-'}
             />
+            {data.multiLocation && (
+              <DetailRow label="Multi Lokasi" value={`Aktif (${1 + data.locations.length} lokasi)`} />
+            )}
             <DetailRow label="Jumlah Unit AC" value={String(data.acUnits.length)} />
             <DetailRow label="Jumlah Transaksi" value={String(data.invoices.length)} />
             {data.notes && <DetailRow label="Catatan" value={data.notes} />}
@@ -237,6 +294,7 @@ export function MemberDetailClient({
         </Card>
 
         <div className="grid gap-6">
+          {data.multiLocation && <LocationsCard member={data} canEdit={canEdit} />}
           <Card className="gap-0 overflow-hidden py-0 shadow-sm">
             <CardHeader className="border-b bg-muted/60 py-4">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -270,11 +328,46 @@ export function MemberDetailClient({
               {data.acUnits.length === 0 && (
                 <p className="text-sm text-muted-foreground">Belum ada unit AC tercatat.</p>
               )}
+              {showSelect && selected.size > 0 && (
+                <div className="mb-3 grid gap-2">
+                  {canEdit && data.multiLocation && (
+                    <MoveUnitsBar member={data} selectedIds={[...selected]} onMoved={() => setSelected(new Set())} />
+                  )}
+                  {canDelete && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-sm">
+                      <span className="font-medium">{selected.size} unit dipilih</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setDeleteOpen(true)}
+                      >
+                        <Trash2 className="size-4" />
+                        Hapus unit
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        Unit dengan job aktif atau riwayat servis selesai tidak dihapus.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
               {data.acUnits.length > 0 && (
-                <div className="rounded-md border">
+                <div className="-mx-5 -mb-5 border-t">
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        {showSelect && (
+                          <TableHead className="w-8">
+                            <Checkbox
+                              aria-label="Pilih semua unit"
+                              checked={allSelected}
+                              onCheckedChange={(c) =>
+                                setSelected(c === true ? new Set(data.acUnits.map((u) => u.id)) : new Set())
+                              }
+                            />
+                          </TableHead>
+                        )}
                         <TableHead>Unit</TableHead>
                         <TableHead>Lokasi</TableHead>
                         <TableHead>Barcode</TableHead>
@@ -290,12 +383,34 @@ export function MemberDetailClient({
                           className="cursor-pointer"
                           onClick={() => router.push(`/ac-units/${u.id}`)}
                         >
+                          {showSelect && (
+                            <TableCell onClick={(e) => e.stopPropagation()}>
+                              <Checkbox
+                                aria-label="Pilih unit"
+                                checked={selected.has(u.id)}
+                                onCheckedChange={(c) =>
+                                  setSelected((prev) => {
+                                    const next = new Set(prev);
+                                    if (c === true) next.add(u.id);
+                                    else next.delete(u.id);
+                                    return next;
+                                  })
+                                }
+                              />
+                            </TableCell>
+                          )}
                           <TableCell className="font-medium">
-                            {[u.brand, u.model].filter(Boolean).join(' ') || 'Unit AC'}
+                            <Link
+                              href={`/ac-units/${u.id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              {[u.brand, u.model].filter(Boolean).join(' ') || 'Unit AC'}
+                            </Link>
                             <UnitPartsList unit={u} compact emptyText="" />
                           </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {u.roomLocation || '-'}
+                            {[unitLocationName(data, u), u.roomLocation].filter(Boolean).join(' · ') || '-'}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
                             {u.barcodeValue}
@@ -335,9 +450,9 @@ export function MemberDetailClient({
                 <p className="text-sm text-muted-foreground">Belum ada transaksi.</p>
               )}
               {data.invoices.length > 0 && (
-                <div className="grid gap-3">
+                <div className="-mx-5 -mb-5 divide-y border-t">
                   {data.invoices.map((inv) => (
-                    <div key={inv.id} className="rounded-md border p-3 transition-colors hover:bg-muted/40">
+                    <div key={inv.id} className="px-5 py-3 transition-colors hover:bg-muted/40">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="text-sm font-medium">{inv.number}</p>

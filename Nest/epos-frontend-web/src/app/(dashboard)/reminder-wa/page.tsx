@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { MonitoringTab } from './monitoring-tab';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Halaman "Pengingat WA" (admin) — tab Monitoring Jadwal (semua set AC,
 // 2026-09-30) + tab Template Pesan (padanan reminder_template_screen.dart).
@@ -88,7 +89,7 @@ export default function ReminderWaPage() {
         </TabsList>
         <TabsContent value="monitoring" className="mt-4">
           {/* MonitoringTab membaca pencarian/filter dari URL (useSearchParams) — wajib di dalam Suspense. */}
-          <React.Suspense fallback={<p className="text-sm text-muted-foreground">Memuat jadwal...</p>}>
+          <React.Suspense fallback={<LoadingBlock label="Memuat jadwal" />}>
             <MonitoringTab />
           </React.Suspense>
         </TabsContent>
@@ -126,9 +127,9 @@ function TemplatePesanTab() {
     },
   });
 
-  if (query.isLoading) return <p className="text-sm text-muted-foreground">Memuat template...</p>;
+  if (query.isLoading) return <LoadingBlock label="Memuat template" />;
   if (query.isError || !query.data) {
-    return <p className="text-sm text-destructive">Gagal memuat template pesan.</p>;
+    return <ErrorBlock title="Gagal memuat template pesan" detail="Periksa koneksi internet, lalu muat ulang halaman." />;
   }
 
   const templates = query.data.filter((t) => !TEMPLATE_DISEMBUNYIKAN.includes(t.kind));
@@ -159,7 +160,7 @@ function TemplatePesanTab() {
               )}
             </CardHeader>
             <CardContent className="grid gap-3 xl:grid-cols-2">
-              <Textarea
+              <Textarea aria-label={`Isi template ${TEMPLATE_META[tmpl.kind]?.title ?? tmpl.kind}`}
                 rows={tmpl.kind === 'invoice' ? 22 : 8}
                 className="h-full min-h-40 font-mono text-sm"
                 value={body}

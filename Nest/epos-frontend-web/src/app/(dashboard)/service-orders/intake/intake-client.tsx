@@ -24,6 +24,8 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { MemberPicker } from '@/components/member-picker';
+import { MultiLocationFields } from '@/components/multi-location-fields';
+import { MAIN_LOCATION, mainLocationLabel } from '../../members/[id]/member-locations';
 import { TechnicianMultiPicker } from '@/components/technician-multi-picker';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -43,6 +45,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import { LoadingBlock } from '@/components/query-state';
 
 // Siklus 2 — Servis Masuk Mandiri: customer yang DULU beli AC doang (checkout
 // tanpa centang "Pasang unit" -> gak ada MemberAcUnit/barcode yang lahir)
@@ -60,6 +63,7 @@ interface MemberSearchResult {
   phone: string | null;
   address: string | null;
   mapsUrl?: string | null;
+  multiLocation?: boolean;
 }
 interface AcUnitRow {
   id: string;
@@ -73,9 +77,16 @@ interface AcUnitRow {
   // Siklus servis unit (GET /members/:id mengirim semua kolom unit): dasar "jatuh tempo" pada isian otomatis.
   nextServiceDate?: string | null;
   reminderEnabled?: boolean;
+  // Lokasi unit (member multi lokasi); null = Lokasi 1 (alamat utama).
+  locationId?: string | null;
 }
 interface MemberDetail {
   id: string;
+  address: string | null;
+  // Multi lokasi: Lokasi 1 = alamat utama (mainLocationName = namanya), lokasi lain di `locations`.
+  multiLocation: boolean;
+  mainLocationName: string | null;
+  locations: { id: string; name: string; address: string | null }[];
   acUnits: AcUnitRow[];
 }
 interface UserRow {
@@ -185,6 +196,12 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
   const [locations, setLocations] = React.useState<WorkLocationRow[]>([blankLocation(DEFAULT_LOC_KEY)]);
   const [existingLoc, setExistingLoc] = React.useState<Record<string, number>>({});
   const nextLocKey = React.useRef(1);
+  // Multi lokasi: lokasi pekerjaan yang dipilih admin ('utama' = Lokasi 1, selain itu id lokasi tambahan; kosong = belum
+  // dipilih). Semua unit order ini ada di lokasi itu, dan alamat lokasi itu jadi lokasi kerja teknisi.
+  const [workLocationChoice, setWorkLocationChoice] = React.useState('');
+  // Pelanggan BARU yang memakai multi lokasi: saklar di Data Pelanggan (alamat yang diisi = Lokasi 1).
+  const [newMulti, setNewMulti] = React.useState(false);
+  const [newMainName, setNewMainName] = React.useState('');
 
   // Unit-unit yang udah kepunya member terpilih — cuma relevan kalau member
   // udah dipilih dari daftar (member baru pasti belum punya unit apapun).
@@ -194,13 +211,26 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
     enabled: !!selectedMember,
   });
   const memberUnits = memberDetailQuery.data?.acUnits ?? [];
+  const memberDetail = memberDetailQuery.data;
+  // Member multi lokasi: admin memilih lokasi pekerjaan dulu; daftar unit hanya yang ada di lokasi itu.
+  const isMulti = !!selectedMember && !!memberDetail?.multiLocation;
+  const locationOptions = memberDetail
+    ? [
+        { value: MAIN_LOCATION, label: `${mainLocationLabel(memberDetail)} (utama)`, address: memberDetail.address },
+        ...memberDetail.locations.map((l) => ({ value: l.id, label: l.name, address: l.address })),
+      ]
+    : [];
+  const chosenLocation = locationOptions.find((o) => o.value === workLocationChoice);
+  const listedUnits = isMulti
+    ? memberUnits.filter((u) => (u.locationId ?? MAIN_LOCATION) === workLocationChoice)
+    : memberUnits;
   // Member dengan banyak unit (mis. rumah sakit): daftar mengalir ke samping per kolom, maks. MAX_UNIT_ROWS baris ke
   // bawah, dan digeser kanan-kiri. Sampai MAX_UNIT_ROWS unit tampilannya tetap satu daftar ke bawah seperti biasa.
-  const unitColumns = Math.ceil(memberUnits.length / MAX_UNIT_ROWS);
-  const unitRows = Math.min(MAX_UNIT_ROWS, memberUnits.length);
+  const unitColumns = Math.ceil(listedUnits.length / MAX_UNIT_ROWS);
+  const unitRows = Math.min(MAX_UNIT_ROWS, listedUnits.length);
   // Unit yang masih punya job aktif tidak bisa dipilih (backend menolak job ganda), jadi tidak ikut "Pilih semua".
-  const selectableUnitIds = memberUnits.filter((u) => (u.technicianJobs?.length ?? 0) === 0).map((u) => u.id);
-  const busyUnitCount = memberUnits.length - selectableUnitIds.length;
+  const selectableUnitIds = listedUnits.filter((u) => (u.technicianJobs?.length ?? 0) === 0).map((u) => u.id);
+  const busyUnitCount = listedUnits.length - selectableUnitIds.length;
   const allExistingSelected =
     selectableUnitIds.length > 0 && selectableUnitIds.every((id) => existingUnitIds.includes(id));
   const defaultRows = memberUnits.length > 0 ? [] : [blankRow(DEFAULT_ROW_KEY)];
@@ -278,6 +308,14 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
     setExistingLoc({});
     setRowsState(null);
     setScanSlotCount(0);
+    setWorkLocationChoice('');
+  }
+
+  // Ganti lokasi pekerjaan (member multi lokasi): unit yang tercentang milik lokasi lama, jadi dikosongkan.
+  function chooseWorkLocation(value: string) {
+    setWorkLocationChoice(value);
+    setExistingUnitIds([]);
+    setExistingLoc({});
   }
 
   function clearSelectedMember() {
@@ -285,6 +323,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
     setExistingUnitIds([]);
     setRowsState(null);
     setScanSlotCount(0);
+    setWorkLocationChoice('');
     form.setValue('name', '');
     form.setValue('phone', '');
     form.setValue('address', '');
@@ -330,7 +369,20 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
                 wibDateKey(u.nextServiceDate) <= limit,
           )
           .map((u) => u.id);
-        setExistingUnitIds(dueIds);
+        // Member multi lokasi: satu job = satu lokasi. Ambil lokasi unit pertama; unit di lokasi lain tidak ikut
+        // (dibuatkan job terpisah).
+        let chosenIds = dueIds;
+        let otherLocation = 0;
+        if (m.multiLocation) {
+          const byId = new Map((m.acUnits ?? []).map((u) => [u.id, u]));
+          const firstLoc = dueIds[0] ? (byId.get(dueIds[0])?.locationId ?? MAIN_LOCATION) : null;
+          if (firstLoc) {
+            chosenIds = dueIds.filter((id) => (byId.get(id)?.locationId ?? MAIN_LOCATION) === firstLoc);
+            otherLocation = dueIds.length - chosenIds.length;
+            setWorkLocationChoice(firstLoc);
+          }
+        }
+        setExistingUnitIds(chosenIds);
         form.setValue('jobType', 'cuci');
         form.setValue('complaint', 'Cuci AC rutin (siklus servis)', { shouldValidate: true });
         let note: string;
@@ -346,6 +398,9 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
               ? `Terisi otomatis dari siklus servis ${m.name}: ${dueIds.length} unit AC jatuh tempo sudah tercentang dan jenisnya Cuci AC. Tentukan jadwal lalu buat job.`
               : `Data ${m.name} terisi otomatis, tetapi tidak ada unit yang jatuh tempo atau bebas dari job aktif. Pilih unit yang diservis, tentukan jadwal, lalu buat job.`;
         }
+        if (otherLocation > 0) {
+          note += ` ${otherLocation} unit di lokasi lain tidak ikut (satu job untuk satu lokasi): buat job terpisah untuk lokasi itu.`;
+        }
         setPrefillNote(note);
       })
       .catch(() => {
@@ -360,7 +415,8 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
   const intakeMutation = useMutation({
     mutationFn: async (values: IntakeFormValues) => {
       // Titik lokasi dikirim kalau ada isinya atau titiknya lebih dari satu (satu titik kosong = ikut alamat pelanggan).
-      const sendLocations = locations.length > 1 || locations.some((l) => l.address.trim() || l.mapsUrl.trim());
+      // Member multi lokasi tidak memakai titik lokasi kerja manual: lokasinya dipilih lewat `locationId`.
+      const sendLocations = !isMulti && (locations.length > 1 || locations.some((l) => l.address.trim() || l.mapsUrl.trim()));
       const locIndex = (key: number | undefined) => ({
         ...(sendLocations ? { locationIndex: locations.findIndex((l) => l.key === resolveLocKey(key)) } : {}),
       });
@@ -391,7 +447,12 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
               : trimmedOrUndefined(fixAddress(values.address ?? '')),
           mapsUrl: trimmedOrUndefined(values.mapsUrl),
           memberId: selectedMember?.id,
+          // Pelanggan BARU dengan multi lokasi: saklar dinyalakan di member yang dibuat (Lokasi 1 = alamat di atas).
+          ...(!selectedMember && newMulti
+            ? { multiLocation: true, mainLocationName: trimmedOrUndefined(newMainName) }
+            : {}),
         },
+        ...(isMulti ? { locationId: workLocationChoice } : {}),
         jobType: values.jobType,
         workDescription: trimmedOrUndefined(values.workDescription),
         complaint: trimmedOrUndefined(values.complaint),
@@ -454,6 +515,10 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
     const phoneErr = selectedMember ? null : phoneError(values.phone);
     if (phoneErr) {
       form.setError('phone', { message: phoneErr });
+      return;
+    }
+    if (isMulti && !workLocationChoice) {
+      toast.error('Pilih lokasi pekerjaan dulu: pelanggan ini memakai multi lokasi.');
       return;
     }
     if (totalUnits === 0) {
@@ -580,9 +645,53 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
                   </FormItem>
                 )}
               />
+              {/* Pelanggan BARU dengan AC di beberapa tempat: nyalakan multi lokasi (alamat di atas = Lokasi 1). */}
+              {!selectedMember && (
+                <MultiLocationFields
+                  idPrefix="intake-new"
+                  enabled={newMulti}
+                  onEnabledChange={setNewMulti}
+                  mainName={newMainName}
+                  onMainNameChange={setNewMainName}
+                />
+              )}
             </CardContent>
           </Card>
 
+          {/* Member multi lokasi: admin memilih DI MANA pekerjaannya; unit, alamat kerja, dan label QR mengikuti lokasi ini. */}
+          {isMulti && (
+            <Card panel>
+              <CardHeader>
+                <CardTitle className="text-base">Lokasi Pekerjaan</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                <p className="text-xs text-muted-foreground">
+                  {selectedMember?.name} memakai multi lokasi. Pilih tempat AC yang dikerjakan di job ini: hanya unit di
+                  lokasi itu yang bisa dipilih, dan alamat lokasi itu menjadi lokasi kerja teknisi. Untuk lokasi lain, buat
+                  job terpisah.
+                </p>
+                <Select value={workLocationChoice || undefined} onValueChange={chooseWorkLocation}>
+                  <SelectTrigger className="w-full" aria-label="Lokasi pekerjaan">
+                    <SelectValue placeholder="Pilih lokasi pekerjaan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locationOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {chosenLocation && (
+                  <p className="text-xs text-muted-foreground">
+                    Alamat: {chosenLocation.address?.trim() || 'belum diisi (lihat di halaman member)'}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {!isMulti && (
           <Card panel>
             <CardHeader>
               <CardTitle className="text-base">Titik Lokasi Kerja</CardTitle>
@@ -612,6 +721,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
               </div>
             </CardContent>
           </Card>
+          )}
 
           <Card panel>
             <CardHeader>
@@ -622,20 +732,31 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
                 <div className="grid gap-2">
                   <p className="text-sm font-medium">Unit terdaftar milik {selectedMember.name}</p>
                   {memberDetailQuery.isLoading && (
-                    <p className="text-sm text-muted-foreground">Memuat unit AC member...</p>
+                    <LoadingBlock label="Memuat unit AC member" />
                   )}
                   {!memberDetailQuery.isLoading && memberUnits.length === 0 && (
                     <p className="text-sm text-muted-foreground">
                       Member ini belum punya unit AC terdaftar - tambahkan sebagai unit baru di bawah.
                     </p>
                   )}
-                  {memberUnits.length > 0 && (
+                  {isMulti && !workLocationChoice && memberUnits.length > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      Pilih lokasi pekerjaan di atas dulu untuk melihat unit AC di lokasi itu.
+                    </p>
+                  )}
+                  {isMulti && workLocationChoice && memberUnits.length > 0 && listedUnits.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      Belum ada unit terdaftar di {chosenLocation?.label ?? 'lokasi ini'} - tambahkan sebagai unit baru di
+                      bawah (otomatis masuk lokasi ini).
+                    </p>
+                  )}
+                  {listedUnits.length > 0 && (
                     <>
                       <p className="text-xs text-muted-foreground">
                         Centang semua unit yang diservis. Tiap unit dapat temuan, foto sebelum/sesudah,
                         dan riwayat servisnya sendiri.
                       </p>
-                      {memberUnits.length > 1 && (
+                      {listedUnits.length > 1 && (
                         <div className="flex flex-wrap items-center gap-2">
                           <Button
                             type="button"
@@ -656,21 +777,21 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
                             Kosongkan
                           </Button>
                           <span className="text-xs text-muted-foreground">
-                            {existingUnitIds.length} dari {memberUnits.length} unit dipilih
+                            {existingUnitIds.length} dari {listedUnits.length} unit dipilih
                             {busyUnitCount > 0 && ` (${busyUnitCount} unit tidak bisa dipilih: masih ada job aktif)`}
                           </span>
                         </div>
                       )}
                       {unitColumns > 1 && (
                         <p className="text-xs font-medium text-muted-foreground">
-                          {memberUnits.length} unit - geser ke kanan untuk melihat unit lainnya.
+                          {listedUnits.length} unit - geser ke kanan untuk melihat unit lainnya.
                         </p>
                       )}
                       <ul
                         className={cn('grid gap-2', unitColumns > 1 && 'auto-cols-[minmax(21rem,1fr)] grid-flow-col overflow-x-auto pb-2')}
                         style={unitColumns > 1 ? { gridTemplateRows: `repeat(${unitRows}, auto)` } : undefined}
                       >
-                        {memberUnits.map((u) => {
+                        {listedUnits.map((u) => {
                           const checked = existingUnitIds.includes(u.id);
                           const busy = (u.technicianJobs?.length ?? 0) > 0;
                           return (
@@ -733,6 +854,11 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
                     dibuat. Belum tahu tipenya? Pilih &quot;QR dulu&quot; - teknisi yang mengisi data
                     AC-nya saat scan di lokasi. Banyak AC? Tambah unit sebanyak yang ada.
                   </p>
+                  {isMulti && (
+                    <p className="mt-1 text-xs font-medium text-muted-foreground">
+                      Unit baru otomatis masuk ke lokasi pekerjaan: {chosenLocation?.label ?? 'pilih lokasi di atas dulu'}.
+                    </p>
+                  )}
                 </div>
 
                 {newUnits.map((row, idx) => (
@@ -767,8 +893,8 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
 
               {/* Jumlah unit sudah pasti tetapi unitnya belum diketahui (mis. pabrik punya 20 AC, minta cuci 10): teknisi
                   yang memindai barcode tiap AC di lokasi. Pelanggan harus dipilih dulu (unit yang discan harus miliknya). */}
-              {selectedMember && memberUnits.length > 0 && (
-                <div className="grid gap-2 rounded-md border border-dashed p-3">
+              {selectedMember && memberUnits.length > 0 && (!isMulti || !!workLocationChoice) && (
+                <div className="grid gap-2 border-t pt-4">
                   <p className="text-sm font-medium">Jumlah unit, teknisi yang scan</p>
                   <p className="text-xs text-muted-foreground">
                     Pakai ini kalau jumlah AC yang dikerjakan sudah pasti tetapi unit mana saja belum diketahui (mis.

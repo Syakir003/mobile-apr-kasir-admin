@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Padanan 3 endpoint ReportsController (admin-only, dijaga proxy.ts di
 // prefix /laporan) — /reports/sales, /reports/service, /reports/profit-loss,
@@ -270,8 +271,8 @@ export default function LaporanPage() {
         </TabsList>
 
         <TabsContent value="penjualan" className="mt-4 grid gap-4">
-          {salesQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat...</p>}
-          {salesQuery.isError && <p className="text-sm text-destructive">Gagal memuat laporan penjualan.</p>}
+          {salesQuery.isLoading && <LoadingBlock label="Memuat data" />}
+          {salesQuery.isError && <ErrorBlock title="Gagal memuat laporan penjualan" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
           {salesQuery.data && (
             <>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -383,8 +384,8 @@ export default function LaporanPage() {
         </TabsContent>
 
         <TabsContent value="servis" className="mt-4 grid gap-4">
-          {serviceQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat...</p>}
-          {serviceQuery.isError && <p className="text-sm text-destructive">Gagal memuat laporan servis.</p>}
+          {serviceQuery.isLoading && <LoadingBlock label="Memuat data" />}
+          {serviceQuery.isError && <ErrorBlock title="Gagal memuat laporan servis" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
           {serviceQuery.data && (
             <>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -437,9 +438,9 @@ export default function LaporanPage() {
         </TabsContent>
 
         <TabsContent value="laba-rugi" className="mt-4 grid gap-4">
-          {profitLossQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat...</p>}
+          {profitLossQuery.isLoading && <LoadingBlock label="Memuat data" />}
           {profitLossQuery.isError && (
-            <p className="text-sm text-destructive">Gagal memuat laporan laba-rugi.</p>
+            <ErrorBlock title="Gagal memuat laporan laba-rugi" detail="Periksa koneksi internet, lalu muat ulang halaman." />
           )}
           {profitLossQuery.data && (
             <>
@@ -605,8 +606,8 @@ export default function LaporanPage() {
             )}
           </div>
 
-          {stockQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat...</p>}
-          {stockQuery.isError && <p className="text-sm text-destructive">Gagal memuat laporan stok.</p>}
+          {stockQuery.isLoading && <LoadingBlock label="Memuat data" />}
+          {stockQuery.isError && <ErrorBlock title="Gagal memuat laporan stok" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
           {stockQuery.data && (
             <>
               <div className="grid gap-4 sm:grid-cols-3">

@@ -23,7 +23,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PanelTitle } from '@/components/ui/panel';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Log histori semua mutasi stok (barang masuk, penjualan, opname, pemakaian
 // servis/instalasi, dst) dari tabel stock_movements — read-only, cuma
@@ -143,15 +144,15 @@ export function RiwayatTab() {
         </div>
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat riwayat stok...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat riwayat stok.</p>}
+      {isLoading && <LoadingBlock label="Memuat riwayat stok" />}
+      {isError && <ErrorBlock title="Gagal memuat riwayat stok" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {data && data.length === 0 && (
         <p className="text-sm text-muted-foreground">Tidak ada mutasi yang cocok.</p>
       )}
 
       {data && data.length > 0 && (
         <div className="grid gap-2">
-          <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <div className={panelClass}>
             <PanelTitle title="Riwayat Mutasi Stok" count={data.length} />
             <Table>
               <TableHeader>

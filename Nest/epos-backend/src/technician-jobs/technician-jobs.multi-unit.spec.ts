@@ -653,7 +653,8 @@ describe('TechnicianJobsService.cancel — pengajuan sparepart seluruh job', () 
         count: jest.fn(async () => 1), // unit masih punya job lain terbuka -> status unit tidak disentuh
       },
       serviceOrderUnit: { updateMany: jest.fn(async () => ({ count: 1 })) },
-      memberAcUnit: { updateMany: jest.fn(async () => ({ count: 0 })) },
+      // findUnique: unit tidak ditemukan -> pemeriksaan hapus otomatis unit "QR dulu" tidak menyentuh apa pun.
+      memberAcUnit: { updateMany: jest.fn(async () => ({ count: 0 })), findUnique: jest.fn(async () => null) },
       jobServiceLine: {
         count: jest.fn(async ({ where }: any) => (where.jobId === 'j1' ? (over.pricingLines ?? 0) : (over.successorLines ?? 0))),
         updateMany: jest.fn(async () => ({ count: over.pricingLines ?? 0 })),

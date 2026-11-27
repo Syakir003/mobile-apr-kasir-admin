@@ -3,16 +3,16 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
 import { statusLabel } from '@/lib/format';
 import type { Role } from '@/lib/session';
 import type { TechnicianJob } from '../queue/queue-client';
 import { statusBadgeVariant } from '../queue/queue-client';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { PaginationButtons } from '@/components/pagination-buttons';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 interface HistoryPage {
   items: TechnicianJob[];
@@ -62,8 +62,8 @@ export function RiwayatClient({ role }: { role: Role }) {
         <p className="mt-1 text-sm text-muted-foreground">Job yang sudah Anda selesaikan.</p>
       </div>
 
-      {historyQuery.isLoading && <p className="text-sm text-muted-foreground">Memuat riwayat...</p>}
-      {historyQuery.isError && <p className="text-sm text-destructive">Gagal memuat riwayat.</p>}
+      {historyQuery.isLoading && <LoadingBlock label="Memuat riwayat" />}
+      {historyQuery.isError && <ErrorBlock title="Gagal memuat riwayat" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {data && data.items.length === 0 && (
         <p className="text-sm text-muted-foreground">Belum ada job selesai.</p>
       )}
@@ -96,24 +96,12 @@ export function RiwayatClient({ role }: { role: Role }) {
             <p className="text-sm text-muted-foreground">
               Halaman {data.page} dari {data.totalPages} ({data.total} job)
             </p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                disabled={page >= data.totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
+            <PaginationButtons
+              canPrev={page > 1}
+              canNext={page < data.totalPages}
+              onPrev={() => setPage((p) => p - 1)}
+              onNext={() => setPage((p) => p + 1)}
+            />
           </div>
         </>
       )}

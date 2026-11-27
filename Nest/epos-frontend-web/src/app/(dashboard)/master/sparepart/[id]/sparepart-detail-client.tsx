@@ -35,6 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Halaman detail sparepart — pasangan product-detail-client.tsx, dibikin
 // per keputusan 2026-09-15 (halaman penuh, bukan dialog popup). Beda sama
@@ -121,10 +122,10 @@ export function SparepartDetailClient({ sparepartId, isAdmin }: { sparepartId: s
   const sparepart = sparepartsQuery.data?.find((s) => s.id === sparepartId);
 
   if (sparepartsQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Memuat sparepart...</p>;
+    return <LoadingBlock label="Memuat sparepart" />;
   }
   if (sparepartsQuery.isError) {
-    return <p className="text-sm text-destructive">Gagal memuat data sparepart.</p>;
+    return <ErrorBlock title="Gagal memuat data sparepart" detail="Periksa koneksi internet, lalu muat ulang halaman." />;
   }
   if (!sparepart) {
     return <p className="text-sm text-destructive">Sparepart tidak ditemukan.</p>;
@@ -412,7 +413,7 @@ export function BatchTrackedStockIn({
         </CardHeader>
         <CardContent>
           {batchesQuery.isLoading ? (
-            <p className="text-sm text-muted-foreground">Memuat gulungan...</p>
+            <LoadingBlock label="Memuat gulungan" />
           ) : !batchesQuery.data || batchesQuery.data.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Belum ada gulungan aktif - sparepart ini belum punya stok.
@@ -475,7 +476,7 @@ export function BatchTrackedStockIn({
               <div className="grid gap-2">
                 {isGabungan && (
                   <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-2">
-                    <Input
+                    <Input aria-label="Jumlah satuan penuh yang ditambahkan"
                       className="w-20"
                       inputMode="numeric"
                       value={quickCount}
@@ -506,7 +507,7 @@ export function BatchTrackedStockIn({
                         </FormItem>
                       )}
                     />
-                    <Button
+                    <Button aria-label="Hapus baris"
                       type="button"
                       variant="ghost"
                       size="icon"

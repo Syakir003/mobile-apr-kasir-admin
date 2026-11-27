@@ -6,6 +6,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { waPhone, formatTanggalId } from '../whatsapp/wa-format.util';
 import { wibDayRange, wibDateKey, wibDateOnly } from '../common/wib-date.util';
+import { mainLocationName } from '../common/member-location.util';
 import { SaveReminderSettingsDto } from './dto/save-reminder-settings.dto';
 import { SaveWaTemplatesDto } from './dto/save-wa-templates.dto';
 import { SetUnitIntervalDto } from './dto/set-unit-interval.dto';
@@ -300,8 +301,20 @@ export class RemindersService {
       include: {
         indoorProduct: { select: { name: true } },
         outdoorProduct: { select: { name: true } },
+        location: { select: { name: true } },
       },
     });
+    // Member multi lokasi: tiap baris menyebut lokasinya (mis. "Kantor Lama - Ruang Rapat") dan unit dikelompokkan per
+    // lokasi, supaya satu pesan ke satu nomor tetap jelas unit mana milik kantor mana.
+    const multi = !!member?.multiLocation;
+    const locationOf = (u: { location: { name: string } | null }) =>
+      multi ? (u.location?.name ?? mainLocationName(member!)) : '';
+    if (multi) {
+      units.sort(
+        (a, b) =>
+          locationOf(a).localeCompare(locationOf(b), 'id') || (a.roomLocation ?? '').localeCompare(b.roomLocation ?? '', 'id'),
+      );
+    }
     // 1 baris = 1 set AC (indoor+outdoor). Nama: merek+model kalau ada,
     // kalau kosong (unit dari paket POS) pakai nama produk indoor/outdoor.
     const unitText =
@@ -313,7 +326,8 @@ export class RemindersService {
                 u.indoorProduct?.name ||
                 u.outdoorProduct?.name ||
                 'Unit AC';
-              return u.roomLocation ? `- ${label} (${u.roomLocation})` : `- ${label}`;
+              const place = [locationOf(u), u.roomLocation].filter(Boolean).join(' - ');
+              return place ? `- ${label} (${place})` : `- ${label}`;
             })
             .join('\n')
         : '- Unit AC Anda';

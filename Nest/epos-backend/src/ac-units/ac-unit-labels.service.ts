@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { mainLocationName } from '../common/member-location.util';
 import { UNIT_PRODUCTS_SELECT } from './ac-unit-products.include';
 import { UnitLabelsQueryDto } from './dto/unit-labels-query.dto';
 
@@ -87,7 +88,12 @@ export class AcUnitLabelsService {
     }
     const rows = await this.prisma.memberAcUnit.findMany({
       where: { id: { in: clean } },
-      include: { member: { select: { id: true, name: true, phone: true, address: true } }, ...UNIT_PRODUCTS_SELECT },
+      include: {
+        member: { select: { id: true, name: true, phone: true, address: true, multiLocation: true, mainLocationName: true } },
+        // Lokasi unit (member multi lokasi): nama + alamatnya dicetak di label.
+        location: { select: { name: true, address: true } },
+        ...UNIT_PRODUCTS_SELECT,
+      },
     });
     // Titik lokasi kerja unit (job yang sedang berjalan; satu unit paling banyak punya satu job aktif): label menampilkan
     // alamat tempat unit itu berada, bukan selalu alamat utama member. null = ikut alamat member.
@@ -101,7 +107,16 @@ export class AcUnitLabelsService {
     const byId = new Map(rows.map((r) => [r.id, r]));
     return clean
       .filter((id) => byId.has(id))
-      .map((id) => ({ ...this.toLabel(byId.get(id)!), workAddress: workAddress.get(id) ?? null }));
+      .map((id) => {
+        const u = byId.get(id)!;
+        return {
+          ...this.toLabel(u),
+          // Job aktif lebih dulu (alamat tempat kerja saat ini), lalu alamat lokasi unit; null = ikut alamat member.
+          workAddress: workAddress.get(id) ?? u.location?.address ?? null,
+          // Hanya member multi lokasi yang punya nama lokasi di label (Lokasi 1 memakai nama yang diberikan member).
+          locationName: u.member.multiLocation ? (u.location?.name ?? mainLocationName(u.member)) : null,
+        };
+      });
   }
 
   /** Tandai label sudah dicetak. Tidak menimpa unit yang sudah tercetak. */

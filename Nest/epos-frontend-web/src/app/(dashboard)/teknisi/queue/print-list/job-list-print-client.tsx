@@ -25,6 +25,7 @@ import {
   type QueueRow,
   type TechnicianJob,
 } from '../queue-client';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 type StatusFilter = 'aktif' | 'review' | 'selesai' | 'semua';
 const STATUS_LABEL: Record<StatusFilter, string> = {
@@ -209,8 +210,8 @@ export function JobListPrintClient({
         </div>
       </div>
 
-      {isLoading && <p className="p-6 text-sm text-muted-foreground print:hidden">Memuat daftar pekerjaan...</p>}
-      {isError && <p className="p-6 text-sm text-destructive print:hidden">Gagal memuat daftar pekerjaan.</p>}
+      {isLoading && <LoadingBlock label="Memuat daftar pekerjaan" className="p-6 print:hidden" />}
+      {isError && <ErrorBlock title="Gagal memuat daftar pekerjaan" detail="Periksa koneksi internet, lalu muat ulang halaman." className="p-6 print:hidden" />}
       {!isLoading && !isError && rows.length === 0 && (
         <p className="p-6 text-sm text-muted-foreground print:hidden">
           Tidak ada pekerjaan pada filter ini. Ubah tanggal atau status di atas.

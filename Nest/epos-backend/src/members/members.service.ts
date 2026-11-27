@@ -1,12 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Member, TechnicianJobStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MemberListQueryDto } from './dto/member-list-query.dto';
+import { CreateMemberLocationDto, MoveUnitsLocationDto, UpdateMemberLocationDto } from './dto/member-location.dto';
 import { UNIT_PRODUCTS_SELECT } from '../ac-units/ac-unit-products.include';
 import type { PriceTierName } from '../common/price-tier.util';
 import { normalizePhone } from '../common/phone.util';
+import { mainLocationName, resolveLocationChoice } from '../common/member-location.util';
+import { assertNoActiveJob } from '../technician-jobs/active-job.util';
+
+/** Batas lokasi TAMBAHAN per member (Lokasi 1 tidak dihitung). */
+const MAX_EXTRA_LOCATIONS = 20;
 
 @Injectable()
 export class MembersService {
@@ -123,6 +129,9 @@ export class MembersService {
           customerType: dto.customerType ?? null,
           notes: dto.notes ?? null,
           priceTier: dto.priceTier ?? 'retail',
+          multiLocation: dto.multiLocation ?? false,
+          // Nama Lokasi 1 hanya bermakna kalau multi lokasi menyala.
+          mainLocationName: dto.multiLocation ? dto.mainLocationName?.trim() || null : null,
           memberSince: new Date(),
           totalAcUnits: 0,
           active: true,
@@ -134,7 +143,12 @@ export class MembersService {
           actorUid: actorId,
           action: 'member.create_manual',
           target: member.id,
-          detail: { name: member.name, phone: member.phone || null, priceTier: member.priceTier },
+          detail: {
+            name: member.name,
+            phone: member.phone || null,
+            priceTier: member.priceTier,
+            ...(member.multiLocation ? { multiLocation: true } : {}),
+          },
         },
       });
 
@@ -147,10 +161,27 @@ export class MembersService {
     const existing = await this.prisma.member.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Member tidak ditemukan');
 
-    const { phone, ...rest } = dto;
+    const { phone, mainLocationName: mainName, ...rest } = dto;
+    // Multi lokasi tidak boleh dimatikan selama masih ada unit di lokasi tambahan: unit itu akan "kehilangan" lokasinya
+    // dan tercampur ke Lokasi 1. Admin memindahkannya dulu (Pindahkan ke lokasi di halaman member).
+    if (dto.multiLocation === false && existing.multiLocation) {
+      const inOtherLocations = await this.prisma.memberAcUnit.count({
+        where: { memberId: id, locationId: { not: null } },
+      });
+      if (inOtherLocations > 0) {
+        throw new BadRequestException(
+          `Multi lokasi belum bisa dimatikan: masih ada ${inOtherLocations} unit AC di lokasi selain "${mainLocationName(existing)}". ` +
+            'Pindahkan unit-unit itu ke Lokasi 1 dulu.',
+        );
+      }
+    }
     const member = await this.prisma.member.update({
       where: { id },
-      data: { ...rest, ...(phone !== undefined ? { phone: this.normalizePhone(phone) } : {}) },
+      data: {
+        ...rest,
+        ...(phone !== undefined ? { phone: this.normalizePhone(phone) } : {}),
+        ...(mainName !== undefined ? { mainLocationName: mainName?.trim() || null } : {}),
+      },
     });
     await this.prisma.auditLog.create({
       data: { actorUid: actorId, action: 'member.update', target: id, detail: { fields: Object.keys(dto) } },
@@ -223,10 +254,13 @@ export class MembersService {
     const member = await this.prisma.member.findUnique({
       where: { id },
       include: {
+        // Lokasi TAMBAHAN (Lokasi 1 = alamat utama member, bukan baris di sini); kosong bila multi lokasi belum dipakai.
+        locations: { orderBy: { createdAt: 'asc' } },
         acUnits: {
           orderBy: { createdAt: "desc" },
           include: {
             ...UNIT_PRODUCTS_SELECT,
+            location: { select: { id: true, name: true } },
             // Job yang belum final pada unit ini (maks. 1): form intake menandai unit yang masih dikerjakan,
             // karena unit dengan job aktif tidak boleh dibuatkan job servis baru.
             technicianJobs: {
@@ -245,6 +279,125 @@ export class MembersService {
     });
     if (!member) throw new NotFoundException('Member tidak ditemukan');
     return member;
+  }
+
+  // ---------------------------------------------------------------- multi lokasi
+
+  private async getMultiLocationMember(db: Pick<Prisma.TransactionClient, 'member'>, id: string) {
+    const member = await db.member.findUnique({ where: { id } });
+    if (!member) throw new NotFoundException('Member tidak ditemukan');
+    if (!member.multiLocation) {
+      throw new BadRequestException('Aktifkan multi lokasi di data member dulu');
+    }
+    return member;
+  }
+
+  /** Tambah lokasi tambahan (Lokasi 2, 3, ...). Wajib punya alamat atau link Maps supaya bisa dipakai sebagai lokasi kerja. */
+  async addLocation(memberId: string, dto: CreateMemberLocationDto, actorId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const member = await this.getMultiLocationMember(tx, memberId);
+      const name = dto.name.trim();
+      const address = dto.address?.trim() || null;
+      const mapsUrl = dto.mapsUrl?.trim() || null;
+      if (!name) throw new BadRequestException('Nama lokasi wajib diisi');
+      if (!address && !mapsUrl) throw new BadRequestException('Isi alamat atau link Maps lokasi ini');
+      const existing = await tx.memberLocation.findMany({ where: { memberId }, select: { name: true } });
+      if (existing.length >= MAX_EXTRA_LOCATIONS) {
+        throw new BadRequestException(`Maksimal ${MAX_EXTRA_LOCATIONS} lokasi tambahan per member`);
+      }
+      this.assertLocationNameFree(name, member, existing.map((l) => l.name));
+      const location = await tx.memberLocation.create({ data: { memberId, name, address, mapsUrl } });
+      await tx.auditLog.create({
+        data: { actorUid: actorId, action: 'member.location_add', target: memberId, detail: { locationId: location.id, name } },
+      });
+      return location;
+    });
+  }
+
+  async updateLocation(memberId: string, locationId: string, dto: UpdateMemberLocationDto, actorId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const member = await this.getMultiLocationMember(tx, memberId);
+      const current = await tx.memberLocation.findFirst({ where: { id: locationId, memberId } });
+      if (!current) throw new NotFoundException('Lokasi tidak ditemukan');
+      const name = dto.name !== undefined ? dto.name.trim() : current.name;
+      const address = dto.address !== undefined ? dto.address?.trim() || null : current.address;
+      const mapsUrl = dto.mapsUrl !== undefined ? dto.mapsUrl?.trim() || null : current.mapsUrl;
+      if (!name) throw new BadRequestException('Nama lokasi wajib diisi');
+      if (!address && !mapsUrl) throw new BadRequestException('Isi alamat atau link Maps lokasi ini');
+      if (name !== current.name) {
+        const others = await tx.memberLocation.findMany({
+          where: { memberId, id: { not: locationId } },
+          select: { name: true },
+        });
+        this.assertLocationNameFree(name, member, others.map((l) => l.name));
+      }
+      const location = await tx.memberLocation.update({ where: { id: locationId }, data: { name, address, mapsUrl } });
+      await tx.auditLog.create({
+        data: { actorUid: actorId, action: 'member.location_update', target: memberId, detail: { locationId, name } },
+      });
+      return location;
+    });
+  }
+
+  /** Hapus lokasi tambahan; ditolak selama masih dipakai unit atau order (riwayat tidak boleh kehilangan lokasinya). */
+  async removeLocation(memberId: string, locationId: string, actorId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const location = await tx.memberLocation.findFirst({ where: { id: locationId, memberId } });
+      if (!location) throw new NotFoundException('Lokasi tidak ditemukan');
+      const [units, orders] = await Promise.all([
+        tx.memberAcUnit.count({ where: { locationId } }),
+        tx.serviceOrder.count({ where: { locationId } }),
+      ]);
+      if (units > 0) {
+        throw new BadRequestException(
+          `Lokasi "${location.name}" masih dipakai ${units} unit AC. Pindahkan unit-unitnya ke lokasi lain dulu.`,
+        );
+      }
+      if (orders > 0) {
+        throw new BadRequestException(
+          `Lokasi "${location.name}" sudah dipakai ${orders} order servis, jadi tidak bisa dihapus (riwayat order butuh lokasinya).`,
+        );
+      }
+      await tx.memberLocation.delete({ where: { id: locationId } });
+      await tx.auditLog.create({
+        data: { actorUid: actorId, action: 'member.location_remove', target: memberId, detail: { locationId, name: location.name } },
+      });
+      return { ok: true };
+    });
+  }
+
+  /**
+   * Pindahkan beberapa unit AC milik member ke satu lokasi sekaligus ('utama' = Lokasi 1). Unit yang sedang punya job
+   * aktif tidak dipindah: job itu berjalan di lokasi order yang lama.
+   */
+  async moveUnitsToLocation(memberId: string, dto: MoveUnitsLocationDto, actorId: string) {
+    const unitIds = [...new Set(dto.unitIds)];
+    return this.prisma.$transaction(async (tx) => {
+      const member = await this.getMultiLocationMember(tx, memberId);
+      const target = await resolveLocationChoice(tx, member, dto.locationId);
+      const units = await tx.memberAcUnit.findMany({ where: { id: { in: unitIds } }, select: { id: true, memberId: true } });
+      if (units.length !== unitIds.length || units.some((u) => u.memberId !== memberId)) {
+        throw new BadRequestException('Ada unit yang tidak ditemukan atau bukan milik member ini');
+      }
+      await assertNoActiveJob(tx, unitIds);
+      const res = await tx.memberAcUnit.updateMany({ where: { id: { in: unitIds } }, data: { locationId: target.locationId } });
+      await tx.auditLog.create({
+        data: {
+          actorUid: actorId,
+          action: 'member.units_move_location',
+          target: memberId,
+          detail: { unitIds, locationId: target.locationId, locationName: target.name },
+        },
+      });
+      return { ok: true, moved: res.count, locationId: target.locationId, locationName: target.name };
+    });
+  }
+
+  private assertLocationNameFree(name: string, member: { mainLocationName: string | null }, others: string[]) {
+    const wanted = name.toLowerCase();
+    if (mainLocationName(member).toLowerCase() === wanted || others.some((n) => n.toLowerCase() === wanted)) {
+      throw new BadRequestException(`Nama lokasi "${name}" sudah dipakai member ini`);
+    }
   }
 
   /**

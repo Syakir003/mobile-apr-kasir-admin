@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CurrencyInput } from '@/components/ui/currency-input';
 import { Input } from '@/components/ui/input';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 import {
   Dialog,
   DialogContent,
@@ -282,14 +283,22 @@ export function ServicePricingCard({ jobId }: { jobId: string }) {
   if (pricingQuery.isLoading) {
     return (
       <Card>
-        <CardContent className="py-6 text-sm text-muted-foreground">Memuat harga jasa...</CardContent>
+        <CardContent className="py-6">
+          <LoadingBlock label="Memuat harga jasa" />
+        </CardContent>
       </Card>
     );
   }
   if (pricingQuery.isError || !data) {
     return (
       <Card>
-        <CardContent className="py-6 text-sm text-destructive">Gagal memuat harga jasa.</CardContent>
+        <CardContent className="py-6">
+          <ErrorBlock
+            title="Harga jasa gagal dimuat"
+            detail="Periksa koneksi internet, lalu coba lagi. Harga yang sudah ditetapkan tidak berubah."
+            onRetry={() => void pricingQuery.refetch()}
+          />
+        </CardContent>
       </Card>
     );
   }
@@ -298,7 +307,7 @@ export function ServicePricingCard({ jobId }: { jobId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+        <CardTitle role="heading" aria-level={2} className="flex flex-wrap items-center justify-between gap-2 text-base">
           Harga Jasa &amp; Tagihan
           {data.findingsSentAt ? (
             <Badge variant="warning">Temuan terkirim {formatDateTime(data.findingsSentAt)}</Badge>
@@ -343,6 +352,7 @@ export function ServicePricingCard({ jobId }: { jobId: string }) {
               </Select>
               {(!row.serviceId || row.name) && (
                 <Input
+                  aria-label="Nama jasa di tagihan"
                   placeholder={row.serviceId ? 'Nama di tagihan (boleh diubah)' : 'Nama jasa, mis. Bongkar kompresor'}
                   value={row.name}
                   disabled={!editable}

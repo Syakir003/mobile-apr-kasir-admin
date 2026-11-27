@@ -1,21 +1,11 @@
 import Link from 'next/link';
-import {
-  AlertCircle,
-  ArrowRight,
-  BarChart3,
-  Eye,
-  FileBarChart,
-  Package,
-  ReceiptText,
-  Users,
-  Wallet,
-  Wrench,
-} from 'lucide-react';
+import { ReceiptText } from 'lucide-react';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
 import { formatDateLong, formatDateTime, formatRupiah, statusLabel } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { serverFetch, requireSession } from '@/lib/server-api';
 
 // Restyle 2026-09 — sebelumnya cuma 4 kartu angka + 2 panel badge status
@@ -68,16 +58,43 @@ function greeting(): string {
   return 'Selamat Malam';
 }
 
-const QUICK_ACTIONS = [
-  { href: '/members', label: 'Cek Member', icon: Users },
-  { href: '/master', label: 'Master Data', icon: Package },
-  { href: '/laporan', label: 'Laporan', icon: FileBarChart },
-  { href: '/teknisi/queue', label: 'Antrian Servis', icon: Wrench },
-];
+/** Satu angka ringkasan hari ini: label di atas, angka di bawah (sama dengan strip di Detail Invoice). */
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="px-5 py-4">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-1 text-xl font-semibold tabular-nums">{value}</dd>
+    </div>
+  );
+}
+
+/** Baris invoice yang sama untuk kedua daftar (nomor + pelanggan + waktu di kiri, status + total di kanan). */
+function InvoiceRow({ inv }: { inv: InvoiceRowSummary }) {
+  return (
+    <Link
+      href={`/invoices/${inv.id}`}
+      className="flex flex-col gap-2 border-t px-4 py-3 text-sm first:border-t-0 hover:bg-accent sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-5"
+    >
+      <div className="min-w-0">
+        <p className="truncate font-medium">{inv.number}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {inv.customerName || inv.member?.name || '-'} • {formatDateTime(inv.createdAt)}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3 max-sm:justify-between">
+        <Badge variant={invoiceStatusVariant(inv.status)}>{statusLabel(inv.status)}</Badge>
+        <span className="font-medium">{formatRupiah(inv.grandTotal)}</span>
+      </div>
+    </Link>
+  );
+}
 
 // Server Component: fetch langsung ke backend pas render pertama (lihat
 // lib/server-api.ts). Update realtime sesudahnya nyusul lewat socket.io
 // (job.status_changed dkk) begitu komponen client dashboard ditambah.
+//
+// Tata letak: satu judul (sapaan ikut di baris tanggal), satu strip angka hari ini, lalu dua daftar yang memakai baris
+// yang sama. Ubin "aksi cepat" dibuang karena menduplikasi menu sidebar (Member, Master Data, Laporan, Antrian Servis).
 export default async function DashboardPage() {
   const [summary, session] = await Promise.all([
     serverFetch<DashboardSummary>('/dashboard/summary'),
@@ -91,7 +108,9 @@ export default async function DashboardPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{formatDateLong(new Date())}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {greeting()}, {session.user.displayName} {'•'} {formatDateLong(new Date())}
+          </p>
         </div>
         <Button asChild>
           <Link href="/pos">
@@ -101,154 +120,58 @@ export default async function DashboardPage() {
         </Button>
       </div>
 
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight">
-          {greeting()}, {session.user.displayName}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Sistem siap digunakan. Berikut ringkasan operasional hari ini.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
-        <Card className="@container">
-          <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
-            <div className="flex items-center gap-2.5">
-              <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
-              <p className="min-w-0 text-xs leading-tight text-muted-foreground">Transaksi Hari Ini</p>
-            </div>
-            <p className="whitespace-nowrap text-xl font-semibold tabular-nums @[15rem]:text-2xl">{summary.transaksiHariIni}</p>
-          </CardContent>
-        </Card>
-        <Card className="@container">
-          <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
-            <div className="flex items-center gap-2.5">
-              <Wallet className="size-4 shrink-0 text-muted-foreground" />
-              <p className="min-w-0 text-xs leading-tight text-muted-foreground">Omzet Hari Ini</p>
-            </div>
-            <p className="whitespace-nowrap text-xl font-semibold tabular-nums @[15rem]:text-2xl">{formatRupiah(summary.omzetHariIni)}</p>
-          </CardContent>
-        </Card>
-        <Card className="@container">
-          <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
-            <div className="flex items-center gap-2.5">
-              <Wrench className="size-4 shrink-0 text-muted-foreground" />
-              <p className="min-w-0 text-xs leading-tight text-muted-foreground">Job Servis Aktif</p>
-            </div>
-            <p className="whitespace-nowrap text-xl font-semibold tabular-nums @[15rem]:text-2xl">{totalJobAktif}</p>
-          </CardContent>
-        </Card>
-        <Card className="@container">
-          <CardContent className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-start sm:justify-start sm:gap-2">
-            <div className="flex items-center gap-2.5">
-              <AlertCircle className="size-4 shrink-0 text-muted-foreground" />
-              <p className="min-w-0 text-xs leading-tight text-muted-foreground">Invoice Belum Lunas</p>
-            </div>
-            <p className="whitespace-nowrap text-xl font-semibold tabular-nums @[15rem]:text-2xl">{totalBelumLunas}</p>
-          </CardContent>
-        </Card>
-      </div>
+      <dl
+        className={cn(
+          panelClass,
+          'grid grid-cols-2 divide-x divide-y sm:grid-cols-4 sm:divide-y-0',
+        )}
+      >
+        <Stat label="Transaksi Hari Ini" value={summary.transaksiHariIni} />
+        <Stat label="Omzet Hari Ini" value={formatRupiah(summary.omzetHariIni)} />
+        <Stat label="Job Servis Aktif" value={totalJobAktif} />
+        <Stat label="Invoice Belum Lunas" value={totalBelumLunas} />
+      </dl>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="gap-0 overflow-hidden py-0">
-          <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/60 py-4">
-            <CardTitle className="text-base">Transaksi Terkini</CardTitle>
-            <Link
-              href="/invoices"
-              className="text-sm text-primary hover:underline"
-            >
-              Lihat Semua
-            </Link>
-          </CardHeader>
-          <CardContent className="p-0">
-            {summary.recentInvoices.length === 0 && (
-              <p className="p-5 text-sm text-muted-foreground">Belum ada transaksi.</p>
-            )}
-            {summary.recentInvoices.length > 0 && (
-              <div className="grid">
-                {summary.recentInvoices.map((inv) => (
-                  <Link
-                    key={inv.id}
-                    href={`/invoices/${inv.id}`}
-                    className="flex flex-col gap-2 border-t px-4 py-3 text-sm hover:bg-accent sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-5"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{inv.number}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {inv.customerName || inv.member?.name || '-'} •{' '}
-                        {formatDateTime(inv.createdAt)}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3 max-sm:justify-between">
-                      <Badge variant={invoiceStatusVariant(inv.status)}>
-                        {statusLabel(inv.status)}
-                      </Badge>
-                      <span className="font-medium">{formatRupiah(inv.grandTotal)}</span>
-                      <Eye className="size-4 text-muted-foreground" />
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Invoice Belum Lunas</CardTitle>
-            {totalBelumLunas > 0 && (
-              <span className="flex size-6 items-center justify-center rounded-full bg-destructive text-xs font-medium text-white">
-                {totalBelumLunas}
-              </span>
-            )}
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {summary.recentUnpaidInvoices.length === 0 && (
-              <p className="text-sm text-muted-foreground">Semua invoice lunas.</p>
-            )}
-            {summary.recentUnpaidInvoices.map((inv) => (
-              <Link
-                key={inv.id}
-                href={`/invoices/${inv.id}`}
-                className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm hover:bg-accent"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium">
-                    {inv.customerName || inv.member?.name || '-'}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">{inv.number}</p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <Badge variant={invoiceStatusVariant(inv.status)}>
-                    {statusLabel(inv.status)}
-                  </Badge>
-                  <p className="mt-1 font-medium">{formatRupiah(inv.grandTotal)}</p>
-                </div>
+        <div className={panelClass}>
+          <PanelTitle
+            title="Transaksi Terkini"
+            actions={
+              <Link href="/invoices" className="text-sm font-normal text-primary hover:underline">
+                Lihat Semua
               </Link>
-            ))}
-            {summary.recentUnpaidInvoices.length > 0 && (
-              <Button asChild variant="outline" size="sm" className="mt-1">
-                <Link href="/invoices">
-                  Lakukan Follow Up
-                  <ArrowRight className="size-4" />
-                </Link>
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            }
+          />
+          {summary.recentInvoices.length === 0 ? (
+            <p className="p-5 text-sm text-muted-foreground">
+              Belum ada transaksi.{' '}
+              <Link href="/pos" className="text-primary underline">
+                Buka Kasir (POS)
+              </Link>{' '}
+              untuk membuat transaksi pertama.
+            </p>
+          ) : (
+            summary.recentInvoices.map((inv) => <InvoiceRow key={inv.id} inv={inv} />)
+          )}
+        </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {QUICK_ACTIONS.map((action) => (
-          <Link
-            key={action.href}
-            href={action.href}
-            className="flex flex-col items-center gap-2 rounded-lg border bg-card p-4 text-center transition-colors hover:bg-accent"
-          >
-            <action.icon className="size-5 text-muted-foreground" />
-            <span className="text-sm font-medium">{action.label}</span>
-          </Link>
-        ))}
+        <div className={panelClass}>
+          <PanelTitle title="Invoice Belum Lunas" count={totalBelumLunas} />
+          {summary.recentUnpaidInvoices.length === 0 ? (
+            <p className="p-5 text-sm text-muted-foreground">Semua invoice lunas.</p>
+          ) : (
+            <>
+              {summary.recentUnpaidInvoices.map((inv) => (
+                <InvoiceRow key={inv.id} inv={inv} />
+              ))}
+              <div className="border-t p-3">
+                <Button asChild variant="outline" size="sm" className="w-full">
+                  <Link href="/invoices">Lakukan Follow Up</Link>
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

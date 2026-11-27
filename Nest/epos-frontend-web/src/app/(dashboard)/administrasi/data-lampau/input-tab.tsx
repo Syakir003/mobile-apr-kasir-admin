@@ -19,12 +19,21 @@ import { CurrencyInput } from '@/components/ui/currency-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { intervalError } from '@/components/reminder-schedule-fields';
+import { MultiLocationFields } from '@/components/multi-location-fields';
+import { MAIN_LOCATION, mainLocationLabel } from '../../members/[id]/member-locations';
 
 interface MemberHit {
   id: string;
   name: string;
   phone: string | null;
   address?: string | null;
+  multiLocation?: boolean;
+}
+// Lokasi member yang dipilih (GET /members/:id): dasar pilihan lokasi tiap unit bila member memakai multi lokasi.
+interface MemberLocations {
+  multiLocation: boolean;
+  mainLocationName: string | null;
+  locations: { id: string; name: string }[];
 }
 interface ProductOpt {
   id: string;
@@ -39,6 +48,8 @@ interface UnitRow {
   key: number;
   mode: Mode;
   source: Source;
+  // Lokasi unit untuk member multi lokasi ('utama' = Lokasi 1, selain itu id lokasi tambahan); kosong = belum dipilih.
+  locationId: string;
   roomLocation: string;
   brand: string;
   model: string;
@@ -59,13 +70,13 @@ interface ItemRow {
 interface ImportResult {
   member: { id: string; name: string; address: string | null };
   memberIsNew: boolean;
-  units: { id: string; barcodeValue: string; status: string; brand: string | null; model: string | null; roomLocation: string | null }[];
+  units: { id: string; barcodeValue: string; status: string; brand: string | null; model: string | null; roomLocation: string | null; locationId?: string | null }[];
   invoice: { id: string; number: string } | null;
 }
 
 let seq = 0;
 const newUnit = (mode: Mode = 'diketahui'): UnitRow => ({
-  key: ++seq, mode, source: 'bebas', roomLocation: '', brand: '', model: '', pk: '', serialNumber: '',
+  key: ++seq, mode, source: 'bebas', locationId: '', roomLocation: '', brand: '', model: '', pk: '', serialNumber: '',
   installationDate: '', indoorProductId: '', outdoorProductId: '', lastServiceDate: '', serviceIntervalDays: '',
 });
 const newItem = (): ItemRow => ({ key: ++seq, name: '', qty: '1', unitPrice: '' });
@@ -85,10 +96,19 @@ function Field({
   hint?: string;
   className?: string;
 }) {
+  // Label disambungkan ke kolom isiannya (htmlFor/id), supaya mengeklik label memfokuskan kolom dan pembaca layar
+  // membaca namanya. Hanya bila `children` satu elemen (Input/Textarea/dst); selain itu label tampil saja seperti dulu.
+  const id = React.useId();
+  const control = React.isValidElement<{ id?: string }>(children)
+    ? React.cloneElement(children, { id: children.props.id ?? id })
+    : children;
+  const controlId = React.isValidElement<{ id?: string }>(children) ? (children.props.id ?? id) : undefined;
   return (
     <div className={cn('grid min-w-0 content-start gap-1.5', className)}>
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      {children}
+      <Label htmlFor={controlId} className="text-xs text-muted-foreground">
+        {label}
+      </Label>
+      {control}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
@@ -105,6 +125,9 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
   const [name, setName] = React.useState('');
   const [phone, setPhone] = React.useState('');
   const [address, setAddress] = React.useState('');
+  // Member BARU yang memakai multi lokasi (alamat di atas = Lokasi 1).
+  const [newMulti, setNewMulti] = React.useState(false);
+  const [newMainName, setNewMainName] = React.useState('');
 
   // ---- Unit & transaksi
   const [units, setUnits] = React.useState<UnitRow[]>([newUnit()]);
@@ -122,6 +145,19 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
     queryFn: () => apiClient.get<MemberHit[]>(`/members/search?q=${encodeURIComponent(query)}`),
     enabled: memberMode === 'existing' && query.trim().length >= 2,
   });
+  // Member yang dipilih memakai multi lokasi? Maka tiap unit WAJIB memilih lokasinya (daftar dari data member).
+  const memberLocs = useQuery({
+    queryKey: ['members', selected?.id],
+    queryFn: () => apiClient.get<MemberLocations>(`/members/${selected!.id}`),
+    enabled: memberMode === 'existing' && !!selected,
+  });
+  const existingMulti = memberMode === 'existing' && !!memberLocs.data?.multiLocation;
+  const locationOptions = memberLocs.data
+    ? [
+        { value: MAIN_LOCATION, label: `${mainLocationLabel(memberLocs.data)} (utama)` },
+        ...memberLocs.data.locations.map((l) => ({ value: l.id, label: l.name })),
+      ]
+    : [];
   const products = useQuery({
     queryKey: ['products', 'aktif'],
     queryFn: () => apiClient.get<ProductOpt[]>('/products?status=active'),
@@ -155,6 +191,8 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
     setName('');
     setPhone('');
     setAddress('');
+    setNewMulti(false);
+    setNewMainName('');
     setUnits([newUnit()]);
     setWithInvoice(false);
     setInvDate('');
@@ -170,6 +208,11 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
   function validate(): string | null {
     if (memberMode === 'existing' && !selected) return 'Pilih member dulu, atau pindah ke "Member Baru".';
     if (memberMode === 'baru' && !name.trim()) return 'Nama member wajib diisi.';
+    if (memberMode === 'existing' && selected && memberLocs.isLoading) return 'Memuat data member... coba lagi sebentar.';
+    if (existingMulti) {
+      const missing = units.findIndex((u) => !u.locationId);
+      if (missing >= 0) return `Unit #${missing + 1}: pilih lokasinya (member ini memakai multi lokasi).`;
+    }
     const effectiveAddress = (address.trim() || (memberMode === 'existing' ? selected?.address?.trim() : '')) ?? '';
     for (const [i, u] of units.entries()) {
       const no = `Unit #${i + 1}`;
@@ -210,13 +253,23 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
       member:
         memberMode === 'existing'
           ? { memberId: selected!.id, address: address.trim() || undefined }
-          : { name: name.trim(), phone: phone.trim() || undefined, address: address.trim() || undefined },
+          : {
+              name: name.trim(),
+              phone: phone.trim() || undefined,
+              address: address.trim() || undefined,
+              ...(newMulti ? { multiLocation: true, mainLocationName: newMainName.trim() || undefined } : {}),
+            },
       units: units.map((u) =>
         u.mode === 'qr_dulu'
-          ? { mode: 'qr_dulu', roomLocation: u.roomLocation.trim() || undefined }
+          ? {
+              mode: 'qr_dulu',
+              roomLocation: u.roomLocation.trim() || undefined,
+              ...(existingMulti ? { locationId: u.locationId } : {}),
+            }
           : {
               mode: 'diketahui',
               roomLocation: u.roomLocation.trim() || undefined,
+              ...(existingMulti ? { locationId: u.locationId } : {}),
               ...(u.source === 'master'
                 ? {
                     indoorProductId: u.indoorProductId || undefined,
@@ -324,7 +377,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                     <p className="text-muted-foreground">{selected.phone || '-'}</p>
                     <p className="text-muted-foreground">{selected.address || 'Alamat belum tercatat'}</p>
                   </div>
-                  <Button type="button" variant="ghost" size="icon" onClick={() => setSelected(null)}>
+                  <Button aria-label="Batalkan pilihan member" type="button" variant="ghost" size="icon" onClick={() => setSelected(null)}>
                     <X className="size-4" />
                   </Button>
                 </div>
@@ -332,7 +385,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                 <>
                   <div className="relative max-w-sm">
                     <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-                    <Input
+                    <Input aria-label="Cari member"
                       className="pl-8"
                       placeholder="Cari nama / no. HP (min. 2 huruf)"
                       value={query}
@@ -371,6 +424,15 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
               <Field label="Alamat" hint='Tercetak di label QR. Wajib kalau ada unit mode "QR dulu".' className="sm:col-span-2">
                 <Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} />
               </Field>
+              <div className="sm:col-span-2">
+                <MultiLocationFields
+                  idPrefix="lampau-new"
+                  enabled={newMulti}
+                  onEnabledChange={setNewMulti}
+                  mainName={newMainName}
+                  onMainNameChange={setNewMainName}
+                />
+              </div>
             </div>
           )}
         </CardContent>
@@ -404,7 +466,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                   ))}
                 </div>
                 {units.length > 1 && (
-                  <Button type="button" variant="ghost" size="icon" onClick={() => setUnits((r) => r.filter((x) => x.key !== u.key))}>
+                  <Button aria-label="Hapus unit ini" type="button" variant="ghost" size="icon" onClick={() => setUnits((r) => r.filter((x) => x.key !== u.key))}>
                     <Trash2 className="size-4" />
                   </Button>
                 )}
@@ -414,7 +476,23 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                   sejajar antarbaris (Indoor/Outdoor 2 x 3 kolom karena nama produknya panjang). Jumlah kolom mengikuti
                   lebar kartu (container query), bukan lebar layar, karena sidebar ikut memakan ruang. */}
               <div className="grid grid-cols-1 gap-3 @md:grid-cols-2 @xl:grid-cols-6">
-                <Field label="Lokasi / ruangan" className="@xl:col-span-2">
+                {existingMulti && (
+                  <Field label="Lokasi (multi lokasi) *" className="@xl:col-span-2">
+                    <Select value={u.locationId || undefined} onValueChange={(v) => patchUnit(u.key, { locationId: v })}>
+                      <SelectTrigger className="w-full" aria-label={`Lokasi unit ${idx + 1}`}>
+                        <SelectValue placeholder="Pilih lokasi" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locationOptions.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                )}
+                <Field label={existingMulti ? 'Ruangan' : 'Lokasi / ruangan'} className="@xl:col-span-2">
                   <Input value={u.roomLocation} onChange={(e) => patchUnit(u.key, { roomLocation: e.target.value })} placeholder="Kamar utama, Ruang tamu, ..." />
                 </Field>
                 {u.mode === 'diketahui' && (
@@ -467,7 +545,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                       </>
                     )}
                     {/* -mx-3 + p-3: latar abu-abu keluar 12px, tapi input di dalamnya tetap lurus dengan baris lain. */}
-                    <div className="-mx-3 grid grid-cols-1 gap-3 rounded-md bg-muted/50 p-3 @md:col-span-2 @md:grid-cols-2 @xl:col-span-6 @xl:grid-cols-6">
+                    <div className="grid grid-cols-1 gap-3 border-t pt-3 @md:col-span-2 @md:grid-cols-2 @xl:col-span-6 @xl:grid-cols-6">
                       <Field label="Servis terakhir (opsional)" className="@xl:col-span-2">
                         <Input type="date" value={u.lastServiceDate} onChange={(e) => patchUnit(u.key, { lastServiceDate: e.target.value })} />
                       </Field>
@@ -526,7 +604,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                   <Field label="Item" className="col-span-3 @lg:col-span-1"><Input value={it.name} onChange={(e) => patchItem(it.key, { name: e.target.value })} /></Field>
                   <Field label="Qty"><Input inputMode="decimal" value={it.qty} onChange={(e) => patchItem(it.key, { qty: e.target.value })} /></Field>
                   <Field label="Harga satuan"><CurrencyInput value={it.unitPrice} onChange={(v: string) => patchItem(it.key, { unitPrice: v })} /></Field>
-                  <Button type="button" variant="ghost" size="icon" disabled={items.length === 1} onClick={() => setItems((r) => r.filter((x) => x.key !== it.key))}>
+                  <Button aria-label="Hapus item" type="button" variant="ghost" size="icon" disabled={items.length === 1} onClick={() => setItems((r) => r.filter((x) => x.key !== it.key))}>
                     <Trash2 className="size-4" />
                   </Button>
                 </div>

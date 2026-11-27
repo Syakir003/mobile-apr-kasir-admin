@@ -8,6 +8,8 @@ export interface UnitLabelUnit {
   model?: string | null;
   pk?: number | null;
   roomLocation?: string | null;
+  // Nama lokasi unit (member multi lokasi, mis. "Kantor Lama"); kosong untuk member biasa.
+  locationName?: string | null;
   indoorName?: string | null;
   outdoorName?: string | null;
 }
@@ -51,6 +53,7 @@ export function UnitLabelCard({
         <p className="text-[11px] font-bold uppercase tracking-wide">AYUB AC</p>
         {memberName && <p className="line-clamp-2 text-[17px] font-bold leading-tight">{memberName}</p>}
         {memberAddress && <p className="mt-0.5 line-clamp-3">{memberAddress}</p>}
+        {unit.locationName && <p className="mt-0.5 font-semibold">Lokasi: {unit.locationName}</p>}
         {unit.roomLocation && <p className="mt-0.5 font-semibold">Ruang: {unit.roomLocation}</p>}
         {tipeLine && <p className="mt-0.5">{tipeLine}</p>}
         {unit.indoorName && <p className="text-[11px]">Indoor: {unit.indoorName}</p>}

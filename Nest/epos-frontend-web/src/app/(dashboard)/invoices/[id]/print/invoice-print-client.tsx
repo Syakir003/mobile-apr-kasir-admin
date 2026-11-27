@@ -11,6 +11,7 @@ import { formatRupiah } from '@/lib/format';
 import { buildReceiptBytes, printToSerial } from '@/lib/escpos';
 import { Button } from '@/components/ui/button';
 import { ReceiptView, formatDateTime, summarize, trimZero, type ReceiptData } from '@/components/receipt-view';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 type InvoiceDetail = Omit<ReceiptData, 'address'> & { member: { address: string | null } | null };
 
@@ -21,8 +22,8 @@ export function InvoicePrintClient({ invoiceId }: { invoiceId: string }) {
     queryFn: () => apiClient.get<InvoiceDetail>(`/invoices/${invoiceId}`),
   });
 
-  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Memuat struk...</p>;
-  if (isError || !data) return <p className="p-6 text-sm text-destructive">Gagal memuat struk.</p>;
+  if (isLoading) return <LoadingBlock label="Memuat struk" className="p-6" />;
+  if (isError || !data) return <ErrorBlock title="Gagal memuat struk" detail="Periksa koneksi internet, lalu muat ulang halaman." className="p-6" />;
 
   const receipt: ReceiptData = { ...data, address: data.member?.address };
 

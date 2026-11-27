@@ -15,7 +15,9 @@ import { optionalNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { phoneError } from '@/lib/phone';
 import { checkAddress, fixAddress } from '@/lib/address-check';
 import { AddressHint } from '@/components/address-hint';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { LoadingBlock } from '@/components/query-state';
 import { MemberPicker } from '@/components/member-picker';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
@@ -367,6 +369,7 @@ function VoucherPicker({
   return (
     <div className="relative">
       <Input
+        aria-label="Kode voucher"
         placeholder="Pilih voucher atau ketik kode, mis. VCR-AB12CD"
         value={value}
         onChange={(e) => onChange(e.target.value.toUpperCase())}
@@ -380,9 +383,9 @@ function VoucherPicker({
           aria-label="Hapus voucher"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onChange('')}
-          className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="touch-hit absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
         >
-          <X className="size-4" />
+          <X className="size-4" aria-hidden="true" />
         </button>
       )}
       {open && (
@@ -1320,6 +1323,7 @@ export default function PosPage() {
             <div className="relative mb-3">
               <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                aria-label="Cari item"
                 placeholder="Cari nama item..."
                 className="pl-9"
                 value={search}
@@ -1344,10 +1348,10 @@ export default function PosPage() {
               ))}
             </div>
             {cardsLoading ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">Memuat...</p>
+              <LoadingBlock label="Memuat daftar item" className="py-6" />
             ) : visibleCards.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">
-                Tidak ada item yang cocok.
+                Tidak ada item yang cocok. Ubah kata kunci, atau pilih kategori &ldquo;Semua&rdquo;.
               </p>
             ) : (
               <div className="grid max-h-[min(40rem,calc(100dvh-20rem))] min-h-64 grid-cols-1 content-start gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
@@ -1397,19 +1401,19 @@ export default function PosPage() {
                           <p className="text-sm font-medium">
                             {line.name}
                             {line.pairGroupKey && (
-                              <span className="ml-1.5 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-normal text-secondary-foreground align-middle">
+                              <Badge variant="secondary" className="ml-1.5 align-middle font-normal">
                                 Pasangan Unit Lengkap
-                              </span>
+                              </Badge>
                             )}
                             {line.priceNeedsInput && (
-                              <span className="ml-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-normal text-amber-800 align-middle">
+                              <Badge variant="warning" className="ml-1.5 align-middle font-normal">
                                 Unit satuan dari paket
-                              </span>
+                              </Badge>
                             )}
                             {line.kind === 'sparepart' && line.saleKind && (
-                              <span className="ml-1.5 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-normal text-secondary-foreground align-middle">
+                              <Badge variant="secondary" className="ml-1.5 align-middle font-normal">
                                 {line.saleKind === 'utuh' ? 'Utuh' : 'Eceran'}
-                              </span>
+                              </Badge>
                             )}
                           </p>
                           {line.kind === 'product' && line.pairRole === 'outdoor' ? (
@@ -1423,12 +1427,12 @@ export default function PosPage() {
                             <div>
                               <div className="mt-1 flex items-center gap-1.5">
                                 <span className="text-xs text-muted-foreground">Harga:</span>
-                                <CurrencyInput
+                                <CurrencyInput aria-label={`Harga satuan ${line.name}`}
                                   className={cn(
                                     'h-7 w-28 text-xs',
                                     line.priceNeedsInput &&
                                       line.unitPrice <= 0 &&
-                                      'border-amber-500 focus-visible:ring-amber-500',
+                                      'border-status-warning focus-visible:ring-status-warning/50',
                                   )}
                                   value={String(line.unitPrice)}
                                   onChange={(v) => setUnitPrice(index, Number(v) || 0)}
@@ -1439,7 +1443,7 @@ export default function PosPage() {
                               </div>
                               {/* Unit satuan dari paket (Indoor/Outdoor saja) */}
                               {line.priceNeedsInput && line.unitPrice <= 0 && (
-                                <p className="mt-0.5 text-[10px] text-amber-600">
+                                <p className="mt-0.5 text-xs text-status-warning-foreground">
                                   Wajib diisi manual sebelum checkout.
                                 </p>
                               )}
@@ -1477,9 +1481,10 @@ export default function PosPage() {
                           variant="ghost"
                           size="icon"
                           className="text-destructive hover:text-destructive"
+                          aria-label={`Hapus ${line.name} dari keranjang`}
                           onClick={() => removeAt(index)}
                         >
-                          <Trash2 className="size-4" />
+                          <Trash2 className="size-4" aria-hidden="true" />
                         </Button>
                       </div>
                       <div className="mt-2 flex items-center justify-between">
@@ -1488,14 +1493,16 @@ export default function PosPage() {
                             variant="ghost"
                             size="icon"
                             className="size-7"
+                            aria-label={`Kurangi jumlah ${line.name}`}
                             disabled={line.qty <= 1}
                             onClick={() => setQty(index, line.qty - 1)}
                           >
-                            <Minus className="size-3.5" />
+                            <Minus className="size-3.5" aria-hidden="true" />
                           </Button>
                           {line.kind === 'sparepart' && line.saleKind ? (
                             <QtyInput
                               value={line.qty}
+                              label={`Jumlah ${line.name}`}
                               integer={line.saleKind === 'utuh'}
                               onCommit={(v) => setQtyExact(index, v)}
                             />
@@ -1506,6 +1513,7 @@ export default function PosPage() {
                             variant="ghost"
                             size="icon"
                             className="size-7"
+                            aria-label={`Tambah jumlah ${line.name}`}
                             disabled={
                               (line.availableStock != null && line.qty >= line.availableStock) ||
                               // Sparepart: tombol + mati kalau sisa stok gabungan
@@ -1517,7 +1525,7 @@ export default function PosPage() {
                             }
                             onClick={() => setQty(index, line.qty + 1)}
                           >
-                            <Plus className="size-3.5" />
+                            <Plus className="size-3.5" aria-hidden="true" />
                           </Button>
                         </div>
                         <p className="text-sm font-semibold">
@@ -1535,7 +1543,7 @@ export default function PosPage() {
                           </label>
                           {line.withInstallation && (
                             <div className="mt-2 grid gap-2">
-                              <Input
+                              <Input aria-label="Lokasi ruangan unit"
                                 placeholder="Lokasi ruangan (opsional), mis. Kamar Utama"
                                 value={line.roomLocation}
                                 onChange={(e) => setRoomLocation(index, e.target.value)}
@@ -1823,7 +1831,7 @@ export default function PosPage() {
             {/* Paket AC Split (2026-09-30) — modal restock dicatat per
                 paket, gak dipecah per unit. */}
             {pendingSingleUnits.map((w, i) => (
-              <div key={`single-${w.refId}-${i}`} className="rounded-md border border-amber-400 bg-amber-50 p-3 text-sm leading-relaxed dark:bg-amber-950/30">
+              <div key={`single-${w.refId}-${i}`} className="rounded-md border border-status-warning/50 bg-status-warning/10 p-3 text-sm leading-relaxed">
                 <p>
                   Modal total 1 paket <strong>{w.packageName}</strong> (Indoor + Outdoor):{' '}
                   <strong>{w.packageBuyPrice === null ? 'Belum diisi' : formatRupiah(w.packageBuyPrice)}</strong>
@@ -1956,20 +1964,13 @@ function ItemCard({
             {formatRupiah(price)}
           </p>
         ) : (
-          <p className="text-xs font-medium text-amber-700">{priceLabel}</p>
+          <p className="text-xs font-medium text-status-warning-foreground">{priceLabel}</p>
         )}
         {badge && (
-          <span
-            className={cn(
-              'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium',
-              badge.tone === 'ok'
-                ? 'bg-emerald-50 text-emerald-700'
-                : 'bg-red-50 text-red-700',
-            )}
-          >
-            {badge.tone === 'warn' && <TriangleAlert className="size-3" />}
+          <Badge variant={badge.tone === 'ok' ? 'success' : 'danger'} className="gap-1 font-medium">
+            {badge.tone === 'warn' && <TriangleAlert className="size-3" aria-hidden="true" />}
             {badge.label}
-          </span>
+          </Badge>
         )}
       </div>
     </div>
@@ -1982,10 +1983,12 @@ function ItemCard({
 function QtyInput({
   value,
   integer,
+  label,
   onCommit,
 }: {
   value: number;
   integer: boolean;
+  label: string;
   onCommit: (v: number) => void;
 }) {
   // `draft` cuma ada selama user lagi ngetik; selebihnya ikut `value`.
@@ -1993,8 +1996,9 @@ function QtyInput({
   const text = draft ?? String(value);
   return (
     <input
+      aria-label={label}
       inputMode={integer ? 'numeric' : 'decimal'}
-      className="h-7 w-14 rounded-md border bg-background text-center text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="h-7 w-14 rounded-md border bg-background text-center text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:min-h-11"
       value={text}
       onChange={(e) => {
         const raw = e.target.value.replace(',', '.');

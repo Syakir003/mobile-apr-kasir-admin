@@ -16,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Laporan stok untuk gudang (pencocokan fisik): sama dengan tab Stok di
 // /laporan (admin) TAPI tanpa modal/omzet/untung — backend sudah membuang
@@ -148,8 +149,8 @@ export default function LaporanStokGudangPage() {
         </CardContent>
       </Card>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat laporan stok.</p>}
+      {isLoading && <LoadingBlock label="Memuat data" />}
+      {isError && <ErrorBlock title="Gagal memuat laporan stok" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {data && (
         <Card className="shadow-none">
           <CardHeader>

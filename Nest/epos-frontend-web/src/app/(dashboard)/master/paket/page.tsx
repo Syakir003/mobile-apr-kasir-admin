@@ -56,7 +56,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PanelTitle } from '@/components/ui/panel';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Padanan model InstallationPackage(+Item) Prisma. `qty`/`extraPricePerUnit`
 // DECIMAL -> string lewat JSON, sama kayak Sparepart/Product.
@@ -244,8 +245,8 @@ export default function PaketInstalasiPage() {
 
       <SearchBox value={view.search} onChange={view.setSearch} placeholder="Cari nama paket, deskripsi, atau isi paket..." />
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat paket instalasi...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat data paket instalasi.</p>}
+      {isLoading && <LoadingBlock label="Memuat paket instalasi" />}
+      {isError && <ErrorBlock title="Gagal memuat data paket instalasi" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {!isLoading && !isError && (!data || data.length === 0) && (
         <p className="text-sm text-muted-foreground">
           Belum ada paket instalasi. Klik &ldquo;Tambah Paket&rdquo; untuk mulai.
@@ -256,7 +257,7 @@ export default function PaketInstalasiPage() {
       )}
       {!isLoading && !isError && data && data.length > 0 && view.total > 0 && (
         <>
-        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className={panelClass}>
           <PanelTitle title="Daftar Paket Instalasi" count={view.total} />
           <Table>
             <TableHeader>
@@ -379,7 +380,7 @@ export default function PaketInstalasiPage() {
                         <span className="text-xs font-medium text-muted-foreground">
                           Item #{index + 1}
                         </span>
-                        <Button
+                        <Button aria-label="Hapus item paket"
                           type="button"
                           variant="ghost"
                           size="icon"

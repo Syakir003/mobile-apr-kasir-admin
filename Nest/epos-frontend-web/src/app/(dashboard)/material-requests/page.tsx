@@ -29,7 +29,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PanelTitle } from '@/components/ui/panel';
+import { PanelTitle, panelClass } from '@/components/ui/panel';
+import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 
 // Halaman admin "Pengajuan Masuk" — padanan prototype "DealDeck E-POS AC":
 // daftar SEMUA pengajuan sparepart tambahan dari teknisi lintas job, bisa
@@ -161,14 +162,14 @@ export default function MaterialRequestsPage() {
         ))}
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Memuat pengajuan...</p>}
-      {isError && <p className="text-sm text-destructive">Gagal memuat pengajuan.</p>}
+      {isLoading && <LoadingBlock label="Memuat pengajuan" />}
+      {isError && <ErrorBlock title="Gagal memuat pengajuan" detail="Periksa koneksi internet, lalu muat ulang halaman." />}
       {data && data.items.length === 0 && (
         <p className="text-sm text-muted-foreground">Tidak ada pengajuan.</p>
       )}
 
       {data && data.items.length > 0 && (
-        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className={panelClass}>
           <PanelTitle title="Daftar Pengajuan" count={data.items.length} />
           <Table>
             <TableHeader>
@@ -190,7 +191,17 @@ export default function MaterialRequestsPage() {
                   onClick={() => setDetailId(r.id)}
                 >
                   <TableCell className="font-mono text-xs">
-                    REQ-{r.id.slice(0, 8).toUpperCase()}
+                    <button
+                      type="button"
+                      aria-haspopup="dialog"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDetailId(r.id);
+                      }}
+                      className="hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      REQ-{r.id.slice(0, 8).toUpperCase()}
+                    </button>
                   </TableCell>
                   <TableCell className="font-medium">{r.createdBy.displayName}</TableCell>
                   <TableCell className="max-w-[240px] truncate text-muted-foreground">
@@ -354,7 +365,7 @@ function RequestDetail({
               {reviseItems.map((it, i) => (
                 <div key={`${it.refId}-${i}`} className="flex items-center gap-2">
                   <span className="flex-1 truncate text-sm">{it.name}</span>
-                  <Input
+                  <Input aria-label={`Qty ${it.name}`}
                     type="number"
                     inputMode="decimal"
                     min="0"
@@ -363,7 +374,7 @@ function RequestDetail({
                     value={it.qty}
                     onChange={(e) => setReviseQty(i, e.target.value)}
                   />
-                  <Button
+                  <Button aria-label="Hapus item revisi"
                     type="button"
                     variant="ghost"
                     size="icon"
@@ -431,7 +442,7 @@ function RequestDetail({
 
         {request.status === 'pending' && (
           <div className="grid gap-2">
-            <Textarea
+            <Textarea aria-label="Catatan keputusan"
               rows={2}
               placeholder="Catatan keputusan (opsional)"
               value={decisionNote}
