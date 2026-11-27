@@ -43,6 +43,8 @@ const ROLE_PREFIXES: Array<{ prefix: string | RegExp; roles: Role[] }> = [
   { prefix: '/pengguna', roles: ['admin'] },
   { prefix: '/audit', roles: ['admin'] },
   { prefix: '/reminder-wa', roles: ['admin'] },
+  // Harga modal admin saja — harus di atas '/stock' (match pertama menang).
+  { prefix: '/stock/modal', roles: ['admin'] },
   { prefix: '/stock', roles: ['admin', 'gudang'] },
 ];
 

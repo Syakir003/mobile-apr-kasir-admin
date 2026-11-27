@@ -27,6 +27,7 @@ import {
   UserCog,
   UserPlus,
   Users,
+  Wallet,
   Warehouse,
   Wrench,
 } from 'lucide-react';
@@ -118,6 +119,7 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
         // Barang Masuk (stock-in) sengaja tidak punya menu: form-nya nempel
         // di dialog "Lihat Batch"/"Stok" pada Master > Produk & Sparepart.
         { href: '/stock/opname', label: 'Opname Stok', icon: ClipboardCheck },
+        { href: '/stock/modal', label: 'Modal Barang', icon: Wallet },
       ],
     },
     {
