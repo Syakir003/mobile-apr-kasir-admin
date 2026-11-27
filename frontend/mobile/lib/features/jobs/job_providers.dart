@@ -326,8 +326,11 @@ Future<void> callAssignTechnician(
   final ids = payload['technicianIds'] is List
       ? [for (final i in payload['technicianIds'] as List) '$i']
       : ['${payload['technicianId'] ?? ''}'].where((i) => i.isNotEmpty).toList();
-  return patch('/technician-jobs/${payload['jobId']}/assign',
-      body: {'technicianIds': ids});
+  // allInOrder = servis banyak AC: set yang sama untuk semua unit yang belum selesai.
+  return patch('/technician-jobs/${payload['jobId']}/assign', body: {
+    'technicianIds': ids,
+    if (payload['allInOrder'] == true) 'allInOrder': true,
+  });
 }
 
 /// Satu job yang sedang dikerjakan seorang teknisi (untuk peringatan "sibuk" saat penugasan).

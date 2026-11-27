@@ -119,6 +119,20 @@ void main() {
     });
   });
 
+  group('callAssignTechnician allInOrder', () {
+    test('servis banyak AC: allInOrder diteruskan ke server', () async {
+      Object? body0;
+      await callAssignTechnician(
+        {'jobId': 'job-1', 'technicianIds': ['tek-1'], 'allInOrder': true},
+        patch: (p, {Object? body}) async {
+          body0 = body;
+          return null;
+        },
+      );
+      expect(body0, {'technicianIds': ['tek-1'], 'allInOrder': true});
+    });
+  });
+
   group('callSubmitMaterialRequest', () {
     test('mengirim items (+note opsional) ke rute materials job', () async {
       String? path;

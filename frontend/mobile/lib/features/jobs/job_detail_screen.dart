@@ -851,6 +851,16 @@ class _JobDetailScreenState extends ConsumerState<JobDetailScreen> {
           if (addUnitHost != null) _addUnitButton(addUnitHost),
         ] else if (active.isNotEmpty)
           _StatusHint(status: active.first.status),
+        // Admin/Kasir: tugaskan/ganti teknisi selama masih ada unit yang belum dikerjakan (aturan sama
+        // dengan 1 AC). Web mengirim allInOrder juga.
+        if ((role == UserRole.admin || role == UserRole.kasir) && notStarted.isNotEmpty)
+          _AssignPanel(
+            key: ValueKey('assign-order-${notStarted.first.id}'),
+            job: notStarted.first,
+            busy: _busy,
+            allInOrder: true,
+            onAssigned: () {},
+          ),
         if (role == UserRole.admin)
           EditOrderButton(
             jobs: all,
@@ -1606,8 +1616,16 @@ class _StatusHint extends StatelessWidget {
 /// Petunjuk kuning saat sebuah aksi terkunci oleh prasyarat (mis. foto sebelum).
 /// Panel penugasan teknisi (admin/kasir): dropdown teknisi aktif + tombol simpan.
 class _AssignPanel extends ConsumerStatefulWidget {
-  const _AssignPanel({required this.job, required this.busy, required this.onAssigned});
+  const _AssignPanel({
+    super.key,
+    required this.job,
+    required this.busy,
+    required this.onAssigned,
+    this.allInOrder = false,
+  });
 
+  /// Servis banyak AC: penugasan berlaku untuk semua unit order yang belum selesai.
+  final bool allInOrder;
   final TechnicianJob job;
   final bool busy;
   final VoidCallback onAssigned;
@@ -1635,9 +1653,15 @@ class _AssignPanelState extends ConsumerState<_AssignPanel> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       await ref.read(assignTechnicianCallerProvider)(
-        {'jobId': widget.job.id, 'technicianIds': _selected},
+        {
+          'jobId': widget.job.id,
+          'technicianIds': _selected,
+          if (widget.allInOrder) 'allInOrder': true,
+        },
       );
-      ref.invalidate(jobProvider(widget.job.id));
+      for (final id in [widget.job.id, if (widget.allInOrder) ...widget.job.siblingIds]) {
+        ref.invalidate(jobProvider(id));
+      }
       ref.invalidate(jobsForCurrentUserProvider);
       if (!mounted) return;
       messenger.showSnackBar(
@@ -1666,6 +1690,11 @@ class _AssignPanelState extends ConsumerState<_AssignPanel> {
                 style: TextStyle(
                     fontWeight: FontWeight.w600, color: AppColors.slate900)),
             const SizedBox(height: 10),
+            if (widget.allInOrder) ...[
+              const Text('Berlaku untuk semua unit yang belum selesai.',
+                  style: TextStyle(fontSize: 12, color: AppColors.slate500)),
+              const SizedBox(height: 8),
+            ],
             TechnicianMultiPicker(
               key: const Key('assign-technician'),
               value: _selected,
