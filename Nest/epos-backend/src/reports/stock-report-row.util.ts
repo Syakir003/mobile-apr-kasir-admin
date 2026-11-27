@@ -68,6 +68,9 @@ export interface StockReportRow {
   // (Indoor saja / Outdoor saja) dalam range tanggal, yang modalnya gak
   // dialokasikan (HPP 0, lihat InvoiceItem.costUnallocated). Gak ada = 0.
   jualSatuanTanpaModal?: number;
+  // Ada batch barang ini yang modalnya belum diisi admin: modal & untung di
+  // baris ini belum final.
+  modalBelumDiisi: boolean;
 }
 
 function n(v: number | string | null | undefined): number {
@@ -100,6 +103,7 @@ export function buildStockReportRow(
     modalTersisa: n(agg.modal),
     omzetTerjual: omzet,
     untungTerjual: omzet - n(agg.cogs),
+    modalBelumDiisi: false,
   };
 
   if (opts) {

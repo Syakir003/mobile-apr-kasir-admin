@@ -209,6 +209,7 @@ export class ReportsService {
       ORDER BY revenue DESC
     `;
 
+    const pending = await this.refsWithPendingCost();
     const totalRevenue = lines.reduce((sum, l) => sum + Number(l.revenue), 0);
     const totalCogs = lines.reduce((sum, l) => sum + Number(l.cogs), 0);
     const grossProfit = totalRevenue - totalCogs;
@@ -276,7 +277,12 @@ export class ReportsService {
             'HPP akurat — pakai harga beli yang berlaku saat transaksi (snapshot)';
         }
 
+        const costKind = l.kind === 'installation_package_item' ? 'sparepart' : l.kind;
+        const modalBelumDiisi = pending.has(`${costKind}:${l.ref_id}`);
+        if (modalBelumDiisi) catatan += '. Ada modal belum diisi, angka belum final';
+
         return {
+          modalBelumDiisi,
           kind: l.kind,
           refId: l.ref_id,
           name: l.name,
@@ -301,6 +307,16 @@ export class ReportsService {
    * lihat komentar di `sparepartStockReport`). `filter.kind` nentuin query
    * mana yang jalan (kosong = jalanin dua2nya).
    */
+  /** Barang (`kind:refId`) yang masih punya batch tanpa harga modal. */
+  private async refsWithPendingCost(): Promise<Set<string>> {
+    const rows = await this.prisma.itemCost.findMany({
+      where: { buyPrice: null },
+      select: { kind: true, refId: true },
+      distinct: ['kind', 'refId'],
+    });
+    return new Set(rows.map((r) => `${r.kind}:${r.refId}`));
+  }
+
   async stockMovements(
     start: Date,
     end: Date,
@@ -479,6 +495,8 @@ export class ReportsService {
     `;
     const unitMap = new Map(unitRows.map((r) => [r.ref_id, r]));
 
+    const pending = await this.refsWithPendingCost();
+
     const rows = catalog.map((c) => {
       const agg = movementMap.get(c.id);
       const cur = currentMap.get(c.id);
@@ -524,6 +542,7 @@ export class ReportsService {
       row.masukDari = parties.get(c.id)?.masukDari;
       row.keluarDetail = parties.get(c.id)?.keluarDetail;
       row.pairRole = c.ac_role === 'indoor' || c.ac_role === 'outdoor' ? c.ac_role : undefined;
+      row.modalBelumDiisi = pending.has(`product:${c.id}`);
       const qtySatuan = Number(sales?.qty_satuan ?? 0);
       if (qtySatuan > 0) row.jualSatuanTanpaModal = qtySatuan;
       return row;
@@ -610,6 +629,8 @@ export class ReportsService {
     const salesMap = new Map(salesRows.map((r) => [r.ref_id, r]));
     const parties = await this.movementParties('sparepart', start, end);
 
+    const pending = await this.refsWithPendingCost();
+
     return catalog.map((c) => {
       const agg = movementMap.get(c.id);
       const sales = salesMap.get(c.id);
@@ -632,6 +653,7 @@ export class ReportsService {
       );
       row.masukDari = parties.get(c.id)?.masukDari;
       row.keluarDetail = parties.get(c.id)?.keluarDetail;
+      row.modalBelumDiisi = pending.has(`sparepart:${c.id}`);
       return row;
     });
   }
