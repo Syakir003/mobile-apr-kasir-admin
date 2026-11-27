@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/router/app_router.dart' show currentUserProvider;
 import '../../core/theme/app_theme.dart';
+import '../../data/models/app_user.dart';
 import '../../core/utils/error_message.dart';
 import 'stock_providers.dart';
 import '../../core/widgets/app_skeleton.dart';
@@ -164,6 +166,16 @@ class _StockAdjustScreenState extends ConsumerState<StockAdjustScreen> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(stockOverviewProvider);
+    // Gudang: barang masuk lewat Terima Barang; di sini hanya keluar/koreksi.
+    final gudang = ref.watch(currentUserProvider).valueOrNull?.role == UserRole.gudang;
+    if (gudang && _direction == StockDirection.masuk) {
+      _direction = StockDirection.keluar;
+      _reason = 'rusak';
+    }
+    final directions = [
+      for (final d in StockDirection.values)
+        if (!gudang || d != StockDirection.masuk) d,
+    ];
     return Scaffold(
       appBar: AppBar(title: const Text('Stok Masuk & Penyesuaian')),
       body: async.when(
@@ -248,7 +260,7 @@ class _StockAdjustScreenState extends ConsumerState<StockAdjustScreen> {
               _label('Arah Mutasi'),
               Row(
                 children: [
-                  for (final dir in StockDirection.values) ...[
+                  for (final dir in directions) ...[
                     Expanded(
                       child: _Choice(
                         label: dir.label,
@@ -266,7 +278,7 @@ class _StockAdjustScreenState extends ConsumerState<StockAdjustScreen> {
                                 }),
                       ),
                     ),
-                    if (dir != StockDirection.values.last)
+                    if (dir != directions.last)
                       const SizedBox(width: 8),
                   ],
                 ],

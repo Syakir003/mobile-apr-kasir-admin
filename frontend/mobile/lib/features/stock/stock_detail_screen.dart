@@ -9,6 +9,8 @@ import '../../core/widgets/app_filter_chip.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
 import 'stock_providers.dart';
+import '../../core/utils/error_message.dart';
+import 'stock_label_pdf.dart';
 
 // Detail stok satu barang (padanan halaman detail produk/sparepart di web, bagian stok): batch aktif beserta modal,
 // dan untuk produk AC daftar unit fisik per QR. Hanya baca; barang masuk/opname lewat layar Mutasi/Opname.
@@ -126,6 +128,17 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
     );
   }
 
+  Future<void> _printBatch(StockBatch b, StockRow row) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await printBatchLabels(
+          [(batchId: b.id, name: b.name.isEmpty ? row.name : b.name, role: b.role)]);
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text(errorMessage(e)), backgroundColor: AppColors.danger));
+    }
+  }
+
   Widget _batches(StockRow row) {
     final async = ref.watch(stockBatchesProvider((kind: row.kind, id: row.id)));
     return async.when(
@@ -171,6 +184,13 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
                     ]),
                   ),
                   Text(_n(b.stock), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  if (row.kind == 'product')
+                    IconButton(
+                      key: Key('print-batch-${b.id}'),
+                      icon: const Icon(Icons.print_outlined),
+                      tooltip: 'Cetak label batch ini',
+                      onPressed: () => _printBatch(b, row),
+                    ),
                 ]),
               ),
             );

@@ -36,6 +36,7 @@ import '../../features/stock/stock_opname_screen.dart';
 import '../../features/reports/stock_report_screen.dart';
 import '../../features/stock/stock_providers.dart' show StockRow;
 import '../../features/stock/stok_screen.dart';
+import '../../features/stock/receive_screen.dart';
 import '../../features/master/package/package_form_screen.dart';
 import '../../features/master/package/package_list_screen.dart';
 import '../../features/master/product/product_form_screen.dart';
@@ -324,6 +325,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/stok',
             builder: (_, __) => const StokScreen(),
             routes: [
+              GoRoute(path: 'terima', builder: (_, __) => const ReceiveScreen()),
               GoRoute(
                 path: 'adjust',
                 builder: (_, __) => const StockAdjustScreen(),

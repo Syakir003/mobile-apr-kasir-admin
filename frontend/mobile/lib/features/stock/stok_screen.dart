@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/router/app_router.dart' show currentUserProvider;
 import '../../core/theme/app_theme.dart';
+import '../../data/models/app_user.dart';
 import '../../core/widgets/app_filter_chip.dart';
 import 'stock_providers.dart';
 import '../../core/widgets/app_skeleton.dart';
@@ -31,10 +33,26 @@ class _StokScreenState extends ConsumerState<StokScreen> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(stockOverviewProvider);
+    // Gudang tidak memegang nota: tombol utamanya Terima Barang (tanpa harga).
+    final gudang = ref.watch(currentUserProvider).valueOrNull?.role == UserRole.gudang;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Stok & Mutasi'),
         actions: [
+          if (gudang)
+            IconButton(
+              key: const Key('stok-adjust-action'),
+              icon: const Icon(Icons.remove_circle_outline),
+              tooltip: 'Keluar / koreksi stok',
+              onPressed: () => context.go('/stok/adjust'),
+            )
+          else
+            IconButton(
+              key: const Key('stok-receive-action'),
+              icon: const Icon(Icons.move_to_inbox_outlined),
+              tooltip: 'Terima barang tanpa harga',
+              onPressed: () => context.go('/stok/terima'),
+            ),
           IconButton(
             key: const Key('stok-opname'),
             icon: const Icon(Icons.fact_check_outlined),
@@ -50,9 +68,9 @@ class _StokScreenState extends ConsumerState<StokScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         key: const Key('stok-adjust-fab'),
-        onPressed: () => context.go('/stok/adjust'),
+        onPressed: () => context.go(gudang ? '/stok/terima' : '/stok/adjust'),
         icon: const Icon(Icons.add),
-        label: const Text('Mutasi Stok'),
+        label: Text(gudang ? 'Terima Barang' : 'Mutasi Stok'),
       ),
       body: Column(
         children: [
