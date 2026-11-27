@@ -1,3 +1,4 @@
+import { toCost } from '../common/cost.util';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Member, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -166,7 +167,7 @@ export class PosService {
         for (const line of packageLines) {
           if (!line.sparepartId) continue;
           const cost = await tx.itemCost.findFirst({ where: { kind: 'sparepart', refId: line.sparepartId } });
-          line.buyPriceSnapshot = cost ? Number(cost.buyPrice) : null;
+          line.buyPriceSnapshot = toCost(cost?.buyPrice);
         }
 
         // Gabung SEMUA kebutuhan lock stok jadi satu peta, di-lock urut key
@@ -333,7 +334,7 @@ export class PosService {
               buyPriceSnapshot = locked.buyPrice;
             } else {
               const cost = await tx.itemCost.findFirst({ where: { kind: 'sparepart', refId: item.refId } });
-              buyPriceSnapshot = cost ? Number(cost.buyPrice) : null;
+              buyPriceSnapshot = toCost(cost?.buyPrice);
             }
             // Jual utuh: modal dicatat per packUnit (modal per satuan kecil
             // x packSize), biar cogs = qty x snapshot tetap benar di laporan.
@@ -458,7 +459,7 @@ export class PosService {
         // (di gudang ATAU lagi di-reserve, termasuk unit yang baru aja
         // di-reserve checkout ini), fallback batch Indoor terbaru.
         const singleUnitWarnings: SingleUnitWarning[] = [];
-        const packageCostByIndex = new Map<number, number>();
+        const packageCostByIndex = new Map<number, number | null>();
         for (const idx of singleUnitIndexes) {
           const item = dto.items[idx];
           const info = pairInfo.get(item.refId)!;
@@ -477,13 +478,13 @@ export class PosService {
             ) AS buy_price
           `;
           const p = priced.get(lineKey(item))!;
-          packageCostByIndex.set(idx, Number(modalRows[0]?.buy_price ?? 0));
+          packageCostByIndex.set(idx, toCost(modalRows[0]?.buy_price));
           singleUnitWarnings.push({
             refId: item.refId,
             name: p.name,
             unitRole: isIndoor ? 'indoor' : 'outdoor',
             packageName: `${productNames.get(indoorId) ?? '?'} + ${productNames.get(outdoorId) ?? '?'}`,
-            packageBuyPrice: Number(modalRows[0]?.buy_price ?? 0),
+            packageBuyPrice: toCost(modalRows[0]?.buy_price),
             sellPrice: p.unitPrice,
             qty: item.qty,
           });

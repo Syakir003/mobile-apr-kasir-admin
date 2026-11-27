@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { maxKnownCost } from '../cost.util';
 
 export type StockKind = 'product' | 'sparepart';
 
@@ -177,15 +178,12 @@ export class StockLockingService {
       );
 
       let remaining = baseQty;
-      let maxBuyPrice: number | null = null;
       const batchDeductions: { itemCostId: string; qty: number }[] = [];
       for (const batch of batches) {
         // GOTCHA node-pg: item_costs.stock sekarang NUMERIC (Task 1), balik
         // sebagai string dari $queryRawUnsafe — wajib Number() eksplisit,
         // beda dari sebelum migrasi (INTEGER auto-parse ke number).
         const batchStock = Number(batch.stock);
-        const buyPrice = Number(batch.buy_price);
-        maxBuyPrice = maxBuyPrice === null ? buyPrice : Math.max(maxBuyPrice, buyPrice);
 
         if (remaining <= 0) continue;
         const take = Math.min(remaining, batchStock);
@@ -210,7 +208,7 @@ export class StockLockingService {
         name: row.name,
         unit: saleUnit,
         unitPrice: salePrice,
-        buyPrice: maxBuyPrice,
+        buyPrice: maxKnownCost(batches.map((b) => b.buy_price)),
         batchDeductions,
         qtyMultiplier: multiplier,
         saleKind: saleKind ?? null,
@@ -247,7 +245,7 @@ export class StockLockingService {
     if (batches.length === 0) {
       throw new BadRequestException(`Stok ${product.name} tidak cukup`);
     }
-    const maxBuyPrice = Math.max(...batches.map((b) => Number(b.buy_price)));
+    const maxBuyPrice = maxKnownCost(batches.map((b) => b.buy_price));
 
     // FIFO beneran — `qty` unit TERTUA (urut created_at batch dulu, baru
     // created_at unit dalam batch itu), row-locked biar checkout paralel gak

@@ -290,3 +290,38 @@ describe('StockLockingService.lockAndDeduct (sparepart utuh/eceran)', () => {
     expect(tx.$queryRawUnsafe.mock.calls[1][0]).toContain('CASE WHEN stock = $2::numeric THEN 1 ELSE 0 END');
   });
 });
+
+describe('StockLockingService.lockAndDeduct — modal belum diisi', () => {
+  const produk = [{ name: 'AC Split 1PK', active: true, sell_price: '3200000' }];
+  const pipa = [
+    { name: 'Pipa AC 1/4', active: true, unit: 'meter', batch_tracked: true, sell_price: '25000', stock: '15' },
+  ];
+
+  it('product: batch tanpa modal tidak dihitung 0', async () => {
+    const tx = fakeTxSequence([
+      produk,
+      [{ id: 'a', buy_price: null }, { id: 'b', buy_price: '3100000' }],
+      [{ id: 'unit-1', item_cost_id: 'a' }],
+    ]);
+    const result = await new StockLockingService().lockAndDeduct(tx, 'product', 'produk-1', 1);
+    expect(result.buyPrice).toBe(3100000);
+  });
+
+  it('product: semua batch tanpa modal tetap bisa dijual', async () => {
+    const tx = fakeTxSequence([
+      produk,
+      [{ id: 'a', buy_price: null }],
+      [{ id: 'unit-1', item_cost_id: 'a' }],
+    ]);
+    const result = await new StockLockingService().lockAndDeduct(tx, 'product', 'produk-1', 1);
+    expect(result.buyPrice).toBeNull();
+    expect(result.reservedUnitIds).toEqual(['unit-1']);
+  });
+
+  it('sparepart gulungan: semua gulungan tanpa modal', async () => {
+    const tx = fakeTxSequence([pipa, [{ id: 'r1', stock: '15', buy_price: null }]]);
+    const result = await new StockLockingService().lockAndDeduct(tx, 'sparepart', 'sp', 3);
+    expect(result.buyPrice).toBeNull();
+    expect(result.batchDeductions).toEqual([{ itemCostId: 'r1', qty: 3 }]);
+  });
+});

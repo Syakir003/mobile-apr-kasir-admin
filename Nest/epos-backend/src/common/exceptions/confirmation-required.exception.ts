@@ -43,7 +43,7 @@ export interface SingleUnitWarning {
   /** "<nama Indoor> + <nama Outdoor>" */
   packageName: string;
   /** Modal total 1 paket (Indoor + Outdoor) — MAX buyPrice batch Indoor yang masih ada unitnya. */
-  packageBuyPrice: number;
+  packageBuyPrice: number | null;
   /** Harga jual 1 unit ini (harga yang diisi kasir, sebelum diskon). */
   sellPrice: number;
   qty: number;
