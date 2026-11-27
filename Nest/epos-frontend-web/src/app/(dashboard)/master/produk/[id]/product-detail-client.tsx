@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, QrCode } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
-import { formatDate, formatRupiah } from '@/lib/format';
+import { formatDate, formatModal, formatRupiah } from '@/lib/format';
 import { requiredNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -83,7 +83,8 @@ interface ProductBatch {
   unitRole: 'indoor' | 'outdoor' | null;
   pairGroupId: string | null;
   supplierName: string | null;
-  buyPrice: string;
+  // null = belum diisi (admin) ATAU disembunyikan (selain admin).
+  buyPrice: string | null;
   sellPrice: string;
   stock: number;
   createdAt: string;
@@ -190,7 +191,7 @@ function roleLabel(role: ProductBatch['unitRole']): string {
   return role === 'indoor' ? 'Indoor' : role === 'outdoor' ? 'Outdoor' : 'Unit';
 }
 
-export function ProductDetailClient({ productId }: { productId: string }) {
+export function ProductDetailClient({ productId, isAdmin }: { productId: string; isAdmin: boolean }) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [pendingWarning, setPendingWarning] = React.useState<StockInWarning | null>(null);
@@ -462,12 +463,24 @@ export function ProductDetailClient({ productId }: { productId: string }) {
                                 {b.supplierName || '-'}
                               </TableCell>
                               <TableCell className="align-top" rowSpan={group.length}>
-                                {isPackageGroup && !group.some((x) => x.unitRole === 'indoor')
+                                {!isAdmin || (isPackageGroup && !group.some((x) => x.unitRole === 'indoor'))
                                   ? '-'
-                                  : formatRupiah(modalBatch.buyPrice)}
+                                  : formatModal(modalBatch.buyPrice)}
                                 {isPackageGroup && (
                                   <p className="text-xs text-muted-foreground">per paket</p>
                                 )}
+                                {/* Outdoor milik paket tidak punya modal sendiri. */}
+                                {isAdmin &&
+                                  (isPackageGroup
+                                    ? group.some((x) => x.unitRole === 'indoor')
+                                    : !(!isPackage && packageIndoor)) && (
+                                    <Link
+                                      href={`/stock/modal?refId=${modalBatch.refId}&tab=semua`}
+                                      className="block text-xs text-primary underline-offset-2 hover:underline"
+                                    >
+                                      {modalBatch.buyPrice === null ? 'Isi modal' : 'Ubah modal'}
+                                    </Link>
+                                  )}
                               </TableCell>
                             </>
                           )}

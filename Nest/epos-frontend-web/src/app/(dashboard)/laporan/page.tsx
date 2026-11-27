@@ -84,6 +84,7 @@ interface StockReportRow {
   stokKeluar: number;
   sisaStok: number;
   modalTersisa: number;
+  modalBelumDiisi?: boolean; // modal & untung baris ini belum final
   omzetTerjual: number;
   untungTerjual: number;
   unitGabungan?: {
@@ -699,9 +700,9 @@ export default function LaporanPage() {
                                 <TableCell className="text-right">{row.stokMasuk}</TableCell>
                                 <TableCell className="text-right">{row.stokKeluar}</TableCell>
                                 <TableCell className="text-right font-medium">{row.sisaStok}</TableCell>
-                                <TableCell className="text-right">{formatRupiah(row.modalTersisa)}</TableCell>
+                                <TableCell className="text-right">{formatRupiah(row.modalTersisa)}{row.modalBelumDiisi ? ' *' : ''}</TableCell>
                                 <TableCell className="text-right">{formatRupiah(row.omzetTerjual)}</TableCell>
-                                <TableCell className="text-right">{formatRupiah(row.untungTerjual)}</TableCell>
+                                <TableCell className="text-right">{formatRupiah(row.untungTerjual)}{row.modalBelumDiisi ? ' *' : ''}</TableCell>
                               </TableRow>
                             );
                           })}
@@ -709,6 +710,9 @@ export default function LaporanPage() {
                       ))}
                     </TableBody>
                   </Table>
+                  {stokGroups.some((g) => g.rows.some((r) => r.modalBelumDiisi)) && (
+                    <p className="mt-2 text-xs text-muted-foreground">* Ada modal belum diisi, angka belum final.</p>
+                  )}
                 </CardContent>
               </Card>
             </>

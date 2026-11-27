@@ -7,6 +7,6 @@ export default async function SparepartDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireSession();
-  return <SparepartDetailClient sparepartId={id} />;
+  const { user } = await requireSession();
+  return <SparepartDetailClient sparepartId={id} isAdmin={user.role === 'admin'} />;
 }

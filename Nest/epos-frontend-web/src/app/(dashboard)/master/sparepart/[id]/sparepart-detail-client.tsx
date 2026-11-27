@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
-import { formatRupiah, formatDate } from '@/lib/format';
+import { formatRupiah, formatDate, formatModal } from '@/lib/format';
 import { requiredNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { formatStock, hasPackSale, type SparepartMode } from '@/lib/sparepart-mode';
 import { Badge } from '@/components/ui/badge';
@@ -77,7 +77,7 @@ export type StockInSparepart = Pick<
 interface SparepartBatch {
   id: string;
   supplierName: string | null;
-  buyPrice: string;
+  buyPrice?: string | null; // tidak dikirim untuk selain admin
   stock: string;
   createdAt: string;
 }
@@ -113,7 +113,7 @@ const rollStockInEmptyValues: RollStockInValues = {
   note: '',
 };
 
-export function SparepartDetailClient({ sparepartId }: { sparepartId: string }) {
+export function SparepartDetailClient({ sparepartId, isAdmin }: { sparepartId: string; isAdmin: boolean }) {
   const sparepartsQuery = useQuery({
     queryKey: ['spareparts'],
     queryFn: () => apiClient.get<Sparepart[]>('/spareparts'),
@@ -170,10 +170,18 @@ export function SparepartDetailClient({ sparepartId }: { sparepartId: string }) 
             ? `${formatRupiah(sparepart.sellPricePack)} / ${sparepart.packUnit} • ${formatRupiah(sparepart.sellPrice)} / ${sparepart.unit}`
             : formatRupiah(sparepart.sellPrice)}
         </p>
+        {isAdmin && (
+          <Link
+            href={`/stock/modal?refId=${sparepart.id}&tab=semua`}
+            className="text-sm text-primary underline-offset-2 hover:underline"
+          >
+            Lihat / ubah modal
+          </Link>
+        )}
       </div>
 
       {sparepart.batchTracked ? (
-        <BatchTrackedStockIn sparepart={sparepart} />
+        <BatchTrackedStockIn sparepart={sparepart} isAdmin={isAdmin} />
       ) : (
         <FlatStockIn sparepart={sparepart} />
       )}
@@ -327,9 +335,11 @@ export function FlatStockIn({ sparepart }: { sparepart: StockInSparepart }) {
 // ----------------------------------------------------------------------------
 export function BatchTrackedStockIn({
   sparepart,
+  isAdmin = false,
   showBatches = true,
 }: {
   sparepart: StockInSparepart;
+  isAdmin?: boolean;
   showBatches?: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -424,7 +434,7 @@ export function BatchTrackedStockIn({
                     <TableRow key={b.id}>
                       <TableCell className="text-muted-foreground">{formatDate(b.createdAt)}</TableCell>
                       <TableCell className="text-muted-foreground">{b.supplierName || '-'}</TableCell>
-                      <TableCell>{formatRupiah(b.buyPrice)}</TableCell>
+                      <TableCell>{isAdmin ? formatModal(b.buyPrice) : '-'}</TableCell>
                       <TableCell>{b.stock}</TableCell>
                       {isGabungan && (
                         <TableCell>

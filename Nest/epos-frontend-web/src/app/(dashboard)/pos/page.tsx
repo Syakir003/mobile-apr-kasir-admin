@@ -222,7 +222,7 @@ interface SingleUnitWarning {
   name: string;
   unitRole: 'indoor' | 'outdoor';
   packageName: string;
-  packageBuyPrice: number;
+  packageBuyPrice: number | null; // null = modal belum diisi
   sellPrice: number;
   qty: number;
 }
@@ -1826,7 +1826,7 @@ export default function PosPage() {
               <div key={`single-${w.refId}-${i}`} className="rounded-md border border-amber-400 bg-amber-50 p-3 text-sm leading-relaxed dark:bg-amber-950/30">
                 <p>
                   Modal total 1 paket <strong>{w.packageName}</strong> (Indoor + Outdoor):{' '}
-                  <strong>{formatRupiah(w.packageBuyPrice)}</strong>
+                  <strong>{w.packageBuyPrice === null ? 'Belum diisi' : formatRupiah(w.packageBuyPrice)}</strong>
                 </p>
                 <p>
                   Anda menjual {w.qty > 1 ? `${w.qty} unit` : '1 unit'}{' '}

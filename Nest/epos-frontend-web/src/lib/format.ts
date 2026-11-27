@@ -12,6 +12,11 @@ export function formatRupiah(value: number | string): string {
   }).format(n);
 }
 
+/** Harga modal: null = belum diisi admin (bukan Rp0). */
+export function formatModal(value: number | string | null | undefined): string {
+  return value === null || value === undefined ? 'Belum diisi' : formatRupiah(value);
+}
+
 export function formatDate(value: string | Date): string {
   const d = typeof value === 'string' ? new Date(value) : value;
   return new Intl.DateTimeFormat('id-ID', {

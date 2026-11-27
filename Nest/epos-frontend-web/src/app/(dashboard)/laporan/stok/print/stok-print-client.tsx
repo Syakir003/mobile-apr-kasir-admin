@@ -23,6 +23,7 @@ interface StockReportRow {
   keluarDetail?: { tanggal: string; pihak: string; qty: number }[];
   // Opsional: backend membuangnya untuk role gudang.
   modalTersisa?: number;
+  modalBelumDiisi?: boolean;
   omzetTerjual?: number;
   untungTerjual?: number;
   unitGabungan?: { namaPasangan: string; stokMasuk: number; stokKeluar: number; sisaStok: number };
@@ -222,9 +223,9 @@ export function StokPrintClient({
                       )}
                       {showMoney && (
                         <>
-                          <td className={num}>{formatRupiah(row.modalTersisa ?? 0)}</td>
+                          <td className={num}>{formatRupiah(row.modalTersisa ?? 0)}{row.modalBelumDiisi ? ' *' : ''}</td>
                           <td className={num}>{formatRupiah(row.omzetTerjual ?? 0)}</td>
-                          <td className={num}>{formatRupiah(row.untungTerjual ?? 0)}</td>
+                          <td className={num}>{formatRupiah(row.untungTerjual ?? 0)}{row.modalBelumDiisi ? ' *' : ''}</td>
                         </>
                       )}
                     </tr>
@@ -240,6 +241,9 @@ export function StokPrintClient({
                 </tr>
               </tbody>
             </table>
+            {showMoney && data.items.some((r) => r.modalBelumDiisi) && (
+              <p className="mt-2 text-[11px]">* Ada modal belum diisi, angka belum final.</p>
+            )}
 
             {!showMoney && (
               <div className="mt-8 grid grid-cols-3 gap-10 text-center text-[12px]">
