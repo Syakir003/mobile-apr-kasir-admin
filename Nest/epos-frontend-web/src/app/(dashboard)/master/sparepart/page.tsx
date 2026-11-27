@@ -22,6 +22,8 @@ import { Badge } from '@/components/ui/badge';
 import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-data/status-filter-select';
 import { PaginationFooter, SearchBox, useListView } from '@/components/master-data/list-controls';
 import { DeactivateDialog } from '@/components/master-data/deactivate-dialog';
+import { useRole } from '@/lib/use-is-admin';
+import { isPendingPrice, listWithPending } from '@/lib/pending-price';
 import { Input } from '@/components/ui/input';
 import { CurrencyInput } from '@/components/ui/currency-input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -35,7 +37,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  MODE_OPTIONS,
   SPAREPART_TEMPLATE_GROUPS,
   formatStock,
   hasPackSale,
@@ -102,7 +103,8 @@ const sparepartSchema = z.object({
   sku: z.string().optional(),
   category: z.string().optional(),
   unit: z.string().min(1, 'Wajib diisi (mis. pcs, kg, meter)'),
-  sellPrice: requiredNumberField('Harga jual wajib diisi'),
+  // Wajib untuk admin (dicek di superRefine); gudang boleh mengosongkan.
+  sellPrice: z.string().refine((v) => v.trim() === '' || !Number.isNaN(Number(v)), 'Harus berupa angka'),
   stock: requiredNumberField('Stok wajib diisi'),
   active: z.boolean(),
   trackingMode: z.enum(['biasa', 'gulungan', 'konversi', 'gabungan']),
@@ -116,7 +118,12 @@ const sparepartSchema = z.object({
   // Stok awal mode kemasan: satuan input ('pack' = satuan besar) + modal.
   stockIn: z.enum(['pack', 'unit']),
   initialBuyPrice: z.string().optional(),
+  // true = gudang: tanpa harga modal.
+  hidePrice: z.boolean().optional(),
 }).superRefine((v, ctx) => {
+  if (!v.hidePrice && !v.sellPrice.trim()) {
+    ctx.addIssue({ code: 'custom', path: ['sellPrice'], message: 'Harga jual wajib diisi' });
+  }
   if (!hasPackSale(v.trackingMode)) return;
   // Harga utuh per tipe butuh harga eceran tipe itu (aturan yang sama di server).
   for (const tier of ['Installer', 'Reseller'] as const) {
@@ -128,7 +135,7 @@ const sparepartSchema = z.object({
       });
     }
   }
-  if (Number(v.stock) > 0 && !(Number(v.initialBuyPrice) > 0)) {
+  if (!v.hidePrice && Number(v.stock) > 0 && !(Number(v.initialBuyPrice) > 0)) {
     ctx.addIssue({
       code: 'custom',
       path: ['initialBuyPrice'],
@@ -143,7 +150,7 @@ const sparepartSchema = z.object({
     ctx.addIssue({ code: 'custom', path: ['packSize'], message: 'Isi harus lebih dari 0' });
   }
   const pack = Number(v.sellPricePack);
-  if (!v.sellPricePack?.trim() || Number.isNaN(pack) || pack <= 0) {
+  if (!v.hidePrice && (!v.sellPricePack?.trim() || Number.isNaN(pack) || pack <= 0)) {
     ctx.addIssue({ code: 'custom', path: ['sellPricePack'], message: 'Harga utuh wajib diisi' });
   }
 });
@@ -177,7 +184,8 @@ function toFormValues(s: Sparepart): SparepartFormValues {
     unit: s.unit,
     sellPrice: s.sellPrice,
     stock: s.stock,
-    active: s.active,
+    // Menunggu harga: begitu admin mengisi harga lalu simpan, langsung aktif.
+    active: s.active || !(Number(s.sellPrice) > 0),
     trackingMode: s.trackingMode ?? (s.batchTracked ? 'gulungan' : 'biasa'),
     packUnit: s.packUnit ?? '',
     packSize: s.packSize ?? '',
@@ -191,6 +199,25 @@ function toFormValues(s: Sparepart): SparepartFormValues {
   };
 }
 
+const MODE_QUESTIONS: { value: SparepartMode; title: string; example: string }[] = [
+  { value: 'biasa', title: 'Per biji atau satu ukuran saja', example: 'Contoh: kapasitor, bracket' },
+  {
+    value: 'gabungan',
+    title: 'Bisa utuh atau diecer, sisa tiap tabung/roll dicatat',
+    example: 'Contoh: freon per tabung atau per kg, pipa roll',
+  },
+  {
+    value: 'konversi',
+    title: 'Bisa utuh atau diecer, cukup dihitung totalnya',
+    example: 'Contoh: baut per dus atau per biji',
+  },
+  {
+    value: 'gulungan',
+    title: 'Hanya diecer, sisa tiap roll dicatat',
+    example: 'Contoh: kabel yang tidak pernah dijual satu roll',
+  },
+];
+
 export default function SparepartPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -201,7 +228,7 @@ export default function SparepartPage() {
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['spareparts', status],
-    queryFn: () => apiClient.get<Sparepart[]>(`/spareparts?status=${status}`),
+    queryFn: () => listWithPending(status, (s) => apiClient.get<Sparepart[]>(`/spareparts?status=${s}`)),
   });
   const view = useListView(data, (s) => [s.name, s.sku, s.category, s.unit].join(' '));
 
@@ -211,10 +238,17 @@ export default function SparepartPage() {
   });
   const mode = form.watch('trackingMode');
   const packMode = hasPackSale(mode);
+  // Label memakai nama satuan yang diketik, bukan "satuan kecil/besar".
+  const smallName = form.watch('unit')?.trim() || (packMode ? 'kg/meter' : 'satuan');
+  const bigName = form.watch('packUnit')?.trim() || 'tabung/roll';
+  // Gudang boleh menambah (harga Ritel saja); ubah & hapus admin saja.
+  const role = useRole();
+  const isAdmin = role === 'admin';
+  const isGudang = role === 'gudang';
 
   function openCreate() {
     setEditing(null);
-    form.reset(emptyValues);
+    form.reset({ ...emptyValues, hidePrice: isGudang });
     setDialogOpen(true);
   }
 
@@ -234,7 +268,7 @@ export default function SparepartPage() {
         sku: trimmedOrUndefined(values.sku),
         category: trimmedOrUndefined(values.category),
         unit: values.unit.trim(),
-        sellPrice: Number(values.sellPrice),
+        sellPrice: Number(values.sellPrice || 0),
         // Kosong = null = hapus harga tipe itu. Harga utuh cuma relevan di
         // mode kemasan; di mode lain dikosongkan.
         priceInstaller: numberOrNull(values.priceInstaller),
@@ -265,16 +299,19 @@ export default function SparepartPage() {
       // lewat alur Barang Masuk (biar ada modal + riwayat mutasi; mode
       // gabungan juga butuh baris roll).
       const enteredQty = Number(values.stock);
-      if (!pack) {
+      // Gudang: semua stok awal lewat Barang Masuk tanpa harga modal.
+      if (!pack && !isGudang) {
         const created = await apiClient.post<Sparepart>('/spareparts', { ...base, stock: enteredQty });
         return { sparepart: created, stockInError: null as string | null };
       }
       const created = await apiClient.post<Sparepart>('/spareparts', { ...base, stock: 0 });
-      const packSize = Number(values.packSize);
-      const inPack = values.stockIn === 'pack';
+      const packSize = pack ? Number(values.packSize) : 1;
+      const inPack = pack && values.stockIn === 'pack';
       const baseQty = round2(inPack ? enteredQty * packSize : enteredQty);
       if (!(baseQty > 0)) return { sparepart: created, stockInError: null as string | null };
-      const buyPricePerBase = round2(Number(values.initialBuyPrice) / (inPack ? packSize : 1));
+      const cost = isGudang
+        ? {}
+        : { buyPrice: round2(Number(values.initialBuyPrice) / (inPack ? packSize : 1)) };
       try {
         if (values.trackingMode === 'gabungan') {
           const full = Math.floor(baseQty / packSize + 1e-9);
@@ -285,7 +322,7 @@ export default function SparepartPage() {
             kind: 'sparepart',
             refId: created.id,
             rolls,
-            buyPrice: buyPricePerBase,
+            ...cost,
             note: 'Stok awal',
           });
         } else {
@@ -293,7 +330,7 @@ export default function SparepartPage() {
             kind: 'sparepart',
             refId: created.id,
             qty: baseQty,
-            buyPrice: buyPricePerBase,
+            ...cost,
             note: 'Stok awal',
           });
         }
@@ -311,7 +348,12 @@ export default function SparepartPage() {
           `Sparepart ditambahkan, tapi stok awal gagal disimpan: ${result.stockInError} Tambahkan stoknya lewat halaman detail (Barang Masuk).`,
         );
       } else {
-        toast.success(editing ? 'Sparepart diperbarui.' : 'Sparepart ditambahkan.');
+        if (!editing && !(Number(result.sparepart.sellPrice) > 0)) {
+          toast.success('Tersimpan, menunggu harga dari admin.');
+          setStatus('all');
+        } else {
+          toast.success(editing ? 'Sparepart diperbarui.' : 'Sparepart ditambahkan.');
+        }
       }
       queryClient.invalidateQueries({ queryKey: ['spareparts'] });
       setDialogOpen(false);
@@ -357,10 +399,12 @@ export default function SparepartPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusFilterSelect value={status} onChange={setStatus} />
+          {(isAdmin || isGudang) && (
           <Button onClick={openCreate}>
             <Plus />
             Tambah Sparepart
           </Button>
+          )}
         </div>
       </div>
 
@@ -446,37 +490,41 @@ export default function SparepartPage() {
                   </TableCell>
                   <TableCell>
                     <Badge variant={s.active ? 'success' : 'secondary'}>
-                      {s.active ? 'Aktif' : 'Nonaktif'}
+                      {s.active ? 'Aktif' : isPendingPrice(s) ? 'Menunggu harga' : 'Nonaktif'}
                     </Badge>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Edit"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEdit(s);
-                        }}
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title={s.active ? 'Nonaktifkan' : 'Aktifkan kembali'}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeactivating(s);
-                        }}
-                      >
-                        {s.active ? (
-                          <Trash2 className="size-4 text-destructive" />
-                        ) : (
-                          <RotateCcw className="size-4" />
-                        )}
-                      </Button>
+                      {isAdmin && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Edit"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEdit(s);
+                            }}
+                          >
+                            <Pencil className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title={s.active ? 'Nonaktifkan' : 'Aktifkan kembali'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeactivating(s);
+                            }}
+                          >
+                            {s.active ? (
+                              <Trash2 className="size-4 text-destructive" />
+                            ) : (
+                              <RotateCcw className="size-4" />
+                            )}
+                          </Button>
+                        </>
+                      )}
                       <ChevronRight className="size-4 text-muted-foreground" />
                     </div>
                   </TableCell>
@@ -575,85 +623,110 @@ export default function SparepartPage() {
                 name="trackingMode"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Tipe / mode sparepart</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={(v) => {
-                        field.onChange(v);
-                        // Mode per-gulungan wajib mulai dari stok 0 (lihat
-                        // SparepartsService.create) — paksa biar gak nyangkut.
-                        if (v === 'gulungan') form.setValue('stock', '0');
-                      }}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {MODE_OPTIONS.map((m) => (
-                          <SelectItem key={m.value} value={m.value}>
-                            {m.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      {MODE_OPTIONS.find((m) => m.value === field.value)?.hint} Bisa diubah lagi
-                      nanti.
-                    </p>
+                    <FormLabel className="text-base">Barang ini dijual bagaimana?</FormLabel>
+                    <div role="radiogroup" className="grid gap-2">
+                      {MODE_QUESTIONS.map((m) => (
+                        <button
+                          key={m.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={field.value === m.value}
+                          onClick={() => {
+                            field.onChange(m.value);
+                            // Mode per-gulungan wajib mulai dari stok 0 (lihat
+                            // SparepartsService.create) — paksa biar gak nyangkut.
+                            if (m.value === 'gulungan') form.setValue('stock', '0');
+                          }}
+                          className={`rounded-md border p-3 text-left ${
+                            field.value === m.value ? 'border-primary bg-primary/10' : 'hover:bg-muted'
+                          }`}
+                        >
+                          <span className="block font-medium">{m.title}</span>
+                          <span className="block text-sm text-muted-foreground">{m.example}</span>
+                        </button>
+                      ))}
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="unit"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{packMode ? 'Satuan kecil (eceran)' : 'Satuan'}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder={packMode ? 'm, kg, liter, pcs' : 'pcs, kg, meter, set'}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              {packMode && (
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
+              {packMode ? (
+                <div className="grid gap-2 rounded-md border p-3">
+                  <p className="font-medium">
+                    1 {bigName} berisi {form.watch('packSize') || '…'} {smallName}
+                  </p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <FormField
                     control={form.control}
                     name="packUnit"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Satuan besar (utuh)</FormLabel>
+                        <FormLabel>Wadahnya</FormLabel>
                         <FormControl>
-                          <Input placeholder="roll, tabung, dus" {...field} />
+                          <Input placeholder="tabung, roll, dus" list="satuan-wadah" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                  <FormField
+                    <FormField
                     control={form.control}
                     name="packSize"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>
-                          Isi per {form.watch('packUnit')?.trim() || 'satuan besar'} (
-                          {form.watch('unit')?.trim() || 'satuan kecil'})
-                        </FormLabel>
+                        <FormLabel>Isinya berapa?</FormLabel>
                         <FormControl>
-                          <Input inputMode="decimal" placeholder="15" {...field} />
+                          <Input placeholder="10" inputMode="decimal" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+                    <FormField
+                    control={form.control}
+                    name="unit"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Satuan isinya</FormLabel>
+                        <FormControl>
+                          <Input placeholder="kg, meter, pcs" list="satuan-isi" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  </div>
                 </div>
+              ) : (
+                <FormField
+                    control={form.control}
+                    name="unit"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Satuannya apa?</FormLabel>
+                        <FormControl>
+                          <Input placeholder="pcs, kg, meter, set" list="satuan-isi" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+              )}
+              <datalist id="satuan-wadah">
+                <option value="tabung" />
+                <option value="roll" />
+                <option value="dus" />
+              </datalist>
+              <datalist id="satuan-isi">
+                <option value="kg" />
+                <option value="meter" />
+                <option value="pcs" />
+                <option value="liter" />
+              </datalist>
+              {isGudang && (
+                <p className="text-sm text-muted-foreground">
+                  Harga boleh dikosongkan: barang disimpan dulu, admin yang mengisi harganya.
+                </p>
               )}
               <div className={packMode ? 'grid grid-cols-2 gap-4' : 'grid gap-4'}>
                 <FormField
@@ -662,9 +735,7 @@ export default function SparepartPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {packMode
-                          ? `Harga jual eceran / ${form.watch('unit')?.trim() || 'satuan kecil'}`
-                          : 'Harga Jual'}
+                        {packMode ? `Harga jual per ${smallName}` : 'Harga jual'}
                       </FormLabel>
                       <FormControl>
                         <CurrencyInput {...field} />
@@ -680,7 +751,7 @@ export default function SparepartPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          Harga jual utuh / {form.watch('packUnit')?.trim() || 'satuan besar'}
+                          Harga jual 1 {bigName} utuh
                         </FormLabel>
                         <FormControl>
                           <CurrencyInput {...field} />
@@ -694,6 +765,12 @@ export default function SparepartPage() {
               {/* Harga per tipe pembeli (2026-10-13) — opsional. Harga di atas
                   = harga Ritel. Kosong = member tipe itu tidak bisa membeli
                   sparepart ini. */}
+              {!isGudang && (
+              <details className="rounded-md border p-3">
+                <summary className="cursor-pointer font-medium">
+                  Harga Installer &amp; Reseller (boleh dikosongkan)
+                </summary>
+                <div className="mt-3 grid gap-4">
               {(['Installer', 'Reseller'] as const).map((tier) => (
                 <div key={tier} className={packMode ? 'grid grid-cols-2 gap-4' : 'grid gap-4'}>
                   <FormField
@@ -701,7 +778,7 @@ export default function SparepartPage() {
                     name={`price${tier}`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{packMode ? `Harga ${tier} eceran` : `Harga ${tier}`}</FormLabel>
+                        <FormLabel>{packMode ? `Harga ${tier} per ${smallName}` : `Harga ${tier}`}</FormLabel>
                         <FormControl>
                           <CurrencyInput {...field} placeholder="Belum diisi" />
                         </FormControl>
@@ -715,7 +792,7 @@ export default function SparepartPage() {
                       name={`pricePack${tier}`}
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Harga {tier} utuh</FormLabel>
+                          <FormLabel>Harga {tier} per {bigName}</FormLabel>
                           <FormControl>
                             <CurrencyInput {...field} placeholder="Belum diisi" />
                           </FormControl>
@@ -726,11 +803,14 @@ export default function SparepartPage() {
                   )}
                 </div>
               ))}
+                </div>
+              </details>
+              )}
               {!editing &&
                 (mode === 'gulungan' ? (
                   <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-                    Sparepart per-gulungan gak bisa diisi stok awal di sini - tambahkan gulungan
-                    pertama lewat menu Barang Masuk setelah sparepart ini dibuat.
+                    Stok awalnya diisi sesudah barang ini disimpan, lewat Barang Masuk
+                    (satu per satu panjang tiap gulungan).
                   </p>
                 ) : packMode ? (
                   <InitialStockPack form={form} />
@@ -740,7 +820,7 @@ export default function SparepartPage() {
                     name="stock"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Stok Awal</FormLabel>
+                        <FormLabel>Stok yang ada sekarang ({smallName})</FormLabel>
                         <FormControl>
                           <Input inputMode="numeric" placeholder="0" {...field} />
                         </FormControl>
@@ -798,8 +878,8 @@ export default function SparepartPage() {
 // atau kecil, langsung tampil padanannya (mis. 50 m = 3 roll + 5 m). Modal
 // wajib kalau ada stok awal; dicatat lewat alur Barang Masuk.
 function InitialStockPack({ form }: { form: UseFormReturn<SparepartFormValues> }) {
-  const unit = form.watch('unit')?.trim() || 'satuan kecil';
-  const packUnit = form.watch('packUnit')?.trim() || 'satuan besar';
+  const unit = form.watch('unit')?.trim() || 'kg/meter';
+  const packUnit = form.watch('packUnit')?.trim() || 'tabung/roll';
   const size = Number(form.watch('packSize') || 0);
   const inPack = form.watch('stockIn') === 'pack';
   const qty = Number(form.watch('stock') || 0);
@@ -820,7 +900,7 @@ function InitialStockPack({ form }: { form: UseFormReturn<SparepartFormValues> }
         name="stockIn"
         render={({ field }) => (
           <FormItem>
-            <FormLabel>Stok awal - input dalam satuan</FormLabel>
+            <FormLabel>Stok yang ada sekarang, mau dihitung per apa?</FormLabel>
             <div className="flex gap-2">
               {(['pack', 'unit'] as const).map((k) => (
                 <Button
@@ -842,7 +922,7 @@ function InitialStockPack({ form }: { form: UseFormReturn<SparepartFormValues> }
         name="stock"
         render={({ field }) => (
           <FormItem>
-            <FormLabel>Stok Awal ({inPack ? packUnit : unit})</FormLabel>
+            <FormLabel>Berapa {inPack ? packUnit : unit}?</FormLabel>
             <FormControl>
               <Input inputMode="decimal" placeholder="0" {...field} />
             </FormControl>
@@ -858,7 +938,7 @@ function InitialStockPack({ form }: { form: UseFormReturn<SparepartFormValues> }
           </FormItem>
         )}
       />
-      {qty > 0 && (
+      {qty > 0 && !form.watch('hidePrice') && (
         <FormField
           control={form.control}
           name="initialBuyPrice"

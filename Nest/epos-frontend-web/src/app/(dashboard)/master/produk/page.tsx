@@ -64,6 +64,8 @@ import {
 } from '@/components/ui/select';
 import { ErrorBlock, LoadingBlock } from '@/components/query-state';
 import { confirmPk, dotDecimal, PK_HINT } from '@/lib/pk';
+import { useRole } from '@/lib/use-is-admin';
+import { isPendingPrice, listWithPending } from '@/lib/pending-price';
 
 // Padanan model Product Prisma (products.controller.ts / schema.prisma).
 // `pk`/`sellPrice` DECIMAL -> Prisma Decimal -> string lewat JSON. `stock`
@@ -191,7 +193,8 @@ function toFormValues(p: Product): ProductFormValues {
     priceInstaller: p.priceInstaller?.toString() ?? '',
     priceSingle: Number(p.priceSingle) > 0 ? String(Number(p.priceSingle)) : '',
     priceReseller: p.priceReseller?.toString() ?? '',
-    active: p.active,
+    // Menunggu harga: admin mengisi harga lalu simpan -> langsung aktif.
+    active: p.active || !(Number(p.sellPrice) > 0),
   };
 }
 
@@ -365,6 +368,10 @@ function PairPicker({
 }
 
 export default function ProdukPage() {
+  // Gudang boleh menambah (harga Ritel saja); ubah & hapus admin saja.
+  const role = useRole();
+  const isAdmin = role === 'admin';
+  const isGudang = role === 'gudang';
   const router = useRouter();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = React.useState(false);
@@ -391,7 +398,7 @@ export default function ProdukPage() {
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['products', status],
-    queryFn: () => apiClient.get<Product[]>(`/products?status=${status}`),
+    queryFn: () => listWithPending(status, (s) => apiClient.get<Product[]>(`/products?status=${s}`)),
   });
 
   const brands = React.useMemo(
@@ -431,7 +438,14 @@ export default function ProdukPage() {
   });
 
   const form = useForm<ProductFormValues>({
-    resolver: zodResolver(productSchema),
+    // Gudang boleh mengosongkan harga jual (disimpan "menunggu harga").
+    resolver: zodResolver(
+      isGudang
+        ? productSchema.extend({
+            sellPrice: z.string().refine((v) => v.trim() === '' || !Number.isNaN(Number(v)), 'Harus berupa angka'),
+          })
+        : productSchema,
+    ),
     defaultValues: emptyValues,
   });
 
@@ -640,7 +654,12 @@ export default function ProdukPage() {
       return created;
     },
     onSuccess: (product, values) => {
-      toast.success(editing ? 'Produk diperbarui.' : 'Produk ditambahkan.');
+      if (!editing && !product.active) {
+        toast.success('Tersimpan, menunggu harga dari admin.');
+        setStatus('all');
+      } else {
+        toast.success(editing ? 'Produk diperbarui.' : 'Produk ditambahkan.');
+      }
       queryClient.invalidateQueries({ queryKey: ['products'] });
       setDialogOpen(false);
       if (!editing && initialTotalQty === 0) {
@@ -683,7 +702,7 @@ export default function ProdukPage() {
           outdoorQty: initialOutdoorQty,
           pairMode: 'lengkap',
           outdoorRefId: outdoorId,
-          buyPrice: Number(initialStock.buyPrice),
+          ...(isGudang ? {} : { buyPrice: Number(initialStock.buyPrice) }),
           note: 'Stok awal',
           confirmOverride: true,
         });
@@ -692,7 +711,7 @@ export default function ProdukPage() {
           kind: 'product',
           refId: productId,
           qty: initialIndoorQty,
-          buyPrice: Number(initialStock.buyPrice),
+          ...(isGudang ? {} : { buyPrice: Number(initialStock.buyPrice) }),
           note: 'Stok awal',
           confirmOverride: true,
         });
@@ -719,7 +738,7 @@ export default function ProdukPage() {
       toast.error('Stok awal Indoor minimal 1 kalau ada stok awal Outdoor (modal paket nempel di Indoor).');
       return false;
     }
-    if (initialTotalQty > 0 && !(Number(initialStock.buyPrice) > 0)) {
+    if (!isGudang && initialTotalQty > 0 && !(Number(initialStock.buyPrice) > 0)) {
       toast.error(mode === 'split' ? 'Modal paket wajib diisi kalau ada stok awal.' : 'Modal wajib diisi kalau ada stok awal.');
       return false;
     }
@@ -770,10 +789,12 @@ export default function ProdukPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusFilterSelect value={status} onChange={setStatus} />
-          <Button onClick={openCreate}>
-            <Plus />
-            Tambah Produk
-          </Button>
+          {(isAdmin || isGudang) && (
+            <Button onClick={openCreate}>
+              <Plus />
+              Tambah Produk
+            </Button>
+          )}
         </div>
       </div>
 
@@ -844,6 +865,7 @@ export default function ProdukPage() {
         brand={brand}
         isLoading={isLoading}
         isError={isError}
+        isAdmin={isAdmin}
         onEdit={openEdit}
         onDeactivate={setDeactivating}
         onRowClick={(p) => router.push(`/master/produk/${p.id}`)}
@@ -1004,6 +1026,7 @@ export default function ProdukPage() {
                 Harga khusus untuk pembeli bertipe Installer atau Reseller. Kosongkan kalau tidak ada - kasir
                 lalu mengisi harganya sendiri saat checkout.
               </p>
+              {!isGudang && (
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
@@ -1032,6 +1055,7 @@ export default function ProdukPage() {
                   )}
                 />
               </div>
+              )}
               {/* Harga satuan (opsional): Indoor yang berpasangan = Harga Indoor
                   Satuan; produk yang jadi Outdoor pasangan = Harga Outdoor Satuan.
                   Dipakai kasir saat unit ini dijual sendiri (bukan sepaket);
@@ -1302,7 +1326,7 @@ export default function ProdukPage() {
                       />
                     </div>
                   )}
-                  {initialTotalQty > 0 && (
+                  {!isGudang && initialTotalQty > 0 && (
                     <div className="grid gap-2">
                       <Label htmlFor="initial-buy-price">
                         {mode === 'split' ? 'Modal Paket (Indoor + Outdoor)' : 'Modal'}
@@ -1386,10 +1410,12 @@ function ProductTable({
   brand,
   isLoading,
   isError,
+  isAdmin,
   onEdit,
   onDeactivate,
   onRowClick,
 }: {
+  isAdmin: boolean;
   products: Product[] | undefined;
   search: string;
   brand: string;
@@ -1564,11 +1590,13 @@ function ProductTable({
                   </TableCell>
                   <TableCell>
                     <Badge variant={p.active ? 'success' : 'secondary'}>
-                      {p.active ? 'Aktif' : 'Nonaktif'}
+                      {p.active ? 'Aktif' : isPendingPrice(p) ? 'Menunggu harga' : 'Nonaktif'}
                     </Badge>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
+                      {isAdmin && (
+                        <>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -1595,6 +1623,8 @@ function ProductTable({
                           <RotateCcw className="size-4" />
                         )}
                       </Button>
+                        </>
+                      )}
                       <ChevronRight className="size-4 text-muted-foreground" />
                     </div>
                   </TableCell>

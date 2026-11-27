@@ -120,8 +120,9 @@ const rollStockInEmptyValues: RollStockInValues = {
 
 export function SparepartDetailClient({ sparepartId, isAdmin }: { sparepartId: string; isAdmin: boolean }) {
   const sparepartsQuery = useQuery({
-    queryKey: ['spareparts'],
-    queryFn: () => apiClient.get<Sparepart[]>('/spareparts'),
+    // status=all: barang nonaktif / "menunggu harga" tetap punya halaman detail.
+    queryKey: ['spareparts', 'all'],
+    queryFn: () => apiClient.get<Sparepart[]>('/spareparts?status=all'),
   });
   const sparepart = sparepartsQuery.data?.find((s) => s.id === sparepartId);
 
@@ -148,7 +149,7 @@ export function SparepartDetailClient({ sparepartId, isAdmin }: { sparepartId: s
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{sparepart.name}</h1>
           <Badge variant={sparepart.active ? 'success' : 'secondary'}>
-            {sparepart.active ? 'Aktif' : 'Nonaktif'}
+            {sparepart.active ? 'Aktif' : Number(sparepart.sellPrice) > 0 ? 'Nonaktif' : 'Menunggu harga'}
           </Badge>
           {sparepart.trackingMode !== 'biasa' && (
             <Badge variant="secondary">
