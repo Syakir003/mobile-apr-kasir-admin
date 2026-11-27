@@ -38,6 +38,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { ErrorBlock, LoadingBlock } from '@/components/query-state';
+import { confirmPk, dotDecimal, PK_HINT } from '@/lib/pk';
 
 // Sinkron sama AC_UNIT_STATUSES di backend (update-ac-unit.dto.ts).
 const STATUS_OPTIONS = [
@@ -193,6 +194,7 @@ export function AcUnitDetailClient({ unitId, role }: { unitId: string; role: Rol
                     return;
                   }
                 }
+                if (!confirmPk([values.pk])) return;
                 saveMutation.mutate(values);
               })}
             >
@@ -232,8 +234,14 @@ export function AcUnitDetailClient({ unitId, role }: { unitId: string; role: Rol
                     <FormItem>
                       <FormLabel>Kapasitas (PK)</FormLabel>
                       <FormControl>
-                        <Input inputMode="decimal" placeholder="1, 1.5, 2, dst" {...field} />
+                        <Input
+                          inputMode="decimal"
+                          placeholder="1, 1.5, 2, dst"
+                          {...field}
+                          onChange={(e) => field.onChange(dotDecimal(e.target.value))}
+                        />
                       </FormControl>
+                      <p className="text-xs text-muted-foreground">{PK_HINT}</p>
                       <FormMessage />
                     </FormItem>
                   )}

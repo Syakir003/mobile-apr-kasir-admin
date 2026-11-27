@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { intervalError } from '@/components/reminder-schedule-fields';
 import { MultiLocationFields } from '@/components/multi-location-fields';
 import { MAIN_LOCATION, mainLocationLabel } from '../../members/[id]/member-locations';
+import { confirmPk, dotDecimal, PK_HINT } from '@/lib/pk';
 
 interface MemberHit {
   id: string;
@@ -249,6 +250,7 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
       toast.error(err);
       return;
     }
+    if (!confirmPk(units.filter((u) => u.mode !== 'qr_dulu').map((u) => u.pk))) return;
     mutation.mutate({
       member:
         memberMode === 'existing'
@@ -519,7 +521,8 @@ export function InputTab({ onGoLabel }: { onGoLabel: () => void }) {
                           <Input value={u.model} onChange={(e) => patchUnit(u.key, { model: e.target.value })} />
                         </Field>
                         <Field label="PK" className="@xl:col-span-2">
-                          <Input inputMode="decimal" value={u.pk} onChange={(e) => patchUnit(u.key, { pk: e.target.value })} placeholder="1, 1.5, 2" />
+                          <Input inputMode="decimal" value={u.pk} onChange={(e) => patchUnit(u.key, { pk: dotDecimal(e.target.value) })} placeholder="1, 1.5, 2" />
+                          <p className="text-xs text-muted-foreground">{PK_HINT}</p>
                         </Field>
                       </>
                     ) : (

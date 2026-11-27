@@ -63,6 +63,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ErrorBlock, LoadingBlock } from '@/components/query-state';
+import { confirmPk, dotDecimal, PK_HINT } from '@/lib/pk';
 
 // Padanan model Product Prisma (products.controller.ts / schema.prisma).
 // `pk`/`sellPrice` DECIMAL -> Prisma Decimal -> string lewat JSON. `stock`
@@ -741,6 +742,7 @@ export default function ProdukPage() {
   function onSubmit(values: ProductFormValues) {
     if (!validateOutdoorDraft()) return;
     if (!validateInitialStock()) return;
+    if (!confirmPk([values.pk])) return;
     saveMutation.mutate(values);
   }
 
@@ -1071,8 +1073,14 @@ export default function ProdukPage() {
                     <FormItem>
                       <FormLabel>PK</FormLabel>
                       <FormControl>
-                        <Input inputMode="decimal" placeholder="1" {...field} />
+                        <Input
+                          inputMode="decimal"
+                          placeholder="1"
+                          {...field}
+                          onChange={(e) => field.onChange(dotDecimal(e.target.value))}
+                        />
                       </FormControl>
+                      <p className="text-xs text-muted-foreground">{PK_HINT}</p>
                       <FormMessage />
                     </FormItem>
                   )}

@@ -46,6 +46,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { LoadingBlock } from '@/components/query-state';
+import { confirmPk, dotDecimal, PK_HINT } from '@/lib/pk';
 
 // Siklus 2 — Servis Masuk Mandiri: customer yang DULU beli AC doang (checkout
 // tanpa centang "Pasang unit" -> gak ada MemberAcUnit/barcode yang lahir)
@@ -556,6 +557,7 @@ export function ServiceIntakeClient({ role, prefill }: { role: Role; prefill?: I
         return;
       }
     }
+    if (!confirmPk(newUnits.filter((u) => !u.qrDulu).map((u) => u.pk))) return;
     intakeMutation.mutate(values);
   }
 
@@ -1133,8 +1135,9 @@ function NewUnitCard({
               inputMode="decimal"
               placeholder="Opsional"
               value={row.pk}
-              onChange={(e) => onChange({ pk: e.target.value })}
+              onChange={(e) => onChange({ pk: dotDecimal(e.target.value) })}
             />
+            <p className="text-xs text-muted-foreground">{PK_HINT}</p>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor={`${id}-serial`}>No. Seri</Label>

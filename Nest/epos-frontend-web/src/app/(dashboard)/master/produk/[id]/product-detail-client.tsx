@@ -231,7 +231,7 @@ export function ProductDetailClient({ productId, isAdmin }: { productId: string;
         kind: 'product',
         refId: productId,
         qty: Number(values.qty),
-        buyPrice: Number(values.buyPrice || 0),
+        ...(isAdmin ? { buyPrice: Number(values.buyPrice || 0) } : {}),
         supplierName: trimmedOrUndefined(values.supplierName),
         note: trimmedOrUndefined(values.note),
         confirmOverride: values.confirmOverride,
@@ -302,7 +302,7 @@ export function ProductDetailClient({ productId, isAdmin }: { productId: string;
     }
     // Modal wajib kalau ada Indoor / produk biasa. Kiriman Outdoor doang
     // (Indoor 0) boleh tanpa modal — modal paket tetap ngikut batch Indoor.
-    if ((!isPackage || indoorQty > 0) && values.buyPrice.trim() === '') {
+    if (isAdmin && (!isPackage || indoorQty > 0) && values.buyPrice.trim() === '') {
       batchInForm.setError('buyPrice', { message: 'Harga modal wajib diisi' });
       return;
     }
@@ -556,24 +556,28 @@ export function ProductDetailClient({ productId, isAdmin }: { productId: string;
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={batchInForm.control}
-                  name="buyPrice"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{isPackage ? 'Modal Paket (Indoor + Outdoor)' : 'Harga Modal'}</FormLabel>
-                      <FormControl>
-                        <CurrencyInput {...field} />
-                      </FormControl>
-                      {isPackage && (
-                        <p className="text-xs text-muted-foreground">
-                          Kosongkan kalau cuma Outdoor susulan yang datang (Jumlah Indoor 0).
-                        </p>
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {isAdmin ? (
+                  <FormField
+                    control={batchInForm.control}
+                    name="buyPrice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{isPackage ? 'Modal Paket (Indoor + Outdoor)' : 'Harga Modal'}</FormLabel>
+                        <FormControl>
+                          <CurrencyInput {...field} />
+                        </FormControl>
+                        {isPackage && (
+                          <p className="text-xs text-muted-foreground">
+                            Kosongkan kalau cuma Outdoor susulan yang datang (Jumlah Indoor 0).
+                          </p>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : (
+                  <p className="text-xs text-muted-foreground">Harga modal diisi admin lewat Modal Barang.</p>
+                )}
                 {isPackage ? (
                   <div className="grid grid-cols-2 gap-3">
                     <FormField

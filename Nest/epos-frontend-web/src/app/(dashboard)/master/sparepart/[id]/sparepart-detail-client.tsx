@@ -87,26 +87,30 @@ interface StockInResult {
   status: 'ok' | 'confirm_required';
 }
 
-const flatStockInSchema = z.object({
+// Gudang tidak memegang nota: harga hanya wajib (dan hanya ada) untuk admin.
+const priceField = (needPrice: boolean) =>
+  needPrice ? requiredNumberField('Harga modal wajib diisi') : z.string();
+
+const makeFlatStockInSchema = (needPrice: boolean) => z.object({
   qty: requiredNumberField('Qty wajib diisi'),
   // Mode konversi: 'pack' = qty dalam satuan besar (dus/roll), 'unit' =
   // satuan kecil. Mode biasa: selalu 'unit' (select gak ditampilkan).
   qtyIn: z.enum(['unit', 'pack']),
-  buyPrice: requiredNumberField('Harga modal wajib diisi'),
+  buyPrice: priceField(needPrice),
   note: z.string().optional(),
 });
-type FlatStockInValues = z.infer<typeof flatStockInSchema>;
+type FlatStockInValues = z.infer<ReturnType<typeof makeFlatStockInSchema>>;
 const flatStockInEmptyValues: FlatStockInValues = { qty: '', qtyIn: 'unit', buyPrice: '', note: '' };
 
-const rollStockInSchema = z.object({
+const makeRollStockInSchema = (needPrice: boolean) => z.object({
   rolls: z
     .array(z.object({ length: requiredNumberField('Panjang wajib diisi') }))
     .min(1, 'Minimal 1 gulungan'),
-  buyPrice: requiredNumberField('Harga modal wajib diisi'),
+  buyPrice: priceField(needPrice),
   supplierName: z.string().optional(),
   note: z.string().optional(),
 });
-type RollStockInValues = z.infer<typeof rollStockInSchema>;
+type RollStockInValues = z.infer<ReturnType<typeof makeRollStockInSchema>>;
 const rollStockInEmptyValues: RollStockInValues = {
   rolls: [{ length: '' }],
   buyPrice: '',
@@ -184,7 +188,7 @@ export function SparepartDetailClient({ sparepartId, isAdmin }: { sparepartId: s
       {sparepart.batchTracked ? (
         <BatchTrackedStockIn sparepart={sparepart} isAdmin={isAdmin} />
       ) : (
-        <FlatStockIn sparepart={sparepart} />
+        <FlatStockIn sparepart={sparepart} isAdmin={isAdmin} />
       )}
     </div>
   );
@@ -197,12 +201,12 @@ function cap(v: string | null): string {
   return v ? v.charAt(0).toUpperCase() + v.slice(1) : '';
 }
 
-export function FlatStockIn({ sparepart }: { sparepart: StockInSparepart }) {
+export function FlatStockIn({ sparepart, isAdmin }: { sparepart: StockInSparepart; isAdmin: boolean }) {
   const queryClient = useQueryClient();
   const isKonversi = sparepart.trackingMode === 'konversi' && !!sparepart.packSize;
   const packSize = isKonversi ? Number(sparepart.packSize) : 1;
   const stockInForm = useForm<FlatStockInValues>({
-    resolver: zodResolver(flatStockInSchema),
+    resolver: zodResolver(makeFlatStockInSchema(isAdmin)),
     defaultValues: { ...flatStockInEmptyValues, qtyIn: isKonversi ? 'pack' : 'unit' },
   });
   const qtyIn = stockInForm.watch('qtyIn');
@@ -218,7 +222,7 @@ export function FlatStockIn({ sparepart }: { sparepart: StockInSparepart }) {
         kind: 'sparepart',
         refId: sparepart.id,
         qty: Math.round(qty * 100) / 100,
-        buyPrice: Math.round(buyPrice * 100) / 100,
+        ...(isAdmin ? { buyPrice: Math.round(buyPrice * 100) / 100 } : {}),
         note: trimmedOrUndefined(values.note),
       });
     },
@@ -283,26 +287,30 @@ export function FlatStockIn({ sparepart }: { sparepart: StockInSparepart }) {
                 </FormItem>
               )}
             />
-            <FormField
-              control={stockInForm.control}
-              name="buyPrice"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Harga Modal{isKonversi ? ` (per ${qtyIn === 'pack' ? sparepart.packUnit : sparepart.unit})` : ''}
-                  </FormLabel>
-                  <FormControl>
-                    <CurrencyInput {...field} />
-                  </FormControl>
-                  {isKonversi && qtyIn === 'pack' && buyPriceWatch > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      = {formatRupiah(Math.round((buyPriceWatch / packSize) * 100) / 100)} per {sparepart.unit}
-                    </p>
-                  )}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {isAdmin ? (
+              <FormField
+                control={stockInForm.control}
+                name="buyPrice"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Harga Modal{isKonversi ? ` (per ${qtyIn === 'pack' ? sparepart.packUnit : sparepart.unit})` : ''}
+                    </FormLabel>
+                    <FormControl>
+                      <CurrencyInput {...field} />
+                    </FormControl>
+                    {isKonversi && qtyIn === 'pack' && buyPriceWatch > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        = {formatRupiah(Math.round((buyPriceWatch / packSize) * 100) / 100)} per {sparepart.unit}
+                      </p>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">Harga modal diisi admin lewat Modal Barang.</p>
+            )}
             <FormField
               control={stockInForm.control}
               name="note"
@@ -351,7 +359,7 @@ export function BatchTrackedStockIn({
   });
 
   const form = useForm<RollStockInValues>({
-    resolver: zodResolver(rollStockInSchema),
+    resolver: zodResolver(makeRollStockInSchema(isAdmin)),
     defaultValues: rollStockInEmptyValues,
   });
   const { fields, append, remove, replace } = useFieldArray({ control: form.control, name: 'rolls' });
@@ -380,9 +388,13 @@ export function BatchTrackedStockIn({
         kind: 'sparepart',
         refId: sparepart.id,
         rolls: values.rolls.map((r) => ({ length: Number(r.length) })),
-        buyPrice: isGabungan
-          ? Math.round((Number(values.buyPrice) / packSize) * 100) / 100
-          : Number(values.buyPrice),
+        ...(isAdmin
+          ? {
+              buyPrice: isGabungan
+                ? Math.round((Number(values.buyPrice) / packSize) * 100) / 100
+                : Number(values.buyPrice),
+            }
+          : {}),
         supplierName: trimmedOrUndefined(values.supplierName),
         note: trimmedOrUndefined(values.note),
       }),
@@ -529,28 +541,32 @@ export function BatchTrackedStockIn({
                   {isGabungan ? `Tambah ${sparepart.packUnit} (isi custom)` : 'Tambah Gulungan'}
                 </Button>
               </div>
-              <FormField
-                control={form.control}
-                name="buyPrice"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Harga Modal (per {isGabungan ? sparepart.packUnit : sparepart.unit}, berlaku
-                      semua gulungan)
-                    </FormLabel>
-                    <FormControl>
-                      <CurrencyInput {...field} />
-                    </FormControl>
-                    {isGabungan && buyPriceWatch > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        = {formatRupiah(Math.round((buyPriceWatch / packSize) * 100) / 100)} per{' '}
-                        {sparepart.unit}
-                      </p>
-                    )}
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {isAdmin ? (
+                <FormField
+                  control={form.control}
+                  name="buyPrice"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Harga Modal (per {isGabungan ? sparepart.packUnit : sparepart.unit}, berlaku
+                        semua gulungan)
+                      </FormLabel>
+                      <FormControl>
+                        <CurrencyInput {...field} />
+                      </FormControl>
+                      {isGabungan && buyPriceWatch > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          = {formatRupiah(Math.round((buyPriceWatch / packSize) * 100) / 100)} per{' '}
+                          {sparepart.unit}
+                        </p>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">Harga modal diisi admin lewat Modal Barang.</p>
+              )}
               <FormField
                 control={form.control}
                 name="supplierName"
