@@ -15,6 +15,7 @@ import 'technician_multi_picker.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
 import '../../core/widgets/unit_type_mode.dart';
+import '../../core/widgets/pk_check.dart';
 
 /// Jenis pekerjaan Terima Servis (sama dengan web; pemasangan berasal dari POS, tidak ditawarkan di sini).
 enum IntakeJobType {
@@ -288,6 +289,7 @@ class _ServiceOrderCreateScreenState
       messenger.showSnackBar(SnackBar(content: Text(problem), backgroundColor: AppColors.danger));
       return;
     }
+    if (!await confirmPk(context, [for (final u in _newUnits) u.pk.text]) || !mounted) return;
     setState(() => _busy = true);
     try {
       await ref.read(createServiceOrderCallerProvider)(buildIntakePayload(
@@ -693,6 +695,8 @@ class _ServiceOrderCreateScreenState
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: InputDecoration(
                   labelText: 'PK',
+                  helperText: kPkHint,
+                  helperMaxLines: 2,
                   isDense: true,
                   errorText: u.pkValid ? null : 'PK 0 – 99,99',
                 ),

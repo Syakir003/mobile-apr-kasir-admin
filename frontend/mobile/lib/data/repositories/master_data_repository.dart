@@ -6,9 +6,7 @@ import '../models/sparepart.dart';
 import 'crud_repository.dart';
 
 /// Implementasi [CrudRepository] lewat backend NestJS untuk produk,
-/// sparepart, dan jasa — pengganti [SupabaseCrudRepository] pada migrasi
-/// Flutter -> Nest (pola sama seperti [NestItemCostRepository] di
-/// `item_cost_repository.dart`).
+/// sparepart, dan jasa.
 ///
 /// [watchAll] = sekali GET `?status=all` (aktif + nonaktif, seperti dulu di
 /// Supabase); tak ada realtime, jadi form simpan me-`ref.invalidate` provider
@@ -27,10 +25,8 @@ Map<String, dynamic> productToNestBody(Product p) => {
       'btu': p.btu,
       'watt': p.watt,
       'warranty': p.warranty,
-      // buyPrice TIDAK ikut — sama seperti Product.toMap(), sudah pindah ke
-      // item_costs (PUT /item-costs/product/:id), lihat product_form_screen.
+      // buyPrice & stock TIDAK ikut: dicatat lewat Barang Masuk (/stock/in).
       'sellPrice': p.sellPrice,
-      'stock': p.stock,
       'photoUrl': p.photoUrl,
       'description': p.description,
       'category': p.category,
@@ -61,13 +57,16 @@ Map<String, dynamic> sparepartToNestBody(Sparepart s) => {
       'sku': s.sku,
       'category': s.category,
       'unit': s.unit,
-      // buyPrice TIDAK ikut — sama seperti Sparepart.toMap(), sudah pindah ke
-      // item_costs (PUT /item-costs/sparepart/:id).
+      // buyPrice & stock TIDAK ikut: dicatat lewat Barang Masuk (/stock/in).
       'sellPrice': s.sellPrice,
-      'stock': s.stock,
       'minStock': s.minStock,
       'active': s.active,
     };
+
+/// POST /spareparts mewajibkan `stock`. Selalu 0: stok awal dicatat lewat
+/// Barang Masuk supaya ada harga modal dan riwayat mutasinya. PATCH tidak
+/// menerima `stock` sama sekali.
+Map<String, dynamic> sparepartCreateBody(Sparepart s) => {...sparepartToNestBody(s), 'stock': 0};
 
 class NestSparepartRepository implements CrudRepository<Sparepart> {
   const NestSparepartRepository(this._api);
@@ -79,7 +78,7 @@ class NestSparepartRepository implements CrudRepository<Sparepart> {
 
   @override
   Future<String> create(Sparepart item) async {
-    final json = await _api.post('/spareparts', body: sparepartToNestBody(item)) as Map;
+    final json = await _api.post('/spareparts', body: sparepartCreateBody(item)) as Map;
     return json['id'] as String;
   }
 

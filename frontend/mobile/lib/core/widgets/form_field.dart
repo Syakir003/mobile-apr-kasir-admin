@@ -304,9 +304,13 @@ class AppNumberField extends StatelessWidget {
         onChanged: onChanged,
         keyboardType: TextInputType.numberWithOptions(decimal: decimal),
         inputFormatters: [
-          decimal
-              ? FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
-              : FilteringTextInputFormatter.digitsOnly,
+          if (decimal) ...[
+            // Koma (kebiasaan Indonesia) jadi titik — dulu dibuang, "2,5" -> 25.
+            TextInputFormatter.withFunction(
+                (_, v) => v.copyWith(text: v.text.replaceAll(',', '.'))),
+            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+          ] else
+            FilteringTextInputFormatter.digitsOnly,
         ],
         style: AppTextStyles.monoCode.copyWith(fontSize: 15),
         decoration: InputDecoration(

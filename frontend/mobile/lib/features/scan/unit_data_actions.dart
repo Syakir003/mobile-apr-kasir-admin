@@ -6,6 +6,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/error_message.dart';
 import '../../core/widgets/notice_panel.dart';
 import '../../data/models/ac_unit.dart';
+import '../../core/widgets/pk_check.dart';
 
 const _api = ApiClient();
 
@@ -104,6 +105,7 @@ class _CompleteUnitDataPanelState extends State<CompleteUnitDataPanel> {
       );
 
   Future<void> _save() async {
+    if (!await confirmPk(context, [_pk.text]) || !mounted) return;
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {

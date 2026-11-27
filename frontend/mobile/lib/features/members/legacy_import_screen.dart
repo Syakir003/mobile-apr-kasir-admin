@@ -15,6 +15,7 @@ import '../../data/models/member.dart';
 import 'member_providers.dart';
 import 'member_selector.dart';
 import 'unit_label_pdf.dart';
+import '../../core/widgets/pk_check.dart';
 
 // Input Data Lampau (admin), padanan administrasi/data-lampau di web: mencatat pelanggan lama beserta unit ACnya
 // (tipe diketahui, atau "QR dulu" yang dilengkapi teknisi saat scan) dan, bila ada, satu transaksi lampau.
@@ -241,6 +242,7 @@ class _LegacyImportScreenState extends ConsumerState<LegacyImportScreen> {
       messenger.showSnackBar(SnackBar(content: Text(err), backgroundColor: AppColors.danger));
       return;
     }
+    if (!await confirmPk(context, [for (final u in _units) if (!u.qrDulu) u.pk]) || !mounted) return;
     setState(() => _busy = true);
     try {
       final r = await ref.read(legacyImportCallerProvider)(buildLegacyPayload(
@@ -518,7 +520,7 @@ class _LegacyImportScreenState extends ConsumerState<LegacyImportScreen> {
               Expanded(
                 child: TextField(
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'PK', isDense: true),
+                  decoration: const InputDecoration(labelText: 'PK', helperText: kPkHint, helperMaxLines: 2, isDense: true),
                   onChanged: (v) => u.pk = v,
                 ),
               ),

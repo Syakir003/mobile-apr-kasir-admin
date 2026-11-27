@@ -85,4 +85,15 @@ void main() {
     expect(c.text, '150.000');
     expect(parseRupiahInput(c.text), 150000);
   });
+
+  // Regresi: koma dulu DIBUANG, jadi "2,5" tersimpan sebagai 25 tanpa peringatan.
+  testWidgets('kolom angka desimal: koma menjadi titik, bukan hilang', (tester) async {
+    final c = TextEditingController();
+    addTearDown(c.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: Scaffold(body: AppNumberField(label: 'Stok', decimal: true, controller: c))),
+    );
+    await tester.enterText(find.byType(TextField), '12,5');
+    expect(c.text, '12.5');
+  });
 }

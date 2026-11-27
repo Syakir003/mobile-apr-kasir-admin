@@ -6,9 +6,10 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/form_field.dart';
 import '../../../core/widgets/form_scaffold.dart';
 import '../../../data/models/product.dart';
-import '../../../data/repositories/item_cost_repository.dart';
+import '../../stock/stock_providers.dart';
 import '../master_providers.dart';
 import '../../../core/utils/error_message.dart';
+import '../../../core/widgets/pk_check.dart';
 
 class ProductFormScreen extends ConsumerStatefulWidget {
   const ProductFormScreen({super.key, this.initial});
@@ -50,35 +51,15 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _btu = TextEditingController(text: p?.btu?.toString() ?? '');
     _watt = TextEditingController(text: p?.watt?.toString() ?? '');
     _warranty = TextEditingController(text: p?.warranty ?? '');
-    _buyPrice = TextEditingController(
-      text: p == null ? '' : formatRupiahInput(p.buyPrice),
-    );
+    _buyPrice = TextEditingController();
     _sellPrice = TextEditingController(
       text: p == null ? '' : formatRupiahInput(p.sellPrice),
     );
-    _stock = TextEditingController(text: p == null ? '' : '${p.stock}');
+    _stock = TextEditingController();
     _description = TextEditingController(text: p?.description ?? '');
     _inverter = p?.inverter ?? false;
     _category = p?.category ?? kProductCategories.first;
     _active = p?.active ?? true;
-    if (_isEdit) _loadCost();
-  }
-
-  /// Harga modal tinggal di tabel `item_costs` (migrasi 0021), bukan lagi kolom
-  /// `products.buy_price` — jadi `widget.initial.buyPrice` selalu 0 dan nilainya
-  /// harus diambil sendiri. Gagal baca (mis. peran bukan admin) dibiarkan
-  /// senyap: field tetap kosong, dan menyimpan form tak akan menimpanya dengan 0
-  /// karena `_submit` hanya menulis biaya saat field-nya benar-benar diisi.
-  Future<void> _loadCost() async {
-    try {
-      final value = await ref
-          .read(itemCostRepositoryProvider)
-          .fetch(CostKind.product, widget.initial!.id);
-      if (!mounted || value == 0) return;
-      setState(() => _buyPrice.text = formatRupiahInput(value));
-    } catch (_) {
-      // Harga modal opsional — form tetap bisa dipakai tanpanya.
-    }
   }
 
   @override
@@ -114,6 +95,14 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!await confirmPk(context, [_pk.text]) || !mounted) return;
+    // Stok awal hanya untuk produk baru; sesudahnya lewat Stok Masuk.
+    final initialQty = _isEdit ? 0 : int.tryParse(_stock.text.trim()) ?? 0;
+    final buyPrice = parseRupiahInput(_buyPrice.text);
+    // Ditanyakan sebelum apa pun tersimpan, supaya Batal benar-benar batal.
+    if (initialQty > 0 && buyPrice >= parseRupiahInput(_sellPrice.text)) {
+      if (!await _confirmBelowCost() || !mounted) return;
+    }
     setState(() => _busy = true);
     final btuText = _btu.text.trim();
     final wattText = _watt.text.trim();
@@ -129,36 +118,54 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       btu: btuText.isEmpty ? null : int.parse(btuText),
       watt: wattText.isEmpty ? null : int.parse(wattText),
       warranty: warrantyText.isEmpty ? null : warrantyText,
-      buyPrice: parseRupiahInput(_buyPrice.text),
+      buyPrice: widget.initial?.buyPrice ?? 0,
       sellPrice: parseRupiahInput(_sellPrice.text),
-      stock: int.parse(_stock.text.trim()),
+      stock: widget.initial?.stock ?? 0,
       photoUrl: widget.initial?.photoUrl,
       description: descText.isEmpty ? null : descText,
       category: _category,
       active: _active,
     );
     final repo = ref.read(productRepositoryProvider);
+    final stockIn = ref.read(stockInCallerProvider);
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      final String id;
+      var message = 'Produk tersimpan.';
+      var failed = false;
       if (_isEdit) {
-        id = widget.initial!.id;
-        await repo.update(id, product);
+        await repo.update(widget.initial!.id, product);
       } else {
-        id = await repo.create(product);
-      }
-      // Harga modal disimpan terpisah — baris produk tak lagi punya kolomnya.
-      // Hanya ditulis bila field diisi, supaya membuka-lalu-menyimpan form
-      // tanpa menyentuh field ini tidak menimpa biaya lama dengan 0.
-      if (_buyPrice.text.trim().isNotEmpty) {
-        await ref
-            .read(itemCostRepositoryProvider)
-            .save(CostKind.product, id, parseRupiahInput(_buyPrice.text));
+        final id = await repo.create(product);
+        // Produk sudah ada. Kegagalan sesudah titik ini tidak boleh menahan
+        // pengguna di form, karena menekan Simpan lagi membuat produk kedua.
+        try {
+          // POST /products tidak menerima kolom ini, PATCH menerimanya.
+          if (warrantyText.isNotEmpty || descText.isNotEmpty || !_active) {
+            await repo.update(id, product);
+          }
+          if (initialQty > 0) {
+            await stockIn({
+              'kind': 'product',
+              'refId': id,
+              'qty': initialQty,
+              'buyPrice': buyPrice,
+              'note': 'Stok awal',
+              'confirmOverride': true,
+            });
+          }
+        } catch (e) {
+          failed = true;
+          message = 'Produk tersimpan, tetapi stok awal atau detailnya gagal: '
+              '${errorMessage(e)}. Lengkapi lewat Edit atau Stok Masuk.';
+        }
       }
       ref.invalidate(productListProvider);
+      ref.invalidate(stockOverviewProvider);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Produk tersimpan.')),
-      );
+      messenger.showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: failed ? AppColors.danger : null,
+      ));
       context.go('/products');
     } catch (e) {
       if (!mounted) return;
@@ -170,6 +177,25 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         ),
       );
     }
+  }
+
+  Future<bool> _confirmBelowCost() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Harga modal tidak di bawah harga jual'),
+        content: const Text('Tetap simpan produk beserta stok awalnya?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Batal')),
+          FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Tetap Simpan')),
+        ],
+      ),
+    );
+    return ok ?? false;
   }
 
   @override
@@ -256,6 +282,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                   child: AppNumberField(
                     key: const Key('pk'),
                     label: 'PK',
+                    helper: kPkHint,
                     required: true,
                     decimal: true,
                     hint: '1',
@@ -320,43 +347,48 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         AppFormCard(
           title: 'Harga & Stok',
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: AppMoneyField(
-                    key: const Key('buyPrice'),
-                    label: 'Harga Beli',
-                    required: true,
-                    controller: _buyPrice,
-                    enabled: !_busy,
-                    validator: rupiahRequiredValidator,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: AppMoneyField(
-                    key: const Key('sellPrice'),
-                    label: 'Harga Jual',
-                    required: true,
-                    controller: _sellPrice,
-                    enabled: !_busy,
-                    validator: rupiahRequiredValidator,
-                  ),
-                ),
-              ],
+            AppMoneyField(
+              key: const Key('sellPrice'),
+              label: 'Harga Jual',
+              required: true,
+              controller: _sellPrice,
+              enabled: !_busy,
+              validator: rupiahRequiredValidator,
             ),
             const SizedBox(height: kFieldGap),
-            AppNumberField(
-              key: const Key('stock'),
-              label: 'Stok',
-              required: true,
-              hint: '0',
-              suffixText: 'unit',
-              controller: _stock,
-              enabled: !_busy,
-              validator: (v) => _intValidator(v),
-            ),
+            if (_isEdit)
+              const Text('Stok dan harga modal diatur lewat Stok Masuk.')
+            else
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: AppNumberField(
+                      key: const Key('stock'),
+                      label: 'Stok Awal',
+                      hint: '0',
+                      suffixText: 'unit',
+                      controller: _stock,
+                      enabled: !_busy,
+                      validator: (v) => _intValidator(v, required: false),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: AppMoneyField(
+                      key: const Key('buyPrice'),
+                      label: 'Harga Modal',
+                      helper: 'Wajib bila ada stok awal',
+                      controller: _buyPrice,
+                      enabled: !_busy,
+                      validator: (v) =>
+                          (int.tryParse(_stock.text.trim()) ?? 0) > 0
+                              ? rupiahRequiredValidator(v)
+                              : null,
+                    ),
+                  ),
+                ],
+              ),
             const SizedBox(height: kFieldGap),
             AppSwitchTile(
               key: const Key('active'),

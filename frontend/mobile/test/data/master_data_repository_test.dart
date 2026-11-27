@@ -41,7 +41,6 @@ void main() {
       'watt': 780,
       'warranty': '3 tahun',
       'sellPrice': 3500000,
-      'stock': 10,
       'photoUrl': 'https://x/y.png',
       'description': 'hemat listrik',
       'category': 'AC 1 PK',
@@ -70,11 +69,12 @@ void main() {
       'category': 'sparepart',
       'unit': 'tabung',
       'sellPrice': 500000,
-      'stock': 10,
       'minStock': 2,
       'active': true,
     });
     expect(sparepartToNestBody(s).containsKey('buyPrice'), isFalse);
+    // POST /spareparts mewajibkan `stock`; stok awal masuk lewat Barang Masuk.
+    expect(sparepartCreateBody(s), {...sparepartToNestBody(s), 'stock': 0});
   });
 
   test('serviceToNestBody: camelCase', () {

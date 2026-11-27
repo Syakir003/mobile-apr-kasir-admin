@@ -7,13 +7,10 @@ import '../../data/models/product.dart';
 import '../../data/models/service_item.dart';
 import '../../data/models/sparepart.dart';
 import '../../data/repositories/crud_repository.dart';
-import '../../data/repositories/item_cost_repository.dart';
 import '../../data/repositories/master_data_repository.dart';
 import '../../data/repositories/package_repository.dart';
 
-/// Sudah dipindah ke backend NestJS (`Nest*Repository`) sebagai repository
-/// rujukan migrasi Flutter -> Nest, sama pola seperti [itemCostRepositoryProvider].
-/// Master data penuh lewat Nest (baca + tulis).
+/// Master data penuh lewat backend NestJS (baca + tulis).
 final productRepositoryProvider = Provider<CrudRepository<Product>>((ref) {
   return const NestProductRepository(ApiClient());
 });
@@ -29,21 +26,6 @@ final serviceRepositoryProvider = Provider<CrudRepository<ServiceItem>>((ref) {
 final packageRepositoryProvider =
     Provider<CrudRepository<InstallationPackage>>((ref) {
   return const NestPackageRepository(ApiClient());
-});
-
-/// Harga modal (`item_costs`) — dipisah dari master data sejak migrasi 0021
-/// agar hanya terbaca admin. Di-override fake pada test form.
-final itemCostRepositoryProvider = Provider<ItemCostRepository>(
-  (ref) => NestItemCostRepository(const ApiClient()),
-);
-
-/// Harga modal satu barang. Key: `('product'|'sparepart', refId)`.
-/// Mengembalikan 0 bila barang baru (refId kosong) atau belum pernah diisi.
-final itemCostProvider =
-    FutureProvider.autoDispose.family<int, (CostKind, String)>((ref, key) {
-  final (kind, refId) = key;
-  if (refId.isEmpty) return Future.value(0);
-  return ref.watch(itemCostRepositoryProvider).fetch(kind, refId);
 });
 
 final productListProvider = StreamProvider<List<Product>>(
