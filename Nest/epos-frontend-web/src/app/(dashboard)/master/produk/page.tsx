@@ -1446,7 +1446,7 @@ function ProductTable({
 }: {
   /** Gudang tidak melihat harga (server juga tidak mengirimnya). */
   hidePrice?: boolean;
-  /** Diisi untuk gudang: tombol "Betulkan" pada barang yang menunggu harga. */
+  /** Diisi untuk gudang: tombol "Edit" (nama & kategori). */
   onFix?: (p: Product) => void;
   isAdmin: boolean;
   products: Product[] | undefined;
@@ -1667,11 +1667,11 @@ function ProductTable({
                           </Link>
                         </Button>
                       )}
-                      {onFix && isPendingPrice(p) && (
+                      {onFix && (
                         <Button
                           variant="ghost"
                           size="icon"
-                          title="Betulkan"
+                          title="Edit"
                           onClick={(e) => {
                             e.stopPropagation();
                             onFix(p);

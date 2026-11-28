@@ -547,11 +547,11 @@ export default function SparepartPage() {
                           </Link>
                         </Button>
                       )}
-                      {isGudang && isPendingPrice(s) && (
+                      {isGudang && (
                         <Button
                           variant="ghost"
                           size="icon"
-                          title="Betulkan"
+                          title="Edit"
                           onClick={(e) => {
                             e.stopPropagation();
                             setFixing(s);

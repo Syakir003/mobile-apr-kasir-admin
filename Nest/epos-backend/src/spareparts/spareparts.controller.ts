@@ -54,7 +54,7 @@ export class SparepartsController {
     return user.role === 'admin' ? batches : batches.map(({ buyPrice, ...rest }) => rest);
   }
 
-  // Gudang hanya membetulkan identitas barang yang masih menunggu harga.
+  // Gudang hanya mengubah identitas barang (nama, SKU, kategori), bukan harga/status.
   @Roles('admin', 'gudang')
   @Patch(':id')
   update(
@@ -64,6 +64,6 @@ export class SparepartsController {
   ) {
     return user.role === 'admin'
       ? this.spareparts.update(id, dto, user.sub)
-      : this.spareparts.fixPending(id, dto, user.sub);
+      : this.spareparts.editIdentity(id, dto, user.sub);
   }
 }

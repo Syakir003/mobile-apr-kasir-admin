@@ -28,8 +28,8 @@ final packageRepositoryProvider =
   return const NestPackageRepository(ApiClient());
 });
 
-/// PATCH sebagian: gudang membetulkan barang yang menunggu harga.
-final fixPendingCallerProvider = Provider<Future<void> Function(String path, Map<String, dynamic> body)>(
+/// PATCH sebagian: gudang mengubah nama, SKU, kategori.
+final editItemCallerProvider = Provider<Future<void> Function(String path, Map<String, dynamic> body)>(
   (ref) => (path, body) async {
     await const ApiClient().patch(path, body: body);
   },

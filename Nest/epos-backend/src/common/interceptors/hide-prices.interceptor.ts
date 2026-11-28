@@ -28,7 +28,7 @@ export function hidePrices(value: unknown): unknown {
     if (!PRICE_KEYS.has(key)) out[key] = hidePrices(v);
   }
   if ('sellPrice' in row && 'active' in row) {
-    // Sama dengan syarat SparepartsService/ProductsService.fixPending.
+    // "Menunggu harga": belum aktif dan harga jual (atau harga utuh) belum diisi.
     const packSale = row.trackingMode === 'konversi' || row.trackingMode === 'gabungan';
     out.pendingPrice =
       row.active === false &&

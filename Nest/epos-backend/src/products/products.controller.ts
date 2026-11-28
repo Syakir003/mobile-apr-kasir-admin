@@ -77,7 +77,7 @@ export class ProductsController {
     return this.products.findUnits(id, includePair === '1' || includePair === 'true', picked);
   }
 
-  // Gudang hanya membetulkan identitas barang yang masih menunggu harga.
+  // Gudang hanya mengubah identitas barang (nama, SKU, kategori), bukan harga/status.
   @Roles('admin', 'gudang')
   @Patch(':id')
   update(
@@ -87,6 +87,6 @@ export class ProductsController {
   ) {
     return user.role === 'admin'
       ? this.products.update(id, dto, user.sub)
-      : this.products.fixPending(id, dto, user.sub);
+      : this.products.editIdentity(id, dto, user.sub);
   }
 }

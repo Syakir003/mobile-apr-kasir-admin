@@ -12,16 +12,16 @@ import '../../core/widgets/empty_state.dart';
 import '../../core/router/app_router.dart' show currentUserProvider;
 import '../../data/models/app_user.dart';
 import '../master/master_providers.dart';
-import '../master/widgets/fix_pending_dialog.dart';
+import 'gudang_item_screens.dart';
 import 'receive_providers.dart';
-import 'receive_screen.dart' show ReceiveFields, ReceivedLabelButton;
+import 'stock_opname_screen.dart' show sparepartBatchesProvider;
 import 'stock_providers.dart';
 import '../../core/utils/error_message.dart';
 import 'stock_label_pdf.dart';
 
 // Detail stok satu barang (padanan halaman detail produk/sparepart di web, bagian stok): batch aktif beserta modal,
-// dan untuk produk AC daftar unit fisik per QR. Untuk gudang halaman ini sekaligus tempat Barang Masuk,
-// Koreksi stok, dan Betulkan (seperti web); peran lain hanya membaca.
+// dan untuk produk AC daftar unit fisik per QR. Gudang mendapat dua tombol, Barang Masuk dan Edit
+// (gudang_item_screens.dart); peran lain hanya membaca.
 
 /// Satu batch (ItemCost). [buyPrice] null bila peran tidak boleh melihat modal.
 class StockBatch {
@@ -130,35 +130,21 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   bool _perUnit = false;
   String _status = 'di_gudang';
 
-  /// Hasil Barang Masuk terakhir; [_formRound] mengosongkan form sesudah simpan.
-  Map<String, dynamic>? _received;
-  int _formRound = 0;
+  /// Daftar stok disembunyikan dulu supaya yang terlihat hanya dua tombol.
+  bool _showList = false;
 
   StockItemKey get _key => (kind: widget.row.kind, id: widget.row.id);
 
-  void _refresh() {
+  /// Buka Barang Masuk / Edit, lalu muat ulang semua yang menampilkan stoknya.
+  Future<void> _open(Widget screen) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
+    if (!mounted) return;
     ref.invalidate(stockDetailProvider(_key));
     ref.invalidate(stockBatchesProvider(_key));
     ref.invalidate(stockUnitsProvider);
+    ref.invalidate(sparepartBatchesProvider(widget.row.id));
     ref.invalidate(stockOverviewProvider);
     ref.invalidate(widget.row.kind == 'product' ? productListProvider : sparepartListProvider);
-  }
-
-  Future<void> _correct() async {
-    await context.push('/stok/opname', extra: widget.row.id);
-    if (mounted) _refresh();
-  }
-
-  Future<void> _fix(Map<String, dynamic> info) async {
-    final product = widget.row.kind == 'product';
-    final saved = await showFixPendingDialog(
-      context,
-      path: '/${product ? 'products' : 'spareparts'}/${widget.row.id}',
-      name: '${info['name'] ?? widget.row.name}',
-      category: '${info['category'] ?? ''}',
-      sku: product ? null : '${info['sku'] ?? ''}',
-    );
-    if (saved && mounted) _refresh();
   }
 
   Widget _warehouse() {
@@ -176,82 +162,60 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
           title: 'Gagal memuat barang',
           onRetry: () => ref.invalidate(stockDetailProvider(_key)),
         ),
-        data: (d) => ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
-            Text('Stok: ${stockText(d.info)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            if (d.info['pendingPrice'] == true)
-              const Text('Menunggu harga', style: TextStyle(color: AppColors.slate600)),
-            const SizedBox(height: 8),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              OutlinedButton.icon(
-                key: const Key('detail-fix-stock'),
-                onPressed: _correct,
-                icon: const Icon(Icons.fact_check_outlined, size: 18),
-                label: const Text('Koreksi stok'),
-              ),
+        data: (d) {
+          final item = d.receive;
+          const big = ButtonStyle(minimumSize: WidgetStatePropertyAll(Size.fromHeight(56)));
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: [
+              Text('Stok: ${stockText(d.info)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               if (d.info['pendingPrice'] == true)
-                OutlinedButton.icon(
-                  key: const Key('detail-fix-item'),
-                  onPressed: () => _fix(d.info),
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  label: const Text('Betulkan'),
+                const Text('Menunggu harga', style: TextStyle(color: AppColors.slate600)),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                key: const Key('detail-receive'),
+                style: big,
+                onPressed: item == null ? null : () => _open(GudangStockInScreen(item: item)),
+                icon: const Icon(Icons.add_box_outlined),
+                label: const Text('Barang Masuk'),
+              ),
+              if (item == null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(d.info['acRole'] == 'outdoor'
+                      ? 'Barang masuk unit outdoor dicatat lewat produk Indoor pasangannya.'
+                      : 'Barang ini tidak bisa menerima barang masuk. Hubungi admin.'),
                 ),
-            ]),
-            const SizedBox(height: 20),
-            ..._receiveSection(d),
-            const SizedBox(height: 20),
-            if (isProduct) ...[
-              Row(children: _viewChips()),
-              if (_perUnit) ...[const SizedBox(height: 8), _statusChips()],
-            ] else
-              Text(_listTitle(d.receive), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-            if (isProduct && _perUnit)
-              _units(row, embedded: true)
-            else
-              _batches(row, embedded: true, unit: isProduct ? null : '${d.info['unit'] ?? ''}'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _listTitle(ReceiveItem? item) {
-    if (item == null || !item.batchTracked) return 'Stok masuk';
-    return 'Daftar ${item.packUnit.isEmpty ? 'gulungan' : item.packUnit}';
-  }
-
-  List<Widget> _receiveSection(StockDetail d) {
-    final item = d.receive;
-    if (item == null) {
-      return [
-        Text(d.info['acRole'] == 'outdoor'
-            ? 'Barang masuk unit outdoor dicatat lewat produk Indoor pasangannya.'
-            : 'Barang ini tidak bisa menerima barang masuk. Hubungi admin.'),
-      ];
-    }
-    final hasLabels = _received?['batchId'] != null || _received?['outdoorBatchId'] != null;
-    return [
-      const Text('Barang Masuk', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-      const SizedBox(height: 8),
-      ReceiveFields(
-        key: ValueKey(_formRound),
-        item: item,
-        onSaved: (res) {
-          setState(() {
-            _received = res;
-            _formRound++;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Barang masuk tersimpan. Harga modal diisi admin.')));
-          _refresh();
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('detail-edit'),
+                style: big,
+                onPressed: () => _open(GudangEditScreen(kind: row.kind, id: row.id, info: d.info)),
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Edit'),
+              ),
+              const SizedBox(height: 12),
+              TextButton.icon(
+                key: const Key('detail-list'),
+                onPressed: () => setState(() => _showList = !_showList),
+                icon: Icon(_showList ? Icons.expand_less : Icons.expand_more),
+                label: Text(isProduct ? 'Daftar unit & cetak label' : 'Daftar stok'),
+              ),
+              if (_showList) ...[
+                if (isProduct) ...[
+                  Row(children: _viewChips()),
+                  if (_perUnit) ...[const SizedBox(height: 8), _statusChips()],
+                ],
+                if (isProduct && _perUnit)
+                  _units(row, embedded: true)
+                else
+                  _batches(row, embedded: true, unit: isProduct ? null : '${d.info['unit'] ?? ''}'),
+              ],
+            ],
+          );
         },
       ),
-      if (item.kind == 'product' && hasLabels) ...[
-        const SizedBox(height: 8),
-        ReceivedLabelButton(result: _received!, paired: item.outdoorId != null),
-      ],
-    ];
+    );
   }
 
   List<Widget> _viewChips() => [

@@ -15,8 +15,8 @@ import {
 import { apiClient, ApiError } from '@/lib/api-client';
 
 /**
- * Gudang membetulkan barang yang masih "menunggu harga": nama, kategori, dan SKU (hanya sparepart; SKU produk dibuat
- * server). Harga tetap urusan admin, dan server menolak bila barangnya sudah diberi harga.
+ * Gudang mengubah nama, kategori, dan SKU barang (SKU hanya sparepart; SKU produk dibuat server). Harga tetap urusan
+ * admin; server mengabaikan kolom lain.
  * Pasang hanya saat dipakai (`{item && <FixPendingDialog .../>}`) supaya isiannya mulai dari data barang itu.
  */
 export function FixPendingDialog({
@@ -63,7 +63,7 @@ export function FixPendingDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Betulkan barang</DialogTitle>
+          <DialogTitle>Edit barang</DialogTitle>
           <DialogDescription>Harga diisi admin.</DialogDescription>
         </DialogHeader>
         <form className="grid gap-4" onSubmit={save}>

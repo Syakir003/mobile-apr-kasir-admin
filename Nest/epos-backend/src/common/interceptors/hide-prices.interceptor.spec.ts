@@ -35,7 +35,7 @@ describe('HidePricesInterceptor: gudang tidak boleh menerima harga', () => {
     expect(out.sparepart.createdAt).toBeInstanceOf(Date);
   });
 
-  it('menggantinya dengan penanda menunggu harga (aturan sama dengan fixPending)', () => {
+  it('menggantinya dengan penanda menunggu harga (aturan sama dengan web)', () => {
     const pending = (extra: object) => (hidePrices({ ...sparepart, ...extra }) as any).pendingPrice;
     expect(pending({})).toBe(true); // kemasan tanpa harga utuh
     expect(pending({ sellPricePack: 200000 })).toBe(false);

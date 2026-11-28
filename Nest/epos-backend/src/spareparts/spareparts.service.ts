@@ -209,38 +209,27 @@ export class SparepartsService {
   }
 
   /**
-   * Gudang membetulkan barang yang masih "menunggu harga": nama, SKU, kategori
-   * SAJA. Field lain di body diabaikan. Syaratnya ditaruh di `where` supaya
-   * tidak bisa kalah balapan dengan admin yang sedang mengisi harga.
+   * Gudang mengubah identitas barang: nama, SKU, kategori SAJA, kapan saja
+   * (keputusan 2026-11-28). Field lain di body diabaikan; nilai lama dicatat di
+   * audit karena barang yang sudah dijual pun bisa berganti nama.
    */
-  async fixPending(id: string, dto: UpdateSparepartDto, actorId: string) {
+  async editIdentity(id: string, dto: UpdateSparepartDto, actorId: string) {
     const name = dto.name?.trim();
     if (name === '') throw new BadRequestException('Nama tidak boleh kosong');
+    const before = await this.prisma.sparepart.findUnique({
+      where: { id },
+      select: { name: true, sku: true, category: true },
+    });
+    if (!before) throw new NotFoundException('Sparepart tidak ditemukan');
     const sku = await this.normalizeSku(dto.sku, id);
     const data = {
       ...(name !== undefined ? { name } : {}),
       ...(sku !== undefined ? { sku } : {}),
       ...(dto.category !== undefined ? { category: dto.category.trim() || null } : {}),
     };
-    const { count } = await this.prisma.sparepart.updateMany({
-      where: {
-        id,
-        active: false,
-        OR: [
-          { sellPrice: { lte: 0 } },
-          {
-            trackingMode: { in: ['konversi', 'gabungan'] },
-            OR: [{ sellPricePack: null }, { sellPricePack: { lte: 0 } }],
-          },
-        ],
-      },
-      data,
-    });
-    if (!count) {
-      throw new ForbiddenException('Barang ini sudah diberi harga atau aktif. Minta admin yang mengubahnya.');
-    }
+    await this.prisma.sparepart.update({ where: { id }, data });
     await this.prisma.auditLog.create({
-      data: { actorUid: actorId, action: 'sparepart.fix_pending', target: id, detail: data },
+      data: { actorUid: actorId, action: 'sparepart.edit_identity', target: id, detail: { sebelum: before, sesudah: data } },
     });
     return { id, ...data };
   }

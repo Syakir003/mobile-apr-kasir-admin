@@ -13,7 +13,7 @@ function setup() {
   const spareparts = {
     create: jest.fn(async (d) => ({ id: 's1', name: d.name })),
     update: jest.fn(),
-    fixPending: jest.fn(),
+    editIdentity: jest.fn(),
   };
   const notifications = { notifyRoles: jest.fn() };
   const controller = new SparepartsController(spareparts as any, notifications as any);
@@ -55,13 +55,13 @@ describe('PATCH /spareparts', () => {
     const { controller, spareparts } = setup();
     await controller.update('s1', { sellPrice: 1, active: true }, gudang);
     expect(spareparts.update).not.toHaveBeenCalled();
-    expect(spareparts.fixPending).toHaveBeenCalledWith('s1', { sellPrice: 1, active: true }, 'g1');
+    expect(spareparts.editIdentity).toHaveBeenCalledWith('s1', { sellPrice: 1, active: true }, 'g1');
   });
 
   it('admin: ubah penuh', async () => {
     const { controller, spareparts } = setup();
     await controller.update('s1', { sellPrice: 1 }, admin);
     expect(spareparts.update).toHaveBeenCalledWith('s1', { sellPrice: 1 }, 'a1');
-    expect(spareparts.fixPending).not.toHaveBeenCalled();
+    expect(spareparts.editIdentity).not.toHaveBeenCalled();
   });
 });

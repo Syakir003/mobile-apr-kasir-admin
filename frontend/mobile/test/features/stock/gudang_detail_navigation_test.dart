@@ -6,8 +6,8 @@ import 'package:epos_ac/data/models/app_user.dart';
 import 'package:epos_ac/data/models/sparepart.dart';
 import 'package:epos_ac/features/master/master_providers.dart';
 import 'package:epos_ac/features/master/sparepart/sparepart_list_screen.dart';
+import 'package:epos_ac/features/stock/gudang_item_screens.dart';
 import 'package:epos_ac/features/stock/stock_detail_screen.dart';
-import 'package:epos_ac/features/stock/stock_opname_screen.dart';
 import 'package:epos_ac/features/stock/stock_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,7 +24,7 @@ Future<void> _settle(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('daftar -> detail -> koreksi stok, kembali setahap demi setahap', (tester) async {
+  testWidgets('daftar -> detail -> Barang Masuk / Edit, kembali setahap demi setahap', (tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -58,14 +58,16 @@ void main() {
     await _settle(tester);
     expect(find.byType(StockDetailScreen), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('detail-fix-stock')));
-    await _settle(tester);
-    expect(find.byType(StockOpnameScreen), findsOneWidget);
+    for (final (button, screen) in [('detail-receive', GudangStockInScreen), ('detail-edit', GudangEditScreen)]) {
+      await tester.tap(find.byKey(Key(button)));
+      await _settle(tester);
+      expect(find.byType(screen), findsOneWidget);
 
-    unawaited(tester.binding.handlePopRoute()); // tombol kembali HP
-    await _settle(tester);
-    expect(find.byType(StockOpnameScreen), findsNothing);
-    expect(find.byType(StockDetailScreen), findsOneWidget);
+      unawaited(tester.binding.handlePopRoute()); // tombol kembali HP
+      await _settle(tester);
+      expect(find.byType(screen), findsNothing);
+      expect(find.byType(StockDetailScreen), findsOneWidget);
+    }
 
     unawaited(tester.binding.handlePopRoute());
     await _settle(tester);
