@@ -6,12 +6,14 @@ import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/error_message.dart';
 import '../../core/utils/num_parse.dart';
+import '../../core/widgets/app_filter_chip.dart';
 import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/empty_state.dart';
+import 'product_opname.dart';
 import 'stock_providers.dart';
 
-// Stock opname sparepart (padanan tab Opname di web): hitung fisik, lalu samakan angka sistem. Produk AC tidak
-// diopname lewat angka (stoknya dari unit QR), jadi backend menolaknya. Sparepart per gulungan dioopname per gulungan.
+// Stock opname (padanan tab Opname di web): hitung fisik, lalu samakan stok. Sparepart per gulungan dioopname per
+// gulungan; produk AC lewat jumlah unit (lihat product_opname.dart).
 
 /// Satu gulungan/batch sparepart (GET /spareparts/:id/batches).
 class SparepartBatch {
@@ -93,6 +95,7 @@ class StockOpnameScreen extends ConsumerStatefulWidget {
 class _StockOpnameScreenState extends ConsumerState<StockOpnameScreen> {
   late String? _itemId = widget.initialItemId;
   String? _batchId;
+  bool? _productTab; // null = ikuti barang yang dibuka (produk atau sparepart)
   final _physical = TextEditingController();
   final _note = TextEditingController();
   bool _busy = false;
@@ -138,6 +141,30 @@ class _StockOpnameScreenState extends ConsumerState<StockOpnameScreen> {
         loading: () => const AppSkeletonDetail(),
         error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat sparepart'),
         data: (d) {
+          final productTab = _productTab ?? d.products.any((p) => p.id == widget.initialItemId);
+          final tabs = Row(children: [
+            AppFilterChip(
+                key: const Key('opname-tab-sparepart'),
+                label: 'Sparepart',
+                selected: !productTab,
+                onTap: () => setState(() => _productTab = false)),
+            const SizedBox(width: 8),
+            AppFilterChip(
+                key: const Key('opname-tab-product'),
+                label: 'Produk AC',
+                selected: productTab,
+                onTap: () => setState(() => _productTab = true)),
+          ]);
+          if (productTab) {
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+              children: [
+                tabs,
+                const SizedBox(height: 16),
+                ProductOpnameForm(products: d.products, initialId: widget.initialItemId),
+              ],
+            );
+          }
           final item = d.spareparts.where((s) => s.id == _itemId).cast<StockRow?>().firstOrNull;
           final batches = item != null && item.batchTracked ? ref.watch(sparepartBatchesProvider(item.id)) : null;
           final batch = batches?.asData?.value.where((b) => b.id == _batchId).firstOrNull;
@@ -149,9 +176,10 @@ class _StockOpnameScreenState extends ConsumerState<StockOpnameScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
             children: [
+              tabs,
+              const SizedBox(height: 12),
               const Text(
-                'Hitung stok fisik lalu samakan angka sistem. Stok produk AC tidak diopname lewat angka: stoknya '
-                'dihitung dari unit QR.',
+                'Hitung stok fisik lalu samakan angka sistem.',
                 style: TextStyle(fontSize: 12, color: AppColors.slate600),
               ),
               const SizedBox(height: 16),

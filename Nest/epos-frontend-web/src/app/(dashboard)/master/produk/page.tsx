@@ -1,13 +1,14 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Boxes, ChevronDown, ChevronRight, PackagePlus, Pencil, Plus, RotateCcw, Tags, Trash2, X } from 'lucide-react';
+import { ClipboardCheck, Boxes, ChevronDown, ChevronRight, PackagePlus, Pencil, Plus, RotateCcw, Tags, Trash2, X } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { formatRupiah } from '@/lib/format';
@@ -1658,6 +1659,13 @@ function ProductTable({
                         )}
                       </Button>
                         </>
+                      )}
+                      {onFix && (
+                        <Button variant="ghost" size="icon" title="Koreksi stok" asChild>
+                          <Link href={`/stock/opname?produk=${p.id}`} onClick={(e) => e.stopPropagation()}>
+                            <ClipboardCheck className="size-4" />
+                          </Link>
+                        </Button>
                       )}
                       {onFix && isPendingPrice(p) && (
                         <Button

@@ -452,6 +452,75 @@ export class StockService {
     }
   }
 
+  /**
+   * Opname produk AC = ketik jumlah yang benar-benar ada (unit tersedia; yang
+   * sudah dipesan invoice tidak dihitung). Kalau lebih sedikit, unit PALING BARU
+   * masuk ditandai 'dihapus' (salah ketik jumlah terjadi di situ, labelnya paling
+   * mungkin belum ditempel). Menambah unit lewat Terima Barang karena butuh QR.
+   */
+  private async opnameProduct(
+    tx: Prisma.TransactionClient,
+    refId: string,
+    physicalQty: number,
+    note: string | undefined,
+    actorId: string,
+  ) {
+    if (!Number.isInteger(physicalQty)) throw new BadRequestException('Jumlah unit AC harus bilangan bulat');
+    const [product] = await tx.$queryRawUnsafe<{ name: string }[]>(`SELECT name FROM products WHERE id = $1`, refId);
+    if (!product) throw new BadRequestException(`Produk ${refId} tidak ditemukan`);
+    // Urutan kunci SAMA dengan checkout (terlama dulu) supaya tidak deadlock.
+    const units = await tx.$queryRawUnsafe<{ id: string; unit_code: string; item_cost_id: string }[]>(
+      `SELECT su.id, su.unit_code, su.item_cost_id
+       FROM stock_units su
+       JOIN item_costs ic ON ic.id = su.item_cost_id
+       WHERE su.ref_id = $1 AND su.status = 'di_gudang'
+       ORDER BY ic.created_at ASC, su.created_at ASC, su.unit_code ASC
+       FOR UPDATE OF su`,
+      refId,
+    );
+    const systemQty = units.length;
+    const delta = physicalQty - systemQty;
+    const result = { refId, itemCostId: null, name: product.name, systemQty, physicalQty, delta };
+    if (delta > 0) {
+      throw new BadRequestException(
+        `${product.name}: tercatat ${systemQty} unit. Unit tambahan dimasukkan lewat Terima Barang supaya mendapat QR.`,
+      );
+    }
+    if (delta === 0) return { ...result, removedUnits: [] as string[] };
+
+    const removed = units.slice(physicalQty);
+    const removedUnits = removed.map((u) => u.unit_code);
+    await tx.$executeRawUnsafe(
+      `UPDATE stock_units SET status = 'dihapus' WHERE id = ANY($1)`,
+      removed.map((u) => u.id),
+    );
+    // Satu mutasi per batch supaya laporan stok & modal tetap cocok.
+    const perBatch = new Map<string, number>();
+    for (const u of removed) perBatch.set(u.item_cost_id, (perBatch.get(u.item_cost_id) ?? 0) + 1);
+    for (const [itemCostId, qty] of perBatch) {
+      await tx.stockMovement.create({
+        data: {
+          itemKind: 'product',
+          refId,
+          name: product.name,
+          qtyChange: -qty,
+          reason: 'opname',
+          itemCostId,
+          createdById: actorId,
+        },
+      });
+    }
+    await tx.auditLog.create({
+      data: {
+        actorUid: actorId,
+        action: 'stock.opname',
+        target: refId,
+        detail: { kind: 'product', name: product.name, systemQty, physicalQty, delta, removedUnits, note: note ?? null },
+      },
+    });
+    return { ...result, removedUnits };
+  }
+
   /** Stock opname: koreksi stok LANGSUNG ke angka fisik.
    * - Sparepart FLAT — per-produk (kayak dulu), gak berubah.
    * - Produk — PER-BATCH (item_costs), gak berubah dari Siklus batch-cost.
@@ -476,9 +545,16 @@ export class StockService {
         systemQty: number;
         physicalQty: number;
         delta: number;
+        /** Produk AC: kode unit yang ditandai 'dihapus' (labelnya perlu dicabut). */
+        removedUnits?: string[];
       }> = [];
 
       for (const item of sorted) {
+        if (item.kind === 'product') {
+          results.push(await this.opnameProduct(tx, item.refId, item.physicalQty, dto.note, actorId));
+          continue;
+        }
+
         if (item.kind === 'sparepart' && !item.itemCostId) {
           // Sparepart FLAT — TANPA itemCostId. Kalau ternyata sparepart-nya
           // batchTracked=true tapi request gak ngirim itemCostId, tolak DI
@@ -536,11 +612,6 @@ export class StockService {
         // (misal tandain 1 StockUnit 'hilang'/'rusak') sengaja BELUM
         // dibangun (out of scope spec 2026-09-30), diblokir eksplisit di
         // sini biar gak diam-diam jadi no-op yang bikin bingung.
-        if (item.kind === 'product') {
-          throw new BadRequestException(
-            'Opname produk per-unit belum didukung — fitur stok per-unit fisik belum sampai ke opname',
-          );
-        }
 
         // Titik ini SELALU kind === 'sparepart' (batch-tracked) — kind
         // 'product' udah kena throw di guard atas (Siklus QR per-unit,
@@ -630,7 +701,7 @@ export class StockService {
    * /stock/batches/:itemCostId/print-labels). */
   async findUnitsByBatch(itemCostId: string) {
     return this.prisma.stockUnit.findMany({
-      where: { itemCostId },
+      where: { itemCostId, status: { not: 'dihapus' } },
       select: { id: true, unitCode: true, qrToken: true },
       orderBy: { createdAt: 'asc' },
     });

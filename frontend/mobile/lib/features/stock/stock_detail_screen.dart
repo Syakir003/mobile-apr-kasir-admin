@@ -117,6 +117,19 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
               ],
             ]),
           ),
+          if (isProduct)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  key: const Key('detail-fix-stock-product'),
+                  onPressed: () => context.go('/stok/opname', extra: row.id),
+                  icon: const Icon(Icons.fact_check_outlined, size: 18),
+                  label: const Text('Koreksi stok'),
+                ),
+              ),
+            ),
           if (isProduct && _perUnit)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),

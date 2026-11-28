@@ -274,7 +274,8 @@ export class ProductsService {
     }
 
     const units = await this.prisma.stockUnit.findMany({
-      where: { refId: { in: refIds }, ...(status === 'semua' ? {} : { status }) },
+      // 'semua' tetap tanpa unit yang sudah dihapus lewat opname.
+      where: { refId: { in: refIds }, status: status === 'semua' ? { not: 'dihapus' } : status },
       select: {
         id: true,
         unitCode: true,

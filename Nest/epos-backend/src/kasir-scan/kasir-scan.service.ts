@@ -123,6 +123,11 @@ export class KasirScanService {
       const unit = rows[0];
       if (!unit) throw new BadRequestException('Unit tidak ditemukan');
 
+      if (unit.status === 'dihapus') {
+        throw new BadRequestException(
+          `Unit ${unit.unit_code} sudah dihapus dari stok (opname). Cabut labelnya dan ambil unit lain.`,
+        );
+      }
       // Unit ini memang jatah invoice ini — jalur lama.
       if (unit.reserved_for_invoice_id === dto.invoiceId) {
         return this.fulfillUnit(tx, unit.id, dto.invoiceId, actorId, 'scan');

@@ -1,14 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { ClipboardCheck, Info, Search } from 'lucide-react';
+import { ClipboardCheck, Search } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { listWithPending } from '@/lib/pending-price';
@@ -21,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { LoadingBlock } from '@/components/query-state';
+import { ProductOpname } from './product-opname';
 
 interface Sparepart {
   id: string;
@@ -71,29 +71,22 @@ const opnameSchema = z.object({
 type OpnameValues = z.infer<typeof opnameSchema>;
 const emptyValues: OpnameValues = { physicalQty: '', note: '' };
 
-// Opname = hitung fisik lalu samakan angka sistem. Hanya sparepart: stok produk
-// AC dihitung dari unit QR (bukan angka), jadi backend menolak opname produk.
+// Opname = hitung fisik lalu samakan angka sistem. Sparepart lewat angka stok;
+// produk AC lewat jumlah unit (unit terbaru dihapus, labelnya dicabut).
 export function OpnameTab() {
+  const [kind, setKind] = React.useState<'sparepart' | 'produk'>(
+    useSearchParams().get('produk') ? 'produk' : 'sparepart',
+  );
   return (
     <div className="grid gap-6">
-      <Card>
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
-          <div className="flex items-start gap-3">
-            <Info className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium">Stok produk AC tidak diopname lewat angka</p>
-              <p className="text-sm text-muted-foreground">
-                Stok AC dihitung dari unit QR. Untuk mencocokkan fisik, cetak Laporan Stok per merk lalu hitung unit di rak.
-              </p>
-            </div>
-          </div>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/stock/laporan">Buka Laporan Stok</Link>
+      <div className="flex gap-2">
+        {(['sparepart', 'produk'] as const).map((k) => (
+          <Button key={k} variant={kind === k ? 'default' : 'outline'} size="sm" onClick={() => setKind(k)}>
+            {k === 'sparepart' ? 'Sparepart' : 'Produk AC'}
           </Button>
-        </CardContent>
-      </Card>
-
-      <SparepartOpname />
+        ))}
+      </div>
+      {kind === 'sparepart' ? <SparepartOpname /> : <ProductOpname />}
     </div>
   );
 }

@@ -29,19 +29,23 @@ class ProductListScreen extends ConsumerWidget {
           : '${p.brand} • ${p.category}',
       isActive: (p) => p.active,
       matches: (p, q) => p.name.toLowerCase().contains(q.toLowerCase()),
-      // Gudang boleh menambah, dan membetulkan yang masih menunggu harga.
+      // Gudang boleh menambah, membetulkan yang menunggu harga, dan mengoreksi stok.
       isPending: (p) => p.pendingPrice,
-      canEdit: isGudang ? (p) => p.pendingPrice : null,
       onAdd: isAdmin || isGudang ? () => context.go('/products/new') : null,
       onEdit: isAdmin
           ? (p) => context.go('/products/${p.id}/edit', extra: p)
           : isGudang
               ? (p) async {
+                  if (!p.pendingPrice) {
+                    context.go('/stok/opname', extra: p.id);
+                    return;
+                  }
                   final saved = await showFixPendingDialog(
                     context,
                     path: '/products/${p.id}',
                     name: p.name,
                     category: p.category,
+                    onCorrectStock: () => context.go('/stok/opname', extra: p.id),
                   );
                   if (saved) ref.invalidate(productListProvider);
                 }
