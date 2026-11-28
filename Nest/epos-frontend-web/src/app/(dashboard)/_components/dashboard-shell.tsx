@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { ChevronDown, LogOut, Menu } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -167,7 +167,6 @@ export function DashboardShell({
   user: SessionUser;
   children: React.ReactNode;
 }) {
-  const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const menuButtonRef = React.useRef<HTMLButtonElement>(null);
   const navItems = NAV_BY_ROLE[user.role];
@@ -187,8 +186,9 @@ export function DashboardShell({
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/login');
-    router.refresh();
+    // Muat ulang penuh: memutus sambungan notifikasi & membuang data milik akun ini.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign('/login');
   }
 
   return (

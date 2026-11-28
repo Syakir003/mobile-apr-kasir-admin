@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -29,7 +28,6 @@ const loginSchema = z.object({
 type LoginValues = z.infer<typeof loginSchema>;
 
 export function LoginForm() {
-  const router = useRouter();
   const [submitting, setSubmitting] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
   const [capsLock, setCapsLock] = React.useState(false);
@@ -66,8 +64,9 @@ export function LoginForm() {
       // supaya ?next= tidak bisa dipakai untuk mengalihkan ke situs lain.
       const next = new URLSearchParams(window.location.search).get('next');
       const safeNext = next && next.startsWith('/') && !next.startsWith('//') && next !== '/' ? next : null;
-      router.push(safeNext ?? ROLE_HOME[role]);
-      router.refresh();
+      // Muat ulang penuh (bukan router.push): sambungan notifikasi & data pengguna sebelumnya
+      // tidak boleh terbawa ke akun ini.
+      window.location.assign(safeNext ?? ROLE_HOME[role]);
     } catch {
       fail('Gagal menghubungi server. Coba lagi.');
     } finally {
