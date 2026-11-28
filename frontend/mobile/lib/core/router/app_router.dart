@@ -1,6 +1,6 @@
 import '../api/api_client.dart';
 import '../auth/session_store.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -79,6 +79,20 @@ final currentUserProvider = StreamProvider<AppUser?>(
   (ref) => ref.watch(authRepositoryProvider).watchCurrentUser(),
 );
 
+/// Lepas fokus kolom isian tiap ada layar, panel, atau dialog baru. Tanpa ini,
+/// saat panel ditutup (mis. sesudah scan/kamera) Flutter mengembalikan fokus ke
+/// kolom yang tadi diisi lalu menggulir halaman ke kolom itu.
+class UnfocusOnPush extends NavigatorObserver {
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      FocusManager.instance.primaryFocus?.unfocus();
+}
+
+/// go_router memakai ulang layar untuk pola rute yang sama (mis. /jobs/:id),
+/// termasuk isi kolomnya. Kunci per alamat membuat tiap data punya layar sendiri.
+Widget _perItem(GoRouterState state, Widget child) =>
+    KeyedSubtree(key: ValueKey(state.matchedLocation), child: child);
+
 /// Router dibuat sekali; perubahan auth state disebarkan lewat [refreshListenable]
 /// (ValueNotifier) sehingga GoRouter tidak dibangun ulang dan navigation stack
 /// tetap utuh saat token refresh atau login/logout.
@@ -93,12 +107,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
   return GoRouter(
     initialLocation: '/',
+    observers: [UnfocusOnPush()],
     refreshListenable: notifier,
     redirect: (context, state) =>
         computeRedirectFromAsync(notifier.value, state.matchedLocation),
     routes: [
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
       ShellRoute(
+        observers: [UnfocusOnPush()],
         builder: (_, __, child) => AdaptiveScaffold(child: child),
         routes: [
           GoRoute(path: '/', builder: (_, __) => const DashboardScreen()),
@@ -118,9 +134,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: ':id',
-                builder: (_, state) => InvoiceDetailScreen(
+                builder: (_, state) => _perItem(state, InvoiceDetailScreen(
                   invoiceId: state.pathParameters['id']!,
-                ),
+                )),
               ),
             ],
           ),
@@ -134,8 +150,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: ':id/edit',
-                builder: (_, state) =>
-                    ProductFormScreen(initial: state.extra as Product?),
+                builder: (_, state) => _perItem(state, ProductFormScreen(initial: state.extra as Product?)),
               ),
             ],
           ),
@@ -149,8 +164,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: ':id/edit',
-                builder: (_, state) =>
-                    SparepartFormScreen(initial: state.extra as Sparepart?),
+                builder: (_, state) => _perItem(state, SparepartFormScreen(initial: state.extra as Sparepart?)),
               ),
             ],
           ),
@@ -164,8 +178,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: ':id/edit',
-                builder: (_, state) =>
-                    ServiceFormScreen(initial: state.extra as ServiceItem?),
+                builder: (_, state) => _perItem(state, ServiceFormScreen(initial: state.extra as ServiceItem?)),
               ),
             ],
           ),
@@ -179,9 +192,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: ':id/edit',
-                builder: (_, state) => PackageFormScreen(
+                builder: (_, state) => _perItem(state, PackageFormScreen(
                   initial: state.extra as InstallationPackage?,
-                ),
+                )),
               ),
             ],
           ),
@@ -195,28 +208,28 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: ':id',
-                builder: (_, state) => MemberDetailScreen(
+                builder: (_, state) => _perItem(state, MemberDetailScreen(
                   memberId: state.pathParameters['id']!,
                   initial: state.extra as Member?,
-                ),
+                )),
                 routes: [
                   GoRoute(
                     path: 'edit',
-                    builder: (_, state) =>
-                        MemberFormScreen(initial: state.extra as Member?),
+                    builder: (_, state) => _perItem(state,
+                        MemberFormScreen(initial: state.extra as Member?)),
                   ),
                   GoRoute(
                     path: 'units/new',
-                    builder: (_, state) => UnitFormScreen(
+                    builder: (_, state) => _perItem(state, UnitFormScreen(
                       memberId: state.pathParameters['id']!,
-                    ),
+                    )),
                   ),
                   GoRoute(
                     path: 'units/:unitId/edit',
-                    builder: (_, state) => UnitFormScreen(
+                    builder: (_, state) => _perItem(state, UnitFormScreen(
                       memberId: state.pathParameters['id']!,
                       initial: state.extra as AcUnit?,
-                    ),
+                    )),
                   ),
                 ],
               ),
@@ -227,10 +240,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           // dikerjakannya lewat detail job / hasil scan.
           GoRoute(
             path: '/units/:unitId/history',
-            builder: (_, state) => UnitHistoryScreen(
+            builder: (_, state) => _perItem(state, UnitHistoryScreen(
               unitId: state.pathParameters['unitId']!,
               initial: state.extra as AcUnit?,
-            ),
+            )),
           ),
           GoRoute(
             path: '/jobs',
@@ -251,9 +264,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: ':id',
-                builder: (_, state) => JobDetailScreen(
+                builder: (_, state) => _perItem(state, JobDetailScreen(
                   jobId: state.pathParameters['id']!,
-                ),
+                )),
               ),
             ],
           ),
@@ -290,10 +303,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: ':id',
-                builder: (_, state) => UserFormScreen(
+                builder: (_, state) => _perItem(state, UserFormScreen(
                   userId: state.pathParameters['id'],
                   initial: state.extra as ManagedUser?,
-                ),
+                )),
               ),
             ],
           ),
@@ -356,9 +369,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: ':invoiceId',
-                builder: (_, state) => KeluarGudangDetailScreen(
+                builder: (_, state) => _perItem(state, KeluarGudangDetailScreen(
                   invoiceId: state.pathParameters['invoiceId']!,
-                ),
+                )),
               ),
             ],
           ),
@@ -376,7 +389,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 routes: [
                   GoRoute(
                     path: ':memberId',
-                    builder: (_, state) => MemberScheduleScreen(memberId: state.pathParameters['memberId']!),
+                    builder: (_, state) => _perItem(state, MemberScheduleScreen(memberId: state.pathParameters['memberId']!)),
                   ),
                 ],
               ),
@@ -412,9 +425,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: ':id',
-                builder: (context, state) => UndianDetailScreen(
+                builder: (context, state) => _perItem(state, UndianDetailScreen(
                   undianId: state.pathParameters['id']!,
-                ),
+                )),
               ),
             ],
           ),

@@ -320,7 +320,7 @@ class _NextJobCard extends StatelessWidget {
     }
 
     return AppPressable(
-      onTap: () => context.go('/jobs/${job.id}'),
+      onTap: () => context.push('/jobs/${job.id}'),
       borderRadius: BorderRadius.circular(AppRadius.xl),
       splash: false,
       child: Container(
@@ -425,7 +425,7 @@ class _NextJobCard extends StatelessWidget {
                 style: FilledButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: AppColors.tealDeep),
-                onPressed: () => context.go('/jobs/${job.id}'),
+                onPressed: () => context.push('/jobs/${job.id}'),
                 icon: Icon(working ? Icons.arrow_forward : Icons.play_arrow,
                     size: 18),
                 label: Text(working ? 'Lanjutkan Job' : 'Buka Job'),
@@ -568,7 +568,7 @@ class _NeedsPhoto extends StatelessWidget {
                 if (j.unitTitle.isNotEmpty) j.unitTitle
               ].join(' · ')),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.go('/jobs/${j.id}'),
+              onTap: () => context.push('/jobs/${j.id}'),
             ),
         ],
       ),

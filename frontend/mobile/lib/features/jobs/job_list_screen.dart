@@ -433,7 +433,7 @@ class JobCard extends StatelessWidget {
             : job.unitTitle;
     return Card(
       child: InkWell(
-        onTap: () => context.go('/jobs/${job.id}'),
+        onTap: () => context.push('/jobs/${job.id}'),
         borderRadius: BorderRadius.circular(AppRadius.md),
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -576,7 +576,7 @@ class JobQueueCard extends StatelessWidget {
 
     return Card(
       child: InkWell(
-        onTap: () => context.go('/jobs/${job.id}'),
+        onTap: () => context.push('/jobs/${job.id}'),
         borderRadius: BorderRadius.circular(AppRadius.md),
         child: Padding(
           padding: const EdgeInsets.all(14),
