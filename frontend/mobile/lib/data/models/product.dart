@@ -31,6 +31,7 @@ class Product {
     this.description,
     required this.category,
     this.active = true,
+    this.pendingPrice = false,
   });
 
   final String id;
@@ -50,6 +51,9 @@ class Product {
   final String category;
   final bool active;
 
+  /// Didaftarkan gudang tanpa harga. Outdoor paket memang Rp0, bukan termasuk.
+  final bool pendingPrice;
+
   factory Product.fromMap(String id, Map<String, dynamic> data) {
     return Product(
       id: id,
@@ -68,6 +72,9 @@ class Product {
       description: data['description'] as String?,
       category: (data['category'] as String?) ?? '',
       active: (data['active'] as bool?) ?? true,
+      pendingPrice: data['active'] == false &&
+          !((numFromNest(data['sell_price']) ?? 0) > 0) &&
+          data['ac_role'] != 'outdoor',
     );
   }
 

@@ -61,13 +61,16 @@ export class SparepartsController {
     return user.role === 'admin' ? batches : batches.map(({ buyPrice, ...rest }) => rest);
   }
 
-  @Roles('admin')
+  // Gudang hanya membetulkan identitas barang yang masih menunggu harga.
+  @Roles('admin', 'gudang')
   @Patch(':id')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateSparepartDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.spareparts.update(id, dto, user.sub);
+    return user.role === 'admin'
+      ? this.spareparts.update(id, dto, user.sub)
+      : this.spareparts.fixPending(id, dto, user.sub);
   }
 }

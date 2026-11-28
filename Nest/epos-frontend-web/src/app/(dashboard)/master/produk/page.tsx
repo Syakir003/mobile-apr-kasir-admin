@@ -26,6 +26,7 @@ import { StatusFilterSelect, type MasterDataStatus } from '@/components/master-d
 import { PAGE_SIZE, PaginationFooter, SearchBox } from '@/components/master-data/list-controls';
 import { DeactivateDialog } from '@/components/master-data/deactivate-dialog';
 import { Input } from '@/components/ui/input';
+import { FixPendingDialog } from '@/components/fix-pending-dialog';
 import { Label } from '@/components/ui/label';
 import { CurrencyInput } from '@/components/ui/currency-input';
 import { Textarea } from '@/components/ui/textarea';
@@ -380,6 +381,7 @@ export default function ProdukPage() {
   const [search, setSearch] = React.useState('');
   const [brand, setBrand] = React.useState('all');
   const [deactivating, setDeactivating] = React.useState<Product | null>(null);
+  const [fixing, setFixing] = React.useState<Product | null>(null);
   // BARU (2026-09-25) — pilihan jenis input pas Tambah Produk: unit tunggal
   // (Indoor/Outdoor) atau Split (dua-duanya sekaligus, langsung kepasangkan).
   const [mode, setMode] = React.useState<'indoor' | 'outdoor' | 'split'>('indoor');
@@ -868,6 +870,7 @@ export default function ProdukPage() {
         isAdmin={isAdmin}
         onEdit={openEdit}
         onDeactivate={setDeactivating}
+        onFix={isGudang ? setFixing : undefined}
         onRowClick={(p) => router.push(`/master/produk/${p.id}`)}
       />
 
@@ -1389,6 +1392,15 @@ export default function ProdukPage() {
         </DialogContent>
       </Dialog>
 
+      {fixing && (
+        <FixPendingDialog
+          path={`/products/${fixing.id}`}
+          item={{ name: fixing.name, category: fixing.category }}
+          onClose={() => setFixing(null)}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ['products'] })}
+        />
+      )}
+
       {deactivating && (
         <DeactivateDialog
           open={!!deactivating}
@@ -1414,7 +1426,10 @@ function ProductTable({
   onEdit,
   onDeactivate,
   onRowClick,
+  onFix,
 }: {
+  /** Diisi untuk gudang: tombol "Betulkan" pada barang yang menunggu harga. */
+  onFix?: (p: Product) => void;
   isAdmin: boolean;
   products: Product[] | undefined;
   search: string;
@@ -1624,6 +1639,19 @@ function ProductTable({
                         )}
                       </Button>
                         </>
+                      )}
+                      {onFix && isPendingPrice(p) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Betulkan"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onFix(p);
+                          }}
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
                       )}
                       <ChevronRight className="size-4 text-muted-foreground" />
                     </div>

@@ -21,6 +21,8 @@ class MasterListScaffold<T> extends StatefulWidget {
     required this.onAdd,
     required this.onEdit,
     this.searchHint = 'Cari nama...',
+    this.canEdit,
+    this.isPending,
   });
 
   final String title;
@@ -34,6 +36,10 @@ class MasterListScaffold<T> extends StatefulWidget {
   final VoidCallback? onAdd;
   final void Function(T item)? onEdit;
   final String searchHint;
+
+  /// Baris mana yang boleh diketuk (null = semua, selama [onEdit] ada).
+  final bool Function(T item)? canEdit;
+  final bool Function(T item)? isPending;
 
   @override
   State<MasterListScaffold<T>> createState() => _MasterListScaffoldState<T>();
@@ -143,7 +149,10 @@ class _MasterListScaffoldState<T> extends State<MasterListScaffold<T>> {
                 title: widget.titleOf(item),
                 subtitle: widget.subtitleOf(item),
                 active: widget.isActive(item),
-                onTap: widget.onEdit == null ? null : () => widget.onEdit!(item),
+                pending: widget.isPending?.call(item) ?? false,
+                onTap: widget.onEdit == null || !(widget.canEdit?.call(item) ?? true)
+                    ? null
+                    : () => widget.onEdit!(item),
               ),
             );
           },
@@ -159,11 +168,13 @@ class _MasterCard extends StatelessWidget {
     required this.subtitle,
     required this.active,
     required this.onTap,
+    required this.pending,
   });
 
   final String title;
   final String subtitle;
   final bool active;
+  final bool pending;
   final VoidCallback? onTap;
 
   @override
@@ -233,7 +244,7 @@ class _MasterCard extends StatelessWidget {
               const SizedBox(width: 10),
               StatusBadge.tone(
                 active ? AppBadgeTone.success : AppBadgeTone.draft,
-                label: active ? 'Aktif' : 'Nonaktif',
+                label: active ? 'Aktif' : pending ? 'Menunggu harga' : 'Nonaktif',
               ),
             ],
           ),

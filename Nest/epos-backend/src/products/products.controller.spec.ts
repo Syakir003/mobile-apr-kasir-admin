@@ -14,9 +14,9 @@ const gudang = { sub: 'g1', role: 'gudang' } as any;
 const dto = { name: 'AC Sharp 1 PK', sellPrice: 4000000, priceInstaller: 1, priceReseller: 2 };
 
 describe('POST /products', () => {
-  it('admin & gudang boleh menambah; mengubah tetap admin saja', () => {
+  it('admin & gudang boleh menambah & mengubah (gudang dibatasi di service)', () => {
     expect(Reflect.getMetadata(ROLES_KEY, ProductsController.prototype.create)).toEqual(['admin', 'gudang']);
-    expect(Reflect.getMetadata(ROLES_KEY, ProductsController.prototype.update)).toEqual(['admin']);
+    expect(Reflect.getMetadata(ROLES_KEY, ProductsController.prototype.update)).toEqual(['admin', 'gudang']);
   });
 
   it('gudang: harga installer/reseller diabaikan, admin diberi tahu', async () => {

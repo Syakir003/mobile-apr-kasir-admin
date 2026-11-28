@@ -10,7 +10,11 @@ const dto = {
 };
 
 function setup() {
-  const spareparts = { create: jest.fn(async (d) => ({ id: 's1', name: d.name })) };
+  const spareparts = {
+    create: jest.fn(async (d) => ({ id: 's1', name: d.name })),
+    update: jest.fn(),
+    fixPending: jest.fn(),
+  };
   const notifications = { notifyRoles: jest.fn() };
   const controller = new SparepartsController(spareparts as any, notifications as any);
   return { controller, spareparts, notifications };
@@ -20,9 +24,9 @@ const gudang = { sub: 'g1', role: 'gudang' } as any;
 const admin = { sub: 'a1', role: 'admin' } as any;
 
 describe('POST /spareparts', () => {
-  it('admin & gudang boleh menambah; mengubah tetap admin saja', () => {
+  it('admin & gudang boleh menambah & mengubah (gudang dibatasi di bawah)', () => {
     expect(Reflect.getMetadata(ROLES_KEY, SparepartsController.prototype.create)).toEqual(['admin', 'gudang']);
-    expect(Reflect.getMetadata(ROLES_KEY, SparepartsController.prototype.update)).toEqual(['admin']);
+    expect(Reflect.getMetadata(ROLES_KEY, SparepartsController.prototype.update)).toEqual(['admin', 'gudang']);
   });
 
   it('gudang: harga installer/reseller diabaikan, stok awal dipaksa 0, admin diberi tahu', async () => {
@@ -58,5 +62,21 @@ describe('POST /spareparts', () => {
     await controller.create({ ...dto }, admin);
     expect((spareparts.create.mock.calls[0] as any[])[0]).toEqual(dto);
     expect(notifications.notifyRoles).not.toHaveBeenCalled();
+  });
+});
+
+describe('PATCH /spareparts', () => {
+  it('gudang tidak pernah lewat jalur ubah penuh milik admin', async () => {
+    const { controller, spareparts } = setup();
+    await controller.update('s1', { sellPrice: 1, active: true }, gudang);
+    expect(spareparts.update).not.toHaveBeenCalled();
+    expect(spareparts.fixPending).toHaveBeenCalledWith('s1', { sellPrice: 1, active: true }, 'g1');
+  });
+
+  it('admin: ubah penuh', async () => {
+    const { controller, spareparts } = setup();
+    await controller.update('s1', { sellPrice: 1 }, admin);
+    expect(spareparts.update).toHaveBeenCalledWith('s1', { sellPrice: 1 }, 'a1');
+    expect(spareparts.fixPending).not.toHaveBeenCalled();
   });
 });

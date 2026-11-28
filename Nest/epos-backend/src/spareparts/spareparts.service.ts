@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { ListStatus } from '../common/dto/list-status-query.dto';
 import { CreateSparepartDto } from './dto/create-sparepart.dto';
@@ -200,5 +206,42 @@ export class SparepartsService {
     });
 
     return sparepart;
+  }
+
+  /**
+   * Gudang membetulkan barang yang masih "menunggu harga": nama, SKU, kategori
+   * SAJA. Field lain di body diabaikan. Syaratnya ditaruh di `where` supaya
+   * tidak bisa kalah balapan dengan admin yang sedang mengisi harga.
+   */
+  async fixPending(id: string, dto: UpdateSparepartDto, actorId: string) {
+    const name = dto.name?.trim();
+    if (name === '') throw new BadRequestException('Nama tidak boleh kosong');
+    const sku = await this.normalizeSku(dto.sku, id);
+    const data = {
+      ...(name !== undefined ? { name } : {}),
+      ...(sku !== undefined ? { sku } : {}),
+      ...(dto.category !== undefined ? { category: dto.category.trim() || null } : {}),
+    };
+    const { count } = await this.prisma.sparepart.updateMany({
+      where: {
+        id,
+        active: false,
+        OR: [
+          { sellPrice: { lte: 0 } },
+          {
+            trackingMode: { in: ['konversi', 'gabungan'] },
+            OR: [{ sellPricePack: null }, { sellPricePack: { lte: 0 } }],
+          },
+        ],
+      },
+      data,
+    });
+    if (!count) {
+      throw new ForbiddenException('Barang ini sudah diberi harga atau aktif. Minta admin yang mengubahnya.');
+    }
+    await this.prisma.auditLog.create({
+      data: { actorUid: actorId, action: 'sparepart.fix_pending', target: id, detail: data },
+    });
+    return { id, ...data };
   }
 }

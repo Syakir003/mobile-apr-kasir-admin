@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CountersService } from '../counters/counters.service';
@@ -359,5 +364,27 @@ export class ProductsService {
     });
 
     return product;
+  }
+
+  /** Sama dengan SparepartsService.fixPending. SKU produk dibuat server, jadi
+   * gudang hanya membetulkan nama & kategori. Outdoor paket (Rp0) bukan "menunggu harga". */
+  async fixPending(id: string, dto: UpdateProductDto, actorId: string) {
+    const name = dto.name?.trim();
+    if (name === '') throw new BadRequestException('Nama tidak boleh kosong');
+    const data = {
+      ...(name !== undefined ? { name } : {}),
+      ...(dto.category !== undefined ? { category: dto.category.trim() || null } : {}),
+    };
+    const { count } = await this.prisma.product.updateMany({
+      where: { id, active: false, sellPrice: { lte: 0 }, OR: [{ acRole: null }, { acRole: { not: 'outdoor' } }] },
+      data,
+    });
+    if (!count) {
+      throw new ForbiddenException('Barang ini sudah diberi harga atau aktif. Minta admin yang mengubahnya.');
+    }
+    await this.prisma.auditLog.create({
+      data: { actorUid: actorId, action: 'product.fix_pending', target: id, detail: data },
+    });
+    return { id, ...data };
   }
 }

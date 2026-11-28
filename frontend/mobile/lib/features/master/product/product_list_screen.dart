@@ -7,6 +7,7 @@ import '../../../core/utils/currency.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/models/product.dart';
 import '../master_providers.dart';
+import '../widgets/fix_pending_dialog.dart';
 import '../widgets/master_list_scaffold.dart';
 
 class ProductListScreen extends ConsumerWidget {
@@ -15,7 +16,7 @@ class ProductListScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final items = ref.watch(productListProvider);
-    // Gudang hanya melihat: ubah/tambah produk & harga jual admin-only (backend).
+    // Harga jual & status aktif admin-only (backend).
     final isAdmin = ref.watch(currentUserProvider).value?.role == UserRole.admin;
     final isGudang = ref.watch(currentUserProvider).value?.role == UserRole.gudang;
     return MasterListScaffold<Product>(
@@ -27,11 +28,23 @@ class ProductListScreen extends ConsumerWidget {
           : '${p.brand} • ${p.category}',
       isActive: (p) => p.active,
       matches: (p, q) => p.name.toLowerCase().contains(q.toLowerCase()),
-      // Gudang boleh menambah; mengubah tetap admin.
+      // Gudang boleh menambah, dan membetulkan yang masih menunggu harga.
+      isPending: (p) => p.pendingPrice,
+      canEdit: isGudang ? (p) => p.pendingPrice : null,
       onAdd: isAdmin || isGudang ? () => context.go('/products/new') : null,
       onEdit: isAdmin
           ? (p) => context.go('/products/${p.id}/edit', extra: p)
-          : null,
+          : isGudang
+              ? (p) async {
+                  final saved = await showFixPendingDialog(
+                    context,
+                    path: '/products/${p.id}',
+                    name: p.name,
+                    category: p.category,
+                  );
+                  if (saved) ref.invalidate(productListProvider);
+                }
+              : null,
     );
   }
 }

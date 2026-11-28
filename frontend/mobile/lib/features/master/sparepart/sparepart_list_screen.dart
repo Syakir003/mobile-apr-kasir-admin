@@ -7,6 +7,7 @@ import '../../../core/utils/currency.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/models/sparepart.dart';
 import '../master_providers.dart';
+import '../widgets/fix_pending_dialog.dart';
 import '../widgets/master_list_scaffold.dart';
 
 class SparepartListScreen extends ConsumerWidget {
@@ -15,7 +16,7 @@ class SparepartListScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final items = ref.watch(sparepartListProvider);
-    // Gudang hanya melihat: ubah/tambah sparepart & harga jual admin-only (backend).
+    // Harga jual & status aktif admin-only (backend).
     final isAdmin = ref.watch(currentUserProvider).value?.role == UserRole.admin;
     final isGudang = ref.watch(currentUserProvider).value?.role == UserRole.gudang;
     return MasterListScaffold<Sparepart>(
@@ -27,11 +28,24 @@ class SparepartListScreen extends ConsumerWidget {
           : '${s.sku} • ${s.category} • stok ${s.stock} ${s.unit}',
       isActive: (s) => s.active,
       matches: (s, q) => s.name.toLowerCase().contains(q.toLowerCase()),
-      // Gudang boleh menambah; mengubah tetap admin.
+      // Gudang boleh menambah, dan membetulkan yang masih menunggu harga.
+      isPending: (s) => s.pendingPrice,
+      canEdit: isGudang ? (s) => s.pendingPrice : null,
       onAdd: isAdmin || isGudang ? () => context.go('/spareparts/new') : null,
       onEdit: isAdmin
           ? (s) => context.go('/spareparts/${s.id}/edit', extra: s)
-          : null,
+          : isGudang
+              ? (s) async {
+                  final saved = await showFixPendingDialog(
+                    context,
+                    path: '/spareparts/${s.id}',
+                    name: s.name,
+                    category: s.category,
+          sku: s.sku,
+                  );
+                  if (saved) ref.invalidate(sparepartListProvider);
+                }
+              : null,
     );
   }
 }

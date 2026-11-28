@@ -1,7 +1,16 @@
 /** "Menunggu harga": didaftarkan gudang tanpa harga jual, belum aktif.
  * Outdoor milik paket memang Rp0, jadi bukan termasuk. */
-export function isPendingPrice(item: { active: boolean; sellPrice: string | number; acRole?: string | null }) {
-  return !item.active && !(Number(item.sellPrice) > 0) && item.acRole !== 'outdoor';
+export function isPendingPrice(item: {
+  active: boolean;
+  sellPrice: string | number;
+  acRole?: string | null;
+  trackingMode?: string | null;
+  sellPricePack?: string | number | null;
+}) {
+  if (item.active || item.acRole === 'outdoor') return false;
+  // Sama dengan server: kemasan tanpa harga utuh juga masih menunggu harga.
+  const packSale = item.trackingMode === 'konversi' || item.trackingMode === 'gabungan';
+  return !(Number(item.sellPrice) > 0) || (packSale && !(Number(item.sellPricePack) > 0));
 }
 
 /** Filter "Aktif" di Master Data ikut menampilkan yang menunggu harga, supaya

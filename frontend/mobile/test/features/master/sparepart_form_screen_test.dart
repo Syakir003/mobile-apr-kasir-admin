@@ -67,6 +67,7 @@ Future<void> _type(WidgetTester tester, String key, String text) =>
 Future<void> _fillRequired(WidgetTester tester) async {
   await _type(tester, 'name', 'Freon R32');
   await _type(tester, 'sku', 'SP-2');
+  await _type(tester, 'unit', 'pcs');
   await _type(tester, 'sellPrice', '90000');
   await _type(tester, 'minStock', '2');
 }

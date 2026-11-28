@@ -77,13 +77,16 @@ export class ProductsController {
     return this.products.findUnits(id, includePair === '1' || includePair === 'true', picked);
   }
 
-  @Roles('admin')
+  // Gudang hanya membetulkan identitas barang yang masih menunggu harga.
+  @Roles('admin', 'gudang')
   @Patch(':id')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateProductDto,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.products.update(id, dto, user.sub);
+    return user.role === 'admin'
+      ? this.products.update(id, dto, user.sub)
+      : this.products.fixPending(id, dto, user.sub);
   }
 }

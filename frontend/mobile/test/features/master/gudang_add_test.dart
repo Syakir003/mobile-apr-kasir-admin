@@ -91,7 +91,7 @@ void main() {
     expect(find.byKey(const Key('buyPrice')), findsNothing);
     await _type(tester, 'name', 'Freon');
     await _type(tester, 'sku', 'SP-9');
-    await _type(tester, 'minStock', '1');
+    await _type(tester, 'unit', 'pcs');
     await _type(tester, 'stock', '5');
     await tester.tap(find.byKey(const Key('submit')));
     await tester.pumpAndSettle();

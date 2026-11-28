@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { ChevronRight, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
+import { FixPendingDialog } from '@/components/fix-pending-dialog';
 import { formatRupiah } from '@/lib/format';
 import {
   numberOrNull,
@@ -225,6 +226,7 @@ export default function SparepartPage() {
   const [editing, setEditing] = React.useState<Sparepart | null>(null);
   const [status, setStatus] = React.useState<MasterDataStatus>('active');
   const [deactivating, setDeactivating] = React.useState<Sparepart | null>(null);
+  const [fixing, setFixing] = React.useState<Sparepart | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['spareparts', status],
@@ -524,6 +526,19 @@ export default function SparepartPage() {
                             )}
                           </Button>
                         </>
+                      )}
+                      {isGudang && isPendingPrice(s) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Betulkan"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFixing(s);
+                          }}
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
                       )}
                       <ChevronRight className="size-4 text-muted-foreground" />
                     </div>
@@ -854,6 +869,16 @@ export default function SparepartPage() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {fixing && (
+        <FixPendingDialog
+          path={`/spareparts/${fixing.id}`}
+          item={fixing}
+          withSku
+          onClose={() => setFixing(null)}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ['spareparts'] })}
+        />
+      )}
 
       {deactivating && (
         <DeactivateDialog

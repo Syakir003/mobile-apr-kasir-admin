@@ -1,22 +1,4 @@
 import '../../core/utils/num_parse.dart';
-/// Kategori sparepart/material untuk dropdown form.
-const kSparepartCategories = <String>[
-  'sparepart',
-  'material',
-  'aksesoris',
-  'consumable',
-];
-
-/// Satuan unit untuk sparepart & item paket.
-const kUnits = <String>[
-  'pcs',
-  'meter',
-  'roll',
-  'set',
-  'kg',
-  'tabung',
-  'liter',
-];
 
 /// Sparepart / material master. Uang dalam rupiah (int); stok bisa pecahan (num).
 class Sparepart {
@@ -31,6 +13,11 @@ class Sparepart {
     required this.stock,
     required this.minStock,
     this.active = true,
+    this.trackingMode = 'biasa',
+    this.packUnit = '',
+    this.packSize,
+    this.sellPricePack = 0,
+    this.pendingPrice = false,
   });
 
   final String id;
@@ -44,6 +31,15 @@ class Sparepart {
   final num minStock;
   final bool active;
 
+  /// Hanya dipakai saat membuat baru: 'biasa' | 'gabungan' | 'konversi' | 'gulungan'.
+  final String trackingMode;
+  final String packUnit; // tabung, roll, dus
+  final num? packSize; // isi per packUnit, dalam [unit]
+  final int sellPricePack;
+
+  /// Didaftarkan gudang, harga belum lengkap (aturan sama dengan server).
+  final bool pendingPrice;
+
   factory Sparepart.fromMap(String id, Map<String, dynamic> data) {
     return Sparepart(
       id: id,
@@ -56,6 +52,10 @@ class Sparepart {
       stock: numFromNest(data['stock']) ?? 0,
       minStock: numFromNest(data['min_stock']) ?? 0,
       active: (data['active'] as bool?) ?? true,
+      pendingPrice: data['active'] == false &&
+          (!((numFromNest(data['sell_price']) ?? 0) > 0) ||
+              (const ['konversi', 'gabungan'].contains(data['tracking_mode']) &&
+                  !((numFromNest(data['sell_price_pack']) ?? 0) > 0))),
     );
   }
 

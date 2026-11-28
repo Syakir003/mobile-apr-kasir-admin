@@ -66,7 +66,17 @@ Map<String, dynamic> sparepartToNestBody(Sparepart s) => {
 /// POST /spareparts mewajibkan `stock`. Selalu 0: stok awal dicatat lewat
 /// Barang Masuk supaya ada harga modal dan riwayat mutasinya. PATCH tidak
 /// menerima `stock` sama sekali.
-Map<String, dynamic> sparepartCreateBody(Sparepart s) => {...sparepartToNestBody(s), 'stock': 0};
+Map<String, dynamic> sparepartCreateBody(Sparepart s) => {
+      ...sparepartToNestBody(s)
+        ..removeWhere((k, v) => (k == 'sku' || k == 'category') && v == ''),
+      'stock': 0,
+      if (s.trackingMode != 'biasa') 'trackingMode': s.trackingMode,
+      if (s.trackingMode == 'gabungan' || s.trackingMode == 'konversi') ...{
+        'packUnit': s.packUnit,
+        'packSize': s.packSize,
+        if (s.sellPricePack > 0) 'sellPricePack': s.sellPricePack,
+      },
+    };
 
 class NestSparepartRepository implements CrudRepository<Sparepart> {
   const NestSparepartRepository(this._api);
