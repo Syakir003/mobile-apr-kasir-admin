@@ -370,12 +370,12 @@ function VoucherPicker({
     <div className="relative">
       <Input
         aria-label="Kode voucher"
-        placeholder="Pilih voucher atau ketik kode, mis. VCR-AB12CD"
+        placeholder="Pilih atau ketik kode"
         value={value}
         onChange={(e) => onChange(e.target.value.toUpperCase())}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
-        className="uppercase pr-9"
+        className="uppercase pr-9 placeholder:normal-case"
       />
       {value && (
         <button
@@ -1309,86 +1309,210 @@ export default function PosPage() {
         </p>
       </div>
 
-      {/* items-start — kolom kanan (keranjang + checkout) sekarang bisa lebih
-          tinggi dari kolom kiri (cari item), jadi grid default (stretch)
-          bakal maksa kolom kiri ikut setinggi itu (nyisain ruang kosong
-          aneh di bawah card pencarian). items-start bikin tiap kolom
-          setinggi konten masing-masing. */}
+      {/* Kiri: pilih barang & data pelanggan. Kanan: keranjang, pembayaran, total —
+          menempel saat digulir supaya total & tombol selalu terlihat. <Form> membungkus
+          keduanya; isian pelanggan ada di <form id="checkout-form">. */}
+      <Form {...form}>
       <div className="grid items-start gap-6 xl:grid-cols-[1fr_400px]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Cari & Tambah Item</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="relative mb-3">
-              <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                aria-label="Cari item"
-                placeholder="Cari nama item..."
-                className="pl-9"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-            <div className="mb-3 flex flex-wrap gap-2">
-              {CATEGORY_PILLS.filter((pill) => !(nonRetail && pill.key === 'service')).map((pill) => (
-                <button
-                  key={pill.key}
-                  type="button"
-                  onClick={() => setKindFilter(pill.key)}
-                  className={cn(
-                    'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
-                    kindFilter === pill.key
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'hover:bg-accent',
-                  )}
-                >
-                  {pill.label}
-                </button>
-              ))}
-            </div>
-            {cardsLoading ? (
-              <LoadingBlock label="Memuat daftar item" className="py-6" />
-            ) : visibleCards.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                Tidak ada item yang cocok. Ubah kata kunci, atau pilih kategori &ldquo;Semua&rdquo;.
-              </p>
-            ) : (
-              <div className="grid max-h-[min(40rem,calc(100dvh-20rem))] min-h-64 grid-cols-1 content-start gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
-                {visibleCards.map((card) => (
-                  <ItemCard
-                    key={card.key}
-                    name={card.name}
-                    subtitle={card.subtitle}
-                    price={card.price}
-                    priceLabel={card.priceLabel}
-                    badge={card.badge}
-                    disabled={card.disabled}
-                    onAdd={card.onAdd}
-                  />
+        <div className="grid min-w-0 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Cari & Tambah Item</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="relative mb-3">
+                <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  aria-label="Cari item"
+                  placeholder="Cari nama item..."
+                  className="pl-9"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <div className="mb-3 flex flex-wrap gap-2">
+                {CATEGORY_PILLS.filter((pill) => !(nonRetail && pill.key === 'service')).map((pill) => (
+                  <button
+                    key={pill.key}
+                    type="button"
+                    onClick={() => setKindFilter(pill.key)}
+                    className={cn(
+                      'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+                      kindFilter === pill.key
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'hover:bg-accent',
+                    )}
+                  >
+                    {pill.label}
+                  </button>
                 ))}
               </div>
-            )}
-            </CardContent>
-        </Card>
+              {cardsLoading ? (
+                <LoadingBlock label="Memuat daftar item" className="py-6" />
+              ) : visibleCards.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  Tidak ada item yang cocok. Ubah kata kunci, atau pilih kategori &ldquo;Semua&rdquo;.
+                </p>
+              ) : (
+                <div className="grid max-h-[min(26rem,calc(100dvh-20rem))] min-h-64 grid-cols-1 content-start gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+                  {visibleCards.map((card) => (
+                    <ItemCard
+                      key={card.key}
+                      name={card.name}
+                      subtitle={card.subtitle}
+                      price={card.price}
+                      priceLabel={card.priceLabel}
+                      badge={card.badge}
+                      disabled={card.disabled}
+                      onAdd={card.onAdd}
+                    />
+                  ))}
+                </div>
+              )}
+              </CardContent>
+          </Card>
 
-        {/* Keranjang ditaruh DI ATAS form checkout (bukan di bawah panel
-            pencarian kayak sebelumnya) - biar abis nambah item dari panel
-            kiri, perubahan keranjangnya langsung keliatan di sidebar kanan
-            tanpa perlu scroll ngelewatin daftar produk yang panjang. */}
-        <div className="grid gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Data Pelanggan</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form
+                id="checkout-form"
+                onSubmit={form.handleSubmit(onSubmit)}
+                className="grid items-start gap-4 sm:grid-cols-2"
+              >
+                <div className="grid gap-4 sm:col-span-2">
+                    {/* Pilih member LAMA (opsional) — padanan fitur "tambah
+                        member" yang ada di app mobile: pelanggan yang balik
+                        lagi tinggal dicari & dipilih di sini, gak perlu
+                        diketik ulang dan gak bikin akun member baru/ganda. */}
+                    <MemberPicker value={selectedMember} onSelect={selectMember} onClear={clearSelectedMember} />
+
+                    {/* Tipe pembeli (2026-10-13) — member lama: tampil dari
+                        datanya. Pelanggan baru: kasir memilih, default Ritel. */}
+                    {selectedMember ? (
+                      nonRetail && (
+                        <p className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+                          Member <strong>{TIER_LABEL[tier]}</strong> - memakai harga {TIER_LABEL[tier]}, hanya
+                          bisa membeli AC dan Sparepart.
+                        </p>
+                      )
+                    ) : (
+                      <div className="grid gap-1.5">
+                        <FormLabel>Tipe Pelanggan Baru</FormLabel>
+                        <div className="flex flex-wrap gap-2">
+                          {TIER_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              title={opt.hint}
+                              aria-pressed={newMemberTier === opt.value}
+                              onClick={() => {
+                                applyTier(opt.value);
+                                setNewMemberTier(opt.value);
+                              }}
+                              className={cn(
+                                'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+                                newMemberTier === opt.value
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : 'hover:bg-accent',
+                              )}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {nonRetail
+                            ? `Harga ${TIER_LABEL[tier]}, hanya AC dan Sparepart. Kalau nomor HP ternyata sudah terdaftar, tipe mengikuti data member itu.`
+                            : 'Biarkan Ritel untuk pembeli biasa. Pilih Installer atau Reseller hanya untuk pelanggan baru bertipe itu.'}
+                        </p>
+                      </div>
+                    )}
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nama Pelanggan</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Nama di struk" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nomor HP</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Mis. 0855xxxxxxxx atau 62855xxxxxxxx" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="address"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Alamat</FormLabel>
+                      <FormControl>
+                        <Textarea rows={2} placeholder="Opsional" {...field} />
+                      </FormControl>
+                      {/* Petunjuk hanya muncul bila alamat diubah dari data member yang tersimpan. */}
+                      {(field.value ?? '').trim() !== (selectedMember?.address ?? '').trim() && (
+                        <AddressHint value={field.value} hideBlocking={!!form.formState.errors.address} />
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="notes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Catatan</FormLabel>
+                      <FormControl>
+                        <Textarea rows={2} placeholder="Opsional" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-muted-foreground">
+                    {selectedMember
+                      ? 'Transaksi ini disimpan atas nama member yang dipilih di atas.'
+                      : 'Belum pilih member: kalau nomor HP cocok dengan member yang sudah ada, otomatis disambungkan; kalau belum ada, member baru dibuat saat transaksi disimpan.'}
+                  </p>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid content-start gap-4 xl:sticky xl:top-0 xl:max-h-[calc(100dvh-10.5rem)] xl:overflow-y-auto">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Keranjang</CardTitle>
               {lines.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => setLines([])}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setLines([])}>
                   Kosongkan
                 </Button>
               )}
             </CardHeader>
             <CardContent>
               {lines.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
+                <div className="flex flex-col items-center gap-2 py-3 text-center text-muted-foreground">
                   <ShoppingCart className="size-8" />
                   <p className="text-sm">Keranjang masih kosong.</p>
                 </div>
@@ -1577,60 +1701,10 @@ export default function PosPage() {
           </Card>
 
           <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Data Pelanggan & Checkout</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
-                {/* Pilih member LAMA (opsional) — padanan fitur "tambah
-                    member" yang ada di app mobile: pelanggan yang balik
-                    lagi tinggal dicari & dipilih di sini, gak perlu
-                    diketik ulang dan gak bikin akun member baru/ganda. */}
-                <MemberPicker value={selectedMember} onSelect={selectMember} onClear={clearSelectedMember} />
-
-                {/* Tipe pembeli (2026-10-13) — member lama: tampil dari
-                    datanya. Pelanggan baru: kasir memilih, default Ritel. */}
-                {selectedMember ? (
-                  nonRetail && (
-                    <p className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
-                      Member <strong>{TIER_LABEL[tier]}</strong> - memakai harga {TIER_LABEL[tier]}, hanya
-                      bisa membeli AC dan Sparepart.
-                    </p>
-                  )
-                ) : (
-                  <div className="grid gap-1.5">
-                    <FormLabel>Tipe Pelanggan Baru</FormLabel>
-                    <div className="flex flex-wrap gap-2">
-                      {TIER_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          title={opt.hint}
-                          aria-pressed={newMemberTier === opt.value}
-                          onClick={() => {
-                            applyTier(opt.value);
-                            setNewMemberTier(opt.value);
-                          }}
-                          className={cn(
-                            'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
-                            newMemberTier === opt.value
-                              ? 'border-primary bg-primary text-primary-foreground'
-                              : 'hover:bg-accent',
-                          )}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {nonRetail
-                        ? `Harga ${TIER_LABEL[tier]}, hanya AC dan Sparepart. Kalau nomor HP ternyata sudah terdaftar, tipe mengikuti data member itu.`
-                        : 'Biarkan Ritel untuk pembeli biasa. Pilih Installer atau Reseller hanya untuk pelanggan baru bertipe itu.'}
-                    </p>
-                  </div>
-                )}
-
+            <CardHeader>
+              <CardTitle className="text-base">Pembayaran</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4">
                 {/* Kode voucher — diketik manual kasir, sama kayak app mobile.
                     Voucher dibuat admin untuk satu pelanggan tertentu (lihat
                     halaman Voucher); server yang validasi kodenya cocok buat
@@ -1648,55 +1722,6 @@ export default function PosPage() {
                     showMember={!selectedMember}
                   />
                 </div>
-
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nama Pelanggan</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Nama di struk" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nomor HP</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Mis. 0855xxxxxxxx atau 62855xxxxxxxx" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="address"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Alamat</FormLabel>
-                      <FormControl>
-                        <Textarea rows={2} placeholder="Opsional" {...field} />
-                      </FormControl>
-                      {/* Petunjuk hanya muncul bila alamat diubah dari data member yang tersimpan. */}
-                      {(field.value ?? '').trim() !== (selectedMember?.address ?? '').trim() && (
-                        <AddressHint value={field.value} hideBlocking={!!form.formState.errors.address} />
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {selectedMember
-                    ? 'Transaksi ini disimpan atas nama member yang dipilih di atas.'
-                    : 'Belum pilih member - kalau nomor HP di bawah ini cocok sama member yang sudah ada, otomatis disambungkan ke situ; kalau belum ada, member baru langsung dibuatkan saat transaksi disimpan.'}
-                </p>
 
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
@@ -1726,45 +1751,34 @@ export default function PosPage() {
                     )}
                   />
                 </div>
-                <FormField
-                  control={form.control}
-                  name="discountReason"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Alasan Diskon</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Wajib kalau ada diskon" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="transportFee"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Ongkos Transport (Rp)</FormLabel>
-                      <FormControl>
-                        <CurrencyInput {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="notes"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Catatan</FormLabel>
-                      <FormControl>
-                        <Textarea rows={2} placeholder="Opsional" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="grid grid-cols-2 items-start gap-4">
+                  <FormField
+                    control={form.control}
+                    name="discountReason"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Alasan Diskon</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Jika ada diskon" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="transportFee"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Ongkos Transport (Rp)</FormLabel>
+                        <FormControl>
+                          <CurrencyInput {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
                 <div className="rounded-md border p-3 text-sm">
                   <SummaryRow label="Subtotal" value={formatRupiah(subtotal)} />
@@ -1787,33 +1801,30 @@ export default function PosPage() {
                       Ada unit satuan (Indoor/Outdoor saja) yang harganya belum diisi.
                     </p>
                   )}
-                  <div className="mt-2 flex items-center justify-between border-t pt-2">
-                    <span className="font-semibold">Total</span>
-                    <span className="text-base font-bold text-primary">
-                      {formatRupiah(grandTotal)}
-                    </span>
-                  </div>
                 </div>
-
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="w-full"
-                  disabled={
-                    checkoutMutation.isPending ||
-                    lines.length === 0 ||
-                    discountExceeds ||
-                    hasUnpricedLine
-                  }
-                >
-                  {checkoutMutation.isPending ? 'Memproses...' : 'Buat Transaksi'}
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
+            </CardContent>
           </Card>
+
+          <div className="z-10 grid gap-3 rounded-xl border bg-card p-4 shadow-sm xl:sticky xl:bottom-0">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold">Total</span>
+              <span className="text-xl font-bold text-primary">{formatRupiah(grandTotal)}</span>
+            </div>
+            <Button
+              type="submit"
+              form="checkout-form"
+              size="lg"
+              className="w-full"
+              disabled={
+                checkoutMutation.isPending || lines.length === 0 || discountExceeds || hasUnpricedLine
+              }
+            >
+              {checkoutMutation.isPending ? 'Memproses...' : 'Buat Transaksi'}
+            </Button>
+          </div>
         </div>
       </div>
+      </Form>
 
       <Dialog open={!!pendingWarnings} onOpenChange={(open) => !open && setPendingWarnings(null)}>
         <DialogContent>
