@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   Patch,
   Post,
@@ -33,8 +34,10 @@ export class AuthController {
   @UseGuards(LoginThrottleGuard)
   @HttpCode(200)
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto.email, dto.password);
+  // Header `X-Epos-Client: mobile` = sesi panjang. Siapa pun yang mengirimnya
+  // tetap harus tahu password, dan hanya memperpanjang sesinya sendiri.
+  login(@Body() dto: LoginDto, @Headers('x-epos-client') client?: string) {
+    return this.authService.login(dto.email, dto.password, client === 'mobile');
   }
 
   // Profil sendiri. Data login emang udah dibalikin POST /auth/login, tapi
@@ -60,11 +63,13 @@ export class AuthController {
   changePassword(
     @Body() dto: ChangePasswordDto,
     @CurrentUser() user: CurrentUserPayload,
+    @Headers('x-epos-client') client?: string,
   ) {
     return this.authService.changePassword(
       user.sub,
       dto.currentPassword,
       dto.newPassword,
+      client === 'mobile',
     );
   }
 

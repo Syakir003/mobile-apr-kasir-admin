@@ -8,13 +8,24 @@ import {
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { BCRYPT_ROUNDS, passwordChangeStamp } from '../common/password.util';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtime: RealtimeGateway,
+  ) {}
+
+  /** Akses dicabut (mis. HP hilang): putus realtime & berhenti kirim notifikasi
+   * ke perangkatnya. Login ulang mendaftarkan perangkat lagi. */
+  private async revokeDevices(userId: string) {
+    this.realtime.kick(userId);
+    await this.prisma.deviceToken.deleteMany({ where: { userId } });
+  }
 
   /** Port dari manageUser.ts lama — bedanya password WAJIB di-hash sendiri
    * (dulu Firebase Auth yang urus, sekarang kolom users.password kita yang pegang). */
@@ -83,7 +94,7 @@ export class UsersService {
    * tertentu; polanya sama kayak MembersService.findOrCreate.
    */
   async toggleActive(id: string, active: boolean, actorId: string) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('users_admin_roster'))`;
 
       // findUnique dulu (bukan langsung update) — sebelumnya update() ke id
@@ -122,6 +133,8 @@ export class UsersService {
       });
       return { id: user.id, active: user.active };
     });
+    if (!active) await this.revokeDevices(id);
+    return result;
   }
 
   /**
@@ -144,6 +157,8 @@ export class UsersService {
         passwordChangedAt: passwordChangeStamp(),
       },
     });
+
+    await this.revokeDevices(id);
 
     await this.prisma.auditLog.create({
       data: {
@@ -197,7 +212,7 @@ export class UsersService {
       throw new BadRequestException('Gak ada perubahan yang dikirim');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       if (dto.role !== undefined) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('users_admin_roster'))`;
       }
@@ -252,5 +267,8 @@ export class UsersService {
         active: user.active,
       };
     });
+    // Peran disimpan di koneksi realtime saat tersambung, jadi putus dulu.
+    if (dto.role !== undefined) this.realtime.kick(id);
+    return result;
   }
 }

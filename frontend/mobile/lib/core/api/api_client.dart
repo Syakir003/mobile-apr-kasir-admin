@@ -57,9 +57,12 @@ NestApiException mapErrorResponse(int statusCode, Object? body) {
 /// Client HTTP tipis ke backend NestJS.
 ///
 /// Token login dibaca dari [SessionStore] (hasil POST /auth/login Nest).
-/// Respons 401 = token kedaluwarsa (8 jam) / akun dinonaktifkan -> sesi
+/// Respons 401 = token kedaluwarsa (7 hari) / akun dinonaktifkan -> sesi
 /// dihapus, router otomatis balik ke layar login. Belum ada sesi = error
 /// jelas, bukan request tanpa auth.
+/// Menandai permintaan dari aplikasi HP: server memberi sesi 7 hari (web 8 jam).
+const _clientHeader = {'X-Epos-Client': 'mobile'};
+
 class ApiClient {
   const ApiClient([this._baseUrl = _defaultBaseUrl]);
 
@@ -122,7 +125,7 @@ class ApiClient {
       response = await http
           .post(
             Uri.parse('$_baseUrl$path'),
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', ..._clientHeader},
             body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 15));
@@ -169,6 +172,7 @@ class ApiClient {
     final headers = {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer $token',
+      ..._clientHeader,
     };
     final encodedBody = body == null ? null : jsonEncode(body);
 

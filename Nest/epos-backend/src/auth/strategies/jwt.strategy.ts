@@ -11,6 +11,16 @@ export interface JwtPayload {
   iat?: number;
 }
 
+/** Token yang terbit sebelum password terakhir diganti tidak berlaku lagi.
+ * `iat` detik -> ms. Strict `<`: token pengganti dari changePassword() punya
+ * iat PERSIS sama dengan stempel, dan itu harus tetap sah. */
+export function issuedBeforePasswordChange(
+  iat: number | undefined,
+  passwordChangedAt: Date | null | undefined,
+): boolean {
+  return !!passwordChangedAt && iat !== undefined && iat * 1000 < passwordChangedAt.getTime();
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private readonly prisma: PrismaService) {
@@ -47,15 +57,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Akun tidak aktif atau tidak ditemukan');
     }
 
-    if (user.passwordChangedAt && payload.iat !== undefined) {
-      // `iat` detik -> ms. Strict `<` (bukan `<=`): token pengganti yang
-      // diterbitkan changePassword() punya iat PERSIS sama dengan stempel,
-      // dan itu harus tetap sah.
-      if (payload.iat * 1000 < user.passwordChangedAt.getTime()) {
-        throw new UnauthorizedException(
-          'Sesi ini sudah tidak berlaku karena password diganti — silakan login ulang',
-        );
-      }
+    if (issuedBeforePasswordChange(payload.iat, user.passwordChangedAt)) {
+      throw new UnauthorizedException(
+        'Sesi ini sudah tidak berlaku karena password diganti — silakan login ulang',
+      );
     }
 
     return { sub: user.id, role: user.role, displayName: user.displayName };

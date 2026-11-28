@@ -7,6 +7,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { unlink } from 'fs/promises';
 import { BCRYPT_ROUNDS, passwordChangeStamp } from '../common/password.util';
 import { resolveUploadFile } from '../common/uploads/uploads.controller';
@@ -30,19 +31,31 @@ const publicUser = (u: UserRow) => ({
  * expired dan dia coba login ulang, atau begitu request berikutnya lewat
  * JwtStrategy.validate() yang re-check `active` ke DB (lihat jwt.strategy.ts).
  */
+/** Aplikasi HP: 7 hari (keputusan 2026-11-28); web tetap JWT_EXPIRES_IN (8 jam).
+ * Pencabutan tetap seketika: tiap request & koneksi realtime memeriksa akun. */
+const MOBILE_SESSION = '7d';
+
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly realtime: RealtimeGateway,
   ) {}
+
+  private signToken(user: { id: string; role: string }, mobile: boolean) {
+    return this.jwt.signAsync(
+      { sub: user.id, role: user.role },
+      mobile ? { expiresIn: MOBILE_SESSION } : undefined,
+    );
+  }
 
   // Hash dummy cuma buat nyamain waktu respons pas email gak ketemu (lihat
   // di bawah) — bukan password beneran siapa pun, gak ada makna khusus.
   private readonly DUMMY_HASH =
     '$2b$10$CwTycUXWue0Thq9StjUM0uJ8OoQC0/JD1U1U1U1U1U1U1U1U1U1U1';
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, mobile = false) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !user.active) {
       // Sebelumnya langsung return di sini TANPA jalanin bcrypt.compare sama
@@ -61,9 +74,8 @@ export class AuthService {
       throw new UnauthorizedException('Email atau password salah');
     }
 
-    const payload = { sub: user.id, role: user.role };
     return {
-      accessToken: await this.jwt.signAsync(payload),
+      accessToken: await this.signToken(user, mobile),
       user: publicUser(user),
     };
   }
@@ -85,6 +97,7 @@ export class AuthService {
     userId: string,
     currentPassword: string,
     newPassword: string,
+    mobile = false,
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     // JwtAuthGuard udah mastiin user-nya ada & aktif, jadi ini pengaman
@@ -93,7 +106,8 @@ export class AuthService {
       throw new UnauthorizedException('Akun tidak aktif');
 
     const valid = await bcrypt.compare(currentPassword, user.password);
-    if (!valid) throw new UnauthorizedException('Password lama salah');
+    // 400, bukan 401: web & HP menganggap 401 sebagai sesi habis lalu logout.
+    if (!valid) throw new BadRequestException('Password lama salah');
 
     // Cegah "ganti" ke password yang sama persis — bukan soal keamanan, tapi
     // biar user gak ngira udah aman padahal gak ada yang berubah (dan biar
@@ -122,9 +136,10 @@ export class AuthService {
       },
     });
 
-    const payload = { sub: user.id, role: user.role };
+    // Perangkat lain yang masih tersambung ikut diputus.
+    this.realtime.kick(userId);
     return {
-      accessToken: await this.jwt.signAsync(payload),
+      accessToken: await this.signToken(user, mobile),
       user: publicUser(user),
     };
   }

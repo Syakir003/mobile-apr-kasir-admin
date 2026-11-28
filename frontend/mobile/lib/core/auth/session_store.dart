@@ -36,8 +36,8 @@ class MemoryKeyValueStore implements KeyValueStore {
   Future<void> delete(String key) async => _data.remove(key);
 }
 
-/// Sesi login backend Nest: access token (JWT, berlaku 8 jam, tanpa refresh
-/// token — sama kayak sesi web) + profil user. Satu instance global dipakai
+/// Sesi login backend Nest: access token (JWT, berlaku 7 hari untuk HP, tanpa
+/// refresh token) + profil user. Satu instance global dipakai
 /// [ApiClient] (header Authorization) dan `NestAuthRepository` (status login).
 class SessionStore {
   SessionStore([this._storage = const SecureKeyValueStore()]);

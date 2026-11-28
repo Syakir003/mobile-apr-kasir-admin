@@ -1,13 +1,15 @@
 import {
   ConnectedSocket,
   OnGatewayConnection,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
-import type { JwtPayload } from '../auth/strategies/jwt.strategy';
+import { issuedBeforePasswordChange, type JwtPayload } from '../auth/strategies/jwt.strategy';
+import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Pengganti listener realtime Firestore lama / Supabase Realtime. Di sini
@@ -37,40 +39,63 @@ import type { JwtPayload } from '../auth/strategies/jwt.strategy';
     ],
   },
 })
-export class RealtimeGateway implements OnGatewayConnection {
+export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection {
   @WebSocketServer() server: Server;
 
-  constructor(private readonly jwt: JwtService) {}
+  constructor(
+    private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
+  ) {}
 
-  async handleConnection(client: Socket) {
-    const token = client.handshake.auth?.token as string | undefined;
-    if (!token) {
+  // Middleware (bukan di handleConnection): pemeriksaan ke DB harus selesai
+  // sebelum client sempat mengirim 'join-admin-dashboard'.
+  afterInit(server: Server) {
+    server.use(async (socket, next) => {
+      const user = await this.authenticate(socket.handshake.auth?.token as string | undefined);
+      if (!user) return next(new Error('unauthorized'));
+      socket.data.user = user;
+      next();
+    });
+  }
+
+  // Aturan sama dengan JwtStrategy REST: sesi HP berumur 7 hari, jadi akun yang
+  // dinonaktifkan atau ganti password harus ditolak di sini juga.
+  private async authenticate(token: string | undefined): Promise<JwtPayload | null> {
+    if (!token) return null;
+    try {
+      const payload = await this.jwt.verifyAsync<JwtPayload>(token);
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { active: true, role: true, passwordChangedAt: true },
+      });
+      if (!user?.active || issuedBeforePasswordChange(payload.iat, user.passwordChangedAt)) return null;
+      return { sub: payload.sub, role: user.role as JwtPayload['role'] };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Putus semua koneksi satu user (akun dicabut / password diganti). */
+  kick(userId: string) {
+    this.server?.in(`user:${userId}`).disconnectSockets(true);
+  }
+
+  handleConnection(client: Socket) {
+    const payload = client.data.user as JwtPayload | undefined;
+    if (!payload) {
       client.disconnect(true);
       return;
     }
-    try {
-      const payload = await this.jwt.verifyAsync<JwtPayload>(token);
-      // Simpan payload di socket buat dipakai handler lain (mis. cek role
-      // sebelum join room) — TIDAK re-check `active` ke DB tiap koneksi
-      // socket (beda dari JwtStrategy REST) karena socket ini cuma dipakai
-      // buat notifikasi read-only, bukan aksi yang butuh state akun terkini
-      // detik-ke-detik; koneksi lama otomatis putus begitu client reconnect
-      // dengan token baru (token socket-nya sendiri short-lived, lihat
-      // /api/auth/socket-token di frontend).
-      client.data.user = payload;
 
-      // Siklus Notifikasi Push — tiap koneksi yang valid otomatis join room
-      // pribadinya sendiri ('user:<uid>'). Beda dari room 'admin-dashboard'
-      // (butuh join manual + gate role), room per-user ini gak butuh
-      // approval apa pun karena isinya cuma notifikasi milik user itu
-      // sendiri (setara notifications RLS `user_id = auth.uid()` di
-      // Supabase lama) — dipakai NotificationsService.notify() buat push
-      // notifikasi bell realtime ke web MAUPUN mobile begitu terkoneksi,
-      // tanpa langkah subscribe tambahan di sisi client.
-      client.join(`user:${payload.sub}`);
-    } catch {
-      client.disconnect(true);
-    }
+    // Siklus Notifikasi Push — tiap koneksi yang valid otomatis join room
+    // pribadinya sendiri ('user:<uid>'). Beda dari room 'admin-dashboard'
+    // (butuh join manual + gate role), room per-user ini gak butuh
+    // approval apa pun karena isinya cuma notifikasi milik user itu
+    // sendiri (setara notifications RLS `user_id = auth.uid()` di
+    // Supabase lama) — dipakai NotificationsService.notify() buat push
+    // notifikasi bell realtime ke web MAUPUN mobile begitu terkoneksi,
+    // tanpa langkah subscribe tambahan di sisi client.
+    client.join(`user:${payload.sub}`);
   }
 
   emitToAdmin(event: string, payload: unknown) {
