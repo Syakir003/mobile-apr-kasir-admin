@@ -184,7 +184,9 @@ function toFormValues(s: Sparepart): SparepartFormValues {
     category: s.category ?? '',
     unit: s.unit,
     sellPrice: s.sellPrice,
-    stock: s.stock,
+    // Stok tidak diubah lewat edit (tidak ikut dikirim). Diisi '0' supaya aturan
+    // "stok awal wajib harga modal" tidak menahan Simpan: isiannya tidak tampil di sini.
+    stock: '0',
     // Menunggu harga: begitu admin mengisi harga lalu simpan, langsung aktif.
     active: s.active || !(Number(s.sellPrice) > 0),
     trackingMode: s.trackingMode ?? (s.batchTracked ? 'gulungan' : 'biasa'),
