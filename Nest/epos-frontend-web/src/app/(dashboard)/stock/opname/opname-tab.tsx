@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -10,6 +11,7 @@ import { toast } from 'sonner';
 import { ClipboardCheck, Info, Search } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
+import { listWithPending } from '@/lib/pending-price';
 import { formatDate } from '@/lib/format';
 import { requiredNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +30,12 @@ interface Sparepart {
   stock: string;
   minStock: string;
   batchTracked: boolean;
+  // Dipakai menyaring "menunggu harga" (gudang menerima pendingPrice, bukan harga).
+  active: boolean;
+  sellPrice: string;
+  trackingMode?: string | null;
+  sellPricePack?: string | null;
+  pendingPrice?: boolean;
 }
 
 // Satu gulungan/batch sparepart yang dilacak per gulungan (pipa, kabel).
@@ -93,12 +101,15 @@ export function OpnameTab() {
 function SparepartOpname() {
   const queryClient = useQueryClient();
   const [search, setSearch] = React.useState('');
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  // ?refId=... = dibuka dari daftar/detail sparepart dengan barang sudah terpilih.
+  const refId = useSearchParams().get('refId');
+  const [selectedId, setSelectedId] = React.useState<string | null>(refId);
   const [batchId, setBatchId] = React.useState<string | null>(null);
 
   const sparepartsQuery = useQuery({
     queryKey: ['spareparts'],
-    queryFn: () => apiClient.get<Sparepart[]>('/spareparts'),
+    // Termasuk yang "menunggu harga": stok barang baru dari gudang juga harus bisa dikoreksi.
+    queryFn: () => listWithPending('active', (s) => apiClient.get<Sparepart[]>(`/spareparts?status=${s}`)),
   });
   // Selalu baca ulang dari daftar terbaru (stok sistem berubah setelah koreksi).
   const selected = sparepartsQuery.data?.find((s) => s.id === selectedId) ?? null;

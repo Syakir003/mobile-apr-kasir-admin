@@ -62,11 +62,4 @@ void main() {
     expect(sent.single.$2, {'name': 'Freon R32', 'sku': 'SP-1', 'category': 'Gas'});
     expect(find.byKey(const Key('fix-name')), findsNothing);
   });
-
-  testWidgets('barang yang sudah aktif tidak bisa dibuka gudang', (tester) async {
-    await _pump(tester, [_row('1', {'active': true, 'sell_price': '9000'})]);
-    await tester.tap(find.text('Barang 1'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('fix-name')), findsNothing);
-  });
 }

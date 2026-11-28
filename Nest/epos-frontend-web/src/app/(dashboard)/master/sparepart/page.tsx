@@ -7,7 +7,7 @@ import { useForm, type UseFormReturn } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { ChevronRight, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { ClipboardCheck, ChevronRight, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
 import { FixPendingDialog } from '@/components/fix-pending-dialog';
@@ -539,6 +539,13 @@ export default function SparepartPage() {
                             )}
                           </Button>
                         </>
+                      )}
+                      {isGudang && (
+                        <Button variant="ghost" size="icon" title="Koreksi stok" asChild>
+                          <Link href={`/stock/opname?refId=${s.id}`} onClick={(e) => e.stopPropagation()}>
+                            <ClipboardCheck className="size-4" />
+                          </Link>
+                        </Button>
                       )}
                       {isGudang && isPendingPrice(s) && (
                         <Button

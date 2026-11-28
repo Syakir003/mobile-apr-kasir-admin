@@ -182,7 +182,7 @@ class _StockAdjustScreenState extends ConsumerState<StockAdjustScreen> {
         loading: () => const AppSkeletonDetail(),
         error: (e, _) => AppErrorState(error: e, title: 'Gagal memuat item'),
         data: (d) {
-          final items = _kind == 'product' ? d.products : d.spareparts;
+          final items = (_kind == 'product' ? d.products : d.spareparts).where((i) => i.active).toList();
           final selected =
               items.where((i) => i.id == _itemId).cast<StockRow?>().firstOrNull;
           final qty = _qtyValue;

@@ -81,14 +81,17 @@ final stockOpnameCallerProvider = Provider<Future<String> Function(Map<String, d
 });
 
 class StockOpnameScreen extends ConsumerStatefulWidget {
-  const StockOpnameScreen({super.key});
+  const StockOpnameScreen({super.key, this.initialItemId});
+
+  /// Sparepart yang sudah terpilih saat layar dibuka.
+  final String? initialItemId;
 
   @override
   ConsumerState<StockOpnameScreen> createState() => _StockOpnameScreenState();
 }
 
 class _StockOpnameScreenState extends ConsumerState<StockOpnameScreen> {
-  String? _itemId;
+  late String? _itemId = widget.initialItemId;
   String? _batchId;
   final _physical = TextEditingController();
   final _note = TextEditingController();
@@ -188,7 +191,8 @@ class _StockOpnameScreenState extends ConsumerState<StockOpnameScreen> {
                   error: (e, _) => Text('Gagal memuat gulungan: ${errorMessage(e)}',
                       style: const TextStyle(color: AppColors.danger)),
                   data: (list) => list.isEmpty
-                      ? const Text('Belum ada gulungan.', style: TextStyle(color: AppColors.slate600))
+                      ? const Text('Belum ada gulungan. Tambahkan lewat Terima Barang.',
+                          style: TextStyle(color: AppColors.slate600))
                       : DropdownButtonFormField<String>(
                           key: const Key('opname-batch'),
                           initialValue: list.any((b) => b.id == _batchId) ? _batchId : null,

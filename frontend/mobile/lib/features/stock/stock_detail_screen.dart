@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
@@ -102,6 +103,13 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
                 child: Text('Stok ${_n(row.stock)}',
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               ),
+              if (!isProduct)
+                OutlinedButton.icon(
+                  key: const Key('detail-fix-stock'),
+                  onPressed: () => context.go('/stok/opname', extra: row.id),
+                  icon: const Icon(Icons.fact_check_outlined, size: 18),
+                  label: const Text('Koreksi stok'),
+                ),
               if (isProduct) ...[
                 AppFilterChip(label: 'Per Batch', selected: !_perUnit, onTap: () => setState(() => _perUnit = false)),
                 const SizedBox(width: 8),

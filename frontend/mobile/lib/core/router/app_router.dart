@@ -354,7 +354,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: 'opname',
-                builder: (_, __) => const StockOpnameScreen(),
+                builder: (_, state) {
+                  final id = state.extra is String ? state.extra as String : null;
+                  return StockOpnameScreen(key: ValueKey(id), initialItemId: id);
+                },
               ),
               GoRoute(
                 path: 'laporan',

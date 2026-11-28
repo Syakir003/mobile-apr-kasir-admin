@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
+import { useRole } from '@/lib/use-is-admin';
 import { formatRupiah, formatDate, formatModal } from '@/lib/format';
 import { requiredNumberField, trimmedOrUndefined } from '@/lib/form-number';
 import { formatStock, hasPackSale, type SparepartMode } from '@/lib/sparepart-mode';
@@ -119,6 +120,7 @@ const rollStockInEmptyValues: RollStockInValues = {
 };
 
 export function SparepartDetailClient({ sparepartId, isAdmin }: { sparepartId: string; isAdmin: boolean }) {
+  const role = useRole();
   const sparepartsQuery = useQuery({
     // status=all: barang nonaktif / "menunggu harga" tetap punya halaman detail.
     queryKey: ['spareparts', 'all'],
@@ -182,6 +184,14 @@ export function SparepartDetailClient({ sparepartId, isAdmin }: { sparepartId: s
             </>
           )}
         </p>
+        {(role === 'admin' || role === 'gudang') && (
+          <Link
+            href={`/stock/opname?refId=${sparepart.id}`}
+            className="mr-4 text-sm text-primary underline-offset-2 hover:underline"
+          >
+            Koreksi stok
+          </Link>
+        )}
         {isAdmin && (
           <Link
             href={`/stock/modal?refId=${sparepart.id}&tab=semua`}

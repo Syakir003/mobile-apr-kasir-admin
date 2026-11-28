@@ -29,20 +29,25 @@ class SparepartListScreen extends ConsumerWidget {
           : '${s.sku} • ${s.category} • stok ${s.stock} ${s.unit}',
       isActive: (s) => s.active,
       matches: (s, q) => s.name.toLowerCase().contains(q.toLowerCase()),
-      // Gudang boleh menambah, dan membetulkan yang masih menunggu harga.
+      // Gudang boleh menambah, membetulkan yang menunggu harga, dan mengoreksi stok.
       isPending: (s) => s.pendingPrice,
-      canEdit: isGudang ? (s) => s.pendingPrice : null,
       onAdd: isAdmin || isGudang ? () => context.go('/spareparts/new') : null,
       onEdit: isAdmin
           ? (s) => context.go('/spareparts/${s.id}/edit', extra: s)
           : isGudang
               ? (s) async {
+                  // Menunggu harga: identitasnya masih boleh dibetulkan juga.
+                  if (!s.pendingPrice) {
+                    context.go('/stok/opname', extra: s.id);
+                    return;
+                  }
                   final saved = await showFixPendingDialog(
                     context,
                     path: '/spareparts/${s.id}',
                     name: s.name,
                     category: s.category,
           sku: s.sku,
+                    onCorrectStock: () => context.go('/stok/opname', extra: s.id),
                   );
                   if (saved) ref.invalidate(sparepartListProvider);
                 }

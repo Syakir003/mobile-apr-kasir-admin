@@ -15,15 +15,20 @@ Future<bool> showFixPendingDialog(
   required String name,
   required String category,
   String? sku,
+  VoidCallback? onCorrectStock,
 }) async =>
     await showDialog<bool>(
       context: context,
-      builder: (_) => _FixPendingDialog(path: path, name: name, category: category, sku: sku),
+      builder: (_) => _FixPendingDialog(
+          path: path, name: name, category: category, sku: sku, onCorrectStock: onCorrectStock),
     ) ??
     false;
 
 class _FixPendingDialog extends ConsumerStatefulWidget {
-  const _FixPendingDialog({required this.path, required this.name, required this.category, this.sku});
+  const _FixPendingDialog(
+      {required this.path, required this.name, required this.category, this.sku, this.onCorrectStock});
+
+  final VoidCallback? onCorrectStock;
 
   final String path;
   final String name;
@@ -93,6 +98,18 @@ class _FixPendingDialogState extends ConsumerState<_FixPendingDialog> {
             AppTextField(label: 'Kategori', hint: 'Opsional', controller: _category, enabled: !_busy),
             const SizedBox(height: 12),
             const Text('Harga diisi admin.', style: TextStyle(fontSize: 12, color: AppColors.slate600)),
+            if (widget.onCorrectStock != null)
+              OutlinedButton.icon(
+                key: const Key('fix-stock'),
+                onPressed: _busy
+                    ? null
+                    : () {
+                        Navigator.of(context).pop(false);
+                        widget.onCorrectStock!();
+                      },
+                icon: const Icon(Icons.fact_check_outlined, size: 18),
+                label: const Text('Koreksi stok'),
+              ),
             if (_error != null) ...[
               const SizedBox(height: 8),
               Text(_error!, style: const TextStyle(fontSize: 12, color: AppColors.danger)),

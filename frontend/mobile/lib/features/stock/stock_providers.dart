@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/num_parse.dart';
+import 'receive_providers.dart' show isUsableStockItem;
 
 /// Alasan mutasi stok yang boleh dipilih manual. Sengaja TIDAK memuat
 /// 'penjualan' & 'pemakaian' — keduanya milik sistem (checkout & pemakaian
@@ -22,6 +23,7 @@ class StockRow {
     required this.stock,
     this.min,
     this.batchTracked = false,
+    this.active = true,
   });
 
   final String id;
@@ -34,6 +36,9 @@ class StockRow {
 
   /// Sparepart per gulungan: barang masuk diisi panjang tiap gulungan, bukan satu jumlah.
   final bool batchTracked;
+
+  /// false = menunggu harga (mutasi manual /stock/adjust menolaknya; opname boleh).
+  final bool active;
 
   bool get low => min == null ? stock <= 3 : stock <= min!;
 
@@ -100,12 +105,14 @@ final stockOverviewProvider =
   // gagal saat runtime (build rilis), jadi cast isinya setelah selesai.
   Future<List> getList(String path) async => await api.get(path) as List;
   final results = await Future.wait([
-    getList('/products'),
-    getList('/spareparts'),
+    // status=all lalu disaring: barang "menunggu harga" (belum aktif) stoknya
+    // juga harus kelihatan dan bisa dibetulkan gudang.
+    getList('/products?status=all'),
+    getList('/spareparts?status=all'),
     getList('/stock/movements'),
   ]);
-  final productRows = results[0];
-  final sparepartRows = results[1];
+  final productRows = results[0].where((r) => isUsableStockItem(r as Map)).toList();
+  final sparepartRows = results[1].where((r) => isUsableStockItem(r as Map)).toList();
   final movementRows = results[2];
 
   final products = [
@@ -126,6 +133,7 @@ final stockOverviewProvider =
         stock: _numFromNest(r['stock']),
         min: _numFromNest(r['minStock']),
         batchTracked: r['batchTracked'] == true,
+        active: r['active'] != false,
       ),
   ]..sort((a, b) => a.stock.compareTo(b.stock));
 

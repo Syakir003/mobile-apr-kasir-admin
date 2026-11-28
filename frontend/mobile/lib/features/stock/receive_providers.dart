@@ -22,7 +22,7 @@ class ReceiveItem {
 }
 
 /// Barang aktif, atau yang masih menunggu harga (tidak aktif & belum berharga).
-bool _receivable(Map item) =>
+bool isUsableStockItem(Map item) =>
     item['active'] != false ||
     // pendingPrice dikirim server untuk gudang (yang tidak menerima harga).
     (item['pendingPrice'] as bool? ?? (num.tryParse('${item['sellPrice'] ?? 0}') ?? 0) == 0);
@@ -32,7 +32,7 @@ List<ReceiveItem> receiveItemsFrom({required List products, required List sparep
   final outdoorIds = {for (final p in products) (p as Map)['pairedProductId']};
   return [
     for (final p in products.cast<Map>())
-      if (!outdoorIds.contains(p['id']) && _receivable(p))
+      if (!outdoorIds.contains(p['id']) && isUsableStockItem(p))
         ReceiveItem(
           id: '${p['id']}',
           kind: 'product',
@@ -41,7 +41,7 @@ List<ReceiveItem> receiveItemsFrom({required List products, required List sparep
           outdoorId: p['pairedProductId'] as String?,
         ),
     for (final s in spareparts.cast<Map>())
-      if (_receivable(s))
+      if (isUsableStockItem(s))
       ReceiveItem(
         id: '${s['id']}',
         kind: 'sparepart',

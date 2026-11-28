@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { OpnameTab } from './opname-tab';
 import { RiwayatTab } from './riwayat-tab';
@@ -24,7 +25,10 @@ export default function StockOpnamePage() {
           <TabsTrigger value="riwayat">Riwayat</TabsTrigger>
         </TabsList>
         <TabsContent value="opname" className="mt-4">
-          <OpnameTab />
+          {/* Suspense: OpnameTab membaca ?refId dari alamat. */}
+          <Suspense fallback={null}>
+            <OpnameTab />
+          </Suspense>
         </TabsContent>
         <TabsContent value="riwayat" className="mt-4">
           <RiwayatTab />
