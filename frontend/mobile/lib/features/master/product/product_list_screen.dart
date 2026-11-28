@@ -7,8 +7,8 @@ import '../../../core/utils/currency.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/models/product.dart';
 import '../master_providers.dart';
-import '../widgets/fix_pending_dialog.dart';
 import '../widgets/master_list_scaffold.dart';
+import '../../stock/stock_providers.dart' show StockRow;
 
 class ProductListScreen extends ConsumerWidget {
   const ProductListScreen({super.key});
@@ -29,26 +29,15 @@ class ProductListScreen extends ConsumerWidget {
           : '${p.brand} • ${p.category}',
       isActive: (p) => p.active,
       matches: (p, q) => p.name.toLowerCase().contains(q.toLowerCase()),
-      // Gudang boleh menambah, membetulkan yang menunggu harga, dan mengoreksi stok.
+      // Gudang boleh menambah, lalu membuka detail barang untuk urusan stoknya.
       isPending: (p) => p.pendingPrice,
       onAdd: isAdmin || isGudang ? () => context.go('/products/new') : null,
       onEdit: isAdmin
           ? (p) => context.go('/products/${p.id}/edit', extra: p)
           : isGudang
-              ? (p) async {
-                  if (!p.pendingPrice) {
-                    context.go('/stok/opname', extra: p.id);
-                    return;
-                  }
-                  final saved = await showFixPendingDialog(
-                    context,
-                    path: '/products/${p.id}',
-                    name: p.name,
-                    category: p.category,
-                    onCorrectStock: () => context.go('/stok/opname', extra: p.id),
-                  );
-                  if (saved) ref.invalidate(productListProvider);
-                }
+              // Detail seperti di web: stok, Barang Masuk, Koreksi stok, Betulkan.
+              ? (p) => context.push('/stok/detail',
+                  extra: StockRow(id: p.id, kind: 'product', name: p.name, stock: p.stock))
               : null,
     );
   }

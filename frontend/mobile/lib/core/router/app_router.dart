@@ -348,7 +348,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 builder: (_, state) {
                 final row = state.extra;
                 return row is StockRow
-                    ? StockDetailScreen(row: row)
+                    // Kunci per barang: isian Barang Masuk tidak terbawa ke barang lain.
+                    ? StockDetailScreen(key: ValueKey(row.id), row: row)
                     : const StokScreen(); // dibuka tanpa barang (mis. refresh browser): kembali ke daftar stok
                 },
               ),

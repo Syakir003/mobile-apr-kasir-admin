@@ -60,15 +60,15 @@ void main() {
     expect(find.textContaining('Kapasitor · stok 7'), findsOneWidget);
   });
 
-  testWidgets('gudang mengetuk sparepart aktif di daftar: langsung ke koreksi stok', (tester) async {
+  testWidgets('gudang mengetuk sparepart di daftar: membuka detailnya', (tester) async {
     Object? opened;
     final router = GoRouter(routes: [
       GoRoute(path: '/', builder: (_, __) => const SparepartListScreen()),
       GoRoute(
-        path: '/stok/opname',
+        path: '/stok/detail',
         builder: (_, state) {
-          opened = state.extra;
-          return const Scaffold(body: Text('opname'));
+          opened = (state.extra as StockRow).id;
+          return const Scaffold(body: Text('detail'));
         },
       ),
     ]);
@@ -84,7 +84,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Kapasitor'));
     await tester.pumpAndSettle();
-    expect(find.text('opname'), findsOneWidget);
+    expect(find.text('detail'), findsOneWidget);
     expect(opened, 's9');
   });
 }

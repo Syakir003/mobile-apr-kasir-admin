@@ -7,8 +7,8 @@ import '../../../core/utils/currency.dart';
 import '../../../data/models/app_user.dart';
 import '../../../data/models/sparepart.dart';
 import '../master_providers.dart';
-import '../widgets/fix_pending_dialog.dart';
 import '../widgets/master_list_scaffold.dart';
+import '../../stock/stock_providers.dart' show StockRow;
 
 class SparepartListScreen extends ConsumerWidget {
   const SparepartListScreen({super.key});
@@ -29,28 +29,15 @@ class SparepartListScreen extends ConsumerWidget {
           : '${s.sku} • ${s.category} • stok ${s.stock} ${s.unit}',
       isActive: (s) => s.active,
       matches: (s, q) => s.name.toLowerCase().contains(q.toLowerCase()),
-      // Gudang boleh menambah, membetulkan yang menunggu harga, dan mengoreksi stok.
+      // Gudang boleh menambah, lalu membuka detail barang untuk urusan stoknya.
       isPending: (s) => s.pendingPrice,
       onAdd: isAdmin || isGudang ? () => context.go('/spareparts/new') : null,
       onEdit: isAdmin
           ? (s) => context.go('/spareparts/${s.id}/edit', extra: s)
           : isGudang
-              ? (s) async {
-                  // Menunggu harga: identitasnya masih boleh dibetulkan juga.
-                  if (!s.pendingPrice) {
-                    context.go('/stok/opname', extra: s.id);
-                    return;
-                  }
-                  final saved = await showFixPendingDialog(
-                    context,
-                    path: '/spareparts/${s.id}',
-                    name: s.name,
-                    category: s.category,
-          sku: s.sku,
-                    onCorrectStock: () => context.go('/stok/opname', extra: s.id),
-                  );
-                  if (saved) ref.invalidate(sparepartListProvider);
-                }
+              // Detail seperti di web: stok, Barang Masuk, Koreksi stok, Betulkan.
+              ? (s) => context.push('/stok/detail',
+                  extra: StockRow(id: s.id, kind: 'sparepart', name: s.name, stock: s.stock))
               : null,
     );
   }

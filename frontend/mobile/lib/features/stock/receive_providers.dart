@@ -11,6 +11,8 @@ class ReceiveItem {
     required this.unit,
     this.outdoorId,
     this.batchTracked = false,
+    this.packUnit = '',
+    this.packSize,
   });
 
   final String id;
@@ -19,6 +21,8 @@ class ReceiveItem {
   final String unit;
   final String? outdoorId;
   final bool batchTracked; // sparepart per gulungan
+  final String packUnit; // tabung/roll; kosong = tanpa kemasan
+  final num? packSize; // isi satu kemasan penuh, dalam [unit]
 }
 
 /// Barang aktif, atau yang masih menunggu harga (tidak aktif & belum berharga).
@@ -48,6 +52,8 @@ List<ReceiveItem> receiveItemsFrom({required List products, required List sparep
         name: '${s['name']}',
         unit: '${s['unit'] ?? ''}',
         batchTracked: s['batchTracked'] == true,
+        packUnit: '${s['packUnit'] ?? ''}',
+        packSize: num.tryParse('${s['packSize'] ?? ''}'),
       ),
   ];
 }
