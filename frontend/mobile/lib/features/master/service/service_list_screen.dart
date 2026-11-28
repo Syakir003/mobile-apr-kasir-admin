@@ -16,6 +16,7 @@ class ServiceListScreen extends ConsumerWidget {
     return MasterListScaffold<ServiceItem>(
       title: 'Jasa',
       items: items,
+      onOpen: () => ref.invalidate(serviceListProvider),
       titleOf: (s) => s.name,
       subtitleOf: (s) => '${s.category} • ${formatRupiah(s.basePrice)}',
       isActive: (s) => s.active,

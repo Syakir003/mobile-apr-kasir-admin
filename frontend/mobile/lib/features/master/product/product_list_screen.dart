@@ -22,6 +22,7 @@ class ProductListScreen extends ConsumerWidget {
     return MasterListScaffold<Product>(
       title: 'Produk AC',
       items: items,
+      onOpen: () => ref.invalidate(productListProvider),
       titleOf: (p) => p.name,
       subtitleOf: (p) => isAdmin
           ? '${p.brand} • ${p.category} • ${formatRupiah(p.sellPrice)}'

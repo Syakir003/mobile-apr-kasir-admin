@@ -22,6 +22,7 @@ class SparepartListScreen extends ConsumerWidget {
     return MasterListScaffold<Sparepart>(
       title: 'Sparepart & Material',
       items: items,
+      onOpen: () => ref.invalidate(sparepartListProvider),
       titleOf: (s) => s.name,
       subtitleOf: (s) => isAdmin
           ? '${s.sku} • ${s.category} • ${formatRupiah(s.sellPrice)}/${s.unit} • stok ${s.stock}'

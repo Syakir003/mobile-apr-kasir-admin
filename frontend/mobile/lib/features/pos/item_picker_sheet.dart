@@ -25,6 +25,18 @@ class _ItemPickerSheetState extends ConsumerState<ItemPickerSheet> {
   String _filter = '';
 
   @override
+  void initState() {
+    super.initState();
+    // Barang yang diinput dari HP lain harus ikut muncul: ambil ulang tiap dibuka.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.invalidate(productListProvider);
+      ref.invalidate(sparepartListProvider);
+      ref.invalidate(serviceListProvider);
+    });
+  }
+
+  @override
   void dispose() {
     _query.dispose();
     super.dispose();

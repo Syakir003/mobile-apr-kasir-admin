@@ -23,6 +23,7 @@ class MasterListScaffold<T> extends StatefulWidget {
     this.searchHint = 'Cari nama...',
     this.canEdit,
     this.isPending,
+    this.onOpen,
   });
 
   final String title;
@@ -41,6 +42,9 @@ class MasterListScaffold<T> extends StatefulWidget {
   final bool Function(T item)? canEdit;
   final bool Function(T item)? isPending;
 
+  /// Dipanggil sekali saat layar dibuka: ambil ulang daftar dari server.
+  final VoidCallback? onOpen;
+
   @override
   State<MasterListScaffold<T>> createState() => _MasterListScaffoldState<T>();
 }
@@ -48,6 +52,14 @@ class MasterListScaffold<T> extends StatefulWidget {
 class _MasterListScaffoldState<T> extends State<MasterListScaffold<T>> {
   final _searchController = TextEditingController();
   String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onOpen?.call();
+    });
+  }
 
   @override
   void dispose() {
