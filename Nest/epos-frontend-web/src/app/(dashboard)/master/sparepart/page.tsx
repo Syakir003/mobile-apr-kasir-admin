@@ -352,7 +352,7 @@ export default function SparepartPage() {
           `Sparepart ditambahkan, tapi stok awal gagal disimpan: ${result.stockInError} Tambahkan stoknya lewat halaman detail (Barang Masuk).`,
         );
       } else {
-        if (!editing && !(Number(result.sparepart.sellPrice) > 0)) {
+        if (!editing && isPendingPrice(result.sparepart)) {
           toast.success('Tersimpan, menunggu harga dari admin.');
           setStatus('all');
         } else {
@@ -433,7 +433,7 @@ export default function SparepartPage() {
               <TableRow>
                 <TableHead>Nama</TableHead>
                 <TableHead>SKU / Kategori</TableHead>
-                <TableHead>Harga Jual</TableHead>
+                {!isGudang && <TableHead>Harga Jual</TableHead>}
                 <TableHead>Stok</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-16" />
@@ -469,23 +469,34 @@ export default function SparepartPage() {
                   <TableCell className="text-muted-foreground">
                     {[s.sku, s.category].filter(Boolean).join(' • ') || '-'}
                   </TableCell>
-                  <TableCell>
-                    {hasPackSale(s.trackingMode) && s.sellPricePack ? (
-                      <div className="leading-tight">
-                        <div>
-                          {formatRupiah(s.sellPricePack)}
-                          <span className="text-xs text-muted-foreground"> / {s.packUnit}</span>
+                  {!isGudang && (
+                    <TableCell>
+                      {hasPackSale(s.trackingMode) ? (
+                        <div className="leading-tight">
+                          <div>
+                            {Number(s.sellPricePack) > 0 ? formatRupiah(s.sellPricePack!) : 'Belum diisi'}
+                            <span className="text-xs text-muted-foreground"> / {s.packUnit}</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {Number(s.sellPrice) > 0 ? formatRupiah(s.sellPrice) : 'Belum diisi'} / {s.unit}
+                          </div>
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          {formatRupiah(s.sellPrice)} / {s.unit}
-                        </div>
-                      </div>
-                    ) : (
-                      formatRupiah(s.sellPrice)
-                    )}
-                  </TableCell>
+                      ) : (
+                        <>
+                          {formatRupiah(s.sellPrice)}
+                          <span className="text-xs text-muted-foreground"> / {s.unit}</span>
+                        </>
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell>
                     {formatStock(s)}
+                    {/* "1 rol" saja tidak memberi tahu berapa meter/kg-nya. */}
+                    {formatStock(s) !== `${Number(s.stock)} ${s.unit}` && (
+                      <span className="block text-xs text-muted-foreground">
+                        = {Number(s.stock)} {s.unit}
+                      </span>
+                    )}
                     {s.reserved ? (
                       <span className="block text-xs text-muted-foreground">
                         {s.reserved} {s.unit} dipesan teknisi
@@ -742,33 +753,18 @@ export default function SparepartPage() {
               </datalist>
               {isGudang && (
                 <p className="text-sm text-muted-foreground">
-                  Harga boleh dikosongkan: barang disimpan dulu, admin yang mengisi harganya.
+                  Harga diisi admin. Barang belum bisa dijual sampai admin mengisinya.
                 </p>
               )}
-              <div className={packMode ? 'grid grid-cols-2 gap-4' : 'grid gap-4'}>
-                <FormField
-                  control={form.control}
-                  name="sellPrice"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        {packMode ? `Harga jual per ${smallName}` : 'Harga jual'}
-                      </FormLabel>
-                      <FormControl>
-                        <CurrencyInput {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {packMode && (
+              {!isGudang && (
+                <div className={packMode ? 'grid grid-cols-2 gap-4' : 'grid gap-4'}>
                   <FormField
                     control={form.control}
-                    name="sellPricePack"
+                    name="sellPrice"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          Harga jual 1 {bigName} utuh
+                          {packMode ? `Harga jual per ${smallName}` : 'Harga jual'}
                         </FormLabel>
                         <FormControl>
                           <CurrencyInput {...field} />
@@ -777,8 +773,25 @@ export default function SparepartPage() {
                       </FormItem>
                     )}
                   />
-                )}
-              </div>
+                  {packMode && (
+                    <FormField
+                      control={form.control}
+                      name="sellPricePack"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Harga jual 1 {bigName} utuh
+                          </FormLabel>
+                          <FormControl>
+                            <CurrencyInput {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+              )}
               {/* Harga per tipe pembeli (2026-10-13) — opsional. Harga di atas
                   = harga Ritel. Kosong = member tipe itu tidak bisa membeli
                   sparepart ini. */}

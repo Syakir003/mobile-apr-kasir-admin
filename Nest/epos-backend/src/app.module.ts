@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { HidePricesInterceptor } from './common/interceptors/hide-prices.interceptor';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppUpdateController } from './app-update/app-update.controller';
@@ -76,6 +78,7 @@ import { UndianModule } from './undian/undian.module';
     UndianModule,
   ],
   controllers: [AppController, AppUpdateController, UploadsController],
-  providers: [AppService],
+  // Gudang tidak menerima harga apa pun, dari endpoint mana pun.
+  providers: [AppService, { provide: APP_INTERCEPTOR, useClass: HidePricesInterceptor }],
 })
 export class AppModule {}

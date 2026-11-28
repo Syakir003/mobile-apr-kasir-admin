@@ -135,7 +135,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     final stockIn = ref.read(stockInCallerProvider);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      var message = _isGudang && product.sellPrice == 0
+      var message = _isGudang
           ? 'Tersimpan, menunggu harga dari admin.'
           : 'Produk tersimpan.';
       var failed = false;
@@ -356,15 +356,17 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         AppFormCard(
           title: 'Harga & Stok',
           children: [
-            AppMoneyField(
-              key: const Key('sellPrice'),
-              label: 'Harga Jual',
-              required: !_isGudang,
-              helper: _isGudang ? 'Boleh dikosongkan, admin yang mengisi' : null,
-              controller: _sellPrice,
-              enabled: !_busy,
-              validator: _isGudang ? null : rupiahRequiredValidator,
-            ),
+            if (_isGudang)
+              const Text('Harga diisi admin. Barang belum bisa dijual sampai admin mengisinya.')
+            else
+              AppMoneyField(
+                key: const Key('sellPrice'),
+                label: 'Harga Jual',
+                required: true,
+                controller: _sellPrice,
+                enabled: !_busy,
+                validator: rupiahRequiredValidator,
+              ),
             const SizedBox(height: kFieldGap),
             if (_isEdit)
               const Text('Stok dan harga modal diatur lewat Stok Masuk.')

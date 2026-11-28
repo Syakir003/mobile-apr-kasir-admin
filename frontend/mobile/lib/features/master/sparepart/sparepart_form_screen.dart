@@ -140,7 +140,7 @@ class _SparepartFormScreenState extends ConsumerState<SparepartFormScreen> {
     final stockIn = ref.read(stockInCallerProvider);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      var message = _isGudang && (sparepart.sellPrice == 0 || (_packMode && sparepart.sellPricePack == 0))
+      var message = _isGudang
           ? 'Tersimpan, menunggu harga dari admin.'
           : 'Sparepart tersimpan.';
       var failed = false;
@@ -403,29 +403,31 @@ class _SparepartFormScreenState extends ConsumerState<SparepartFormScreen> {
         ],
         const SizedBox(height: AppSpacing.grid),
         AppFormCard(
-          title: 'Harga & Stok',
+          title: _isGudang ? 'Stok' : 'Harga & Stok',
           subtitle: _isGudang
-              ? 'Harga boleh dikosongkan: barang disimpan dulu, admin yang mengisi harganya.'
+              ? 'Harga diisi admin. Barang belum bisa dijual sampai admin mengisinya.'
               : 'Stok di bawah stok minimum muncul di peringatan dashboard.',
           children: [
-            AppMoneyField(
-              key: const Key('sellPrice'),
-              label: _packMode ? 'Harga jual per $_small' : 'Harga jual',
-              required: !_isGudang,
-              controller: _sellPrice,
-              enabled: !_busy,
-              validator: _isGudang ? null : rupiahRequiredValidator,
-            ),
-            if (_packMode) ...[
-              const SizedBox(height: kFieldGap),
+            if (!_isGudang) ...[
               AppMoneyField(
-                key: const Key('sellPricePack'),
-                label: 'Harga jual 1 $_big utuh',
-                required: !_isGudang,
-                controller: _sellPricePack,
+                key: const Key('sellPrice'),
+                label: _packMode ? 'Harga jual per $_small' : 'Harga jual',
+                required: true,
+                controller: _sellPrice,
                 enabled: !_busy,
-                validator: _isGudang ? null : rupiahRequiredValidator,
+                validator: rupiahRequiredValidator,
               ),
+              if (_packMode) ...[
+                const SizedBox(height: kFieldGap),
+                AppMoneyField(
+                  key: const Key('sellPricePack'),
+                  label: 'Harga jual 1 $_big utuh',
+                  required: true,
+                  controller: _sellPricePack,
+                  enabled: !_busy,
+                  validator: rupiahRequiredValidator,
+                ),
+              ],
             ],
             const SizedBox(height: kFieldGap),
             if (_isEdit)

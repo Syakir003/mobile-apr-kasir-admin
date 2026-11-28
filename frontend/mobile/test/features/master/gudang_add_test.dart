@@ -64,20 +64,20 @@ void main() {
     await _type(tester, 'brand', 'Daikin');
     await _type(tester, 'type', 'FTV');
     await _type(tester, 'pk', '1');
-    await _type(tester, 'sellPrice', '3500000');
+    expect(find.byKey(const Key('sellPrice')), findsNothing);
     await _type(tester, 'description', 'hemat');
     await _type(tester, 'stock', '2');
     await tester.tap(find.byKey(const Key('submit')));
     await tester.pumpAndSettle();
 
-    expect(repo.created.single.sellPrice, 3500000);
+    expect(repo.created.single.sellPrice, 0);
     expect(repo.updated, isEmpty); // PATCH admin saja
     expect(sent.single.containsKey('buyPrice'), isFalse);
     expect(sent.single['qty'], 2);
-    expect(find.text('Produk tersimpan.'), findsOneWidget);
+    expect(find.text('Tersimpan, menunggu harga dari admin.'), findsOneWidget);
   });
 
-  testWidgets('sparepart: harga jual boleh kosong, tersimpan menunggu harga', (tester) async {
+  testWidgets('sparepart: tanpa isian harga, tersimpan menunggu harga', (tester) async {
     final repo = FakeCrudRepository<Sparepart>();
     addTearDown(repo.dispose);
     final sent = <Map<String, dynamic>>[];

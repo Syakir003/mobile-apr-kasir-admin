@@ -19,21 +19,12 @@ describe('POST /products', () => {
     expect(Reflect.getMetadata(ROLES_KEY, ProductsController.prototype.update)).toEqual(['admin', 'gudang']);
   });
 
-  it('gudang: harga installer/reseller diabaikan, admin diberi tahu', async () => {
+  it('gudang: semua harga yang dikirim diabaikan, selalu menunggu harga, admin diberi tahu', async () => {
     const { controller, products, notifications } = setup();
-    await controller.create({ ...dto }, gudang);
-    expect(products.create).toHaveBeenCalledWith({ name: 'AC Sharp 1 PK', sellPrice: 4000000 }, 'g1', { pending: false });
+    await controller.create({ ...dto, priceSingle: 3000000 }, gudang);
+    expect(products.create).toHaveBeenCalledWith({ name: 'AC Sharp 1 PK', sellPrice: 0 }, 'g1', { pending: true });
     expect(notifications.notifyRoles).toHaveBeenCalledWith(['admin'], expect.objectContaining({
       type: 'produk_baru',
-      body: expect.stringContaining('AC Sharp 1 PK'),
-    }));
-  });
-
-  it('gudang: harga jual kosong disimpan menunggu harga (tidak aktif)', async () => {
-    const { controller, products, notifications } = setup();
-    await controller.create({ ...dto, sellPrice: 0 }, gudang);
-    expect((products.create.mock.calls[0] as any[])[2]).toEqual({ pending: true });
-    expect(notifications.notifyRoles).toHaveBeenCalledWith(['admin'], expect.objectContaining({
       body: expect.stringContaining('menunggu harga'),
     }));
   });

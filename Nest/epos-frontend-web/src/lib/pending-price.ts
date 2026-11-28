@@ -6,7 +6,10 @@ export function isPendingPrice(item: {
   acRole?: string | null;
   trackingMode?: string | null;
   sellPricePack?: string | number | null;
+  /** Dikirim server untuk gudang, yang tidak menerima harga. */
+  pendingPrice?: boolean;
 }) {
+  if (typeof item.pendingPrice === 'boolean') return item.pendingPrice;
   if (item.active || item.acRole === 'outdoor') return false;
   // Sama dengan server: kemasan tanpa harga utuh juga masih menunggu harga.
   const packSale = item.trackingMode === 'konversi' || item.trackingMode === 'gabungan';

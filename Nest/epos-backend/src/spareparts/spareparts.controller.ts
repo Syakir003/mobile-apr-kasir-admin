@@ -6,7 +6,6 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { ListStatusQueryDto } from '../common/dto/list-status-query.dto';
 import { SparepartsService } from './spareparts.service';
-import { hasPackSale } from './sparepart-mode.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateSparepartDto } from './dto/create-sparepart.dto';
 import { UpdateSparepartDto } from './dto/update-sparepart.dto';
@@ -19,26 +18,20 @@ export class SparepartsController {
     private readonly notifications: NotificationsService,
   ) {}
 
-  // Gudang boleh menambah barang yang langsung bisa dijual: hanya harga Ritel.
-  // Harga tipe pembeli lain tetap urusan admin, stok masuk lewat /stock/in
-  // (supaya ada mutasi & modalnya masuk daftar "belum diisi").
+  // Gudang hanya mendaftarkan barang: SEMUA harga yang dikirim diabaikan dan
+  // barangnya "menunggu harga" (tidak aktif) sampai admin mengisi. Stok masuk
+  // lewat /stock/in (supaya ada mutasi & modalnya masuk daftar "belum diisi").
   @Roles('admin', 'gudang')
   @Post()
   async create(@Body() dto: CreateSparepartDto, @CurrentUser() user: CurrentUserPayload) {
     if (user.role === 'admin') return this.spareparts.create(dto, user.sub);
 
-    // Harga boleh kosong: disimpan "menunggu harga" (tidak aktif) sampai admin mengisi.
-    const pending =
-      !(dto.sellPrice > 0) ||
-      (hasPackSale(dto.trackingMode ?? 'biasa') && !((dto.sellPricePack ?? 0) > 0));
-    const { priceInstaller, priceReseller, pricePackInstaller, pricePackReseller, ...rest } = dto;
-    void [priceInstaller, priceReseller, pricePackInstaller, pricePackReseller];
-    const created = await this.spareparts.create({ ...rest, stock: 0 }, user.sub, { pending });
+    const { sellPrice, sellPricePack, priceInstaller, priceReseller, pricePackInstaller, pricePackReseller, ...rest } = dto;
+    void [sellPrice, sellPricePack, priceInstaller, priceReseller, pricePackInstaller, pricePackReseller];
+    const created = await this.spareparts.create({ ...rest, sellPrice: 0, stock: 0 }, user.sub, { pending: true });
     void this.notifications.notifyRoles(['admin'], {
       title: 'Sparepart Baru dari Gudang',
-      body: pending
-        ? `${created.name} menunggu harga jual — belum bisa dijual.`
-        : `${created.name} sudah bisa dijual. Periksa harga jualnya.`,
+      body: `${created.name} menunggu harga jual — belum bisa dijual.`,
       type: 'sparepart_baru',
     });
     return created;

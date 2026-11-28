@@ -77,10 +77,9 @@ void main() {
     final run = await _pump(tester, UserRole.gudang);
     await _freon(tester, 'gabungan');
     expect(find.textContaining('1 tabung berisi 10 kg'), findsOneWidget);
-    expect(find.textContaining('Harga jual per kg'), findsOneWidget);
-    expect(find.textContaining('Harga jual 1 tabung utuh'), findsOneWidget);
-    await _type(tester, 'sellPrice', '90000');
-    await _type(tester, 'sellPricePack', '800000');
+    // Gudang tidak punya isian harga sama sekali.
+    expect(find.byKey(const Key('sellPrice')), findsNothing);
+    expect(find.byKey(const Key('sellPricePack')), findsNothing);
     await _type(tester, 'stock', '4');
     expect(find.text('4 tabung = 40 kg'), findsOneWidget);
     await _save(tester);
@@ -89,7 +88,7 @@ void main() {
     expect(created.trackingMode, 'gabungan');
     expect(created.packUnit, 'tabung');
     expect(created.packSize, 10);
-    expect(created.sellPricePack, 800000);
+    expect(created.sellPricePack, 0);
     expect(run.stockIns.single['rolls'], List.filled(4, {'length': 10}));
     expect(run.stockIns.single.containsKey('buyPrice'), isFalse);
   });
@@ -112,6 +111,8 @@ void main() {
   testWidgets('admin, cukup total: harga modal per tabung dibagi per kg', (tester) async {
     final run = await _pump(tester, UserRole.admin);
     await _freon(tester, 'konversi');
+    expect(find.textContaining('Harga jual per kg'), findsOneWidget);
+    expect(find.textContaining('Harga jual 1 tabung utuh'), findsOneWidget);
     await _type(tester, 'sellPrice', '90000');
     await _type(tester, 'sellPricePack', '800000');
     await _type(tester, 'stock', '2');

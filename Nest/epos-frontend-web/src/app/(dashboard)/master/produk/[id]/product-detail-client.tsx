@@ -347,7 +347,9 @@ export function ProductDetailClient({ productId, isAdmin }: { productId: string;
               <Badge variant={(outdoor?.stock ?? 0) > 0 ? 'success' : 'warning'}>
                 Outdoor: {outdoor ? `${outdoor.stock} unit` : '...'}
               </Badge>
-              <Badge variant="secondary">Harga Paket (Split): {formatRupiah(product.sellPrice)}</Badge>
+              {product.sellPrice !== undefined && (
+                <Badge variant="secondary">Harga Paket (Split): {formatRupiah(product.sellPrice)}</Badge>
+              )}
             </>
           ) : (
             <>
@@ -361,9 +363,9 @@ export function ProductDetailClient({ productId, isAdmin }: { productId: string;
                   sellPrice-nya sendiri gak relevan buat ditampilin. */}
               {packageIndoor ? (
                 <Badge variant="secondary">Harga satuan: diisi kasir saat dijual</Badge>
-              ) : (
+              ) : product.sellPrice !== undefined ? (
                 <Badge variant="secondary">Harga Jual: {formatRupiah(product.sellPrice)}</Badge>
-              )}
+              ) : null}
               {product.acRole && (
                 <Badge variant="outline">{product.acRole === 'indoor' ? 'Indoor' : 'Outdoor'}</Badge>
               )}

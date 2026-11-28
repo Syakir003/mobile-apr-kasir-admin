@@ -72,7 +72,9 @@ class Product {
       description: data['description'] as String?,
       category: (data['category'] as String?) ?? '',
       active: (data['active'] as bool?) ?? true,
-      pendingPrice: data['active'] == false &&
+      // Gudang tidak menerima harga: server mengirim penandanya.
+      pendingPrice: data['pending_price'] as bool? ??
+          data['active'] == false &&
           !((numFromNest(data['sell_price']) ?? 0) > 0) &&
           data['ac_role'] != 'outdoor',
     );

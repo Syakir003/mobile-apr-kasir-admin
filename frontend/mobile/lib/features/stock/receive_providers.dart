@@ -23,7 +23,9 @@ class ReceiveItem {
 
 /// Barang aktif, atau yang masih menunggu harga (tidak aktif & belum berharga).
 bool _receivable(Map item) =>
-    item['active'] != false || (num.tryParse('${item['sellPrice'] ?? 0}') ?? 0) == 0;
+    item['active'] != false ||
+    // pendingPrice dikirim server untuk gudang (yang tidak menerima harga).
+    (item['pendingPrice'] as bool? ?? (num.tryParse('${item['sellPrice'] ?? 0}') ?? 0) == 0);
 
 /// Outdoor milik paket tidak ditawarkan: ia diterima lewat Indoor-nya.
 List<ReceiveItem> receiveItemsFrom({required List products, required List spareparts}) {

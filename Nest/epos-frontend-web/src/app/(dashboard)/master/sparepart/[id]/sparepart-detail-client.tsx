@@ -171,10 +171,16 @@ export function SparepartDetailClient({ sparepartId, isAdmin }: { sparepartId: s
                 ({sparepart.stock} {sparepart.unit})
               </span>
             )}{' '}
-          • Harga jual:{' '}
-          {hasPackSale(sparepart.trackingMode) && sparepart.sellPricePack
-            ? `${formatRupiah(sparepart.sellPricePack)} / ${sparepart.packUnit} • ${formatRupiah(sparepart.sellPrice)} / ${sparepart.unit}`
-            : formatRupiah(sparepart.sellPrice)}
+          {/* Gudang tidak menerima harga dari server. */}
+          {sparepart.sellPrice !== undefined && (
+            <>
+              {' '}
+              • Harga jual:{' '}
+              {hasPackSale(sparepart.trackingMode) && sparepart.sellPricePack
+                ? `${formatRupiah(sparepart.sellPricePack)} / ${sparepart.packUnit} • ${formatRupiah(sparepart.sellPrice)} / ${sparepart.unit}`
+                : formatRupiah(sparepart.sellPrice)}
+            </>
+          )}
         </p>
         {isAdmin && (
           <Link

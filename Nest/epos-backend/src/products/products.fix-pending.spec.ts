@@ -6,7 +6,7 @@ function setup(count: number) {
     product: { updateMany: jest.fn().mockResolvedValue({ count }) },
     auditLog: { create: jest.fn() },
   };
-  const service = new ProductsService(prisma as never, {} as never, {} as never, {} as never);
+  const service = new ProductsService(prisma as never, {} as never, {} as never);
   return { service, prisma };
 }
 

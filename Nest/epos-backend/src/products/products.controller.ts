@@ -18,23 +18,23 @@ export class ProductsController {
     private readonly notifications: NotificationsService,
   ) {}
 
-  // Gudang boleh menambah AC yang langsung bisa dijual: harga Ritel saja.
+  // Gudang hanya mendaftarkan AC: semua harga yang dikirim diabaikan.
   @Roles('admin', 'gudang')
   @Post()
   async create(@Body() dto: CreateProductDto, @CurrentUser() user: CurrentUserPayload) {
     if (user.role === 'admin') return this.products.create(dto, user.sub);
 
-    // Harga boleh kosong: disimpan "menunggu harga" (tidak aktif) sampai admin
-    // mengisi. Outdoor dari paket memang Rp0 (harga ada di Indoor-nya).
-    const pending = !(dto.sellPrice > 0) && dto.acRole !== 'outdoor';
-    const { priceInstaller, priceReseller, ...rest } = dto;
-    void [priceInstaller, priceReseller];
-    const created = await this.products.create(rest as CreateProductDto, user.sub, { pending });
+    // Selalu "menunggu harga", kecuali Outdoor paket yang memang Rp0 (harga ada
+    // di Indoor-nya).
+    const pending = dto.acRole !== 'outdoor';
+    const { sellPrice, priceInstaller, priceReseller, priceSingle, ...rest } = dto;
+    void [sellPrice, priceInstaller, priceReseller, priceSingle];
+    const created = await this.products.create({ ...rest, sellPrice: 0 } as CreateProductDto, user.sub, { pending });
     void this.notifications.notifyRoles(['admin'], {
       title: 'Produk Baru dari Gudang',
       body: pending
         ? `${created.name} menunggu harga jual — belum bisa dijual.`
-        : `${created.name} sudah bisa dijual. Periksa harga jualnya.`,
+        : `${created.name} (Outdoor) ditambahkan.`,
       type: 'produk_baru',
     });
     return created;

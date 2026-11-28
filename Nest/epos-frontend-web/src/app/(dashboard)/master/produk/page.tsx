@@ -871,6 +871,7 @@ export default function ProdukPage() {
         onEdit={openEdit}
         onDeactivate={setDeactivating}
         onFix={isGudang ? setFixing : undefined}
+        hidePrice={isGudang}
         onRowClick={(p) => router.push(`/master/produk/${p.id}`)}
       />
 
@@ -996,39 +997,47 @@ export default function ProdukPage() {
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="sellPrice"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      {(!editing && mode === 'split') ||
-                      editing?.pairedProductId ||
-                      (pairPick && roleDraft !== 'outdoor')
-                        ? 'Harga Jual Paket (Split) - Ritel'
-                        : 'Harga Jual Ritel'}
-                    </FormLabel>
-                    <FormControl>
-                      <CurrencyInput {...field} />
-                    </FormControl>
-                    <p className="text-xs text-muted-foreground">
-                      {(!editing && mode === 'split') ||
-                      editing?.pairedProductId ||
-                      (pairPick && roleDraft !== 'outdoor')
-                        ? 'Harga satu unit lengkap (Indoor + Outdoor) untuk pembeli biasa. Ini yang dipakai kasir saat menjual sepasang.'
-                        : 'Harga untuk pembeli biasa (Ritel). Wajib diisi.'}
-                    </p>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {!isGudang && (
+                <FormField
+                  control={form.control}
+                  name="sellPrice"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {(!editing && mode === 'split') ||
+                        editing?.pairedProductId ||
+                        (pairPick && roleDraft !== 'outdoor')
+                          ? 'Harga Jual Paket (Split) - Ritel'
+                          : 'Harga Jual Ritel'}
+                      </FormLabel>
+                      <FormControl>
+                        <CurrencyInput {...field} />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        {(!editing && mode === 'split') ||
+                        editing?.pairedProductId ||
+                        (pairPick && roleDraft !== 'outdoor')
+                          ? 'Harga satu unit lengkap (Indoor + Outdoor) untuk pembeli biasa. Ini yang dipakai kasir saat menjual sepasang.'
+                          : 'Harga untuk pembeli biasa (Ritel). Wajib diisi.'}
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               {/* Harga per tipe pembeli (2026-10-13) — opsional. Kosong =
                   member tipe itu tidak bisa membeli produk ini dengan harga
                   otomatis (kasir harus isi harga manual). */}
-              <p className="-mb-2 text-xs text-muted-foreground">
-                Harga khusus untuk pembeli bertipe Installer atau Reseller. Kosongkan kalau tidak ada - kasir
-                lalu mengisi harganya sendiri saat checkout.
-              </p>
+              {isGudang ? (
+                <p className="text-sm text-muted-foreground">
+                  Harga diisi admin. Barang belum bisa dijual sampai admin mengisinya.
+                </p>
+              ) : (
+                <p className="-mb-2 text-xs text-muted-foreground">
+                  Harga khusus untuk pembeli bertipe Installer atau Reseller. Kosongkan kalau tidak ada - kasir
+                  lalu mengisi harganya sendiri saat checkout.
+                </p>
+              )}
               {!isGudang && (
               <div className="grid grid-cols-2 gap-4">
                 <FormField
@@ -1063,10 +1072,11 @@ export default function ProdukPage() {
                   Satuan; produk yang jadi Outdoor pasangan = Harga Outdoor Satuan.
                   Dipakai kasir saat unit ini dijual sendiri (bukan sepaket);
                   kosong = kasir wajib mengetik harga. Harga paket di atas tetap wajib. */}
-              {((!editing && mode === 'split') ||
-                editing?.pairedProductId ||
-                (pairPick && roleDraft !== 'outdoor') ||
-                editingIsPairTarget) && (
+              {!isGudang &&
+                ((!editing && mode === 'split') ||
+                  editing?.pairedProductId ||
+                  (pairPick && roleDraft !== 'outdoor') ||
+                  editingIsPairTarget) && (
                 <FormField
                   control={form.control}
                   name="priceSingle"
@@ -1252,13 +1262,17 @@ export default function ProdukPage() {
                           setOutdoorDraft((prev) => ({ ...prev, name: e.target.value }))
                         }
                       />
-                      <Label htmlFor="outdoor-single-price">Harga Outdoor Satuan - Ritel (opsional)</Label>
-                      <CurrencyInput
-                        id="outdoor-single-price"
-                        placeholder="Belum diisi"
-                        value={outdoorDraft.priceSingle}
-                        onChange={(v) => setOutdoorDraft((prev) => ({ ...prev, priceSingle: v }))}
-                      />
+                      {!isGudang && (
+                        <>
+                        <Label htmlFor="outdoor-single-price">Harga Outdoor Satuan - Ritel (opsional)</Label>
+                        <CurrencyInput
+                          id="outdoor-single-price"
+                          placeholder="Belum diisi"
+                          value={outdoorDraft.priceSingle}
+                          onChange={(v) => setOutdoorDraft((prev) => ({ ...prev, priceSingle: v }))}
+                        />
+                        </>
+                      )}
                         </>
                       )}
                       {/* Klarifikasi harga (2026-09-25, disederhanakan
@@ -1427,7 +1441,10 @@ function ProductTable({
   onDeactivate,
   onRowClick,
   onFix,
+  hidePrice,
 }: {
+  /** Gudang tidak melihat harga (server juga tidak mengirimnya). */
+  hidePrice?: boolean;
   /** Diisi untuk gudang: tombol "Betulkan" pada barang yang menunggu harga. */
   onFix?: (p: Product) => void;
   isAdmin: boolean;
@@ -1521,7 +1538,7 @@ function ProductTable({
             <TableHead>Nama</TableHead>
             <TableHead>Merek / Tipe</TableHead>
             <TableHead>Stok</TableHead>
-            <TableHead>Harga Jual</TableHead>
+            {!hidePrice && <TableHead>Harga Jual</TableHead>}
             <TableHead>Status</TableHead>
             <TableHead className="w-16" />
           </TableRow>
@@ -1590,19 +1607,21 @@ function ProductTable({
                       <Badge variant="warning">Belum ada stok</Badge>
                     )}
                   </TableCell>
-                  <TableCell>
-                    {formatRupiah(p.sellPrice)}
-                    {(p.priceInstaller !== null || p.priceReseller !== null) && (
-                      <p className="whitespace-nowrap text-xs text-muted-foreground">
-                        {[
-                          p.priceInstaller !== null && `Installer ${formatRupiah(p.priceInstaller)}`,
-                          p.priceReseller !== null && `Reseller ${formatRupiah(p.priceReseller)}`,
-                        ]
-                          .filter(Boolean)
-                          .join(' • ')}
-                      </p>
-                    )}
-                  </TableCell>
+                  {!hidePrice && (
+                    <TableCell>
+                      {formatRupiah(p.sellPrice)}
+                      {(p.priceInstaller !== null || p.priceReseller !== null) && (
+                        <p className="whitespace-nowrap text-xs text-muted-foreground">
+                          {[
+                            p.priceInstaller !== null && `Installer ${formatRupiah(p.priceInstaller)}`,
+                            p.priceReseller !== null && `Reseller ${formatRupiah(p.priceReseller)}`,
+                          ]
+                            .filter(Boolean)
+                            .join(' • ')}
+                        </p>
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell>
                     <Badge variant={p.active ? 'success' : 'secondary'}>
                       {p.active ? 'Aktif' : isPendingPrice(p) ? 'Menunggu harga' : 'Nonaktif'}
@@ -1660,7 +1679,7 @@ function ProductTable({
                 {isExpanded && p.pairedProduct && (
                   <TableRow className="bg-muted/30">
                     <TableCell />
-                    <TableCell colSpan={5}>
+                    <TableCell colSpan={hidePrice ? 4 : 5}>
                       {outdoor ? (
                         <div className="flex items-center justify-between gap-2 py-1 pl-4 text-sm">
                           <div>
@@ -1669,8 +1688,8 @@ function ProductTable({
                             <span className="text-muted-foreground">
                               {' '}
                               • {[outdoor.brand, outdoor.type].filter(Boolean).join(' • ') || '-'} •{' '}
-                              {outdoor.stock > 0 ? `${outdoor.stock} unit` : 'Belum ada stok'} •{' '}
-                              {formatRupiah(outdoor.sellPrice)}
+                              {outdoor.stock > 0 ? `${outdoor.stock} unit` : 'Belum ada stok'}
+                              {!hidePrice && ` • ${formatRupiah(outdoor.sellPrice)}`}
                             </span>
                             {!outdoor.active && (
                               <Badge variant="secondary" className="ml-2">

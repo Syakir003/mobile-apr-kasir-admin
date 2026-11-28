@@ -52,7 +52,9 @@ class Sparepart {
       stock: numFromNest(data['stock']) ?? 0,
       minStock: numFromNest(data['min_stock']) ?? 0,
       active: (data['active'] as bool?) ?? true,
-      pendingPrice: data['active'] == false &&
+      // Gudang tidak menerima harga: server mengirim penandanya.
+      pendingPrice: data['pending_price'] as bool? ??
+          data['active'] == false &&
           (!((numFromNest(data['sell_price']) ?? 0) > 0) ||
               (const ['konversi', 'gabungan'].contains(data['tracking_mode']) &&
                   !((numFromNest(data['sell_price_pack']) ?? 0) > 0))),
